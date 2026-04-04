@@ -1,0 +1,1 @@
+hey it works kinda! now that youve prompted the ai, you can now just tell it to send or receive messages.
