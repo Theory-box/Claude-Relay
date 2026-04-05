@@ -664,21 +664,27 @@ GOALC_PORT    = 8181   # may be overridden by _find_free_nrepl_port() at launch 
 GOALC_TIMEOUT = 120
 
 def _find_free_nrepl_port(start=8181, attempts=10):
-    """Find a free TCP port we can actually bind.
-    Tries 8181 first, then 8182, 8183 etc.
-    Needed because Windows Firewall or antivirus can block bind() on 8181
-    even when no process holds the port, causing 'nREPL: DISABLED'.
+    """Find a free TCP port that GOALC can bind on 0.0.0.0 (all interfaces).
+
+    The test bind must use 0.0.0.0 (INADDR_ANY) — the same address GOALC uses —
+    not 127.0.0.1. If another process holds the port on ANY interface (e.g.
+    3Dconnexion SpaceMouse holds 8181 on 127.51.68.120), GOALC's bind on
+    0.0.0.0 will conflict even though 127.0.0.1:8181 appears free.
+
+    Root cause of "nREPL: DISABLED" in this setup: 3dxnlserver.exe (3Dconnexion
+    SpaceMouse driver) permanently holds port 8181 on a virtual loopback adapter.
+    Solution: skip 8181 and use the next available port (typically 8182).
     """
     import socket as _socket
     for port in range(start, start + attempts):
         try:
             with _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM) as s:
-                s.setsockopt(_socket.SOL_SOCKET, _socket.SO_REUSEADDR, 1)
-                s.bind(("127.0.0.1", port))
+                # Bind 0.0.0.0 — same as GOALC's INADDR_ANY — so conflict detection is accurate
+                s.bind(("0.0.0.0", port))
                 log(f"[nREPL] free port found: {port}")
                 return port
         except OSError:
-            log(f"[nREPL] port {port} unavailable, trying next...")
+            log(f"[nREPL] port {port} in use (all interfaces), trying next...")
     log(f"[nREPL] no free port in {start}-{start+attempts-1}, defaulting to {start}")
     return start
 
