@@ -660,33 +660,34 @@ class OGPreferences(AddonPreferences):
 # PATH HELPERS
 # ---------------------------------------------------------------------------
 
-GOALC_PORT    = 8181   # may be overridden by _find_free_nrepl_port() at launch time
+GOALC_PORT    = 8182   # 8181 is permanently held by 3dxnlserver.exe (3Dconnexion SpaceMouse)
 GOALC_TIMEOUT = 120
 
 def _find_free_nrepl_port(start=8181, attempts=10):
-    """Find a free TCP port that GOALC can bind on 0.0.0.0 (all interfaces).
+    """Find a free TCP port for GOALC's nREPL server.
 
-    The test bind must use 0.0.0.0 (INADDR_ANY) — the same address GOALC uses —
-    not 127.0.0.1. If another process holds the port on ANY interface (e.g.
-    3Dconnexion SpaceMouse holds 8181 on 127.51.68.120), GOALC's bind on
-    0.0.0.0 will conflict even though 127.0.0.1:8181 appears free.
+    Strategy: try to CONNECT to each port. If connection is refused, nothing
+    is listening there — it's free. If it connects or gets any other response,
+    something is already using it (e.g. 3dxnlserver.exe on 8181).
 
-    Root cause of "nREPL: DISABLED" in this setup: 3dxnlserver.exe (3Dconnexion
-    SpaceMouse driver) permanently holds port 8181 on a virtual loopback adapter.
-    Solution: skip 8181 and use the next available port (typically 8182).
+    This avoids the need to bind 0.0.0.0 (which needs admin on some Windows
+    configs) and accurately detects ports held on any interface.
     """
     import socket as _socket
     for port in range(start, start + attempts):
         try:
-            with _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM) as s:
-                # Bind 0.0.0.0 — same as GOALC's INADDR_ANY — so conflict detection is accurate
-                s.bind(("0.0.0.0", port))
-                log(f"[nREPL] free port found: {port}")
-                return port
+            with _socket.create_connection(("127.0.0.1", port), timeout=0.3):
+                # Something answered — port is in use
+                log(f"[nREPL] port {port} in use, trying next...")
+        except ConnectionRefusedError:
+            # Nothing listening — port is free
+            log(f"[nREPL] free port found: {port}")
+            return port
         except OSError:
-            log(f"[nREPL] port {port} in use (all interfaces), trying next...")
-    log(f"[nREPL] no free port in {start}-{start+attempts-1}, defaulting to {start}")
-    return start
+            # Timeout or other error — treat as in use to be safe
+            log(f"[nREPL] port {port} unclear, trying next...")
+    log(f"[nREPL] no free port in {start}-{start+attempts-1}, defaulting to {start+1}")
+    return start + 1
 
 def _strip(p): return p.strip().rstrip("\\").rstrip("/")
 
@@ -827,6 +828,7 @@ def launch_goalc(wait_for_nrepl=False):
     # Do NOT kill internally — it would reset the port-free polling the caller did.
     # Find a free port before launching so goalc doesn't show "nREPL: DISABLED".
     GOALC_PORT = _find_free_nrepl_port()
+    log(f"[nREPL] launching GOALC on port {GOALC_PORT}")
     try:
         data_dir = str(_data())
         cmd = [str(exe), "--user-auto", "--game", "jak1", "--proj-path", data_dir,
