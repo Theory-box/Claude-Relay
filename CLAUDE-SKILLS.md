@@ -163,3 +163,14 @@ for available techniques. Pull session-notes/ for prior context.
 Never expose credentials, git commands, or raw paths in chat.
 Credentials: [see Glaude config]
 ```
+
+---
+
+## Storage Rules
+
+### Knowledge base write protection
+- `knowledge-base/` files are NEVER overwritten without explicit user approval
+- If an improvement is identified, propose the change in chat first and wait for approval
+- If approved, push the update and note what changed in the commit message
+- `session-notes/` and `scratch/` can be written freely without approval
+- When in doubt, write to `scratch/` as a draft and ask the user to review
