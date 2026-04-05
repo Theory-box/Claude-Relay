@@ -660,8 +660,27 @@ class OGPreferences(AddonPreferences):
 # PATH HELPERS
 # ---------------------------------------------------------------------------
 
-GOALC_PORT    = 8181
+GOALC_PORT    = 8181   # may be overridden by _find_free_nrepl_port() at launch time
 GOALC_TIMEOUT = 120
+
+def _find_free_nrepl_port(start=8181, attempts=10):
+    """Find a free TCP port we can actually bind.
+    Tries 8181 first, then 8182, 8183 etc.
+    Needed because Windows Firewall or antivirus can block bind() on 8181
+    even when no process holds the port, causing 'nREPL: DISABLED'.
+    """
+    import socket as _socket
+    for port in range(start, start + attempts):
+        try:
+            with _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM) as s:
+                s.setsockopt(_socket.SOL_SOCKET, _socket.SO_REUSEADDR, 1)
+                s.bind(("127.0.0.1", port))
+                log(f"[nREPL] free port found: {port}")
+                return port
+        except OSError:
+            log(f"[nREPL] port {port} unavailable, trying next...")
+    log(f"[nREPL] no free port in {start}-{start+attempts-1}, defaulting to {start}")
+    return start
 
 def _strip(p): return p.strip().rstrip("\\").rstrip("/")
 
@@ -794,14 +813,18 @@ def write_startup_gc(commands):
     log(f"Wrote startup.gc: {commands}")
 
 def launch_goalc(wait_for_nrepl=False):
+    global GOALC_PORT
     exe = _goalc()
     if not exe.exists():
         return False, f"goalc.exe not found at {exe}"
     # Caller is responsible for kill_goalc() + port-free wait before calling here.
     # Do NOT kill internally — it would reset the port-free polling the caller did.
+    # Find a free port before launching so goalc doesn't show "nREPL: DISABLED".
+    GOALC_PORT = _find_free_nrepl_port()
     try:
         data_dir = str(_data())
-        cmd = [str(exe), "--user-auto", "--game", "jak1", "--proj-path", data_dir]
+        cmd = [str(exe), "--user-auto", "--game", "jak1", "--proj-path", data_dir,
+               "--port", str(GOALC_PORT)]
         if os.name == "nt":
             proc = subprocess.Popen(cmd, cwd=str(_exe_root()),
                                     creationflags=subprocess.CREATE_NEW_CONSOLE)
