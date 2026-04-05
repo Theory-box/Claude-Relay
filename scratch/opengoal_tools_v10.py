@@ -777,9 +777,19 @@ def kill_goalc():
 # ---------------------------------------------------------------------------
 
 def goalc_send(cmd, timeout=GOALC_TIMEOUT):
+    """Send a GOAL expression to the nREPL server and return the response.
+
+    Wire format (from common/repl/nrepl/ReplClient.cpp):
+      [u32 length LE][u32 type=10 LE][utf-8 string]
+    Sending raw text causes "Bad message, aborting the read" errors.
+    """
+    import struct
+    EVAL_TYPE = 10
     try:
         with socket.create_connection(("localhost", GOALC_PORT), timeout=10) as s:
-            s.sendall((cmd+"\n").encode())
+            encoded = cmd.encode("utf-8")
+            header = struct.pack("<II", len(encoded), EVAL_TYPE)
+            s.sendall(header + encoded)
             chunks = []
             s.settimeout(timeout)
             while True:
