@@ -761,7 +761,17 @@ def kill_gk():
 
 def kill_goalc():
     _kill_process("goalc.exe")
-    time.sleep(2.0)  # Windows needs time to fully release the port after process exit
+    time.sleep(0.5)
+    # On Windows, SO_EXCLUSIVEADDRUSE holds port 8181 until the process fully
+    # exits. Poll until the port is free so the next launch_goalc() doesn't
+    # hit "nREPL: DISABLED" from a bind() on a not-yet-released port.
+    for _ in range(20):
+        try:
+            with socket.create_connection(("localhost", GOALC_PORT), timeout=0.3):
+                pass
+            time.sleep(0.3)  # port still held, keep waiting
+        except (ConnectionRefusedError, OSError):
+            break  # port is free
 # ---------------------------------------------------------------------------
 # GOALC / nREPL
 # ---------------------------------------------------------------------------
@@ -1682,24 +1692,15 @@ def _bg_play(name):
         ok, msg = launch_gk()
         if not ok: state["error"] = msg; return
 
-        # Wait 10s for GAME.CGO to begin linking. *game-info* doesn't exist
-        # as a symbol until game-info-h links; polling before then causes errors.
-        state["status"] = "Waiting for game to initialize..."
-        time.sleep(10.0)
-        state["status"] = "Waiting for level to load..."
+        # Poll until *game-info* exists (GAME.CGO finished linking) then spawn.
+        # Timeout after 120s to handle slow machines or firewall popups.
+        state["status"] = "Waiting for game to finish loading..."
         spawned = False
-        combined = (
-            f"(if (and (nonzero? *game-info*)"
-            f" (let ((lev (level-get *level* '{name})))"
-            f"   (and lev (= (-> lev status) 'display))))"
-            f" 'ready 'wait)"
-        )
-        for _ in range(480):
-            time.sleep(0.25)
-            r = goalc_send(combined, timeout=3)
-            # Treat compilation errors (symbol not yet defined) as "not ready"
-            # rather than breaking out of the poll loop.
-            if r and "ready" in r and "Compilation Error" not in r and "Error" not in r:
+        for _ in range(240):
+            time.sleep(0.5)
+            r = goalc_send("(if (nonzero? *game-info*) 'ready 'wait)", timeout=3)
+            if r and "ready" in r:
+                time.sleep(1.0)  # brief extra wait for level to be 'active
                 state["status"] = "Spawning player..."
                 goalc_send(f"(start 'play (or (get-continue-by-name *game-info* \"{name}-start\") (get-or-create-continue! *game-info*)))")
                 spawned = True
@@ -1960,31 +1961,20 @@ def _bg_build_and_play(name, scene):
         if not ok:
             state["error"] = f"GK launch failed: {msg}"; return
 
-        # Wait 10s for GAME.CGO to begin linking before polling.
-        state["status"] = "Waiting for game to initialize..."
-        time.sleep(10.0)
-        # Poll until both *game-info* exists AND level has reached 'display status.
-        # Polls every 0.25s for up to 120s.
-        state["status"] = "Waiting for level to load..."
+        # Poll until *game-info* exists (GAME.CGO done) then spawn player.
+        state["status"] = "Waiting for game to finish loading..."
         spawned = False
-        combined = (
-            f"(if (and (nonzero? *game-info*)"
-            f" (let ((lev (level-get *level* '{name})))"
-            f"   (and lev (= (-> lev status) 'display))))"
-            f" 'ready 'wait)"
-        )
-        for _ in range(480):
-            time.sleep(0.25)
-            r = goalc_send(combined, timeout=3)
-            # Treat compilation errors (symbol not yet defined) as "not ready"
-            # rather than breaking out of the poll loop.
-            if r and "ready" in r and "Compilation Error" not in r and "Error" not in r:
+        for _ in range(240):
+            time.sleep(0.5)
+            r = goalc_send("(if (nonzero? *game-info*) 'ready 'wait)", timeout=3)
+            if r and "ready" in r:
+                time.sleep(1.0)
                 state["status"] = "Spawning player..."
                 goalc_send(f"(start 'play (or (get-continue-by-name *game-info* \"{name}-start\") (get-or-create-continue! *game-info*)))")
                 spawned = True
                 break
         if not spawned:
-            state["status"] = "Done (level timed out — load level manually)"
+            state["status"] = "Done (spawn timed out — load level manually)"
             return
         state["status"] = "Done!"
         state["ok"] = True
