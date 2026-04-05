@@ -17,13 +17,27 @@ https://github.com/open-goal/jak-project (clone to VM as jak-project)
 - raw.githubusercontent.com is BLOCKED on Claude VM — use git clone only
 - api.github.com is also BLOCKED
 
-## Documented so far
-- [x] babak.md — full enemy documentation
-- [x] jak1-entity-spawning.md — entity spawning skill doc (v3)
+## Addon — opengoal_tools_v9.py
+Major fix: all vanilla enemies were marked in_game_cgo=True incorrectly.
+Only babak is actually in GAME.CGO. All others need their .o injected into
+the custom DGO. Fixed with new o_only=True flag — injects .o without
+duplicate goal-src lines (which would cause fatal duplicate defstep errors).
 
-## Next candidates
-- [ ] nav-enemy system (parent of all enemies)
-- [ ] process-drawable (parent of all game objects)
-- [ ] jak player entity
-- [ ] level loading / entity system
-- [ ] how to spawn any entity generically
+## Confirmed working enemies (tested in-game)
+- ✅ babak — always worked (GAME.CGO)
+- ✅ junglesnake — confirmed working April 2026 with v9 fix
+  - Stationary, no navmesh, no linked actors, safest enemy to use
+  - Place hanging from ceiling, bsphere 120m required
+
+## Documented
+- [x] babak.md
+- [x] junglesnake.md
+- [x] entity-spawning.md
+- [x] modding-addon.md
+- [x] opengoal_tools_v9.py
+
+## Open questions
+- [ ] bonelurker crash — still unsolved
+- [ ] navmesh — no engine support yet
+- [ ] Which other enemies work with v9 fix? (hopper, kermit likely next candidates)
+- [ ] Enemy attack/walk-through collision confirmed?
