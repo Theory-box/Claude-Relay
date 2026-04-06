@@ -501,13 +501,16 @@ link finish: my-level
 Results from testing in `april-2026` custom level. Updated as tests are run.
 
 ### ✅ Confirmed Working
-| Enemy | Type | Notes |
-|---|---|---|
-| `babak` | nav-enemy | Reference case. Chases + attacks with navmesh. |
-| `hopper` | nav-enemy | Chases + attacks with navmesh. |
-| `junglesnake` | process-drawable | Stationary ambush, no path needed. |
-| `lurkerworm` | process-drawable | Stationary ambush, no path needed. |
-| `flying-lurker` | process-drawable | Needs path. Patrols correctly. |
+| Enemy | Type | Tpage Group | Notes |
+|---|---|---|---|
+| `babak` | nav-enemy | Beach | Reference case. Chases + attacks with navmesh. |
+| `lurkerworm` | process-drawable | Beach | Stationary ambush, no path needed. |
+| `hopper` | nav-enemy | Jungle | Chases + attacks with navmesh. |
+| `junglesnake` | process-drawable | Jungle | Stationary ambush, no path needed. |
+| `swamp-rat` | nav-enemy | Swamp | Works. Needs navmesh for chase. |
+| `swamp-bat` | process-drawable | Swamp | Works. Needs both `path` and `pathb`. |
+| `kermit` | nav-enemy | Swamp | Works. Needs navmesh for chase. |
+| `flying-lurker` | process-drawable | Ogre | Needs path. Patrols correctly. |
 
 ### ⚠️ Partial / Known Issues
 | Enemy | Type | Status | Notes |
