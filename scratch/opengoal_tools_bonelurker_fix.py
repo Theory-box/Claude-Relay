@@ -93,6 +93,8 @@ ENTITY_DEFS = {
     "gnawer":           {"label":"Gnawer",               "cat":"Enemies",   "ag":"gnawer-ag.go",            "nav_safe":True,  "needs_path":True,  "needs_pathb":False, "is_prop":False, "ai_type":"process-drawable", "color":(0.6,0.3,0.1,1.0), "shape":"SPHERE"},
     # swamp-bat: needs TWO path lumps ('path' AND 'pathb') — unique requirement
     "swamp-bat":        {"label":"Swamp Bat",            "cat":"Enemies",   "ag":"swamp-bat-ag.go",         "nav_safe":True,  "needs_path":True,  "needs_pathb":True,  "is_prop":False, "ai_type":"process-drawable", "color":(0.4,0.2,0.5,1.0), "shape":"SPHERE"},
+    # balloonlurker: process-drawable, floats on path, drops bombs. Needs path.
+    "balloonlurker":    {"label":"Balloon Lurker",       "cat":"Enemies",   "ag":"balloonlurker-ag.go",     "nav_safe":True,  "needs_path":True,  "needs_pathb":False, "is_prop":False, "ai_type":"process-drawable", "color":(0.8,0.5,0.2,1.0), "shape":"SPHERE"},
     # Misc process-drawables (unknown/untested path requirements):
     "plunger-lurker":   {"label":"Plunger Lurker",       "cat":"Enemies",   "ag":"plunger-lurker-ag.go",    "nav_safe":True,  "needs_path":False, "needs_pathb":False, "is_prop":False, "ai_type":"process-drawable", "color":(0.8,0.3,0.3,1.0), "shape":"SPHERE"},
     "ram":              {"label":"Ram",                  "cat":"Enemies",   "ag":"ram-ag.go",               "nav_safe":True,  "needs_path":False, "needs_pathb":False, "is_prop":False, "ai_type":"process-drawable", "color":(0.7,0.4,0.2,1.0), "shape":"SPHERE"},
@@ -258,10 +260,12 @@ ETYPE_CODE = {
     "quicksandlurker": {"o": "quicksandlurker.o",  "o_only": True},
     "junglesnake":     {"o": "junglesnake.o",      "o_only": True},
     "muse":            {"o": "muse.o",             "o_only": True},
-    # bonelurker: intentionally NOT in this table.
-    # bonelurker.gc compiles into MIS.DGO (not GAME.CGO), but the linker sees it
-    # as already-linked if we also put bonelurker.o in the custom DGO → stale pointer → crash.
-    # Only the art group (bonelurker-ag.go) and misty tpages need to be in the custom DGO.
+    # Misty enemies — compiled into MIS.DGO (not GAME.CGO). Safe to inject .o
+    # because we use (bg) not (bg-custom), so MIS.DGO is NEVER pre-loaded.
+    # The linker never sees bonelurker/balloonlurker as already-linked → no stale pointer.
+    # Without .o in the custom DGO, the type is undefined at runtime → crash on spawn.
+    "bonelurker":      {"o": "bonelurker.o",      "o_only": True},
+    "balloonlurker":   {"o": "balloonlurker.o",   "o_only": True},
 
     # NPCs — vanilla, inject .o only
     "flutflut":        {"o": "flutflut.o",         "o_only": True},
