@@ -59,48 +59,59 @@ ENTITY_DEFS = {
     # ---------------------------------------------------------------------------
 
     # ---- NAV-ENEMIES — nav_safe=False, need navmesh + entity.gc patch ----
-    # These extend nav-enemy. Without a real navmesh they idle forever.
-    # Path waypoints are optional patrol routes (exported as 'path' lump).
-    "babak":            {"label":"Babak (Lurker)",       "cat":"Enemies",   "ag":"babak-ag.go",             "nav_safe":False, "needs_path":False, "needs_pathb":False, "is_prop":False, "ai_type":"nav-enemy",        "color":(1.0,0.1,0.1,1.0), "shape":"SPHERE"},
-    "hopper":           {"label":"Hopper",               "cat":"Enemies",   "ag":"hopper-ag.go",            "nav_safe":False, "needs_path":False, "needs_pathb":False, "is_prop":False, "ai_type":"nav-enemy",        "color":(1.0,0.2,0.1,1.0), "shape":"SPHERE"},
-    "swamp-rat":        {"label":"Swamp Rat",            "cat":"Enemies",   "ag":"swamp-rat-ag.go",         "nav_safe":False, "needs_path":False, "needs_pathb":False, "is_prop":False, "ai_type":"nav-enemy",        "color":(0.5,0.35,0.1,1.0),"shape":"SPHERE"},
-    "bonelurker":       {"label":"Bone Lurker",          "cat":"Enemies",   "ag":"bonelurker-ag.go",        "nav_safe":False, "needs_path":False, "needs_pathb":False, "is_prop":False, "ai_type":"nav-enemy",        "color":(0.8,0.7,0.5,1.0), "shape":"SPHERE"},
-    "lurkercrab":       {"label":"Lurker Crab",          "cat":"Enemies",   "ag":"lurkercrab-ag.go",        "nav_safe":False, "needs_path":False, "needs_pathb":False, "is_prop":False, "ai_type":"nav-enemy",        "color":(0.8,0.4,0.0,1.0), "shape":"SPHERE"},
-    "lurkerpuppy":      {"label":"Lurker Puppy",         "cat":"Enemies",   "ag":"lurkerpuppy-ag.go",       "nav_safe":False, "needs_path":False, "needs_pathb":False, "is_prop":False, "ai_type":"nav-enemy",        "color":(0.9,0.5,0.1,1.0), "shape":"SPHERE"},
-    "double-lurker":    {"label":"Double Lurker",        "cat":"Enemies",   "ag":"double-lurker-ag.go",     "nav_safe":False, "needs_path":False, "needs_pathb":False, "is_prop":False, "ai_type":"nav-enemy",        "color":(0.7,0.15,0.15,1.0),"shape":"SPHERE"},
-    "green-eco-lurker": {"label":"Green Eco Lurker",     "cat":"Enemies",   "ag":"green-eco-lurker-ag.go",  "nav_safe":False, "needs_path":False, "needs_pathb":False, "is_prop":False, "ai_type":"nav-enemy",        "color":(0.2,0.8,0.2,1.0), "shape":"SPHERE"},
-    "baby-spider":      {"label":"Baby Spider",          "cat":"Enemies",   "ag":"baby-spider-ag.go",       "nav_safe":False, "needs_path":False, "needs_pathb":False, "is_prop":False, "ai_type":"nav-enemy",        "color":(0.5,0.2,0.1,1.0), "shape":"SPHERE"},
-    "muse":             {"label":"Muse",                 "cat":"Enemies",   "ag":"muse-ag.go",              "nav_safe":False, "needs_path":False, "needs_pathb":False, "is_prop":False, "ai_type":"nav-enemy",        "color":(0.9,0.6,0.9,1.0), "shape":"SPHERE"},
-    "kermit":           {"label":"Kermit (Lurker)",      "cat":"Enemies",   "ag":"kermit-ag.go",            "nav_safe":False, "needs_path":False, "needs_pathb":False, "is_prop":False, "ai_type":"nav-enemy",        "color":(0.2,0.7,0.2,1.0), "shape":"SPHERE"},
-    # snow-bunny: nav-enemy that also requires a path (errors "no path" without one)
-    "snow-bunny":       {"label":"Snow Bunny",           "cat":"Enemies",   "ag":"snow-bunny-ag.go",        "nav_safe":False, "needs_path":True,  "needs_pathb":False, "is_prop":False, "ai_type":"nav-enemy",        "color":(0.9,0.9,1.0,1.0), "shape":"SPHERE"},
-    # yeti: controller that spawns yeti-slave nav-enemies; path defines spawn points
-    "yeti":             {"label":"Yeti",                 "cat":"Enemies",   "ag":"yeti-ag.go",              "nav_safe":True,  "needs_path":True,  "needs_pathb":False, "is_prop":False, "ai_type":"process-drawable", "color":(0.9,0.95,1.0,1.0),"shape":"SPHERE"},
+    # Grouped by tpage source level. Mix max 2 groups per scene to avoid heap OOM.
+    # Beach group (tpages: 212, 214, 213, 215)
+    "babak":            {"label":"Babak (Lurker)",       "cat":"Enemies",   "tpage_group":"Beach",    "ag":"babak-ag.go",             "nav_safe":False, "needs_path":False, "needs_pathb":False, "is_prop":False, "ai_type":"nav-enemy",        "color":(1.0,0.1,0.1,1.0), "shape":"SPHERE"},
+    "lurkercrab":       {"label":"Lurker Crab",          "cat":"Enemies",   "tpage_group":"Beach",    "ag":"lurkercrab-ag.go",        "nav_safe":False, "needs_path":False, "needs_pathb":False, "is_prop":False, "ai_type":"nav-enemy",        "color":(0.8,0.4,0.0,1.0), "shape":"SPHERE"},
+    "lurkerpuppy":      {"label":"Lurker Puppy",         "cat":"Enemies",   "tpage_group":"Beach",    "ag":"lurkerpuppy-ag.go",       "nav_safe":False, "needs_path":False, "needs_pathb":False, "is_prop":False, "ai_type":"nav-enemy",        "color":(0.9,0.5,0.1,1.0), "shape":"SPHERE"},
+    # Jungle group (tpages: 385, 531, 386, 388)
+    "hopper":           {"label":"Hopper",               "cat":"Enemies",   "tpage_group":"Jungle",   "ag":"hopper-ag.go",            "nav_safe":False, "needs_path":False, "needs_pathb":False, "is_prop":False, "ai_type":"nav-enemy",        "color":(1.0,0.2,0.1,1.0), "shape":"SPHERE"},
+    # Swamp group (tpages: 358, 659, 629, 630)
+    "swamp-rat":        {"label":"Swamp Rat",            "cat":"Enemies",   "tpage_group":"Swamp",    "ag":"swamp-rat-ag.go",         "nav_safe":False, "needs_path":False, "needs_pathb":False, "is_prop":False, "ai_type":"nav-enemy",        "color":(0.5,0.35,0.1,1.0),"shape":"SPHERE"},
+    "kermit":           {"label":"Kermit (Lurker)",      "cat":"Enemies",   "tpage_group":"Swamp",    "ag":"kermit-ag.go",            "nav_safe":False, "needs_path":False, "needs_pathb":False, "is_prop":False, "ai_type":"nav-enemy",        "color":(0.2,0.7,0.2,1.0), "shape":"SPHERE"},
+    # Snow group (tpages: 710, 842, 711, 712)
+    "snow-bunny":       {"label":"Snow Bunny",           "cat":"Enemies",   "tpage_group":"Snow",     "ag":"snow-bunny-ag.go",        "nav_safe":False, "needs_path":True,  "needs_pathb":False, "is_prop":False, "ai_type":"nav-enemy",        "color":(0.9,0.9,1.0,1.0), "shape":"SPHERE"},
+    # Sunken group (tpages: 661, 663, 714, 662)
+    "double-lurker":    {"label":"Double Lurker",        "cat":"Enemies",   "tpage_group":"Sunken",   "ag":"double-lurker-ag.go",     "nav_safe":False, "needs_path":False, "needs_pathb":False, "is_prop":False, "ai_type":"nav-enemy",        "color":(0.7,0.15,0.15,1.0),"shape":"SPHERE"},
+    # Misty group (tpages: 516, 521, 518, 520)
+    "bonelurker":       {"label":"Bone Lurker",          "cat":"Enemies",   "tpage_group":"Misty",    "ag":"bonelurker-ag.go",        "nav_safe":False, "needs_path":False, "needs_pathb":False, "is_prop":False, "ai_type":"nav-enemy",        "color":(0.8,0.7,0.5,1.0), "shape":"SPHERE"},
+    "muse":             {"label":"Muse",                 "cat":"Enemies",   "tpage_group":"Misty",    "ag":"muse-ag.go",              "nav_safe":False, "needs_path":False, "needs_pathb":False, "is_prop":False, "ai_type":"nav-enemy",        "color":(0.9,0.6,0.9,1.0), "shape":"SPHERE"},
+    # Maincave group (tpages: 1313, 1315, 1314, 1312)
+    "baby-spider":      {"label":"Baby Spider",          "cat":"Enemies",   "tpage_group":"Maincave", "ag":"baby-spider-ag.go",       "nav_safe":False, "needs_path":False, "needs_pathb":False, "is_prop":False, "ai_type":"nav-enemy",        "color":(0.5,0.2,0.1,1.0), "shape":"SPHERE"},
+    # Final group (tpages: varies)
+    "green-eco-lurker": {"label":"Green Eco Lurker",     "cat":"Enemies",   "tpage_group":"Final",    "ag":"green-eco-lurker-ag.go",  "nav_safe":False, "needs_path":False, "needs_pathb":False, "is_prop":False, "ai_type":"nav-enemy",        "color":(0.2,0.8,0.2,1.0), "shape":"SPHERE"},
 
     # ---- PROCESS-DRAWABLE ENEMIES — nav_safe=True, no navmesh, may need path ----
-    # These extend process-drawable and implement their own AI.
-    # Do NOT add navmesh for these — it will be ignored and wastes entity.gc space.
-    # Stationary ambush enemies (no path needed):
-    "lurkerworm":       {"label":"Lurker Worm",          "cat":"Enemies",   "ag":"lurkerworm-ag.go",        "nav_safe":True,  "needs_path":False, "needs_pathb":False, "is_prop":False, "ai_type":"process-drawable", "color":(0.3,0.6,0.1,1.0), "shape":"SPHERE"},
-    "junglesnake":      {"label":"Jungle Snake",         "cat":"Enemies",   "ag":"junglesnake-ag.go",       "nav_safe":True,  "needs_path":False, "needs_pathb":False, "is_prop":False, "ai_type":"process-drawable", "color":(0.2,0.6,0.2,1.0), "shape":"SPHERE"},
-    "quicksandlurker":  {"label":"Quicksand Lurker",     "cat":"Enemies",   "ag":"quicksandlurker-ag.go",   "nav_safe":True,  "needs_path":False, "needs_pathb":False, "is_prop":False, "ai_type":"process-drawable", "color":(0.9,0.8,0.3,1.0), "shape":"SPHERE"},
-    "bully":            {"label":"Bully",                "cat":"Enemies",   "ag":"bully-ag.go",             "nav_safe":True,  "needs_path":False, "needs_pathb":False, "is_prop":False, "ai_type":"process-drawable", "color":(0.6,0.6,0.9,1.0), "shape":"SPHERE"},
-    "mother-spider":    {"label":"Mother Spider",        "cat":"Enemies",   "ag":"mother-spider-ag.go",     "nav_safe":True,  "needs_path":True,  "needs_pathb":False, "is_prop":False, "ai_type":"process-drawable", "color":(0.6,0.2,0.1,1.0), "shape":"SPHERE"},
-    # Path-requiring process-drawables (errors without path lump):
-    "puffer":           {"label":"Puffer",               "cat":"Enemies",   "ag":"puffer-ag.go",            "nav_safe":True,  "needs_path":True,  "needs_pathb":False, "is_prop":False, "ai_type":"process-drawable", "color":(0.3,0.4,0.9,1.0), "shape":"SPHERE"},
-    "flying-lurker":    {"label":"Flying Lurker",        "cat":"Enemies",   "ag":"flying-lurker-ag.go",     "nav_safe":True,  "needs_path":True,  "needs_pathb":False, "is_prop":False, "ai_type":"process-drawable", "color":(0.5,0.2,0.8,1.0), "shape":"SPHERE"},
-    "driller-lurker":   {"label":"Driller Lurker",       "cat":"Enemies",   "ag":"driller-lurker-ag.go",    "nav_safe":True,  "needs_path":True,  "needs_pathb":False, "is_prop":False, "ai_type":"process-drawable", "color":(0.5,0.5,0.5,1.0), "shape":"SPHERE"},
-    "gnawer":           {"label":"Gnawer",               "cat":"Enemies",   "ag":"gnawer-ag.go",            "nav_safe":True,  "needs_path":True,  "needs_pathb":False, "is_prop":False, "ai_type":"process-drawable", "color":(0.6,0.3,0.1,1.0), "shape":"SPHERE"},
-    # swamp-bat: needs TWO path lumps ('path' AND 'pathb') — unique requirement
-    "swamp-bat":        {"label":"Swamp Bat",            "cat":"Enemies",   "ag":"swamp-bat-ag.go",         "nav_safe":True,  "needs_path":True,  "needs_pathb":True,  "is_prop":False, "ai_type":"process-drawable", "color":(0.4,0.2,0.5,1.0), "shape":"SPHERE"},
-    # Misc process-drawables (unknown/untested path requirements):
-    "plunger-lurker":   {"label":"Plunger Lurker",       "cat":"Enemies",   "ag":"plunger-lurker-ag.go",    "nav_safe":True,  "needs_path":False, "needs_pathb":False, "is_prop":False, "ai_type":"process-drawable", "color":(0.8,0.3,0.3,1.0), "shape":"SPHERE"},
-    "ram":              {"label":"Ram",                  "cat":"Enemies",   "ag":"ram-ag.go",               "nav_safe":True,  "needs_path":False, "needs_pathb":False, "is_prop":False, "ai_type":"process-drawable", "color":(0.7,0.4,0.2,1.0), "shape":"SPHERE"},
-    "dark-crystal":     {"label":"Dark Crystal",         "cat":"Enemies",   "ag":"dark-crystal-ag.go",      "nav_safe":True,  "needs_path":False, "needs_pathb":False, "is_prop":False, "ai_type":"process-drawable", "color":(0.4,0.0,0.6,1.0), "shape":"SPHERE"},
-    "lightning-mole":   {"label":"Lightning Mole",       "cat":"Enemies",   "ag":None,                      "nav_safe":True,  "needs_path":False, "needs_pathb":False, "is_prop":False, "ai_type":"process-drawable", "color":(0.7,0.7,0.9,1.0), "shape":"SPHERE"},
-    "ice-cube":         {"label":"Ice Cube",             "cat":"Enemies",   "ag":None,                      "nav_safe":True,  "needs_path":True,  "needs_pathb":False, "is_prop":False, "ai_type":"process-drawable", "color":(0.7,0.9,1.0,1.0), "shape":"CUBE"},
-    "cavecrusher":      {"label":"Cave Crusher",         "cat":"Enemies",   "ag":"cavecrusher-ag.go",       "nav_safe":True,  "needs_path":False, "needs_pathb":False, "is_prop":False, "ai_type":"process-drawable", "color":(0.6,0.6,0.6,1.0), "shape":"SPHERE"},
-    "fireboulder":      {"label":"Fire Boulder",         "cat":"Enemies",   "ag":"fireboulder-ag.go",       "nav_safe":True,  "needs_path":False, "needs_pathb":False, "is_prop":False, "ai_type":"process-drawable", "color":(1.0,0.4,0.0,1.0), "shape":"SPHERE"},
+    # Grouped by tpage source level.
+    # Beach group
+    "lurkerworm":       {"label":"Lurker Worm",          "cat":"Enemies",   "tpage_group":"Beach",    "ag":"lurkerworm-ag.go",        "nav_safe":True,  "needs_path":False, "needs_pathb":False, "is_prop":False, "ai_type":"process-drawable", "color":(0.3,0.6,0.1,1.0), "shape":"SPHERE"},
+    # Jungle group
+    "junglesnake":      {"label":"Jungle Snake",         "cat":"Enemies",   "tpage_group":"Jungle",   "ag":"junglesnake-ag.go",       "nav_safe":True,  "needs_path":False, "needs_pathb":False, "is_prop":False, "ai_type":"process-drawable", "color":(0.2,0.6,0.2,1.0), "shape":"SPHERE"},
+    # Swamp group
+    "swamp-bat":        {"label":"Swamp Bat",            "cat":"Enemies",   "tpage_group":"Swamp",    "ag":"swamp-bat-ag.go",         "nav_safe":True,  "needs_path":True,  "needs_pathb":True,  "is_prop":False, "ai_type":"process-drawable", "color":(0.4,0.2,0.5,1.0), "shape":"SPHERE"},
+    # Snow group
+    "yeti":             {"label":"Yeti",                 "cat":"Enemies",   "tpage_group":"Snow",     "ag":"yeti-ag.go",              "nav_safe":True,  "needs_path":True,  "needs_pathb":False, "is_prop":False, "ai_type":"process-drawable", "color":(0.9,0.95,1.0,1.0),"shape":"SPHERE"},
+    # Sunken group
+    "bully":            {"label":"Bully",                "cat":"Enemies",   "tpage_group":"Sunken",   "ag":"bully-ag.go",             "nav_safe":True,  "needs_path":False, "needs_pathb":False, "is_prop":False, "ai_type":"process-drawable", "color":(0.6,0.6,0.9,1.0), "shape":"SPHERE"},
+    "puffer":           {"label":"Puffer",               "cat":"Enemies",   "tpage_group":"Sunken",   "ag":"puffer-ag.go",            "nav_safe":True,  "needs_path":True,  "needs_pathb":False, "is_prop":False, "ai_type":"process-drawable", "color":(0.3,0.4,0.9,1.0), "shape":"SPHERE"},
+    # Ogre group (tpages: 875, 967, 884, 1117)
+    "flying-lurker":    {"label":"Flying Lurker",        "cat":"Enemies",   "tpage_group":"Ogre",     "ag":"flying-lurker-ag.go",     "nav_safe":True,  "needs_path":True,  "needs_pathb":False, "is_prop":False, "ai_type":"process-drawable", "color":(0.5,0.2,0.8,1.0), "shape":"SPHERE"},
+    "plunger-lurker":   {"label":"Plunger Lurker",       "cat":"Enemies",   "tpage_group":"Ogre",     "ag":"plunger-lurker-ag.go",    "nav_safe":True,  "needs_path":False, "needs_pathb":False, "is_prop":False, "ai_type":"process-drawable", "color":(0.8,0.3,0.3,1.0), "shape":"SPHERE"},
+    # Maincave group
+    "mother-spider":    {"label":"Mother Spider",        "cat":"Enemies",   "tpage_group":"Maincave", "ag":"mother-spider-ag.go",     "nav_safe":True,  "needs_path":True,  "needs_pathb":False, "is_prop":False, "ai_type":"process-drawable", "color":(0.6,0.2,0.1,1.0), "shape":"SPHERE"},
+    "gnawer":           {"label":"Gnawer",               "cat":"Enemies",   "tpage_group":"Maincave", "ag":"gnawer-ag.go",            "nav_safe":True,  "needs_path":True,  "needs_pathb":False, "is_prop":False, "ai_type":"process-drawable", "color":(0.6,0.3,0.1,1.0), "shape":"SPHERE"},
+    "driller-lurker":   {"label":"Driller Lurker",       "cat":"Enemies",   "tpage_group":"Maincave", "ag":"driller-lurker-ag.go",    "nav_safe":True,  "needs_path":True,  "needs_pathb":False, "is_prop":False, "ai_type":"process-drawable", "color":(0.5,0.5,0.5,1.0), "shape":"SPHERE"},
+    "dark-crystal":     {"label":"Dark Crystal",         "cat":"Enemies",   "tpage_group":"Maincave", "ag":"dark-crystal-ag.go",      "nav_safe":True,  "needs_path":False, "needs_pathb":False, "is_prop":False, "ai_type":"process-drawable", "color":(0.4,0.0,0.6,1.0), "shape":"SPHERE"},
+    # Robocave group (tpages: 1318, 1319, 1317, 1316)
+    "cavecrusher":      {"label":"Cave Crusher",         "cat":"Enemies",   "tpage_group":"Robocave", "ag":"cavecrusher-ag.go",       "nav_safe":True,  "needs_path":False, "needs_pathb":False, "is_prop":False, "ai_type":"process-drawable", "color":(0.6,0.6,0.6,1.0), "shape":"SPHERE"},
+    # Misty group
+    "quicksandlurker":  {"label":"Quicksand Lurker",     "cat":"Enemies",   "tpage_group":"Misty",    "ag":"quicksandlurker-ag.go",   "nav_safe":True,  "needs_path":False, "needs_pathb":False, "is_prop":False, "ai_type":"process-drawable", "color":(0.9,0.8,0.3,1.0), "shape":"SPHERE"},
+    # Village1 group (always loaded — free)
+    "ram":              {"label":"Ram",                  "cat":"Enemies",   "tpage_group":"Village1", "ag":"ram-ag.go",               "nav_safe":True,  "needs_path":False, "needs_pathb":False, "is_prop":False, "ai_type":"process-drawable", "color":(0.7,0.4,0.2,1.0), "shape":"SPHERE"},
+    # Unknown/untested tpage group
+    "lightning-mole":   {"label":"Lightning Mole",       "cat":"Enemies",   "tpage_group":"Unknown",  "ag":None,                      "nav_safe":True,  "needs_path":False, "needs_pathb":False, "is_prop":False, "ai_type":"process-drawable", "color":(0.7,0.7,0.9,1.0), "shape":"SPHERE"},
+    "ice-cube":         {"label":"Ice Cube",             "cat":"Enemies",   "tpage_group":"Unknown",  "ag":None,                      "nav_safe":True,  "needs_path":True,  "needs_pathb":False, "is_prop":False, "ai_type":"process-drawable", "color":(0.7,0.9,1.0,1.0), "shape":"CUBE"},
+    "fireboulder":      {"label":"Fire Boulder",         "cat":"Enemies",   "tpage_group":"Unknown",  "ag":"fireboulder-ag.go",       "nav_safe":True,  "needs_path":False, "needs_pathb":False, "is_prop":False, "ai_type":"process-drawable", "color":(1.0,0.4,0.0,1.0), "shape":"SPHERE"},
 
     # ---- PROPS — is_prop=True, idle animation only, no AI/combat ----
     # evilplant: process-drawable with ONE state (idle loop). No attack, no chase.
@@ -181,21 +192,45 @@ CRATE_ITEMS = [
 
 
 def _build_entity_enum():
+    # Tpage group display order — enemies are grouped so users know which share heap budget.
+    # Mixing more than 2 groups in one scene risks OOM crash on level load.
+    TPAGE_GROUP_ORDER = ["Beach", "Jungle", "Swamp", "Snow", "Sunken", "Ogre",
+                         "Misty", "Maincave", "Robocave", "Village1", "Final", "Unknown"]
     cats = {}
     for etype, info in ENTITY_DEFS.items():
         cat = info["cat"]
-        cats.setdefault(cat, []).append((etype, info["label"], info.get("nav_safe", True), info.get("needs_path", False)))
-    order = ["Enemies","Bosses","Props","NPCs","Pickups","Platforms","Objects","Debug"]
+        cats.setdefault(cat, []).append((etype, info))
+    order = ["Enemies", "Bosses", "Props", "NPCs", "Pickups", "Platforms", "Objects", "Debug"]
     items, i = [], 0
     for cat in order:
         if cat not in cats:
             continue
-        for etype, label, nav_safe, needs_path in sorted(cats[cat], key=lambda x: x[1]):
-            warn = "" if nav_safe else " [!navmesh]"
-            if needs_path:
-                warn += " [path]"
-            items.append((etype, f"[{cat}] {label}{warn}", etype, i))
-            i += 1
+        if cat == "Enemies":
+            # Group enemies by tpage_group, in TPAGE_GROUP_ORDER order
+            by_group = {}
+            for etype, info in cats[cat]:
+                g = info.get("tpage_group", "Unknown")
+                by_group.setdefault(g, []).append((etype, info))
+            for group in TPAGE_GROUP_ORDER:
+                if group not in by_group:
+                    continue
+                for etype, info in sorted(by_group[group], key=lambda x: x[1]["label"]):
+                    nav_safe    = info.get("nav_safe", True)
+                    needs_path  = info.get("needs_path", False)
+                    warn = "" if nav_safe else " [nav]"
+                    if needs_path:
+                        warn += " [path]"
+                    items.append((etype, f"[{group}] {info['label']}{warn}", etype, i))
+                    i += 1
+        else:
+            for etype, info in sorted(cats[cat], key=lambda x: x[1]["label"]):
+                nav_safe   = info.get("nav_safe", True)
+                needs_path = info.get("needs_path", False)
+                warn = "" if nav_safe else " [nav]"
+                if needs_path:
+                    warn += " [path]"
+                items.append((etype, f"[{cat}] {info['label']}{warn}", etype, i))
+                i += 1
     return items
 
 ENTITY_ENUM_ITEMS = _build_entity_enum()
