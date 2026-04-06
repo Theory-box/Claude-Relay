@@ -50,3 +50,12 @@ Play button successfully launches game and spawns player in custom level.
 - ✅ babak, junglesnake, hopper enemies
 - ❌ bonelurker — known crash, unsolved
 - ❌ navmesh — no engine support yet
+
+---
+
+## 📌 REMINDERS FOR NEXT SESSION
+> If the user pursues either of these goals in the session, remove that reminder from this file when done.
+
+1. **Level design analysis** — Continue analyzing Jak 1 levels. See `knowledge-base/opengoal/jak1-level-design.md` for the pipeline and open questions. Suggested next levels: `firecanyon.glb`, `misty.glb`, `snowy.glb`. Goal is to build a comparison dataset across level types.
+
+2. **Enemy spawning (Blender addon)** — Continue getting all Jak 1 enemies working and spawnable via the addon. Known issue: `bonelurker` crashes. Other enemies not yet tested. Goal is full enemy roster support.
