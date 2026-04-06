@@ -523,7 +523,7 @@ def _navmesh_to_goal(mesh, actor_aid):
 
     L = []
     L.append(f"    (({actor_aid})")
-    L.append(f"      (set! (-> (the nav-enemy this) nav-mesh)")
+    L.append(f"      (set! (-> this nav-mesh)")
     L.append(f"        (new 'static 'nav-mesh")
     L.append(f"          :bounds (new 'static 'sphere :x (meters {ox:.4f}) :y (meters {oy:.4f}) :z (meters {oz:.4f}) :w (meters {br:.4f}))")
     L.append(f"          :origin (new 'static 'vector :x (meters {ox:.4f}) :y (meters {oy:.4f}) :z (meters {oz:.4f}) :w 1.0)")
@@ -1226,13 +1226,11 @@ def patch_level_info(name, spawns):
     p.write_text(txt, encoding="utf-8")
     log("Patched level-info.gc")
 
-def patch_game_gp(name, code_deps=None):
+def patch_game_gp(name, code_deps=None, has_navmesh=False):
     """Patch game.gp to build our custom level and compile enemy code files.
 
     code_deps: list of (o_file, gc_path, dep) from needed_code().
-    For each enemy type not in GAME.CGO we add a goal-src line so GOALC
-    compiles and links its code into our DGO.  Without this the type is
-    undefined at runtime and the entity spawns as a do-nothing process.
+    has_navmesh: if True, adds a goal-src for <name>-navmesh.gc compiled after navigate.gc.
     """
     p = _game_gp()
     if not p.exists(): log(f"WARNING: {p} not found"); return
@@ -1243,34 +1241,35 @@ def patch_game_gp(name, code_deps=None):
     dgo  = f"{nick.upper()}.DGO"
 
     # goal-src lines for enemy code (de-duplicated)
-    # Skip o_only entries (gc=None) — vanilla game.gp already has their goal-src lines.
     extra_goal_src = ""
     if code_deps:
         seen_gc = set()
         for o, gc, dep in code_deps:
             if gc is None:
-                continue  # o_only: .o injected into DGO but no goal-src needed
+                continue
             if gc not in seen_gc:
                 seen_gc.add(gc)
                 extra_goal_src += f'(goal-src "{gc}" "{dep}")\n'
+
+    # Navmesh data file — must compile AFTER navigate.gc (which provides nav-mesh type).
+    # We place it after the obs.gc line. game.gp is processed top-to-bottom so
+    # any file listed after navigate.gc in the compile order will see nav-mesh defined.
+    navmesh_goal_src = ""
+    if has_navmesh:
+        navmesh_goal_src = f'(goal-src "levels/{name}/{name}-navmesh.gc" "process-drawable")\n'
 
     correct_block = (
         f'(build-custom-level "{name}")\n'
         f'(custom-level-cgo "{dgo}" "{name}/{nick}.gd")\n'
         f'(goal-src "levels/{name}/{name}-obs.gc" "process-drawable")\n'
+        + navmesh_goal_src
         + extra_goal_src
     )
 
     # Strip any previously written block for this level
     txt = re.sub(r'\(build-custom-level "' + re.escape(name) + r'"\)\n', '', txt)
     txt = re.sub(r'\(custom-level-cgo "[^"]*" "' + re.escape(name) + r'/[^"]+"\)\n', '', txt)
-    # FIX v0.5.0 (Bug 2): was r'/[^"]+\"[^)]*\)' — the \" was a literal
-    # backslash+quote so the regex never matched, leaving stale goal-src lines
-    # in game.gp across exports which caused duplicate-compile crashes in GOALC.
     txt = re.sub(r'\(goal-src "levels/' + re.escape(name) + r'/[^"]+"[^)]*\)\n', '', txt)
-    # Strip ALL enemy goal-src lines that could have been injected by any previous export.
-    # This catches leftover entries even if the dep changed between exports.
-    # We match any goal-src line whose path matches a known ETYPE_CODE gc file.
     for _etype_info in ETYPE_CODE.values():
         _gc = _etype_info.get("gc", "")
         if _gc:
@@ -1289,7 +1288,7 @@ def patch_game_gp(name, code_deps=None):
     if crlf:
         txt = txt.replace("\n", "\r\n")
     p.write_bytes(txt.encode("utf-8"))
-    log(f"Patched game.gp  (extra goal-src: {[gc for _,gc,_ in (code_deps or []) if gc is not None]})")
+    log(f"Patched game.gp  (navmesh={has_navmesh}, extra goal-src: {[gc for _,gc,_ in (code_deps or []) if gc is not None]})")
 
 def export_glb(ctx, name):
     d = _ldir(name); d.mkdir(parents=True, exist_ok=True)
@@ -1462,17 +1461,79 @@ class OG_OT_UnlinkNavMesh(Operator):
 _BUILD_STATE = {"done":False, "status":"", "error":None, "ok":False}
 
 
-def patch_entity_gc(navmesh_actors):
+def _navmesh_gc_path(name):
+    """Path to the per-level navmesh data file."""
+    return _goal_src() / "levels" / name / f"{name}-navmesh.gc"
+
+
+def write_navmesh_gc(name, navmesh_actors):
+    """Write levels/<name>/<name>-navmesh.gc with all navmesh data for this level.
+
+    WHY A SEPARATE FILE (not inlined into entity.gc):
+    entity.gc compiles very early — before navigate-h.gc and nav-enemy are
+    defined. Any reference to nav-mesh struct fields or nav-enemy in entity.gc
+    causes a Type Error at compile time.
+
+    Solution (same as LuminarLight's modbase): entity.gc only holds a tiny
+    stub defun. The actual navmesh data lives in this separate file, compiled
+    later in the chain via a goal-src entry in game.gp, after navigate.gc and
+    nav-enemy are both fully defined.
+
+    nav-mesh is a field on entity-actor (entity-h.gc line 114) — no cast needed.
+    We avoid entity-nav-login because it calls update-route-table which writes
+    back to our 'static (read-only) nav-mesh struct and segfaults. Instead we
+    manually allocate the user-list engine.
     """
-    Patch engine/entity/entity.gc to add custom-nav-mesh-check-and-setup.
+    d = _goal_src() / "levels" / name
+    d.mkdir(parents=True, exist_ok=True)
+    p = _navmesh_gc_path(name)
 
-    navmesh_actors: list of (actor_aid, mesh_data) tuples.
+    lines = [
+        ";;-*-Lisp-*-",
+        "(in-package goal)",
+        f";; {name}-navmesh.gc  — auto-generated by OpenGOAL Tools, do not edit",
+        f";; Navmesh data for custom level '{name}'.",
+        ";; Compiled after navigate.gc so nav-mesh struct is fully defined.",
+        ";; entity-actor has a nav-mesh field (entity-h.gc) — no cast needed.",
+        "",
+        f"(defun check-custom-navmeshes-of-{name} ((this entity-actor))",
+        "  (case (-> this aid)",
+    ]
 
-    Adds/replaces:
-      1. A (defun custom-nav-mesh-check-and-setup ...) with one case per actor.
-      2. A call to it at the top of (defmethod birth! entity-actor ...).
+    for aid, mesh in navmesh_actors:
+        lines.append(_navmesh_to_goal(mesh, aid))
 
-    Safe to call repeatedly — old injected code is stripped before re-injecting.
+    lines += [
+        "  )",
+        "  ;; Initialize user-list without calling entity-nav-login.",
+        "  ;; entity-nav-login calls update-route-table which writes to our",
+        "  ;; 'static nav-mesh struct (read-only memory) → segfault.",
+        "  ;; We allocate the engine directly so nav-mesh-connect skips",
+        "  ;; update-route-table when it sees user-list is already non-zero.",
+        "  (when (nonzero? (-> this nav-mesh))",
+        "    (when (zero? (-> (-> this nav-mesh) user-list))",
+        "      (set! (-> (-> this nav-mesh) user-list)",
+        "            (new 'loading-level 'engine 'nav-engine 32))",
+        "    )",
+        "  )",
+        "  (none)",
+        ")",
+    ]
+
+    p.write_text("\n".join(lines) + "\n")
+    log(f"Wrote {p}  ({len(navmesh_actors)} navmesh actor(s))")
+
+
+def patch_entity_gc(name, has_navmesh):
+    """Patch engine/entity/entity.gc with a stub that calls into the navmesh data file.
+
+    When has_navmesh=True: injects a stub defun + birth! call.
+    When has_navmesh=False: removes any previously injected stub (clean state).
+
+    The stub just calls check-custom-navmeshes-of-<name>() which lives in the
+    separately compiled <name>-navmesh.gc file. This keeps entity.gc free of
+    any nav-mesh struct references (which would fail at compile time since
+    entity.gc compiles before navigate-h.gc defines the nav-mesh type).
     """
     p = _entity_gc()
     if not p.exists():
@@ -1484,66 +1545,44 @@ def patch_entity_gc(navmesh_actors):
     txt  = raw.decode("utf-8").replace("\r\n", "\n")
 
     # ── Strip any previously injected block ──────────────────────────────────
-    import re
     txt = re.sub(
         r"\n;; \[OpenGOAL Tools\] BEGIN custom-nav-mesh.*?;; \[OpenGOAL Tools\] END custom-nav-mesh\n",
         "",
         txt,
         flags=re.DOTALL,
     )
-    # Strip old birth! injection line
     txt = re.sub(r"  \(custom-nav-mesh-check-and-setup this\)\n", "", txt)
 
-    if not navmesh_actors:
-        # Nothing to inject — just clean file
+    if not has_navmesh:
         out = txt.replace("\n", "\r\n") if crlf else txt
         p.write_bytes(out.encode("utf-8"))
         log("entity.gc: cleaned (no navmesh actors)")
         return
 
-    # ── Build the defun block ─────────────────────────────────────────────────
-    lines = [
+    # ── Inject stub defun before birth! ──────────────────────────────────────
+    # The stub just forwards to the per-level data function.
+    # entity.gc compiles early (before nav-mesh type is defined), so the stub
+    # must contain NO nav-mesh struct references whatsoever.
+    stub = "\n".join([
         "",
         ";; [OpenGOAL Tools] BEGIN custom-nav-mesh",
-
+        f";; Stub only — navmesh data is in levels/{name}/{name}-navmesh.gc",
+        f";; which compiles after navigate.gc when nav-mesh type is available.",
         "(defun custom-nav-mesh-check-and-setup ((this entity-actor))",
-        "  (case (-> this aid)",
-    ]
-    for aid, mesh in navmesh_actors:
-        lines.append(_navmesh_to_goal(mesh, aid))
-    lines += [
-        "  )",
-        "  ;; Manually init the nav-mesh without calling entity-nav-login.",
-        "  ;; entity-nav-login calls update-route-table which writes back to the route",
-        "  ;; array — but our mesh is 'static (read-only GAME.CGO memory), so that",
-        "  ;; write would segfault. Instead we just set up the user-list engine.",
-        "  ;; Cast to nav-enemy so the nav-mesh field is accessible (it doesn't",
-        "  ;; exist on entity-actor — only on nav-enemy and its subclasses).",
-        "  (let ((ne (the nav-enemy this)))",
-        "    (when (nonzero? (-> ne nav-mesh))",
-        "      (when (zero? (-> (-> ne nav-mesh) user-list))",
-        "        (set! (-> (-> ne nav-mesh) user-list)",
-        "              (new 'loading-level 'engine 'nav-engine 32))",
-        "      )",
-        "    )",
-        "  )",
+        f"  (check-custom-navmeshes-of-{name} this)",
         "  (none)",
         ")",
         ";; [OpenGOAL Tools] END custom-nav-mesh",
         "",
-    ]
-    inject_block = "\n".join(lines)
+    ])
 
-    # Insert before (defmethod birth! ((this entity-actor))
     BIRTH_MARKER = "(defmethod birth! ((this entity-actor))"
     if BIRTH_MARKER not in txt:
-        log("WARNING: entity.gc birth! marker not found — cannot inject nav-mesh")
+        log("WARNING: entity.gc birth! marker not found — cannot inject navmesh stub")
         return
-    txt = txt.replace(BIRTH_MARKER, inject_block + "\n" + BIRTH_MARKER, 1)
+    txt = txt.replace(BIRTH_MARKER, stub + "\n" + BIRTH_MARKER, 1)
 
     # ── Inject call at top of birth! body ────────────────────────────────────
-    # Find the body start — line after "Create a process for this entity..."
-    # We look for the first (let* ... after the birth! marker
     CALL_MARKER = "  (let* ((entity-type (-> this etype))"
     txt = txt.replace(
         CALL_MARKER,
@@ -1553,7 +1592,7 @@ def patch_entity_gc(navmesh_actors):
 
     out = txt.replace("\n", "\r\n") if crlf else txt
     p.write_bytes(out.encode("utf-8"))
-    log(f"Patched entity.gc with {len(navmesh_actors)} nav-mesh actor(s)")
+    log(f"entity.gc: injected stub for level '{name}'")
 
 def _bg_build(name, scene):
     state = _BUILD_STATE
@@ -1577,9 +1616,11 @@ def _bg_build(name, scene):
         write_gd(name, ags, code_deps, tpages)
         navmesh_actors = _collect_navmesh_actors(scene)
         write_gc(name)
-        patch_entity_gc(navmesh_actors)
+        if navmesh_actors:
+            write_navmesh_gc(name, navmesh_actors)
+        patch_entity_gc(name, bool(navmesh_actors))
         patch_level_info(name, spawns)
-        patch_game_gp(name, code_deps)
+        patch_game_gp(name, code_deps, bool(navmesh_actors))
 
         if goalc_ok():
             state["status"] = "Running (mi) via nREPL..."
@@ -1949,9 +1990,11 @@ def _bg_build_and_play(name, scene):
         write_gd(name, ags, code_deps, tpages)
         navmesh_actors = _collect_navmesh_actors(scene)
         write_gc(name)
-        patch_entity_gc(navmesh_actors)
+        if navmesh_actors:
+            write_navmesh_gc(name, navmesh_actors)
+        patch_entity_gc(name, bool(navmesh_actors))
         patch_level_info(name, spawns)
-        patch_game_gp(name, code_deps)
+        patch_game_gp(name, code_deps, bool(navmesh_actors))
 
         # ── Phase 2: Compile ──────────────────────────────────────────────────
         # Kill GK first — game must not be running during compile.
