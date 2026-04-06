@@ -1706,7 +1706,22 @@ def _bg_play(name):
             if r and "ready" in r:
                 state["status"] = "Loading level..."
                 goalc_send(f"(bg '{name}-vis)")
-                time.sleep(2.0)  # wait for level geometry to seat before spawning
+                # Poll until the custom level reaches 'display status before spawning.
+                # Blind sleep isn't enough — (start) fired before continue-point
+                # was registered, landing player in village1 instead of custom level.
+                level_ready = False
+                for _ in range(120):  # 30s timeout
+                    time.sleep(0.25)
+                    lev_r = goalc_send(
+                        f"(let ((lev (level-get *level* '{name})))"
+                        f"  (if (and lev (= (-> lev status) 'display)) 'display 'wait))",
+                        timeout=3)
+                    if lev_r and "display" in lev_r and "Compilation Error" not in lev_r:
+                        level_ready = True
+                        break
+                if not level_ready:
+                    # Fallback: level didn't report display in time, try anyway
+                    time.sleep(1.0)
                 state["status"] = "Spawning player..."
                 goalc_send(f"(start 'play (or (get-continue-by-name *game-info* \"{name}-start\") (get-or-create-continue! *game-info*)))")
                 spawned = True
@@ -1976,7 +1991,19 @@ def _bg_build_and_play(name, scene):
             if r and "ready" in r:
                 state["status"] = "Loading level..."
                 goalc_send(f"(bg '{name}-vis)")
-                time.sleep(2.0)  # wait for level geometry to seat before spawning
+                # Poll until custom level reaches 'display before spawning.
+                level_ready = False
+                for _ in range(120):  # 30s timeout
+                    time.sleep(0.25)
+                    lev_r = goalc_send(
+                        f"(let ((lev (level-get *level* '{name})))"
+                        f"  (if (and lev (= (-> lev status) 'display)) 'display 'wait))",
+                        timeout=3)
+                    if lev_r and "display" in lev_r and "Compilation Error" not in lev_r:
+                        level_ready = True
+                        break
+                if not level_ready:
+                    time.sleep(1.0)  # fallback
                 state["status"] = "Spawning player..."
                 goalc_send(f"(start 'play (or (get-continue-by-name *game-info* \"{name}-start\") (get-or-create-continue! *game-info*)))")
                 spawned = True
