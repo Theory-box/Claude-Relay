@@ -170,22 +170,28 @@ Credentials: [see Glaude config]
 
 ### ⚠️ SCRATCHPAD-FIRST WORKFLOW — READ THIS EVERY SESSION
 
+**"Scratchpad" means `scratch/` on GitHub — NOT chat window artifacts or code blocks.**
+All file output must be committed and pushed to the repo. Never render large files in chat.
+
 **All work goes to `scratch/` first. Nothing gets promoted without explicit user permission.**
 
-- `scratch/` — free to read, write, overwrite anytime. This is the working area.
+- `scratch/` — free to read, write, overwrite anytime. This is the working area. Push here.
 - `addons/` — NEVER edit without explicit "update the main addon" instruction from user.
 - `knowledge-base/` — NEVER edit without explicit approval. Propose changes in chat first.
 - `session-notes/` — free to update (progress tracking only, no code).
 
 **The rule in plain terms:**
-> Do NOT touch `addons/opengoal_tools.py` or any `knowledge-base/` file unless the user explicitly says to update them. If you did update them without permission, revert immediately and say so. Work only in `scratch/` until the user is satisfied, then they will tell you which files to promote.
+> All file work (code, scripts, docs) goes to `scratch/` on GitHub via git push.
+> Do NOT render full files in chat. Do NOT touch `addons/` or `knowledge-base/` unless
+> the user explicitly says to promote/update them. Work in scratch/ until user is happy,
+> then they will say which files to promote.
 
 **What "explicit permission" looks like:**
 - ✅ "Update the main addon with this fix"
 - ✅ "Promote the scratch file to addons/"
 - ✅ "Update the knowledge base with what we learned"
-- ❌ "Fix the bonelurker bug" (go to scratch/ only)
-- ❌ "Make it work" (go to scratch/ only)
+- ❌ "Fix the bonelurker bug" → push fix to scratch/ only, share GitHub link
+- ❌ "Make it work" → push to scratch/ only, share GitHub link
 
 ### Current scratch file
 - `scratch/opengoal_tools_bonelurker_fix.py` — working version of the Blender addon
