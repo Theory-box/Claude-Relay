@@ -1525,23 +1525,19 @@ def write_navmesh_gc(name, navmesh_actors):
 
 
 def patch_entity_gc(name, has_navmesh):
-    """Patch engine/entity/entity.gc with a require + defun, mirroring LuminarLight's approach.
+    """Patch engine/entity/entity.gc with a define-extern + defun + birth! call.
 
-    HOW IT WORKS (learned from LuminarLight/LL-OpenGOAL-ModBase):
-    entity.gc compiles before navigate-h.gc, so any nav-mesh type reference
-    in entity.gc's body causes a compile error. LuminarLight's solution:
-    add (require "path/to/navmesh-data.gc") at the TOP of entity.gc. The
-    require forces the navmesh file to compile FIRST, before entity.gc's
-    body — so check-custom-navmeshes-of-<n> is defined before it's called.
+    WHY define-extern INSTEAD OF require:
+    entity.gc compiles as part of GAME.CGO. Our navmesh file compiles as part
+    of the custom level's DGO (separate compile group). (require ...) only
+    works within the same compile group, so it can't find our level file.
 
-    entity.gc then just has:
-      (defun custom-nav-mesh-check-and-setup ((this entity-actor))
-        (check-custom-navmeshes-of-<n> this))
+    The correct solution: (define-extern check-custom-navmeshes-of-<n>
+      (function entity-actor none)) — this forward-declares the function
+    signature so entity.gc compiles cleanly. The actual body is defined later
+    when the navmesh gc file compiles. Same pattern as birth-viewer in entity.gc.
 
-    The navmesh data file uses (set! (-> this nav-mesh) ...) directly —
-    entity-actor has nav-mesh as a field (entity-h.gc line 114).
-
-    When has_navmesh=False: removes any previously injected require/defun/call.
+    When has_navmesh=False: removes any previously injected define-extern/defun/call.
     """
     p = _entity_gc()
     if not p.exists():
@@ -1553,17 +1549,20 @@ def patch_entity_gc(name, has_navmesh):
     txt  = raw.decode("utf-8").replace("\r\n", "\n")
 
     # ── Strip anything previously injected ───────────────────────────────────
+    # Strip old require line (from previous approach)
     txt = re.sub(
         r'\(require "levels/' + re.escape(name) + r'/[^"]*-navmesh\.gc"\)\n',
         "",
         txt,
     )
+    # Strip defun block
     txt = re.sub(
         r"\n;; \[OpenGOAL Tools\] BEGIN custom-nav-mesh.*?;; \[OpenGOAL Tools\] END custom-nav-mesh\n",
         "",
         txt,
         flags=re.DOTALL,
     )
+    # Strip birth! call
     txt = re.sub(r"  \(custom-nav-mesh-check-and-setup this\)\n", "", txt)
 
     if not has_navmesh:
@@ -1572,29 +1571,16 @@ def patch_entity_gc(name, has_navmesh):
         log("entity.gc: cleaned (no navmesh actors)")
         return
 
-    # ── 1. Inject (require ...) after the last existing require line ──────────
-    # The require pulls in the navmesh file BEFORE entity.gc body compiles,
-    # making check-custom-navmeshes-of-<n> available when the defun calls it.
-    require_line = f'(require "levels/{name}/{name}-navmesh.gc")'
-    last_req = None
-    for m in re.finditer(r'^\(require "[^"]+"\)', txt, re.MULTILINE):
-        last_req = m
-    if last_req:
-        insert_pos = last_req.end()
-        txt = txt[:insert_pos] + "\n" + require_line + txt[insert_pos:]
-    else:
-        pkg = txt.find("(in-package goal)")
-        if pkg != -1:
-            insert_pos = txt.find("\n", pkg) + 1
-            txt = txt[:insert_pos] + require_line + "\n" + txt[insert_pos:]
-        else:
-            txt = require_line + "\n" + txt
-
-    # ── 2. Inject defun + birth! call ────────────────────────────────────────
-    defun_block = "\n".join([
+    # ── Build injection block ─────────────────────────────────────────────────
+    # define-extern forward-declares check-custom-navmeshes-of-<n> so entity.gc
+    # compiles without needing the function body present. The real definition is
+    # in <n>-navmesh.gc which compiles later as part of the level's DGO.
+    inject = "\n".join([
         "",
         ";; [OpenGOAL Tools] BEGIN custom-nav-mesh",
-        f";; Calls into levels/{name}/{name}-navmesh.gc (pulled in via require above).",
+        f";; Forward-declare the per-level navmesh function defined in",
+        f";; levels/{name}/{name}-navmesh.gc (compiled separately with the level DGO).",
+        f"(define-extern check-custom-navmeshes-of-{name} (function entity-actor none))",
         "(defun custom-nav-mesh-check-and-setup ((this entity-actor))",
         f"  (check-custom-navmeshes-of-{name} this))",
         ";; [OpenGOAL Tools] END custom-nav-mesh",
@@ -1605,7 +1591,7 @@ def patch_entity_gc(name, has_navmesh):
     if BIRTH_MARKER not in txt:
         log("WARNING: entity.gc birth! marker not found — cannot inject navmesh")
         return
-    txt = txt.replace(BIRTH_MARKER, defun_block + "\n" + BIRTH_MARKER, 1)
+    txt = txt.replace(BIRTH_MARKER, inject + "\n" + BIRTH_MARKER, 1)
 
     CALL_MARKER = "  (let* ((entity-type (-> this etype))"
     txt = txt.replace(
@@ -1616,7 +1602,8 @@ def patch_entity_gc(name, has_navmesh):
 
     out = txt.replace("\n", "\r\n") if crlf else txt
     p.write_bytes(out.encode("utf-8"))
-    log(f"entity.gc: injected require + defun for level '{name}'")
+    log(f"entity.gc: injected define-extern + defun for level '{name}'")\
+
 
 def _bg_build(name, scene):
     state = _BUILD_STATE
