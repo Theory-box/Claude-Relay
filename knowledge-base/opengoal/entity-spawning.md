@@ -504,6 +504,8 @@ Results from testing in `april-2026` custom level. Updated as tests are run.
 | Enemy | Type | Tpage Group | Notes |
 |---|---|---|---|
 | `babak` | nav-enemy | Beach | Reference case. Chases + attacks with navmesh. |
+| `lurkercrab` | process-drawable | Beach | Works. Stationary ambush. |
+| `lurkerpuppy` | nav-enemy | Beach | Works. Needs navmesh for chase. |
 | `lurkerworm` | process-drawable | Beach | Stationary ambush, no path needed. |
 | `hopper` | nav-enemy | Jungle | Chases + attacks with navmesh. |
 | `junglesnake` | process-drawable | Jungle | Stationary ambush, no path needed. |
@@ -512,18 +514,33 @@ Results from testing in `april-2026` custom level. Updated as tests are run.
 | `kermit` | nav-enemy | Swamp | Works. Needs navmesh for chase. |
 | `snow-bunny` | nav-enemy | Snow | Works. Needs navmesh + path lump (errors without path). |
 | `yeti` | process-drawable | Snow | Works. Needs path (defines spawn points for yeti-slave children). |
+| `bully` | process-drawable | Sunken A | Works. No navmesh needed. Idles until Jak within 80m, then spins. |
+| `puffer` | process-drawable | Sunken A | Works. Needs `path` lump. |
+| `double-lurker` | process-drawable | Sunken A | Works. Spawns `double-lurker-top` child automatically. |
 | `flying-lurker` | process-drawable | Ogre | Needs path. Patrols correctly. |
+| `quicksandlurker` | process-drawable | Misty | Works. Stationary, no path needed. |
+| `muse` | nav-enemy | Misty | Works. Needs navmesh for chase. |
+| `bonelurker` | nav-enemy | Misty | Works. Needs navmesh for chase. Needs bonelurker.o in DGO. |
+| `balloonlurker` | process-drawable | Misty | Works. Needs `path` lump. |
 
 ### ⚠️ Partial / Known Issues
 | Enemy | Type | Status | Notes |
 |---|---|---|---|
-| `baby-spider` | nav-enemy | Spawns but idles, no interaction or collision with player | Nav-enemy without navmesh assigned — needs entity.gc navmesh patch to activate. Spawning itself works. |
+| `baby-spider` | nav-enemy | Spawns but idles, no chase/collision | Nav-enemy without navmesh — needs entity.gc navmesh patch to activate. Spawning itself works. |
+| `plunger-lurker` | process-drawable | Idles only, no player interaction | **Task-gated**: `init-from-entity!` checks `(get-task-status (game-task plunger-lurker-hit))` — if task is `invalid` (never completed), immediately goes to `plunger-lurker-die` and deactivates. If task is active/completed, goes to `plunger-lurker-idle` which DOES trigger on proximity (`distance² < 6710886400` = ~81m). Needs game task to be set to make it activate. |
+| `cavecrusher` | process-drawable | Idles only, collision but no attack | `cavecrusher-idle` only has one state. The `:event` handler responds to `'touch`/`'attack` with `deadlyup` knockback — but only if Jak's collision shape triggers it. In the maincave level it moves on a scripted path triggered by a `maincavecam` entity. Without that camera/trigger setup it just idles. It is a **set-piece obstacle**, not a free-roaming enemy. |
 
 ### 🔲 Untested
-All other enemies in ENTITY_DEFS.
+| Enemy | Group | Notes |
+|---|---|---|
+| `gnawer` | Maincave | Needs path |
+| `driller-lurker` | Maincave | Needs path (min 2 points) |
+| `dark-crystal` | Maincave | Unknown trigger requirements |
+| `mother-spider` | Maincave | Spawns baby-spider children |
+| `cavecrusher` (fully) | Robocave | Needs `maincavecam` trigger setup |
 
-### ❌ Known Broken
-*(none yet)*
+### ❌ Known Broken / Not Viable for Custom Levels
+*(none confirmed permanently broken yet)*
 
 ---
 
