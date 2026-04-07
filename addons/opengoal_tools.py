@@ -971,6 +971,7 @@ def write_gc(name, triggers=None):
         "    (loop (suspend))))",
         "",
         "(defmethod init-from-entity! ((this camera-marker) (arg0 entity-actor))",
+        "  (set! (-> this root) (new 'process 'trsqv))",
         "  (process-drawable-from-entity! this arg0)",
         "  (go camera-marker-idle)",
         "  (none))",
