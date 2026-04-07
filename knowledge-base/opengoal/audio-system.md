@@ -113,6 +113,51 @@ The `entity-ambient` system supports these `type` lump values:
 
 `effect-name` uses the `["symbol", ...]` array lump format — **not** a bare string like `"'thunder"`.
 
+### ⚠️ Known Bug: One-shot (`cycle-speed >= 0`) crashes on player proximity
+
+**Root cause confirmed from source** (`ambient.gc` + `res.gc` + `ResLump.cpp`):
+
+The C++ level builder writes all lump tags at `key_frame = -1000000000.0` (`DEFAULT_RES_TIME`).  
+In `birth-ambient!`, the one-shot path calls:
+```lisp
+(lookup-tag-idx this 'effect-name 'exact 0.0)
+```
+`'exact` mode requires `key_frame == 0.0` exactly. The tag is at `-1e9`. **It never matches.**  
+Result: tag index = `-1`, count stays `0`, then `(rand-vu-int-count 0)` = undefined behaviour / crash.
+
+**The looping path does NOT have this bug.** It uses `res-lump-struct` (interp mode) which accepts `-1e9` tags as valid matches.
+
+### ✅ Working: Looping sound emitter
+
+Use a **negative** first value in `cycle-speed`. This routes through `ambient-type-sound-loop` which avoids the broken `lookup-tag-idx 'exact` call entirely:
+
+```jsonc
+{
+  "trans": [0.0, 5.0, 0.0, 10.0],
+  "bsphere": [0.0, 5.0, 0.0, 20.0],
+  "lump": {
+    "name": "waterfall-loop",
+    "type": "'sound",
+    "effect-name": ["symbol", "waterfall"],
+    "cycle-speed": ["float", -1.0, 0.0]
+  }
+}
+```
+
+**Limitations of the loop path:**
+- Single sound name only — multiple symbols are ignored (loop path reads first symbol only)
+- Sound loops continuously while player is in bsphere — no randomised timing
+
+### ✅ Alternative: obs.gc `sound-play` via trigger volume
+
+For one-shot sounds, randomised sounds, or anything more complex — use the GOAL trigger pattern in obs.gc. Bypasses the ambient system entirely and has no known bugs:
+
+```lisp
+;; In obs.gc trigger process:
+(sound-play "thunder")
+(sound-play "waterfall" :id (-> self sound-id))  ; for stoppable loops
+```
+
 ### Music ambient lump format (type `'music`):
 ```jsonc
 "lump": {

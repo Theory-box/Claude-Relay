@@ -126,3 +126,50 @@ If the tag isn't found, count stays 0. Then in `ambient-type-sound`:
 - `*flava-table*` maps music symbols to variant indices (sub-area music changes)
 - `common.sbk` always loaded at boot — 461 sounds always available
 - Level banks max 2 simultaneously or game gets OOM error
+
+---
+
+## Crash Root Cause — Confirmed from Source (April 7 2026)
+
+### One-shot ambient (`cycle-speed >= 0`) crashes — here's exactly why
+
+Traced through three source files:
+
+**`common/goal_constants.h`:**
+```cpp
+constexpr float DEFAULT_RES_TIME = -1000000000.0;
+```
+All lump tags written by the C++ level builder use this timestamp.
+
+**`ambient.gc` `birth-ambient!` one-shot branch:**
+```lisp
+(let ((s5-1 (-> ((method-of-type res-lump lookup-tag-idx) this 'effect-name 'exact 0.0) lo))
+```
+Uses `'exact` mode with time `0.0`.
+
+**`res.gc` `lookup-tag-idx` `'exact` logic:**
+```lisp
+((and (>= time (-> tag-ptr 0 key-frame)) (!= mode 'exact))
+ ;; only matches in non-exact mode — 'exact skips this branch
+```
+Tag is at `-1e9`. Exact match for `0.0` never fires. Returns `-1`.
+Count stays `0`. `(rand-vu-int-count 0)` → crash.
+
+### Looping path (`cycle-speed < 0`) does NOT crash
+
+Uses `res-lump-struct` (interp mode) which matches `-1e9` tags fine.
+Stores the symbol pointer directly in `user-float 2`, no `rand-vu-int-count` involved.
+
+### Decision matrix
+
+| Approach | Works? | Notes |
+|---|---|---|
+| `cycle-speed >= 0` (one-shot) | 💥 NO | crashes on bsphere entry |
+| `cycle-speed < 0` (loop) | ✅ YES | single sound only, loops while in range |
+| Multiple symbols + loop | ⚠️ PARTIAL | only first symbol used |
+| obs.gc `sound-play` trigger | ✅ YES | full control, no bugs |
+
+### Next steps
+- Implement looping sound emitters in addon using `cycle-speed: ["float", -1.0, 0.0]`
+- For one-shots / random sounds: use obs.gc trigger pattern
+- Music via `type='music` ambient is unaffected (different code path, no exact lookup)
