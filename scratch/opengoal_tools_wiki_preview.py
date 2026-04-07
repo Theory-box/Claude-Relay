@@ -262,7 +262,7 @@ def _unload_previews():
     _preview_collections.clear()
 
 
-def _draw_wiki_preview(layout, etype: str):
+def _draw_wiki_preview(layout, etype: str, ctx=None):
     """Draw image + description preview for the selected entity. Call from panel draw()."""
     wiki = ENTITY_WIKI.get(etype)
     if not wiki:
@@ -277,9 +277,15 @@ def _draw_wiki_preview(layout, etype: str):
     if pcoll and etype in pcoll:
         icon_id = pcoll[etype].icon_id
         col = box.column(align=True)
-        ui_scale   = bpy.context.preferences.system.ui_scale
-        region_w   = bpy.context.region.width
-        icon_scale = max(4.0, min(20.0, (region_w - 32) / (ui_scale * 20)))
+        try:
+            region   = ctx.region if ctx else bpy.context.region
+            ui_scale = (ctx or bpy.context).preferences.system.ui_scale
+            # region.width is the N-panel width in pixels.
+            # template_icon scale units = pixels / (ui_scale * 20).
+            # Subtract ~24px for box border + scrollbar.
+            icon_scale = max(4.0, min(20.0, (region.width - 24) / (ui_scale * 20)))
+        except Exception:
+            icon_scale = 8.0
         col.template_icon(icon_value=icon_id, scale=icon_scale)
     elif wiki.get('img'):
         box.label(text="Image not found — check enemy-images/ folder", icon="ERROR")
@@ -2414,7 +2420,7 @@ class OG_PT_PlaceObjects(Panel):
             layout.prop(props, "crate_type", text="Crate Type")
 
         # ── Wiki image + description preview ──────────────────────────────
-        _draw_wiki_preview(layout, etype)
+        _draw_wiki_preview(layout, etype, ctx)
 
         # ── Spawn requirements info box ───────────────────────────────────
         if einfo.get("is_prop"):
