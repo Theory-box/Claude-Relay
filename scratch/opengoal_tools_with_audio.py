@@ -869,30 +869,6 @@ def log(m):        print(f"[OpenGOAL] {m}")
 # AUDIO ENUMS
 # ---------------------------------------------------------------------------
 
-MUSIC_BANK_ITEMS = [
-    ("none",       "None",               "", 0),
-    ("menu",       "menu",               "", 1),
-    ("village1",   "village1",           "", 2),
-    ("beach",      "beach",              "", 3),
-    ("jungle",     "jungle",             "", 4),
-    ("misty",      "misty",              "", 5),
-    ("firecanyon", "firecanyon",         "", 6),
-    ("village2",   "village2",           "", 7),
-    ("sunken",     "sunken",             "", 8),
-    ("swamp",      "swamp",              "", 9),
-    ("rolling",    "rolling",            "", 10),
-    ("ogre",       "ogre",               "", 11),
-    ("village3",   "village3",           "", 12),
-    ("snow",       "snow",               "", 13),
-    ("maincave",   "maincave",           "", 14),
-    ("darkcave",   "darkcave",           "", 15),
-    ("robocave",   "robocave",           "", 16),
-    ("lavatube",   "lavatube",           "", 17),
-    ("citadel",    "citadel",            "", 18),
-    ("finalboss",  "finalboss",          "", 19),
-    ("custom",     "Custom (type below)", "", 20),
-]
-
 # ---------------------------------------------------------------------------
 # SBK SOUND DATA — extracted from Jak 1 .SBK binary files
 # ---------------------------------------------------------------------------
@@ -2005,13 +1981,8 @@ class OGProperties(PropertyGroup):
     sfx_sound:              EnumProperty(name="Sound", items=ALL_SFX_ITEMS, default="jump",
                                          description="Sound to place — [Plyr/Eco/Env/Obj/Enemy/Pick/Gen] = common, [Bank] = level bank")
     # Audio
-    music_bank:             EnumProperty(name="Music Bank", items=MUSIC_BANK_ITEMS, default="none",
-                                         description="Music bank to load for this level")
-    music_bank_custom:      StringProperty(name="Custom Bank Name", default="",
-                                           description="Custom music bank name (used when Music Bank is set to Custom)")
-    sound_banks:            StringProperty(name="Sound Banks",
-                                           description="Space-separated list of sound banks e.g. 'common village1'",
-                                           default="")
+
+
     ambient_default_radius: FloatProperty(name="Default Emitter Radius (m)", default=15.0, min=1.0, max=200.0,
                                           description="Bsphere radius for new sound emitter empties")
 
@@ -2492,16 +2463,6 @@ def _make_continues(name, spawns):
 def patch_level_info(name, spawns, scene=None):
     p = _level_info()
     if not p.exists(): log(f"WARNING: {p} not found"); return
-    # Audio settings from scene props (if scene provided)
-    if scene is not None:
-        props = scene.og_props
-        _bank = props.music_bank_custom.strip() if props.music_bank == "custom" else props.music_bank
-        _music_val = f"'{_bank}" if _bank and _bank != "none" else "#f"
-        _sbanks = " ".join(f"'{s}" for s in props.sound_banks.split() if s)
-        _sbanks_val = f"'({_sbanks})" if _sbanks else "'()"
-    else:
-        _music_val = "#f"
-        _sbanks_val = "'()"
     if scene is not None:
         props  = scene.og_props
         b1     = props.sound_bank_1 if props.sound_bank_1 != "none" else None
@@ -2512,7 +2473,7 @@ def patch_level_info(name, spawns, scene=None):
     else:
         _sbanks_val = "'()"
         _music_val  = "#f"
-        block = (f"\n(define {name}\n"
+    block = (f"\n(define {name}\n"
              f"  (new 'static 'level-load-info\n"
              f"       :index 27\n"
              f"       :name '{name}\n"
@@ -3516,85 +3477,8 @@ def _actor_uses_navmesh(etype):
 # OPERATOR + PANEL — Audio / Ambience
 # ---------------------------------------------------------------------------
 
-class OG_OT_AddSoundEmitter(Operator):
-    """Add a sound emitter empty at the 3D cursor"""
-    bl_idname  = "og.add_sound_emitter"
-    bl_label   = "Add Sound Emitter"
-    bl_options = {"REGISTER", "UNDO"}
-
-    def execute(self, ctx):
-        props = ctx.scene.og_props
-        existing = [o for o in ctx.scene.objects if o.name.startswith("AMBIENT_snd")]
-        idx  = len(existing) + 1
-        name = f"AMBIENT_snd{idx:03d}"
-
-        bpy.ops.object.empty_add(type="SPHERE", location=ctx.scene.cursor.location)
-        o = ctx.active_object
-        o.name = name
-        o.show_name = True
-        o.empty_display_size = max(0.3, props.ambient_default_radius * 0.05)
-        o.color = (0.2, 0.8, 1.0, 1.0)
-
-        # Stamp editable custom props
-        o["og_sound_name"]   = "silence"
-        o["og_sound_radius"] = props.ambient_default_radius
-        o["og_sound_volume"] = 1.0
-        o["og_sound_mode"]   = "ambient"
-
-        self.report({"INFO"}, f"Added '{name}' — edit og_sound_name in Object Properties")
-        return {"FINISHED"}
 
 
-class OG_PT_Audio(Panel):
-    bl_label       = "🔊  Audio / Ambience"
-    bl_idname      = "OG_PT_audio"
-    bl_space_type  = "VIEW_3D"
-    bl_region_type = "UI"
-    bl_category    = "OpenGOAL"
-    bl_options     = {"DEFAULT_CLOSED"}
-
-    def draw(self, ctx):
-        layout = self.layout
-        props  = ctx.scene.og_props
-
-        # ── Level-wide Music ─────────────────────────────────────────────
-        box = layout.box()
-        box.label(text="Level Music", icon="PLAY")
-        col = box.column(align=True)
-        col.prop(props, "music_bank", text="Bank")
-        if props.music_bank == "custom":
-            col.prop(props, "music_bank_custom", text="Name")
-
-        # ── Sound Banks ──────────────────────────────────────────────────
-        box2 = layout.box()
-        box2.label(text="Sound Banks", icon="SPEAKER")
-        box2.prop(props, "sound_banks", text="")
-        box2.label(text="Space-separated  e.g.  common village1", icon="INFO")
-
-        layout.separator(factor=0.4)
-
-        # ── Sound Emitters ───────────────────────────────────────────────
-        box3 = layout.box()
-        box3.label(text="Sound Emitters", icon="OUTLINER_OB_SPEAKER")
-        col3 = box3.column(align=True)
-        col3.prop(props, "ambient_default_radius", text="Default Radius (m)")
-        col3.operator("og.add_sound_emitter", text="Add Emitter at Cursor", icon="ADD")
-
-        # List existing emitters
-        emitters = [o for o in ctx.scene.objects
-                    if o.name.startswith("AMBIENT_") and o.type == "EMPTY"]
-        if emitters:
-            layout.separator(factor=0.3)
-            sub = layout.box()
-            sub.label(text=f"{len(emitters)} emitter(s) in scene:", icon="OUTLINER_OB_EMPTY")
-            for o in emitters[:8]:
-                row = sub.row(align=True)
-                snd = o.get("og_sound_name", "hint")
-                row.label(text=f"{o.name}  →  {snd}", icon="DOT")
-            if len(emitters) > 8:
-                sub.label(text=f"… and {len(emitters) - 8} more")
-        else:
-            layout.label(text="No emitters placed yet", icon="INFO")
 
 
 # ---------------------------------------------------------------------------
