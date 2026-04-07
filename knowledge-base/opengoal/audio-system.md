@@ -28,8 +28,11 @@ Researched from `goal_src/jak1/` source. Last updated: April 2026.
 
 ## How Music Works
 
-`:music-bank` on `level-load-info` does **not** directly play music.
-It is only read during **player death/respawn** (`target-death.gc`) to reset music to the level default.
+`:music-bank` on `level-load-info` serves two roles:
+1. **Level activation** (`main.gc` line 392) — sets the default music when the level first becomes active
+2. **Player death/respawn** (`target-death.gc`) — resets music back to this value after a death
+
+So it *does* drive initial music playback — setting it to e.g. `'village1` will start that music when the level loads.
 
 ### The real music chain:
 1. A `set-setting! 'music '<bank-symbol> 0.0 0` call sets the active music
@@ -82,26 +85,48 @@ The `entity-ambient` system supports these `type` lump values:
 | `'ocean-near-off` | Disables near ocean in zone |
 
 ### Sound ambient lump format (type `'sound`):
-```json
+
+**One-shot / randomised** (positive `cycle-speed`):
+```jsonc
 "lump": {
   "name": "my-ambient",
   "type": "'sound",
-  "effect-name": "'thunder",
-  "volume": 1.0,
-  "play-mode": "'ambient"
+  "effect-name": ["symbol", "thunder"],      // sound name from a loaded bank
+  "cycle-speed": ["float", 3.0, 2.0]         // fires every 3-5s (base + rand)
 }
 ```
 
+**Looping** (negative `cycle-speed`):
+```jsonc
+"lump": {
+  "name": "waterfall-loop",
+  "type": "'sound",
+  "effect-name": ["symbol", "waterfall"],
+  "cycle-speed": ["float", -1.0, 0.0]        // negative = continuous loop
+}
+```
+
+**Multiple random sounds from one emitter** — give `effect-name` multiple values, engine picks randomly:
+```jsonc
+"effect-name": ["symbol", "bird-1", "bird-2", "bird-3"]
+```
+
+`effect-name` uses the `["symbol", ...]` array lump format — **not** a bare string like `"'thunder"`.
+
 ### Music ambient lump format (type `'music`):
-```json
+```jsonc
 "lump": {
   "name": "my-music-zone",
   "type": "'music",
-  "music": 0.0,
-  "flava": 1.0
+  "music": ["symbol", "village1"],   // music bank to activate
+  "flava": ["float", 5.0],           // flava variant index (see flava table above)
+  "priority": ["float", 10.0]        // higher priority wins when zones overlap
 }
 ```
-*(music/flava are stored as floats — actual symbol lookup happens at runtime)*
+
+The `priority` lump is important when two music zones overlap — the higher value wins. Vanilla game uses values around 10.0 for normal zones, 40.0 for race/boss overrides.
+
+`'danger` is a special music bank name used by battle controllers to trigger a distinct combat track — it works like any other bank name in the `'music` setting.
 
 ---
 
@@ -151,19 +176,76 @@ zoomer-loop, zoomer-melt, zoomer-rev1, zoomer-rev2, zoomer-start, zoomer-stop
 
 ---
 
+## Trigger Volume Music Switching via GOAL (obs.gc)
+
+For precise rectangular trigger zones (vs sphere-only ambients), write a process in your `{level}-obs.gc` that polls Jak's position and calls `set-setting!`. This is the same AABB polling pattern used for camera triggers.
+
+```lisp
+(defun my-level-obs-init ()
+  (process-spawn-function process
+    (lambda ()
+      (let ((inside-cave #f))
+        (loop
+          (when *target*
+            (let* ((pos (-> *target* control trans))
+                   (in-cave (and (< 150.0 (-> pos x)) (< (-> pos x) 300.0)
+                                 (< -50.0 (-> pos z)) (< (-> pos z) 50.0))))
+              (cond
+                ((and in-cave (not inside-cave))
+                 (set! inside-cave #t)
+                 (set-setting! 'sound-flava #f 40.0 (music-flava darkcave)))
+                ((and (not in-cave) inside-cave)
+                 (set! inside-cave #f)
+                 (remove-setting! 'sound-flava)))))
+          (suspend))))
+    :to *entity-pool*)
+  (none))
+```
+
+### Useful `set-setting!` calls for music:
+
+```lisp
+;; Switch the entire music bank
+(set-setting! 'music 'maincave 0.0 0)
+
+;; Switch to a flava variant (priority 40.0 overrides normal zones)
+(set-setting! 'sound-flava #f 40.0 (music-flava rolling-gorge))
+
+;; Temporarily silence music (e.g. cutscene)
+(set-setting! 'music-volume 'abs 0.0 0)
+
+;; Revert any of the above
+(remove-setting! 'sound-flava)
+(remove-setting! 'music)
+(remove-setting! 'music-volume)
+```
+
+Real game examples using this pattern:
+- `rolling-obs.gc` — gorge race switches to `rolling-gorge` flava on race start, removes on exit
+- `battlecontroller.gc` — sets `'music` to `'danger` when battle begins, removes when enemies cleared
+- `citadel-sages.gc` — sets `sound-flava` per sage colour (red/blue/yellow)
+
+---
+
+## Which Bank Does a Sound Come From?
+
+The 212 names sourced from `sound-play` calls span multiple banks. For sounds to play they need their bank loaded. See `sbk-sound-contents.md` for the full per-bank breakdown (1,048 sounds total).
+
+**Quick rule:** `common.sbk` (461 sounds, always loaded) covers all footsteps, eco pickups, UI, Jak's voice, most enemy sounds, and general SFX. Level banks add area-specific ambience on top.
+
+Sounds safe to use in any custom level (always in `common`): `waterfall`, `water-drop`, `explosion`, `cell-prize`, `money-pickup`, `buzzer-pickup`, `jump`, `land-grass`, `land-pcmetal`, `eco-plat-hover`, `warpgate-tele`, `door-lock`, `door-unlock`, `select-menu`, `cursor-up-down`.
+
+---
+
 ## Implications for the Blender Addon
 
-### What works now:
+### What works:
 - `:sound-banks` — loads audio banks, use 1-2 names from the valid list above
-- `:music-bank` — sets the respawn-default music (minor but worth setting correctly)
-- Sound emitters via `AMBIENT_` empties with `og_sound_name` set to any name from the 212 list above
+- `:music-bank` — sets default music on level load AND on respawn after death
+- Sound emitters via `AMBIENT_` empties using `["symbol", "sound-name"]` lump format
+- Music zones via `"type": "'music"` ambients with `music`, `flava`, `priority` lumps
+- Trigger volume music via obs.gc `set-setting!` (same pattern as camera triggers)
 
-### What needs more work:
-- Music zone triggers (need `type='music` ambient with correct lump format)
-- The `effect-name` lump for `type='sound` ambients should use `'symbol` not a plain string
-- `ambient-sounds` list in level-load-info is unused by all vanilla levels — likely a PS2-era remnant
-
-### Open questions:
-- Do the 212 SFX names require a specific sound bank to be loaded, or are some in `common.sbk`?
-- Can `type='sound` ambients loop, or are they one-shot only?
-- What is the exact JSONC lump format OpenGOAL's custom level parser expects for `effect-name`?
+### Notes:
+- `ambient-sounds` list in level-load-info is unused by all vanilla levels — likely a PS2-era remnant, ignore it
+- `"type": "'sound"` ambient `effect-name` must use `["symbol", ...]` array format, not a bare string
