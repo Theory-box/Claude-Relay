@@ -198,3 +198,10 @@ Uses 5-proxy CORS fallback chain (allorigins → corsproxy.io → codetabs → t
 ### Next steps for addon integration
 - Wire image filenames to code names (image filename → `code_name` field in JSON)
 - Add enemy picker UI in Blender addon using images + short_desc
+
+## Known Enemy Issues
+
+### Double Lurker — crashes game
+`double-lurker` causes a crash when spawned in a custom level. Needs further investigation.
+Possible causes: requires linked actor pair (two entities referencing each other), or specific tpage/DGO dependency not met.
+TODO: check `double-lurker.gc` for any paired actor setup logic.
