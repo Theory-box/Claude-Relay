@@ -793,13 +793,9 @@ def _camera_aabb_to_planes(b_min, b_max):
 def collect_cameras(scene):
     """Build camera actor list from CAMERA_ camera objects.
 
-    Cameras are Blender CAMERA type objects named CAMERA_<n>.
-    Trigger volumes are MESH objects named CAMVOL_<n> with an 'og_cam_link'
-    custom property pointing to the camera name (set via Link Trigger Volume).
-
-    Returns (camera_actors, trigger_list) where:
-      camera_actors — list of JSONC actor dicts ready for actors array
-      trigger_list  — list of dicts with AABB bounds (game units) for obs.gc
+    Returns (camera_actors, trigger_actors) where both are JSONC actor dicts.
+    camera_actors  -- camera-marker entities (hold position/rotation)
+    trigger_actors -- camera-trigger entities (AABB polling, birth on level load)
     """
     cam_objects = sorted(
         [o for o in scene.objects
@@ -807,46 +803,37 @@ def collect_cameras(scene):
         key=lambda o: o.name,
     )
 
-    # Build reverse map: cam_name -> volume mesh object
     vol_by_cam = {}
     for o in scene.objects:
         if o.type == "MESH" and o.name.startswith("CAMVOL_"):
             link = o.get("og_cam_link", "")
             if link:
-                vol_by_cam[link] = o  # last one wins if multiple linked
+                vol_by_cam[link] = o
 
-    camera_actors = []
-    trigger_list  = []
+    camera_actors  = []
+    trigger_actors = []
 
     for cam_obj in cam_objects:
         cam_name = cam_obj.name
 
-        # --- Position: Blender -> game coords ---
         loc = cam_obj.matrix_world.translation
         gx = round(loc.x, 4)
         gy = round(loc.z, 4)
         gz = round(-loc.y, 4)
 
-        # --- Rotation: Blender camera -> game quaternion ---
-        # Blender camera: -Z is the look direction, Y is up.
-        # Game cam-fixed: -Z is the look direction.
-        # We apply a -90° X rotation to align Blender camera convention
-        # with the game's coordinate frame (Y-up vs Z-up).
         import mathutils
         rot_bl  = cam_obj.matrix_world.to_quaternion()
         offset  = mathutils.Quaternion((1, 0, 0), math.radians(-90))
         rot_adj = rot_bl @ offset
-        # Remap axes: game X=bl X, game Y=bl Z, game Z=-bl Y
         bx, by, bz, bw = rot_adj.x, rot_adj.y, rot_adj.z, rot_adj.w
         qx = round(bx, 6)
         qy = round(bz, 6)
         qz = round(-by, 6)
         qw = round(bw, 6)
 
-        # --- Camera mode and lump data ---
-        cam_mode  = cam_obj.get("og_cam_mode",  "fixed")
-        interp_t  = float(cam_obj.get("og_cam_interp", 1.0))
-        fov_deg   = float(cam_obj.get("og_cam_fov",    0.0))
+        cam_mode = cam_obj.get("og_cam_mode",  "fixed")
+        interp_t = float(cam_obj.get("og_cam_interp", 1.0))
+        fov_deg  = float(cam_obj.get("og_cam_fov",    0.0))
 
         lump = {"name": cam_name}
         lump["interpTime"] = ["float", round(interp_t, 3)]
@@ -858,28 +845,25 @@ def collect_cameras(scene):
             align_obj  = scene.objects.get(align_name)
             if align_obj:
                 al = align_obj.matrix_world.translation
-                ax = round(al.x, 4); ay = round(al.z, 4); az = round(-al.y, 4)
-                lump["trans"] = ["vector3m", [gx, gy, gz]]
-                lump["align"] = ["vector3m", [ax, ay, az]]
-                log(f"  [camera] {cam_name} standoff — align={align_name}")
+                lump["trans"] = ["vector3m", [round(al.x,4), round(al.z,4), round(-al.y,4)]]
+                lump["align"] = ["vector3m", [gx, gy, gz]]
+                log(f"  [camera] {cam_name} standoff -- align={align_name}")
             else:
-                log(f"  [camera] WARNING: {cam_name} mode=standoff but no {align_name} found — falling back to fixed")
-
+                log(f"  [camera] WARNING: {cam_name} standoff but no {align_name}")
         elif cam_mode == "orbit":
             pivot_name = cam_name + "_PIVOT"
             pivot_obj  = scene.objects.get(pivot_name)
             if pivot_obj:
                 pl = pivot_obj.matrix_world.translation
-                px = round(pl.x, 4); py = round(pl.z, 4); pz = round(-pl.y, 4)
                 lump["trans"] = ["vector3m", [gx, gy, gz]]
-                lump["pivot"] = ["vector3m", [px, py, pz]]
-                log(f"  [camera] {cam_name} orbit — pivot={pivot_name}")
+                lump["pivot"] = ["vector3m", [round(pl.x,4), round(pl.z,4), round(-pl.y,4)]]
+                log(f"  [camera] {cam_name} orbit -- pivot={pivot_name}")
             else:
-                log(f"  [camera] WARNING: {cam_name} mode=orbit but no {pivot_name} found — falling back to fixed")
+                log(f"  [camera] WARNING: {cam_name} orbit but no {pivot_name}")
 
         camera_actors.append({
             "trans":     [gx, gy, gz],
-            "etype":     "camera-marker",  # defined in obs.gc — no art group needed
+            "etype":     "camera-marker",
             "game_task": 0,
             "quat":      [qx, qy, qz, qw],
             "vis_id":    0,
@@ -887,67 +871,44 @@ def collect_cameras(scene):
             "lump":      lump,
         })
 
-        # --- Trigger volume (linked via og_cam_link) ---
         vol_obj = vol_by_cam.get(cam_name)
         if vol_obj:
             corners = [vol_obj.matrix_world @ v.co for v in vol_obj.data.vertices]
             gc = [(c.x, c.z, -c.y) for c in corners]
             xs = [c[0] for c in gc]; ys = [c[1] for c in gc]; zs = [c[2] for c in gc]
-            METER = 4096.0
-            trigger_list.append({
-                "cam_name": cam_name,
-                "gx0": round(min(xs) * METER, 1), "gx1": round(max(xs) * METER, 1),
-                "gy0": round(min(ys) * METER, 1), "gy1": round(max(ys) * METER, 1),
-                "gz0": round(min(zs) * METER, 1), "gz1": round(max(zs) * METER, 1),
+            cx = round((min(xs)+max(xs))/2, 4)
+            cy = round((min(ys)+max(ys))/2, 4)
+            cz = round((min(zs)+max(zs))/2, 4)
+            rad = round(max(max(xs)-min(xs), max(ys)-min(ys), max(zs)-min(zs))/2 + 5.0, 2)
+            trigger_actors.append({
+                "trans":     [cx, cy, cz],
+                "etype":     "camera-trigger",
+                "game_task": 0,
+                "quat":      [0, 0, 0, 1],
+                "vis_id":    0,
+                "bsphere":   [cx, cy, cz, rad],
+                "lump": {
+                    "name":       f"camtrig-{cam_name.lower()}",
+                    "cam-name":   cam_name,
+                    "bound-xmin": ["meters", round(min(xs), 4)],
+                    "bound-xmax": ["meters", round(max(xs), 4)],
+                    "bound-ymin": ["meters", round(min(ys), 4)],
+                    "bound-ymax": ["meters", round(max(ys), 4)],
+                    "bound-zmin": ["meters", round(min(zs), 4)],
+                    "bound-zmax": ["meters", round(max(zs), 4)],
+                },
             })
-            log(f"  [camera] {cam_name} + trigger vol {vol_obj.name}")
+            log(f"  [camera] {cam_name} + trigger {vol_obj.name}")
         else:
-            log(f"  [camera] {cam_name} — no trigger volume (always-active)")
+            log(f"  [camera] {cam_name} -- no trigger volume")
 
-    return camera_actors, trigger_list
-
-
-def _build_camera_trigger_goal(trigger):
-    """Return a single inline GOAL expression that spawns a persistent camera
-    trigger process for one camera.  Sent via goalc_send() after player spawn.
-
-    The process loops each frame:
-      - checks if *target* (Jak) exists
-      - tests AABB bounds in game units
-      - sends change-to-entity-by-name on entry, clear-entity on exit
-    """
-    t = trigger
-    cam = t["cam_name"]
-    ev_in  = f'(send-event *camera* (quote change-to-entity-by-name) "{cam}")'
-    ev_out =  '(send-event *camera* (quote clear-entity))'
-    return (
-        f'(process-spawn-function process'
-        f' (lambda ()'
-        f' (let ((inside #f))'
-        f' (loop'
-        f' (when *target*'
-        f' (let* ((pos (-> *target* control trans))'
-        f' (in-vol (and'
-        f' (< (the float {t["gx0"]}) (-> pos x)) (< (-> pos x) (the float {t["gx1"]}))'
-        f' (< (the float {t["gy0"]}) (-> pos y)) (< (-> pos y) (the float {t["gy1"]}))'
-        f' (< (the float {t["gz0"]}) (-> pos z)) (< (-> pos z) (the float {t["gz1"]})))))'
-        f' (cond'
-        f' ((and in-vol (not inside)) (set! inside #t) {ev_in})'
-        f' ((and (not in-vol) inside) (set! inside #f) {ev_out}))))'
-        f' (suspend))))'
-        f' :to *entity-pool*)'
-    )
+    return camera_actors, trigger_actors
 
 
-def write_gc(name, triggers=None):
-    """Write the obs.gc file for the level.
-
-    Always defines a minimal 'camera-marker' type — the etype used by all
-    camera entities in the JSONC actors array. It has no art group, no
-    collision, and no art group lookup; it just holds position and idles.
-
-    If triggers is provided, also embeds a named {name}_obs_init() defun
-    that spawns GOAL camera trigger processes via process-spawn-function.
+def write_gc(name, has_triggers=False):
+    """Write obs.gc: always emits camera-marker type; if has_triggers also
+    emits camera-trigger type that births automatically on level load.
+    No nREPL call needed -- both types birth via entity-actor.birth!
     """
     d = _goal_src() / "levels" / name
     d.mkdir(parents=True, exist_ok=True)
@@ -958,40 +919,79 @@ def write_gc(name, triggers=None):
         "(in-package goal)",
         f";; {name}-obs.gc -- auto-generated by OpenGOAL Level Tools",
         "",
-        ";; Minimal camera entity type — no art group, no collision, just holds position.",
-        ";; Used as the etype for all camera-marker actors in the JSONC actors array.",
-        ";; entity-by-name finds it, change-to-entity-by-name reads its trans+quat.",
+        ";; camera-marker: inert entity that holds camera position/rotation.",
         "(deftype camera-marker (process-drawable)",
         "  ()",
-        "  (:states",
-        "    camera-marker-idle))",
+        "  (:states camera-marker-idle))",
         "",
         "(defstate camera-marker-idle (camera-marker)",
-        "  :code (behavior ()",
-        "    (loop (suspend))))",
+        "  :code (behavior () (loop (suspend))))",
         "",
         "(defmethod init-from-entity! ((this camera-marker) (arg0 entity-actor))",
-        "  (set! (-> this root) (new 'process 'trsqv))",
+        "  (set! (-> this root) (new (quote process) (quote trsqv)))",
         "  (process-drawable-from-entity! this arg0)",
         "  (go camera-marker-idle)",
         "  (none))",
         "",
     ]
 
-    if triggers:
-        fn = f"{name}_obs_init"
+    if has_triggers:
         lines += [
-            f"(defun {fn} ()",
-            f"  ;; Camera trigger processes — spawned after player load",
+            ";; camera-trigger: AABB volume entity that switches the active camera.",
+            ";; Reads bounds from meters lumps; reads cam-name string lump.",
+            ";; No nREPL call needed -- births automatically on level load.",
+            "(deftype camera-trigger (process-drawable)",
+            "  ((cam-name  string  :offset-assert 176)",
+            "   (xmin      float   :offset-assert 180)",
+            "   (xmax      float   :offset-assert 184)",
+            "   (ymin      float   :offset-assert 188)",
+            "   (ymax      float   :offset-assert 192)",
+            "   (zmin      float   :offset-assert 196)",
+            "   (zmax      float   :offset-assert 200)",
+            "   (inside    symbol  :offset-assert 204))",
+            "  :heap-base #x60",
+            "  :size-assert #xd0",
+            "  (:states camera-trigger-active))",
+            "",
+            "(defstate camera-trigger-active (camera-trigger)",
+            "  :code",
+            "  (behavior ()",
+            "    (loop",
+            "      (when *target*",
+            "        (let* ((pos (-> *target* control trans))",
+            "               (in-vol (and",
+            "                 (< (-> self xmin) (-> pos x)) (< (-> pos x) (-> self xmax))",
+            "                 (< (-> self ymin) (-> pos y)) (< (-> pos y) (-> self ymax))",
+            "                 (< (-> self zmin) (-> pos z)) (< (-> pos z) (-> self zmax)))))",
+            "          (cond",
+            "            ((and in-vol (not (-> self inside)))",
+            "             (set! (-> self inside) #t)",
+            "             (send-event *camera* (quote change-to-entity-by-name) (-> self cam-name)))",
+            "            ((and (not in-vol) (-> self inside))",
+            "             (set! (-> self inside) #f)",
+            "             (send-event *camera* (quote clear-entity))))))",
+            "      (suspend))))",
+            "",
+            "(defmethod init-from-entity! ((this camera-trigger) (arg0 entity-actor))",
+            "  (set! (-> this root) (new (quote process) (quote trsqv)))",
+            "  (process-drawable-from-entity! this arg0)",
+            "  (set! (-> this cam-name) (res-lump-struct arg0 (quote cam-name) string))",
+            "  (set! (-> this xmin) (res-lump-float arg0 (quote bound-xmin)))",
+            "  (set! (-> this xmax) (res-lump-float arg0 (quote bound-xmax)))",
+            "  (set! (-> this ymin) (res-lump-float arg0 (quote bound-ymin)))",
+            "  (set! (-> this ymax) (res-lump-float arg0 (quote bound-ymax)))",
+            "  (set! (-> this zmin) (res-lump-float arg0 (quote bound-zmin)))",
+            "  (set! (-> this zmax) (res-lump-float arg0 (quote bound-zmax)))",
+            "  (set! (-> this inside) #f)",
+            "  (go camera-trigger-active)",
+            "  (none))",
+            "",
         ]
-        for t in triggers:
-            expr = _build_camera_trigger_goal(t)
-            lines.append(f"  {expr}")
-        lines += ["  (none)", ")", ""]
-        log(f"  [write_gc] {len(triggers)} camera trigger(s) embedded in {fn}()")
+        log(f"  [write_gc] camera-trigger type embedded")
 
     p.write_text("\n".join(lines))
     log(f"Wrote {p}")
+
 
 
 # ---------------------------------------------------------------------------
@@ -3072,7 +3072,7 @@ def _bg_build(name, scene):
         tpages    = needed_tpages(actors)
         code_deps = needed_code(actors)
         collect_nav_mesh_geometry(scene, name)
-        cam_actors, triggers = collect_cameras(scene)
+        cam_actors, trigger_actors = collect_cameras(scene)
 
         if code_deps:
             state["status"] = f"Injecting code for: {[o for o,_,_ in code_deps]}..."
@@ -3080,10 +3080,10 @@ def _bg_build(name, scene):
 
         state["status"] = "Writing files..."
         base_id = scene.og_props.base_id
-        write_jsonc(name, actors, ambients, cam_actors, base_id)
+        write_jsonc(name, actors, ambients, cam_actors + trigger_actors, base_id)
         write_gd(name, ags, code_deps, tpages)
         navmesh_actors = _collect_navmesh_actors(scene)
-        write_gc(name, triggers)
+        write_gc(name, has_triggers=bool(trigger_actors))
         patch_entity_gc(navmesh_actors)
         patch_level_info(name, spawns, scene)
         patch_game_gp(name, code_deps)
@@ -3441,13 +3441,13 @@ def _bg_geo_rebuild(name, scene):
         ags      = needed_ags(actors)
         tpages   = needed_tpages(actors)
         code_deps = needed_code(actors)  # still needed for DGO .o injection
-        cam_actors, triggers = collect_cameras(scene)
+        cam_actors, trigger_actors = collect_cameras(scene)
 
         state["status"] = "Writing level files..."
         base_id = scene.og_props.base_id
-        write_jsonc(name, actors, ambients, cam_actors, base_id)
+        write_jsonc(name, actors, ambients, cam_actors + trigger_actors, base_id)
         write_gd(name, ags, code_deps, tpages)
-        write_gc(name, triggers)
+        write_gc(name, has_triggers=bool(trigger_actors))
         patch_level_info(name, spawns, scene)  # update spawn continue-points if moved
 
         # Run (mi) — re-extracts GLB, repacks DGO, skips unchanged .gc files
@@ -3553,14 +3553,14 @@ def _bg_build_and_play(name, scene):
         ags       = needed_ags(actors)
         tpages    = needed_tpages(actors)
         code_deps = needed_code(actors)
-        cam_actors, triggers = collect_cameras(scene)
+        cam_actors, trigger_actors = collect_cameras(scene)
 
         state["status"] = "Writing level files..."
         base_id = scene.og_props.base_id
-        write_jsonc(name, actors, ambients, cam_actors, base_id)
+        write_jsonc(name, actors, ambients, cam_actors + trigger_actors, base_id)
         write_gd(name, ags, code_deps, tpages)
         navmesh_actors = _collect_navmesh_actors(scene)
-        write_gc(name, triggers)
+        write_gc(name, has_triggers=bool(trigger_actors))
         patch_entity_gc(navmesh_actors)
         patch_level_info(name, spawns, scene)
         patch_game_gp(name, code_deps)
@@ -3621,14 +3621,6 @@ def _bg_build_and_play(name, scene):
                 time.sleep(1.0)
                 state["status"] = "Spawning player..."
                 goalc_send(f"(start 'play (or (get-continue-by-name *game-info* \"{name}-start\") (get-or-create-continue! *game-info*)))")
-                # Call camera obs_init after a short delay so *target* exists
-                if triggers:
-                    time.sleep(2.0)
-                    state["status"] = "Starting camera triggers..."
-                    init_fn = f"{name}_obs_init"
-                    log(f"[obs-init] calling ({init_fn})...")
-                    r2 = goalc_send(f"({init_fn})", timeout=10)
-                    log(f"[obs-init] response: {r2}")
                 spawned = True
                 break
         if not spawned:
