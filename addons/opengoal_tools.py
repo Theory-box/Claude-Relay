@@ -191,6 +191,117 @@ CRATE_ITEMS = [
 ]
 
 
+# ---------------------------------------------------------------------------
+# WIKI DATA — images + descriptions scraped from jakanddaxter.fandom.com
+# Images live in: <addon_dir>/enemy-images/<filename>
+# ---------------------------------------------------------------------------
+
+ENTITY_WIKI = {
+    'aphid':                 {'img': 'Aphid lurker render.jpg',                               'desc': 'The aphid lurker is an insectoid lurker enemy in The Precursor Legacy. They spawn from the dark eco plant to defend it during the mission "Defeat the dark eco plant" within the Forbidden Temple.'},
+    'babak':                 {'img': 'Babak render.jpg',                                      'desc': "The babak is a type of lurker in The Precursor Legacy, Daxter, and Jak II. They are introduced as enemies, being the most common foot soldiers in Gol Acheron and Maia's army."},
+    'baby-spider':           {'img': 'Baby spider (lurker) render.jpg',                       'desc': 'Small spider lurkers found in Spider Cave. They accompany the Mother Spider and swarm Jak on approach.'},
+    'balloonlurker':         {'img': None,                                                    'desc': 'The mine dropper, also known as the lurker balloon, is a vehicle operated by a balloon lurker in The Precursor Legacy. Several were seen flying around the bay near the Lurker ship at Misty Island.'},
+    'billy':                 {'img': None,                                                    'desc': 'A lurker frog type found in Boggy Swamp.'},
+    'bonelurker':            {'img': 'Bone armor lurker render.jpg',                          'desc': "The bone armor lurker is an enemy in The Precursor Legacy, only seen on Misty Island. It confronted Jak and Daxter in the opening cutscene, causing Daxter's transformation into an ottsel."},
+    'bully':                 {'img': 'Bully render.jpg',                                      'desc': 'The bully, also known as the spinning lurker, is an enemy in The Precursor Legacy. They were only found in pool hubs at the lost Precursor city.'},
+    'double-lurker':         {'img': 'Double lurker render.jpg',                              'desc': 'The double lurker is a team of enemies in The Precursor Legacy — two blue-tinted lurkers stacked on top of each other, the smaller riding on the larger to provide height and reach.'},
+    'driller-lurker':        {'img': 'Driller lurker render.jpg',                             'desc': 'The driller lurker is an enemy in The Precursor Legacy that mines cave rock with its drill. Found in Spider Cave, drilling away at the Precursor robot excavation site.'},
+    'flying-lurker':         {'img': 'Pedal-copter lurker render.jpg',                        'desc': 'The pedal-copter lurker, also known as a flying lurker, is an enemy in The Precursor Legacy. Only found in Mountain Pass, they travel in a scouting party to detonate mines in the Pass.'},
+    'gnawer':                {'img': 'Gnawing lurker render.jpg',                             'desc': 'The gnawing lurker is a species of lurker encountered at Spider Cave. Found throughout the cave gnawing on wooden support beams — Jak must eliminate them before they bring the cave down.'},
+    'green-eco-lurker':      {'img': 'Green eco lurker render.jpg',                           'desc': 'The green eco lurker, also known as the dark eco lurker, is a lurker enemy in The Precursor Legacy. They were created by Gol Acheron and Maia — one of the only lurkers known to be artificially created.'},
+    'hopper':                {'img': 'Hopper (lurker) render.jpg',                            'desc': 'A type of lurker encountered in the Forbidden Jungle during The Precursor Legacy. They are agile, jumping lurkers that patrol the jungle floor.'},
+    'junglefish':            {'img': 'Jungle fish render.jpg',                                'desc': 'The jungle fish, also known as the fish lurker, is an enemy in The Precursor Legacy. Fish transformed into lurkers by Maia through dark eco sorcery — among the only lurkers known to be artificially created.'},
+    'junglesnake':           {'img': 'Lurker snake render.jpg',                               'desc': 'The lurker snake is an enemy in The Precursor Legacy — large brown serpentine lurkers residing in the canopy of Forbidden Jungle. They hang from branches at fixed points, attacking intruders below.'},
+    'kermit':                {'img': 'Lurker toad render.jpg',                                'desc': 'The lurker toad is an enemy in The Precursor Legacy. A large purple frog lurker found hopping around Boggy Swamp, making a very loud croaking noise.'},
+    'lurker-shark':          {'img': 'Lurker shark from The Precursor Legacy render.jpg',     'desc': "The lurker shark is a large orange shark-like creature inhabiting the oceans in The Precursor Legacy, serving as the game's invisible wall mechanism to prevent the player from moving too far into the water."},
+    'lurkercrab':            {'img': 'Lurker crab render.jpg',                                'desc': 'The lurker crab is an enemy found at Sentinel Beach. They closely resemble hermit crabs, hiding under their shell until they reach out for an attack.'},
+    'lurkerpuppy':           {'img': 'Lurker puppy render.jpg',                               'desc': 'The lurker puppy is a small lurker patrolling the higher regions of Sentinel Beach. Maroon in colour, bearing close resemblance to a small dog.'},
+    'lurkerworm':            {'img': 'Sand worm render.jpg',                                  'desc': 'The sand worm, also known as the sea serpent lurker, is an enemy in The Precursor Legacy. Lurkers dwelling in sand pits at Sentinel Beach — they burst from the ground to attack.'},
+    'mother-spider':         {'img': 'Mother spider (lurker) render.jpg',                     'desc': 'The mother spider is the boss-type spider lurker in Spider Cave. Larger than its baby spider offspring, it serves as the primary threat of the cave.'},
+    'ogreboss':              {'img': 'Klaww render.jpg',                                      'desc': "Klaww is a large lurker boss in The Precursor Legacy, operating from a volcanic section of Mountain Pass. He terrorized Rock Village by bombarding it with boulders before Jak confronted him."},
+    'plant-boss':            {'img': 'Dark eco plant render.jpg',                             'desc': "The dark eco plant is a boss-level enemy in The Precursor Legacy — a massively mutated dark eco plant in the Forbidden Temple. It is the first boss in the game, though its defeat is entirely optional."},
+    'puffer':                {'img': 'Puffer render.jpg',                                     'desc': 'The puffer, also known as a flying lurker, is an enemy in The Precursor Legacy, found in the lost Precursor city. It inflates to deal damage on contact.'},
+    'quicksandlurker':       {'img': 'Quicksand lurker render.jpg',                           'desc': 'The quicksand lurker, also known as the fireball lurker, is an enemy in The Precursor Legacy. A small purple lurker indigenous to the mud ponds of Misty Island — it spits dark eco fireballs.'},
+    'robotboss':             {'img': None,                                                    'desc': "Gol and Maia's Precursor robot is the final boss of The Precursor Legacy. An ancient Precursor war machine excavated and reactivated by the two dark eco sages to open the dark eco silos."},
+    'rolling-lightning-mole':{'img': None,                                                    'desc': 'The lightning mole is a medium-sized subterranean animal in The Precursor Legacy. Scared out of their holes by a band of lurker robbers — Jak must herd them back into their holes in Precursor Basin.'},
+    'rolling-robber':        {'img': 'Robber render.jpg',                                     'desc': "The robber is a lurker enemy in The Precursor Legacy, found in Precursor Basin. Robbers scared the rare lightning moles out of their underground holes — Jak must drive them off to restore order."},
+    'snow-bunny':            {'img': 'Snow bunny render.jpg',                                 'desc': "The snow bunny is an enemy in The Precursor Legacy, encountered at Snowy Mountain and Gol and Maia's citadel. Small but aggressive cold-weather lurkers."},
+    'snow-ram-boss':         {'img': 'Ice lurker render.jpg',                                 'desc': 'The ice lurker, also known as the ice monster, is an enemy in The Precursor Legacy, spawning from the slippery ice regions of Snowy Mountain.'},
+    'swamp-bat':             {'img': 'Swamp bat render.jpg',                                  'desc': 'The swamp bat is an enemy in The Precursor Legacy, commonly found flying in swarms near Boggy Swamp. They follow set patrol paths through the air.'},
+    'swamp-rat':             {'img': 'Swamp rat render.jpg',                                  'desc': 'The swamp rat, also known as the rat lurker, is an enemy in The Precursor Legacy. Mutated rats bearing lurker traits, dwelling in the poisonous mud of Boggy Swamp. They spawn from nest-like structures.'},
+    'yeti':                  {'img': 'Yeti render.jpg',                                       'desc': "The yeti is the glacier variant of the babak lurker, encountered in The Precursor Legacy's colder regions. Larger and tougher than the standard babak."},
+}
+
+# Preview collection — loaded once at register(), cleared at unregister().
+# bpy.utils.previews is the correct Blender API for custom images in panels.
+# icon_id is just an integer texture lookup — zero overhead in draw().
+_preview_collections: dict = {}
+
+
+def _load_previews():
+    """Load all enemy images into a PreviewCollection. Called from register()."""
+    import bpy.utils.previews, os
+    pcoll = bpy.utils.previews.new()
+    img_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'enemy-images')
+    if os.path.isdir(img_dir):
+        for etype, wiki in ENTITY_WIKI.items():
+            fname = wiki.get('img')
+            if not fname:
+                continue
+            fpath = os.path.join(img_dir, fname)
+            if os.path.exists(fpath) and etype not in pcoll:
+                pcoll.load(etype, fpath, 'IMAGE')
+    _preview_collections['wiki'] = pcoll
+
+
+def _unload_previews():
+    """Remove preview collection. Called from unregister()."""
+    import bpy.utils.previews
+    for pcoll in _preview_collections.values():
+        bpy.utils.previews.remove(pcoll)
+    _preview_collections.clear()
+
+
+def _draw_wiki_preview(layout, etype: str, ctx=None):
+    """Draw image + description preview for the selected entity. Call from panel draw()."""
+    wiki = ENTITY_WIKI.get(etype)
+    if not wiki:
+        return
+
+    pcoll = _preview_collections.get('wiki')
+    box = layout.box()
+
+    # ── Image ─────────────────────────────────────────────────────────────
+    # layout.label(icon_value=) is the standard Blender addon pattern for
+    # custom images. scale_y enlarges the row so the icon renders big.
+    if pcoll and etype in pcoll:
+        icon_id = pcoll[etype].icon_id
+        col = box.column(align=True)
+        col.template_icon(icon_value=icon_id, scale=8.0)
+    elif wiki.get('img'):
+        box.label(text="Image not found — check enemy-images/ folder", icon="ERROR")
+    else:
+        box.label(text="No image available", icon="IMAGE_DATA")
+
+    # ── Description ────────────────────────────────────────────────────────
+    desc = wiki.get('desc', '').strip()
+    if desc:
+        col = box.column(align=True)
+        words = desc.split()
+        line, out = [], []
+        for w in words:
+            if sum(len(x) + 1 for x in line) + len(w) > 52:
+                out.append(' '.join(line))
+                line = [w]
+            else:
+                line.append(w)
+        if line:
+            out.append(' '.join(line))
+        for ln in out:
+            col.label(text=ln)
+
+
+
 def _build_entity_enum():
     # Tpage group display order — enemies are grouped so users know which share heap budget.
     # Mixing more than 2 groups in one scene risks OOM crash on level load.
@@ -220,7 +331,8 @@ def _build_entity_enum():
                     warn = "" if nav_safe else " [nav]"
                     if needs_path:
                         warn += " [path]"
-                    items.append((etype, f"[{group}] {info['label']}{warn}", etype, i))
+                    tip = ENTITY_WIKI.get(etype, {}).get("desc", "") or etype
+                    items.append((etype, f"[{group}] {info['label']}{warn}", tip, i))
                     i += 1
         else:
             for etype, info in sorted(cats[cat], key=lambda x: x[1]["label"]):
@@ -229,7 +341,8 @@ def _build_entity_enum():
                 warn = "" if nav_safe else " [nav]"
                 if needs_path:
                     warn += " [path]"
-                items.append((etype, f"[{cat}] {info['label']}{warn}", etype, i))
+                tip = ENTITY_WIKI.get(etype, {}).get("desc", "") or etype
+                items.append((etype, f"[{cat}] {info['label']}{warn}", tip, i))
                 i += 1
     return items
 
@@ -2297,7 +2410,10 @@ class OG_PT_PlaceObjects(Panel):
         if etype == "crate":
             layout.prop(props, "crate_type", text="Crate Type")
 
-        # Info box for the selected entity type
+        # ── Wiki image + description preview ──────────────────────────────
+        _draw_wiki_preview(layout, etype, ctx)
+
+        # ── Spawn requirements info box ───────────────────────────────────
         if einfo.get("is_prop"):
             box = layout.box()
             box.label(text="Prop — idle animation only", icon="INFO")
@@ -2785,6 +2901,7 @@ classes = (
 )
 
 def register():
+    _load_previews()
     for cls in classes:
         bpy.utils.register_class(cls)
     bpy.types.Scene.og_props = PointerProperty(type=OGProperties)
@@ -2816,6 +2933,7 @@ def register():
     bpy.types.Object.collide_mode          = bpy.props.EnumProperty(items=pat_modes,    name="Mode")
 
 def unregister():
+    _unload_previews()
     bpy.types.MATERIAL_PT_custom_props.remove(_draw_mat)
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)

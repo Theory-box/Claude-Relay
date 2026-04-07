@@ -277,16 +277,7 @@ def _draw_wiki_preview(layout, etype: str, ctx=None):
     if pcoll and etype in pcoll:
         icon_id = pcoll[etype].icon_id
         col = box.column(align=True)
-        try:
-            region   = ctx.region if ctx else bpy.context.region
-            ui_scale = (ctx or bpy.context).preferences.system.ui_scale
-            # region.width is the N-panel width in pixels.
-            # template_icon scale units = pixels / (ui_scale * 20).
-            # Subtract ~24px for box border + scrollbar.
-            icon_scale = max(4.0, min(20.0, (region.width - 24) / (ui_scale * 20)))
-        except Exception:
-            icon_scale = 8.0
-        col.template_icon(icon_value=icon_id, scale=icon_scale)
+        col.template_icon(icon_value=icon_id, scale=8.0)
     elif wiki.get('img'):
         box.label(text="Image not found — check enemy-images/ folder", icon="ERROR")
     else:
