@@ -249,13 +249,9 @@ def _get_wiki_image(etype: str):
     if not os.path.exists(img_path):
         _wiki_image_cache[etype] = None
         return None
-    # Check if already loaded into Blender
-    img_name = wiki['img']
-    if img_name in bpy.data.images:
-        img = bpy.data.images[img_name]
-    else:
-        img = bpy.data.images.load(img_path)
-        img.name = img_name
+    # Use check_existing=True so Blender deduplicates by filepath automatically.
+    # Never write img.name — that crashes inside a draw() call.
+    img = bpy.data.images.load(img_path, check_existing=True)
     _wiki_image_cache[etype] = img
     return img
 
