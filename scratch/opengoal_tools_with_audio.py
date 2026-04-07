@@ -3601,22 +3601,66 @@ class OG_PT_Audio(Panel):
 # OPERATOR + PANEL — Audio / Ambience
 # ---------------------------------------------------------------------------
 
+class OG_OT_PickSound(Operator):
+    """Open sound picker — choose a sound then click OK to place an emitter"""
+    bl_idname   = "og.pick_sound"
+    bl_label    = "Pick Sound"
+    bl_property = "sfx_sound"
+
+    sfx_sound: bpy.props.EnumProperty(
+        name="Sound",
+        description="Select a sound to place",
+        items=ALL_SFX_ITEMS,
+    )
+
+    def execute(self, ctx):
+        props = ctx.scene.og_props
+        # Strip bank suffix if present (e.g. "cannon-shot__beach" -> "cannon-shot")
+        snd = self.sfx_sound.split("__")[0] if "__" in self.sfx_sound else self.sfx_sound
+        if not snd:
+            snd = "silence"
+        existing = [o for o in ctx.scene.objects if o.name.startswith("AMBIENT_snd")]
+        idx  = len(existing) + 1
+        name = f"AMBIENT_snd{idx:03d}"
+
+        bpy.ops.object.empty_add(type="SPHERE", location=ctx.scene.cursor.location)
+        o = ctx.active_object
+        o.name     = name
+        o.show_name = True
+        o.empty_display_size = max(0.3, props.ambient_default_radius * 0.05)
+        o.color    = (0.2, 0.8, 1.0, 1.0)
+
+        o["og_sound_name"]   = snd
+        o["og_sound_radius"] = props.ambient_default_radius
+        o["og_sound_volume"] = 1.0
+        o["og_sound_mode"]   = "ambient"
+
+        # Store last picked sound back to scene prop for display
+        ctx.scene.og_props.sfx_sound = self.sfx_sound
+
+        self.report({"INFO"}, f"Added '{name}' → {snd}")
+        return {"FINISHED"}
+
+    def invoke(self, ctx, event):
+        # Pre-select current scene sound
+        self.sfx_sound = ctx.scene.og_props.sfx_sound
+        ctx.window_manager.invoke_search_popup(self)
+        return {"RUNNING_MODAL"}
+
+
 class OG_OT_AddSoundEmitter(Operator):
-    """Add a sound emitter empty at the 3D cursor"""
+    """Add a sound emitter empty at the 3D cursor using the currently selected sound"""
     bl_idname  = "og.add_sound_emitter"
     bl_label   = "Add Sound Emitter"
     bl_options = {"REGISTER", "UNDO"}
 
-    sound_name: bpy.props.StringProperty()
-
     def execute(self, ctx):
         props = ctx.scene.og_props
-        existing = [o for o in ctx.scene.objects if o.name.startswith("AMBIENT_snd")]
-        idx  = len(existing) + 1
-        # Strip bank suffix if present (e.g. "cannon-shot__beach" -> "cannon-shot")
-        snd  = self.sound_name.split("__")[0] if "__" in self.sound_name else self.sound_name
+        snd   = props.sfx_sound.split("__")[0] if "__" in props.sfx_sound else props.sfx_sound
         if not snd:
             snd = "silence"
+        existing = [o for o in ctx.scene.objects if o.name.startswith("AMBIENT_snd")]
+        idx  = len(existing) + 1
         name = f"AMBIENT_snd{idx:03d}"
 
         bpy.ops.object.empty_add(type="SPHERE", location=ctx.scene.cursor.location)
@@ -3669,12 +3713,17 @@ class OG_PT_Audio(Panel):
         col3 = box3.column(align=True)
         col3.prop(props, "ambient_default_radius", text="Default Radius (m)")
         col3.separator(factor=0.4)
-        col3.prop(props, "sfx_sound", text="Sound")
+
+        # Show current sound selection + picker button
+        row = col3.row(align=True)
+        snd_display = props.sfx_sound.split("__")[0] if "__" in props.sfx_sound else props.sfx_sound
+        row.label(text=f"Sound:  {snd_display}", icon="PLAY_SOUND")
+        row.operator("og.pick_sound", text="Pick...", icon="VIEWZOOM")
+
         col3.separator(factor=0.4)
-        row = col3.row()
-        row.scale_y = 1.4
-        op = row.operator("og.add_sound_emitter", text="Add Emitter at Cursor", icon="ADD")
-        op.sound_name = props.sfx_sound
+        row2 = col3.row()
+        row2.scale_y = 1.4
+        row2.operator("og.add_sound_emitter", text="Add Emitter at Cursor", icon="ADD")
 
         # List existing emitters
         emitters = [o for o in ctx.scene.objects
@@ -4380,6 +4429,7 @@ classes = (
     OG_OT_ExportBuildPlay,
     OG_OT_OpenFolder, OG_OT_OpenFile,
     OG_OT_BakeLighting,
+    OG_OT_PickSound,
     OG_OT_AddSoundEmitter,
     OG_PT_LevelSettings,
     OG_PT_Scene,
