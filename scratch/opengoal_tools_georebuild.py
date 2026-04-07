@@ -1987,14 +1987,8 @@ def _bg_geo_rebuild(name, scene):
             if r is None:
                 state["error"] = "(mi) timed out"; return
 
-        state["status"] = "Relaunching game..."
-        kill_gk()
-        ok, msg = launch_gk()
-        if not ok:
-            state["error"] = msg; return
-
         state["ok"] = True
-        state["status"] = "Done! Load your level via the debug menu."
+        state["status"] = "Done! Reload your level in-game."
     except Exception as e:
         state["error"] = str(e)
     finally:
