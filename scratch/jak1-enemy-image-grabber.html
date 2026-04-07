@@ -5,48 +5,60 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Jak 1 Enemy Image Grabber</title>
 <style>
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: system-ui, sans-serif; background: #1a1a1a; color: #e0e0e0; padding: 24px; min-height: 100vh; }
-  h1 { font-size: 20px; font-weight: 500; margin-bottom: 6px; color: #fff; }
-  .sub { font-size: 13px; color: #888; margin-bottom: 24px; }
-  .controls { display: flex; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; }
-  button { background: #2a2a2a; border: 1px solid #444; color: #e0e0e0; padding: 8px 18px; border-radius: 6px; cursor: pointer; font-size: 13px; transition: background 0.15s; }
-  button:hover { background: #333; }
-  button:disabled { opacity: 0.4; cursor: default; }
-  button.primary { background: #1a5c9e; border-color: #2a7cd4; color: #fff; }
-  button.primary:hover { background: #1e6db5; }
-  #log { background: #111; border: 1px solid #333; border-radius: 8px; padding: 14px; font-family: monospace; font-size: 12px; height: 160px; overflow-y: auto; margin-bottom: 20px; }
-  .log-line { padding: 2px 0; line-height: 1.5; }
-  .log-ok { color: #6fcf97; }
-  .log-err { color: #eb5757; }
-  .log-info { color: #9b9b9b; }
-  .log-warn { color: #f2c94c; }
-  .stats { display: flex; gap: 12px; margin-bottom: 20px; }
-  .stat { background: #222; border: 1px solid #333; border-radius: 8px; padding: 10px 16px; flex: 1; min-width: 100px; }
-  .stat-val { font-size: 22px; font-weight: 600; color: #fff; }
-  .stat-lbl { font-size: 11px; color: #666; margin-top: 2px; }
-  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; }
-  .card { background: #222; border: 1px solid #333; border-radius: 8px; overflow: hidden; }
-  .card img { width: 100%; height: 130px; object-fit: contain; background: #111; display: block; padding: 8px; }
-  .card-info { padding: 8px 10px; }
-  .card-name { font-size: 12px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #ddd; }
-  .card-actions { display: flex; gap: 6px; margin-top: 6px; }
-  .card-btn { font-size: 11px; padding: 3px 8px; border-radius: 4px; background: #2a2a2a; border: 1px solid #444; color: #bbb; cursor: pointer; text-decoration: none; }
-  .card-btn:hover { background: #333; }
-  .progress-bar { height: 3px; background: #333; border-radius: 2px; margin-bottom: 20px; overflow: hidden; }
-  .progress-fill { height: 100%; background: #1a5c9e; border-radius: 2px; transition: width 0.3s; width: 0%; }
-  #zip-section { margin-top: 20px; display: none; }
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: system-ui, sans-serif; background: #1a1a1a; color: #e0e0e0; padding: 24px; min-height: 100vh; }
+h1 { font-size: 20px; font-weight: 500; margin-bottom: 6px; color: #fff; }
+.sub { font-size: 13px; color: #888; margin-bottom: 20px; }
+.proxy-row { background: #1e1e1e; border: 1px solid #333; border-radius: 8px; padding: 12px 14px; margin-bottom: 16px; font-size: 12px; }
+.proxy-row strong { color: #ccc; display: block; margin-bottom: 6px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; }
+.proxy-status { display: flex; gap: 8px; flex-wrap: wrap; }
+.ps { padding: 3px 10px; border-radius: 4px; font-size: 11px; }
+.ps-pending { background: #2a2a2a; color: #666; border: 1px solid #444; }
+.ps-testing { background: #1a3a5c; color: #7bb3e0; border: 1px solid #2a5a8c; }
+.ps-ok { background: #1a3a24; color: #6fcf97; border: 1px solid #2a5a3a; }
+.ps-fail { background: #3a1a1a; color: #eb5757; border: 1px solid #5a2a2a; }
+.controls { display: flex; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; }
+button { background: #2a2a2a; border: 1px solid #444; color: #e0e0e0; padding: 8px 18px; border-radius: 6px; cursor: pointer; font-size: 13px; transition: background 0.15s; }
+button:hover:not(:disabled) { background: #333; }
+button:disabled { opacity: 0.4; cursor: default; }
+button.primary { background: #1a5c9e; border-color: #2a7cd4; color: #fff; }
+button.primary:hover:not(:disabled) { background: #1e6db5; }
+#log { background: #111; border: 1px solid #333; border-radius: 8px; padding: 14px; font-family: monospace; font-size: 12px; height: 150px; overflow-y: auto; margin-bottom: 16px; }
+.log-line { padding: 1px 0; line-height: 1.5; }
+.log-ok { color: #6fcf97; }
+.log-err { color: #eb5757; }
+.log-info { color: #9b9b9b; }
+.log-warn { color: #f2c94c; }
+.stats { display: flex; gap: 10px; margin-bottom: 16px; }
+.stat { background: #222; border: 1px solid #333; border-radius: 8px; padding: 10px 14px; flex: 1; }
+.stat-val { font-size: 22px; font-weight: 600; color: #fff; }
+.stat-lbl { font-size: 11px; color: #666; margin-top: 2px; }
+.progress-bar { height: 3px; background: #333; border-radius: 2px; margin-bottom: 16px; overflow: hidden; }
+.progress-fill { height: 100%; background: #1a7cd4; border-radius: 2px; transition: width 0.3s; width: 0%; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(155px, 1fr)); gap: 10px; }
+.card { background: #222; border: 1px solid #333; border-radius: 8px; overflow: hidden; }
+.card img { width: 100%; height: 120px; object-fit: contain; background: #111; display: block; padding: 6px; }
+.card-info { padding: 8px 10px; }
+.card-name { font-size: 11px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #ccc; margin-bottom: 4px; }
+.card-desc { font-size: 10px; color: #555; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; margin-bottom: 5px; }
+.card-btn { font-size: 11px; padding: 3px 8px; border-radius: 4px; background: #2a2a2a; border: 1px solid #444; color: #aaa; cursor: pointer; text-decoration: none; display: inline-block; }
+.card-btn:hover { background: #333; color: #ddd; }
 </style>
 </head>
 <body>
 
 <h1>Jak 1 Enemy Image Grabber</h1>
-<p class="sub">Fetches all enemy images from the Jak & Daxter Fandom wiki. Runs entirely in your browser — no install needed.</p>
+<p class="sub">Fetches enemy images from the Jak & Daxter Fandom wiki. Tries multiple CORS proxies automatically until one works.</p>
+
+<div class="proxy-row">
+  <strong>Proxy status</strong>
+  <div class="proxy-status" id="proxy-status"></div>
+</div>
 
 <div class="controls">
   <button class="primary" id="btn-fetch" onclick="startFetch()">Fetch all enemy images</button>
   <button id="btn-dl-all" onclick="downloadAll()" disabled>Download all as ZIP</button>
-  <button id="btn-clear" onclick="clearAll()">Clear</button>
+  <button onclick="clearAll()">Clear</button>
 </div>
 
 <div class="progress-bar"><div class="progress-fill" id="progress"></div></div>
@@ -60,18 +72,45 @@
 <div id="log"></div>
 <div class="grid" id="grid"></div>
 
-<div id="zip-section">
-  <button class="primary" onclick="downloadAll()">Download ZIP again</button>
-</div>
-
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script>
-const API = 'https://jakanddaxter.fandom.com/api.php';
-const CORS = 'https://corsproxy.io/?';
+const FANDOM_API = 'https://jakanddaxter.fandom.com/api.php';
 const CATEGORY = 'Category:Enemy_images_from_The_Precursor_Legacy';
+
+// Proxies tried in order. Each has a different wrapping strategy.
+const PROXIES = [
+  {
+    name: 'allorigins',
+    wrap: url => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
+    unwrap: r => r.text()
+  },
+  {
+    name: 'corsproxy.io',
+    wrap: url => `https://corsproxy.io/?url=${encodeURIComponent(url)}`,
+    unwrap: r => r.text()
+  },
+  {
+    name: 'codetabs',
+    wrap: url => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
+    unwrap: r => r.text()
+  },
+  {
+    name: 'thingproxy',
+    wrap: url => `https://thingproxy.freeboard.io/fetch/${url}`,
+    unwrap: r => r.text()
+  },
+  {
+    name: 'htmldriven',
+    wrap: url => `https://cors-proxy.htmldriven.com/?url=${encodeURIComponent(url)}`,
+    unwrap: r => r.text()
+  },
+];
+
+let workingProxy = null;
 let allImages = [];
 let loaded = 0, errors = 0;
 
+// --- Logging ---
 function log(msg, cls = 'log-info') {
   const d = document.getElementById('log');
   const line = document.createElement('div');
@@ -82,23 +121,88 @@ function log(msg, cls = 'log-info') {
 }
 
 function setProgress(pct) {
-  document.getElementById('progress').style.width = pct + '%';
+  document.getElementById('progress').style.width = Math.min(100, pct) + '%';
 }
-
 function updateStats() {
   document.getElementById('s-found').textContent = allImages.length;
   document.getElementById('s-loaded').textContent = loaded;
   document.getElementById('s-errors').textContent = errors;
 }
 
-async function apiGet(params) {
-  const url = CORS + encodeURIComponent(API + '?' + new URLSearchParams({...params, format: 'json', origin: '*'}));
-  const r = await fetch(url);
-  if (!r.ok) throw new Error('HTTP ' + r.status);
-  return r.json();
+// --- Proxy status UI ---
+function initProxyUI() {
+  const el = document.getElementById('proxy-status');
+  el.innerHTML = '';
+  PROXIES.forEach(p => {
+    const span = document.createElement('span');
+    span.className = 'ps ps-pending';
+    span.id = 'ps-' + p.name;
+    span.textContent = p.name;
+    el.appendChild(span);
+  });
+}
+function setProxyStatus(name, status) {
+  const el = document.getElementById('ps-' + name);
+  if (!el) return;
+  el.className = 'ps ps-' + status;
+  if (status === 'ok') el.textContent = name + ' ✓';
+  else if (status === 'fail') el.textContent = name + ' ✗';
+  else if (status === 'testing') el.textContent = name + ' …';
 }
 
-async function getAllFilesInCategory() {
+// --- Core fetch via proxy ---
+async function proxyFetch(url, proxy) {
+  const wrapped = proxy.wrap(url);
+  const r = await fetch(wrapped, { signal: AbortSignal.timeout(8000) });
+  if (!r.ok) throw new Error('HTTP ' + r.status);
+  const text = await proxy.unwrap(r);
+  // allorigins wraps in JSON sometimes even on /raw — detect and unwrap
+  try {
+    const j = JSON.parse(text);
+    if (j.contents) return j.contents;
+  } catch (_) {}
+  return text;
+}
+
+// Test a proxy with a known small Fandom API call
+async function testProxy(proxy) {
+  setProxyStatus(proxy.name, 'testing');
+  const testUrl = FANDOM_API + '?action=query&meta=siteinfo&siprop=general&format=json';
+  try {
+    const text = await proxyFetch(testUrl, proxy);
+    const data = JSON.parse(text);
+    if (data?.query?.general?.sitename) {
+      setProxyStatus(proxy.name, 'ok');
+      return true;
+    }
+    throw new Error('bad response');
+  } catch (e) {
+    setProxyStatus(proxy.name, 'fail');
+    return false;
+  }
+}
+
+async function findWorkingProxy() {
+  log('Testing CORS proxies...', 'log-info');
+  for (const proxy of PROXIES) {
+    log(`  Trying ${proxy.name}...`, 'log-info');
+    const ok = await testProxy(proxy);
+    if (ok) {
+      log(`Using proxy: ${proxy.name}`, 'log-ok');
+      return proxy;
+    }
+  }
+  return null;
+}
+
+// --- API helpers ---
+async function apiGet(params) {
+  const url = FANDOM_API + '?' + new URLSearchParams({ ...params, format: 'json' });
+  const text = await proxyFetch(url, workingProxy);
+  return JSON.parse(text);
+}
+
+async function getAllFiles() {
   let files = [], cont = null;
   do {
     const params = {
@@ -110,17 +214,16 @@ async function getAllFilesInCategory() {
       ...(cont ? { cmcontinue: cont } : {})
     };
     const data = await apiGet(params);
-    const members = data.query?.categorymembers || [];
+    const members = data?.query?.categorymembers || [];
     files.push(...members.map(m => m.title));
-    cont = data.continue?.cmcontinue;
-    log(`Got ${members.length} file names (total so far: ${files.length})`, 'log-ok');
+    cont = data?.continue?.cmcontinue;
   } while (cont);
   return files;
 }
 
-async function getImageUrls(titles) {
-  const urls = {};
-  const CHUNK = 50;
+async function getImageInfo(titles) {
+  const result = {};
+  const CHUNK = 40;
   for (let i = 0; i < titles.length; i += CHUNK) {
     const chunk = titles.slice(i, i + CHUNK);
     const data = await apiGet({
@@ -128,74 +231,75 @@ async function getImageUrls(titles) {
       titles: chunk.join('|'),
       prop: 'imageinfo',
       iiprop: 'url|extmetadata',
-      iiurlwidth: 400
+      iiurlwidth: 500
     });
-    const pages = data.query?.pages || {};
+    const pages = data?.query?.pages || {};
     for (const page of Object.values(pages)) {
-      if (page.imageinfo?.[0]?.url) {
-        const info = page.imageinfo[0];
+      const info = page.imageinfo?.[0];
+      if (info?.url) {
         const meta = info.extmetadata || {};
-        urls[page.title] = {
+        result[page.title] = {
           url: info.url,
-          thumbUrl: info.thumburl || info.url,
-          description: meta.ImageDescription?.value?.replace(/<[^>]+>/g, '') || '',
+          thumb: info.thumburl || info.url,
+          description: (meta.ImageDescription?.value || '').replace(/<[^>]+>/g, '').trim()
         };
       }
     }
-    setProgress(10 + (i / titles.length) * 40);
-    log(`Resolved URLs for ${Math.min(i + CHUNK, titles.length)}/${titles.length}`, 'log-info');
+    setProgress(15 + (i / titles.length) * 50);
+    log(`Resolved ${Math.min(i + CHUNK, titles.length)} / ${titles.length} image URLs`, 'log-info');
   }
-  return urls;
+  return result;
 }
 
+// --- Render ---
 function cleanName(title) {
   return title.replace(/^File:/, '').replace(/\.(png|jpg|jpeg|gif|webp)$/i, '').replace(/_/g, ' ');
 }
 
 function renderCard(title, info) {
-  const grid = document.getElementById('grid');
   const card = document.createElement('div');
   card.className = 'card';
-  card.id = 'card-' + title.replace(/[^a-z0-9]/gi, '_');
 
   const img = document.createElement('img');
-  img.src = info.thumbUrl;
+  img.src = info.thumb;
   img.alt = cleanName(title);
+  img.loading = 'lazy';
   img.onload = () => { loaded++; updateStats(); };
-  img.onerror = () => { errors++; updateStats(); img.style.opacity = '0.3'; };
+  img.onerror = () => {
+    errors++; updateStats();
+    img.style.opacity = '0.2';
+    img.src = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg"/>';
+  };
 
   const info_div = document.createElement('div');
   info_div.className = 'card-info';
 
-  const name_div = document.createElement('div');
-  name_div.className = 'card-name';
-  name_div.textContent = cleanName(title);
-  name_div.title = cleanName(title);
+  const name = document.createElement('div');
+  name.className = 'card-name';
+  name.textContent = cleanName(title);
+  name.title = cleanName(title);
 
-  const actions = document.createElement('div');
-  actions.className = 'card-actions';
+  const dl = document.createElement('a');
+  dl.className = 'card-btn';
+  dl.textContent = 'Save image';
+  dl.href = info.url;
+  dl.target = '_blank';
+  dl.rel = 'noopener';
 
-  const dlBtn = document.createElement('a');
-  dlBtn.className = 'card-btn';
-  dlBtn.textContent = 'Save';
-  dlBtn.href = info.url;
-  dlBtn.download = title.replace(/^File:/, '');
-  dlBtn.target = '_blank';
-
-  actions.appendChild(dlBtn);
-  info_div.appendChild(name_div);
+  info_div.appendChild(name);
   if (info.description) {
     const desc = document.createElement('div');
-    desc.style.cssText = 'font-size:11px;color:#666;margin-top:3px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;';
+    desc.className = 'card-desc';
     desc.textContent = info.description;
     info_div.appendChild(desc);
   }
-  info_div.appendChild(actions);
+  info_div.appendChild(dl);
   card.appendChild(img);
   card.appendChild(info_div);
-  grid.appendChild(card);
+  document.getElementById('grid').appendChild(card);
 }
 
+// --- Main ---
 async function startFetch() {
   document.getElementById('btn-fetch').disabled = true;
   document.getElementById('btn-dl-all').disabled = true;
@@ -204,17 +308,32 @@ async function startFetch() {
   allImages = []; loaded = 0; errors = 0;
   updateStats();
   setProgress(2);
+  initProxyUI();
 
   try {
-    log('Connecting to Fandom wiki API via CORS proxy...', 'log-info');
-    const files = await getAllFilesInCategory();
-    if (files.length === 0) { log('No files found in category!', 'log-err'); return; }
-    log(`Found ${files.length} images in category`, 'log-ok');
-    setProgress(10);
+    workingProxy = await findWorkingProxy();
+    if (!workingProxy) {
+      log('All CORS proxies failed. See note below.', 'log-err');
+      log('TIP: Open browser DevTools → Console tab for details', 'log-warn');
+      log('TIP: Try disabling any VPN or browser extensions', 'log-warn');
+      return;
+    }
 
-    const urlMap = await getImageUrls(files);
-    log(`Resolved ${Object.keys(urlMap).length} image URLs`, 'log-ok');
-    setProgress(50);
+    setProgress(8);
+    log('Fetching image list from category...', 'log-info');
+    const files = await getAllFiles();
+
+    if (files.length === 0) {
+      log('No images found in category. Category name may have changed.', 'log-err');
+      return;
+    }
+    log(`Found ${files.length} images`, 'log-ok');
+    setProgress(15);
+
+    const urlMap = await getImageInfo(files);
+    const count = Object.keys(urlMap).length;
+    log(`Got URLs for ${count} images`, 'log-ok');
+    setProgress(65);
 
     for (const [title, info] of Object.entries(urlMap)) {
       allImages.push({ title, ...info });
@@ -222,12 +341,12 @@ async function startFetch() {
     }
 
     setProgress(100);
-    log(`Done! ${allImages.length} images rendered.`, 'log-ok');
-    document.getElementById('btn-dl-all').disabled = false;
-    document.getElementById('zip-section').style.display = 'block';
+    log(`Done! ${allImages.length} images rendered below.`, 'log-ok');
+    if (allImages.length > 0) {
+      document.getElementById('btn-dl-all').disabled = false;
+    }
   } catch (e) {
-    log('Error: ' + e.message, 'log-err');
-    log('If this failed, the CORS proxy may be down. Try again or refresh.', 'log-warn');
+    log('Unexpected error: ' + e.message, 'log-err');
     console.error(e);
   } finally {
     document.getElementById('btn-fetch').disabled = false;
@@ -236,49 +355,66 @@ async function startFetch() {
 
 async function downloadAll() {
   if (allImages.length === 0) return;
-  log('Building ZIP file...', 'log-info');
+  const btn = document.getElementById('btn-dl-all');
+  btn.disabled = true;
+  btn.textContent = 'Building ZIP...';
+  log('Downloading all images for ZIP...', 'log-info');
+
   const zip = new JSZip();
   const folder = zip.folder('jak1-enemy-images');
-
-  const metaLines = ['filename,name,description'];
-
+  const meta = ['filename,clean_name,description'];
   let done = 0;
+
   for (const img of allImages) {
     try {
-      const res = await fetch(CORS + encodeURIComponent(img.url));
+      // Images come directly from Fandom CDN — no proxy needed for img src
+      const res = await fetch(img.url);
+      if (!res.ok) throw new Error('HTTP ' + res.status);
       const blob = await res.blob();
       const fname = img.title.replace(/^File:/, '');
       folder.file(fname, blob);
-      const cleanN = cleanName(img.title);
-      metaLines.push(`"${fname}","${cleanN}","${(img.description || '').replace(/"/g, "'")}"`);
+      meta.push(`"${fname}","${cleanName(img.title)}","${(img.description||'').replace(/"/g,"'")}"`);
     } catch (e) {
-      log(`Skipped ${img.title}: ${e.message}`, 'log-warn');
+      // Try via proxy as fallback
+      try {
+        const text = await proxyFetch(img.url, workingProxy);
+        const fname = img.title.replace(/^File:/, '');
+        folder.file(fname, text, { binary: true });
+      } catch (_) {
+        log(`Skipped: ${cleanName(img.title)}`, 'log-warn');
+        errors++; updateStats();
+      }
     }
     done++;
     setProgress(Math.round((done / allImages.length) * 100));
-    if (done % 10 === 0) log(`Downloading... ${done}/${allImages.length}`, 'log-info');
+    if (done % 5 === 0) log(`Zipping ${done}/${allImages.length}...`, 'log-info');
   }
 
-  folder.file('metadata.csv', metaLines.join('\n'));
-
-  log('Generating ZIP...', 'log-info');
+  folder.file('metadata.csv', meta.join('\n'));
+  log('Generating ZIP file...', 'log-info');
   const blob = await zip.generateAsync({ type: 'blob' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
   a.download = 'jak1-enemy-images.zip';
   a.click();
   log('ZIP downloaded!', 'log-ok');
+  btn.disabled = false;
+  btn.textContent = 'Download all as ZIP';
+  setProgress(0);
 }
 
 function clearAll() {
   document.getElementById('grid').innerHTML = '';
   document.getElementById('log').innerHTML = '';
+  document.getElementById('proxy-status').innerHTML = '';
   allImages = []; loaded = 0; errors = 0;
+  workingProxy = null;
   updateStats();
   setProgress(0);
   document.getElementById('btn-dl-all').disabled = true;
-  document.getElementById('zip-section').style.display = 'none';
 }
+
+initProxyUI();
 </script>
 </body>
 </html>
