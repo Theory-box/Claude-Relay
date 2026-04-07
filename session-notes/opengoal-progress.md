@@ -165,3 +165,36 @@ a prompt string alongside the value, and timing/encoding issues could cause miss
 3. If obs_init still doesn't fire: the 2s sleep after (start) isn't enough — try 4s
    or add a second attempt: retry obs_init once more after another 2s
 4. Once working: merge to main addon
+
+## Enemy Data (Images + Definitions)
+
+### Status
+- **Images**: 37 JPGs pushed to `knowledge-base/opengoal/enemy-images/` (compressed from wiki renders, 94% smaller)
+- **Definitions**: 30/33 enemies scraped to `knowledge-base/opengoal/jak1-enemy-definitions.json`
+
+### Missing definitions (3 enemies — wrong wiki title guessed)
+- `billy` (lurker frog) — try: "Lurker frog", "Billy (lurker)", "Bog lurker"
+- `baby-spider` — try: "Baby spider (The Precursor Legacy)", "Spider lurker"  
+- `mother-spider` — try: "Mother spider (The Precursor Legacy)", "Spider boss"
+
+### How to find correct wiki titles
+1. Go to https://jakanddaxter.fandom.com and search the enemy name
+2. Note the exact URL slug (e.g. `/wiki/Baby_spider_(lurker)`)
+3. Add that title to the `alts:[]` array in `jak1-enemy-definitions-grabber.html` for that enemy
+4. Re-run just that enemy (or all) and re-download JSON
+
+### Scraper tools (in scratch/)
+- `scratch/jak1-enemy-image-grabber.html` — grabs all enemy images from wiki category, downloads ZIP
+- `scratch/jak1-enemy-definitions-grabber.html` — grabs intro text from each enemy article via `parse&prop=wikitext&section=0`, strips wiki markup, downloads JSON + CSV
+
+### API used for definitions
+```
+https://jakanddaxter.fandom.com/api.php?action=parse&page=<TITLE>&prop=wikitext&section=0&redirects=true&format=json
+```
+`section=0` = everything before the first heading (the intro you see above Contents).
+Response is raw wikitext → strip `{{templates}}`, `[[links]]`, `<ref>` tags client-side.
+Uses 5-proxy CORS fallback chain (allorigins → corsproxy.io → codetabs → thingproxy → htmldriven).
+
+### Next steps for addon integration
+- Wire image filenames to code names (image filename → `code_name` field in JSON)
+- Add enemy picker UI in Blender addon using images + short_desc
