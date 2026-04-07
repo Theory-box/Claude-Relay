@@ -866,8 +866,35 @@ def log(m):        print(f"[OpenGOAL] {m}")
 
 
 # ---------------------------------------------------------------------------
-# SBK SOUND DATA — extracted from Jak 1 .SBK binary files via parse_sbk.py
-# common is always loaded; level banks loaded per-level (max 2)
+# AUDIO ENUMS
+# ---------------------------------------------------------------------------
+
+MUSIC_BANK_ITEMS = [
+    ("none",       "None",               "", 0),
+    ("menu",       "menu",               "", 1),
+    ("village1",   "village1",           "", 2),
+    ("beach",      "beach",              "", 3),
+    ("jungle",     "jungle",             "", 4),
+    ("misty",      "misty",              "", 5),
+    ("firecanyon", "firecanyon",         "", 6),
+    ("village2",   "village2",           "", 7),
+    ("sunken",     "sunken",             "", 8),
+    ("swamp",      "swamp",              "", 9),
+    ("rolling",    "rolling",            "", 10),
+    ("ogre",       "ogre",               "", 11),
+    ("village3",   "village3",           "", 12),
+    ("snow",       "snow",               "", 13),
+    ("maincave",   "maincave",           "", 14),
+    ("darkcave",   "darkcave",           "", 15),
+    ("robocave",   "robocave",           "", 16),
+    ("lavatube",   "lavatube",           "", 17),
+    ("citadel",    "citadel",            "", 18),
+    ("finalboss",  "finalboss",          "", 19),
+    ("custom",     "Custom (type below)", "", 20),
+]
+
+# ---------------------------------------------------------------------------
+# SBK SOUND DATA — extracted from Jak 1 .SBK binary files
 # ---------------------------------------------------------------------------
 
 LEVEL_BANKS = [
@@ -894,1565 +921,1065 @@ LEVEL_BANKS = [
 ]
 
 SBK_SOUNDS = {
-    "common": [
-        "---close-racerin",
-        "---large-steam-l",
-        "-lav-dark-eco",
-        "arena",
-        "arena-steps",
-        "arenadoor-close",
-        "arenadoor-open",
-        "babak-breathin",
-        "babak-chest",
-        "babak-dies",
-        "babak-roar",
-        "babak-taunt",
-        "babk-taunt",
-        "balloon-dies",
-        "bigshark-alert",
-        "bigshark-bite",
-        "bigshark-idle",
-        "bigshark-taunt",
-        "bigswing",
-        "blob-explode",
-        "blob-land",
-        "blue-eco-charg",
-        "blue-eco-idle",
-        "blue-eco-jak",
-        "blue-eco-on",
-        "blue-eco-start",
-        "blue-light",
-        "bluesage-fires",
-        "boat-start",
-        "boat-stop",
-        "bomb-open",
-        "bonelurk-roar",
-        "bonelurker-dies",
-        "bonelurker-grunt",
-        "breath-in",
-        "breath-in-loud",
-        "breath-out",
-        "breath-out-loud",
-        "bridge-button",
-        "bridge-hover",
-        "bully-bounce",
-        "bully-dies",
-        "bully-dizzy",
-        "bully-idle",
-        "bully-jump",
-        "bully-land",
-        "bully-spin1",
-        "bully-spin2",
-        "bumper-button",
-        "bumper-pwr-dwn",
-        "burst-out",
-        "buzzer",
-        "buzzer-pickup",
-        "caught-eel",
-        "cave-spatula",
-        "cave-top-falls",
-        "cave-top-lands",
-        "cave-top-rises",
-        "cell-prize",
-        "chamber-land",
-        "chamber-lift",
-        "close-orb-cash",
-        "crab-walk1",
-        "crab-walk2",
-        "crab-walk3",
-        "crate-jump",
-        "crystal-on",
-        "cursor-l-r",
-        "cursor-options",
-        "cursor-up-down",
-        "darkeco-pool",
-        "dcrate-break",
-        "death-darkeco",
-        "death-drown",
-        "death-fall",
-        "death-melt",
-        "door-lock",
-        "door-unlock",
-        "dril-step",
-        "eco-beam",
-        "eco-bg-blue",
-        "eco-bg-green",
-        "eco-bg-red",
-        "eco-bg-yellow",
-        "eco-engine-1",
-        "eco-engine-2",
-        "eco-plat-hover",
-        "eco3",
-        "ecohit2",
-        "ecoroom1",
-        "electric-loop",
-        "elev-button",
-        "elev-land",
-        "eng-shut-down",
-        "eng-start-up",
-        "explosion",
-        "explosion-2",
-        "fire-boulder",
-        "fire-crackle",
-        "fire-loop",
-        "fish-spawn",
-        "flame-pot",
-        "flop-down",
-        "flop-hit",
-        "flop-land",
-        "flut-land-crwood",
-        "flut-land-dirt",
-        "flut-land-grass",
-        "flut-land-pcmeta",
-        "flut-land-sand",
-        "flut-land-snow",
-        "flut-land-stone",
-        "flut-land-straw",
-        "flut-land-swamp",
-        "flut-land-water",
-        "flut-land-wood",
-        "flylurk-dies",
-        "flylurk-idle",
-        "flylurk-plane",
-        "flylurk-roar",
-        "flylurk-taunt",
-        "foothit",
-        "gdl-gen-loop",
-        "gdl-pulley",
-        "gdl-shut-down",
-        "gdl-start-up",
-        "get-all-orbs",
-        "get-big-fish",
-        "get-blue-eco",
-        "get-burned",
-        "get-fried",
-        "get-green-eco",
-        "get-powered",
-        "get-red-eco",
-        "get-shocked",
-        "get-small-fish",
-        "get-yellow-eco",
-        "glowing-gen",
-        "green-eco-idle",
-        "green-eco-jak",
-        "green-fire",
-        "green-steam",
-        "greensage-fires",
-        "grunt",
-        "hand-grab",
-        "heart-drone",
-        "helix-dark-eco",
-        "hit-back",
-        "hit-dizzy",
-        "hit-dummy",
-        "hit-lurk-metal",
-        "hit-metal",
-        "hit-metal-big",
-        "hit-metal-large",
-        "hit-metal-small",
-        "hit-metal-tiny",
-        "hit-temple",
-        "hit-up",
-        "ice-breathin",
-        "ice-loop",
-        "icelurk-land",
-        "icelurk-step",
-        "icrate-break",
-        "irisdoor1",
-        "irisdoor2",
-        "jak-clap",
-        "jak-deatha",
-        "jak-idle1",
-        "jak-shocked",
-        "jak-stretch",
-        "jng-piston-dwn",
-        "jng-piston-up",
-        "jngb-eggtop-seq",
-        "jump",
-        "jump-double",
-        "jump-long",
-        "jump-low",
-        "jump-lurk-metal",
-        "jungle-part",
-        "kermit-loop",
-        "land-crwood",
-        "land-dirt",
-        "land-dpsnow",
-        "land-dwater",
-        "land-grass",
-        "land-hard",
-        "land-metal",
-        "land-pcmetal",
-        "land-sand",
-        "land-snow",
-        "land-stone",
-        "land-straw",
-        "land-swamp",
-        "land-water",
-        "land-wood",
-        "launch-fire",
-        "launch-idle",
-        "launch-start",
-        "lav-blue-vent",
-        "lav-dark-boom",
-        "lav-green-vent",
-        "lav-mine-boom",
-        "lav-spin-gen",
-        "lav-yell-vent",
-        "lava-mines",
-        "lava-pulley",
-        "ldoor-close",
-        "ldoor-open",
-        "lev-mach-fires",
-        "lev-mach-idle",
-        "lev-mach-start",
-        "loop-racering",
-        "lurkerfish-swim",
-        "maindoor",
-        "mayor-step-carp",
-        "mayor-step-wood",
-        "mayors-gears",
-        "medium-steam-lp",
-        "menu-close",
-        "menu-stats",
-        "miners-fire",
-        "misty-steam",
-        "money-pickup",
-        "mother-charge",
-        "mother-fire",
-        "mother-hit",
-        "mother-track",
-        "mud",
-        "mud-lurk-inhale",
-        "mushroom-gen",
-        "mushroom-off",
-        "ogre-rock",
-        "ogre-throw",
-        "ogre-windup",
-        "oof",
-        "open-orb-cash",
-        "oracle-awake",
-        "oracle-sleep",
-        "pedals",
-        "pill-pickup",
-        "piston-close",
-        "piston-open",
-        "plat-light-off",
-        "plat-light-on",
-        "pontoonten",
-        "powercell-idle",
-        "powercell-out",
-        "prec-button1",
-        "prec-button2",
-        "prec-button3",
-        "prec-button4",
-        "prec-button6",
-        "prec-button7",
-        "prec-button8",
-        "prec-on-water",
-        "punch",
-        "punch-hit",
-        "ramboss-charge",
-        "ramboss-dies",
-        "ramboss-fire",
-        "ramboss-hit",
-        "ramboss-idle",
-        "ramboss-land",
-        "ramboss-roar",
-        "ramboss-shield",
-        "ramboss-step",
-        "ramboss-taunt",
-        "ramboss-track",
-        "red-eco-idle",
-        "red-eco-jak",
-        "red-fireball",
-        "redsage-fires",
-        "robber-dies",
-        "robber-idle",
-        "robber-roar",
-        "robber-taunt",
-        "robo-blue-lp",
-        "robo-warning",
-        "robot-arm",
-        "robotcage-lp",
-        "robotcage-off",
-        "rock-hover",
-        "roll-crwood",
-        "roll-dirt",
-        "roll-dpsnow",
-        "roll-dwater",
-        "roll-grass",
-        "roll-pcmetal",
-        "roll-sand",
-        "roll-snow",
-        "roll-stone",
-        "roll-straw",
-        "roll-swamp",
-        "roll-water",
-        "roll-wood",
-        "rounddoor",
-        "run-step-left",
-        "run-step-right",
-        "sagecage-gen",
-        "sagecage-off",
-        "sages-machine",
-        "sandworm-dies",
-        "scrate-break",
-        "scrate-nobreak",
-        "select-menu",
-        "select-option",
-        "select-option2",
-        "shark-bite",
-        "shark-dies",
-        "shark-idle",
-        "shark-swim",
-        "shield-zap",
-        "shldlurk-breathi",
-        "shldlurk-chest",
-        "shldlurk-dies",
-        "shldlurk-roar",
-        "shldlurk-taunt",
-        "shut-down",
-        "sidedoor",
-        "silo-button",
-        "slide-crwood",
-        "slide-dirt",
-        "slide-dpsnow",
-        "slide-dwater",
-        "slide-grass",
-        "slide-pcmetal",
-        "slide-sand",
-        "slide-snow",
-        "slide-stone",
-        "slide-straw",
-        "slide-swamp",
-        "slide-water",
-        "slide-wood",
-        "slider2001",
-        "smack-surface",
-        "small-steam-lp",
-        "snow-bumper",
-        "snow-pist-cls2",
-        "snow-pist-cls3",
-        "snow-pist-opn2",
-        "snow-pist-opn3",
-        "snow-piston-cls",
-        "snow-piston-opn",
-        "snow-plat-1",
-        "snow-plat-2",
-        "snow-plat-3",
-        "snw-door",
-        "snw-eggtop-seq",
-        "spin",
-        "spin-hit",
-        "spin-kick",
-        "spin-pole",
-        "split-steps",
-        "start-options",
-        "start-up",
-        "steam-long",
-        "steam-medium",
-        "steam-short",
-        "stopwatch",
-        "sunk-top-falls",
-        "sunk-top-lands",
-        "sunk-top-rises",
-        "swim-dive",
-        "swim-down",
-        "swim-flop",
-        "swim-idle1",
-        "swim-idle2",
-        "swim-jump",
-        "swim-kick-surf",
-        "swim-kick-under",
-        "swim-noseblow",
-        "swim-stroke",
-        "swim-surface",
-        "swim-to-down",
-        "swim-turn",
-        "swim-up",
-        "temp-enemy-die",
-        "touch-pipes",
-        "uppercut",
-        "uppercut-hit",
-        "v3-bridge",
-        "v3-cartride",
-        "v3-minecart",
-        "vent-switch",
-        "walk-crwood1",
-        "walk-crwood2",
-        "walk-dirt1",
-        "walk-dirt2",
-        "walk-dpsnow1",
-        "walk-dpsnow2",
-        "walk-dwater1",
-        "walk-dwater2",
-        "walk-grass1",
-        "walk-grass2",
-        "walk-metal1",
-        "walk-metal2",
-        "walk-pcmetal1",
-        "walk-pcmetal2",
-        "walk-sand1",
-        "walk-sand2",
-        "walk-slide",
-        "walk-snow1",
-        "walk-snow2",
-        "walk-step-left",
-        "walk-step-right",
-        "walk-stone1",
-        "walk-stone2",
-        "walk-straw1",
-        "walk-straw2",
-        "walk-swamp1",
-        "walk-swamp2",
-        "walk-water1",
-        "walk-water2",
-        "walk-wood1",
-        "walk-wood2",
-        "warning",
-        "warpgate-act",
-        "warpgate-butt",
-        "warpgate-loop",
-        "warpgate-tele",
-        "water-drop",
-        "water-explosion",
-        "water-loop",
-        "water-off",
-        "water-on",
-        "waterfall",
-        "wcrate-break",
-        "wood-gears2",
-        "yel-eco-idle",
-        "yel-eco-jak",
-        "yellsage-fire",
-        "yeti-breathin",
-        "yeti-dies",
-        "yeti-roar",
-        "yeti-taunt",
-        "zoom-boost",
-        "zoom-hit-crwood",
-        "zoom-hit-dirt",
-        "zoom-hit-grass",
-        "zoom-hit-lava",
-        "zoom-hit-metal",
-        "zoom-hit-sand",
-        "zoom-hit-stone",
-        "zoom-hit-water",
-        "zoom-hit-wood",
-        "zoom-land-crwood",
-        "zoom-land-dirt",
-        "zoom-land-grass",
-        "zoom-land-lava",
-        "zoom-land-metal",
-        "zoom-land-sand",
-        "zoom-land-stone",
-        "zoom-land-water",
-        "zoom-land-wood",
-        "zoom-teleport",
-        "zoomer-crash-2",
-        "zoomer-explode",
-        "zoomer-jump",
-        "zoomer-melt",
-        "zoomer-rev1",
-        "zoomer-rev2",
-    ],
-    "beach": [
-        "beach-amb2",
-        "bird",
-        "cannon-charge",
-        "cannon-shot",
-        "crab-slide",
-        "dirt-crumble",
-        "drip",
-        "egg-crack",
-        "egg-hit",
-        "falling-egg",
-        "fuse",
-        "gears-rumble",
-        "grotto-pole-hit",
-        "lurkercrab-dies",
-        "lurkerdog-bite",
-        "lurkerdog-dies",
-        "lurkerdog-idle",
-        "monkey",
-        "pelican-flap",
-        "pelican-gulp",
-        "puppy-bark",
-        "rope-stretch",
-        "sack-incoming",
-        "sack-land",
-        "seagull-takeoff",
-        "shell-down",
-        "shell-up",
-        "snap",
-        "telescope",
-        "tower-wind2",
-        "tower-wind3",
-        "tower-winds",
-        "vent-rock-break",
-        "water-lap",
-        "worm-bite",
-        "worm-dies",
-        "worm-idle",
-        "worm-rise1",
-        "worm-sink",
-        "worm-taunt",
-    ],
-    "citadel": [
-        "assembly-moves",
-        "bridge-piece-dn",
-        "bridge-piece-up",
-        "bunny-attack",
-        "bunny-dies",
-        "bunny-taunt-1",
-        "citadel-amb",
-        "eco-beam",
-        "eco-torch",
-        "elev-button",
-        "mushroom-break",
-        "robot-arm",
-        "rotate-plat",
-        "sagecage-open",
-        "snow-bunny1",
-        "snow-bunny2",
-        "yellow-buzz",
-        "yellow-explode",
-        "yellow-fire",
-        "yellow-fizzle",
-    ],
-    "darkcave": [
-        "bab-spid-dies",
-        "bab-spid-roar",
-        "button-1b",
-        "cavelevator",
-        "cavewind",
-        "crystal-explode",
-        "drill-idle",
-        "drill-idle2",
-        "drill-no-start",
-        "drill-start",
-        "drill-stop",
-        "drlurker-dies",
-        "drlurker-roar",
-        "eggs-hatch",
-        "eggs-lands",
-        "lay-eggs",
-        "mom-spid-dies",
-        "mom-spid-roar",
-        "spatula",
-        "spider-step",
-        "trapdoor",
-        "web-tramp",
-        "yellow-buzz",
-        "yellow-explode",
-        "yellow-fire",
-        "yellow-fizzle",
-    ],
-    "finalboss": [
-        "-bfg-buzz",
-        "assembly-moves",
-        "bfg-buzz",
-        "bfg-fire",
-        "bfg-fizzle",
-        "blob-attack",
-        "blob-dies",
-        "blob-jump",
-        "blob-out",
-        "blob-roar",
-        "bomb-spin",
-        "bridge-piece-dn",
-        "bridge-piece-up",
-        "charge-loop",
-        "dark-eco-buzz",
-        "dark-eco-fire",
-        "eco-beam",
-        "eco-torch",
-        "elev-land",
-        "explod-bfg",
-        "explod-bomb",
-        "explod-eye",
-        "explosion1",
-        "explosion2",
-        "explosion3",
-        "mushroom-break",
-        "red-buzz",
-        "red-explode",
-        "red-fire",
-        "robo-hurt",
-        "robo-servo1",
-        "robo-servo2",
-        "robo-servo3",
-        "robo-servo4",
-        "robo-servo5",
-        "robo-servo6",
-        "robo-servo7",
-        "robo-servo8",
-        "robo-servo9",
-        "robo-taunt",
-        "robo-yell",
-        "sagecage-open",
-        "silo-moves",
-        "white-eco-beam",
-        "white-eco-lp",
-        "yellow-buzz",
-        "yellow-explode",
-        "yellow-fire",
-        "yellow-fizzle",
-    ],
-    "firecanyon": [
-        "bubling-lava",
-        "cool-balloon",
-        "explod-mine",
-        "explosion1",
-        "explosion2",
-        "lava-amb",
-        "lava-steam",
-        "magma-rock",
-        "zoomer-loop",
-        "zoomer-start",
-        "zoomer-stop",
-    ],
-    "jungle": [
-        "accordian-pump",
-        "aphid-dies",
-        "aphid-roar",
-        "aphid-spike-in",
-        "aphid-spike-out",
-        "aphid-step",
-        "beam-connect",
-        "bird",
-        "bug-step",
-        "cascade",
-        "darkvine-down",
-        "darkvine-move",
-        "darkvine-snap",
-        "darkvine-up",
-        "eco-tower-rise",
-        "eco-tower-stop",
-        "elev-land",
-        "elev-loop",
-        "fish-miss",
-        "floating-rings",
-        "frog-dies",
-        "frog-idle",
-        "frog-taunt",
-        "frogspeak",
-        "jungle-river",
-        "jungle-shores",
-        "logtrap1",
-        "logtrap2",
-        "lurk-bug",
-        "lurkerfish-bite",
-        "lurkerfish-dies",
-        "lurkerfish-idle",
-        "lurkerm-hum",
-        "lurkerm-squeak",
-        "mirror-smash",
-        "monkey",
-        "pc-bridge",
-        "plant-chomp",
-        "plant-eye",
-        "plant-fall",
-        "plant-laugh",
-        "plant-leaf",
-        "plant-ouch",
-        "plant-recover",
-        "plant-roar",
-        "plat-flip",
-        "site-moves",
-        "snake-bite",
-        "snake-drop",
-        "snake-idle",
-        "snake-rattle",
-        "spider-step",
-        "steam-release",
-        "telescope",
-        "trampoline",
-        "wind-loop",
-    ],
-    "jungleb": [
-        "accordian-pump",
-        "beam-connect",
-        "bird",
-        "bug-step",
-        "cascade",
-        "darkvine-down",
-        "darkvine-move",
-        "darkvine-snap",
-        "darkvine-up",
-        "eco-tower-rise",
-        "eco-tower-stop",
-        "elev-land",
-        "elev-loop",
-        "floating-rings",
-        "frog-dies",
-        "frog-idle",
-        "frog-taunt",
-        "frogspeak",
-        "jungle-river",
-        "jungle-shores",
-        "logtrap1",
-        "logtrap2",
-        "lurk-bug",
-        "lurkerfish-bite",
-        "lurkerfish-dies",
-        "lurkerfish-idle",
-        "lurkerm-hum",
-        "lurkerm-squeak",
-        "mirror-smash",
-        "monkey",
-        "pc-bridge",
-        "plant-chomp",
-        "plant-eye",
-        "plant-fall",
-        "plant-laugh",
-        "plant-leaf",
-        "plant-ouch",
-        "plant-recover",
-        "plant-roar",
-        "plat-flip",
-        "site-moves",
-        "snake-bite",
-        "snake-drop",
-        "snake-idle",
-        "snake-rattle",
-        "spider-step",
-        "steam-release",
-        "telescope",
-        "trampoline",
-        "wind-loop",
-    ],
-    "lavatube": [
-        "ball-explode",
-        "ball-gen",
-        "bubling-lava",
-        "cool-balloon",
-        "lav-dark-eco",
-        "lav-mine-chain",
-        "lava-amb",
-        "lava-steam",
-        "yellow-buzz",
-        "yellow-explode",
-        "yellow-fire",
-        "yellow-fizzle",
-        "zoomer-loop",
-        "zoomer-start",
-        "zoomer-stop",
-    ],
-    "maincave": [
-        "bab-spid-dies",
-        "bab-spid-roar",
-        "button-1b",
-        "cavelevator",
-        "cavewind",
-        "crush-click",
-        "crystal-explode",
-        "drill-idle2",
-        "eggs-hatch",
-        "eggs-lands",
-        "gnawer-chew",
-        "gnawer-crawl",
-        "gnawer-dies",
-        "gnawer-taunt",
-        "hot-flame",
-        "lay-eggs",
-        "mom-spid-dies",
-        "mom-spid-grunt",
-        "mom-spid-roar",
-        "spatula",
-        "spider-step",
-        "trapdoor",
-        "web-tramp",
-        "yellow-buzz",
-        "yellow-explode",
-        "yellow-fire",
-        "yellow-fizzle",
-    ],
-    "misty": [
-        "barrel-bounce",
-        "barrel-roll",
-        "bone-bigswing",
-        "bone-die",
-        "bone-freehead",
-        "bone-helmet",
-        "bone-smallswing",
-        "bone-stepl",
-        "bone-stepr",
-        "bonebridge-fall",
-        "cage-boom",
-        "cannon-charge",
-        "cannon-shot",
-        "falling-bones",
-        "fuse",
-        "get-muse",
-        "keg-conveyor",
-        "mud-lurk-laugh",
-        "mud-lurker-idle",
-        "mud-plat",
-        "mudlurker-dies",
-        "muse-taunt-1",
-        "muse-taunt-2",
-        "paddle-boat",
-        "propeller",
-        "qsl-breathin",
-        "qsl-fire",
-        "qsl-popup",
-        "sack-incoming",
-        "sack-land",
-        "teeter-launch",
-        "teeter-rockland",
-        "teeter-rockup",
-        "teeter-wobble",
-        "telescope",
-        "trade-muse",
-        "water-lap",
-        "water-lap-cl0se",
-        "zoomer-loop",
-        "zoomer-start",
-        "zoomer-stop",
-    ],
-    "ogre": [
-        "bridge-appears",
-        "bridge-breaks",
-        "dynomite",
-        "flylurk-plane",
-        "hit-lurk-metal",
-        "hits-head",
-        "lava-loop",
-        "lava-plat",
-        "ogre-amb",
-        "ogre-boulder",
-        "ogre-dies",
-        "ogre-explode",
-        "ogre-fires",
-        "ogre-grunt1",
-        "ogre-grunt2",
-        "ogre-grunt3",
-        "ogre-roar1",
-        "ogre-roar2",
-        "ogre-roar3",
-        "ogre-walk",
-        "ogreboss-out",
-        "rock-hits-metal",
-        "rock-in-lava",
-        "rock-roll",
-        "yellow-buzz",
-        "yellow-explode",
-        "yellow-fire",
-        "yellow-fizzle",
-        "zoomer-loop",
-        "zoomer-start",
-    ],
-    "robocave": [
-        "bab-spid-dies",
-        "bab-spid-roar",
-        "button-1b",
-        "cavelevator",
-        "cavewind",
-        "crush-click",
-        "drill-hit",
-        "drill-idle",
-        "drill-idle2",
-        "drill-no-start",
-        "drill-start",
-        "drill-stop",
-        "drlurker-dies",
-        "drlurker-roar",
-        "eggs-hatch",
-        "eggs-lands",
-        "hot-flame",
-        "lay-eggs",
-        "mom-spid-dies",
-        "mom-spid-roar",
-        "spatula",
-        "spider-step",
-        "trapdoor",
-        "web-tramp",
-        "yellow-buzz",
-        "yellow-explode",
-        "yellow-fire",
-        "yellow-fizzle",
-    ],
-    "rolling": [
-        "close-racering",
-        "darkvine-grow",
-        "darkvine-kill",
-        "darkvine-move",
-        "get-mole",
-        "mole-dig",
-        "mole-taunt-1",
-        "mole-taunt-2",
-        "plant-dies",
-        "plant-move",
-        "robber-flap",
-        "roling-amb",
-        "zoomer-loop",
-        "zoomer-start",
-        "zoomer-stop",
-    ],
-    "snow": [
-        "--snowball-roll",
-        "bunny-attack",
-        "bunny-dies",
-        "bunny-taunt-1",
-        "flut-coo",
-        "flut-death",
-        "flut-flap",
-        "flut-hit",
-        "ice-explode",
-        "ice-monster1",
-        "ice-monster2",
-        "ice-monster3",
-        "ice-monster4",
-        "ice-spike-in",
-        "ice-spike-out",
-        "ice-stop",
-        "jak-slide",
-        "lodge-close",
-        "lodge-door-mov",
-        "ramboss-laugh",
-        "ramboss-yell",
-        "set-ram",
-        "slam-crash",
-        "snow-bunny1",
-        "snow-bunny2",
-        "snow-engine",
-        "snow-spat-long",
-        "snow-spat-short",
-        "snowball-land",
-        "snowball-roll",
-        "walk-ice1",
-        "walk-ice2",
-        "winter-amb",
-        "yellow-buzz",
-        "yellow-explode",
-        "yellow-fire",
-        "yellow-fizzle",
-    ],
-    "sunken": [
-        "--submerge",
-        "chamber-move",
-        "dark-plat-rise",
-        "elev-button",
-        "elev-land",
-        "elev-loop",
-        "large-splash",
-        "plat-flip",
-        "puffer-change",
-        "puffer-wing",
-        "slide-loop",
-        "splita-charge",
-        "splita-dies",
-        "splita-idle",
-        "splita-roar",
-        "splita-spot",
-        "splita-taunt",
-        "splitb-breathin",
-        "splitb-dies",
-        "splitb-roar",
-        "splitb-spot",
-        "splitb-taunt",
-        "sub-plat-rises",
-        "sub-plat-sinks",
-        "submerge",
-        "sunken-amb",
-        "sunken-pool",
-        "surface",
-        "wall-plat",
-        "whirlpool",
-    ],
-    "swamp": [
-        "bat-celebrate",
-        "flut-coo",
-        "flut-death",
-        "flut-flap",
-        "flut-hit",
-        "kermit-dies",
-        "kermit-letgo",
-        "kermit-shoot",
-        "kermit-speak1",
-        "kermit-speak2",
-        "kermit-stretch",
-        "kermit-taunt",
-        "land-tar",
-        "lurkbat-bounce",
-        "lurkbat-dies",
-        "lurkbat-idle",
-        "lurkbat-notice",
-        "lurkbat-wing",
-        "lurkrat-bounce",
-        "lurkrat-dies",
-        "lurkrat-idle",
-        "lurkrat-notice",
-        "lurkrat-walk",
-        "pole-down",
-        "pole-up",
-        "rat-celebrate",
-        "rat-eat",
-        "rat-gulp",
-        "rock-break",
-        "roll-tar",
-        "rope-snap",
-        "rope-stretch",
-        "slide-tar",
-        "swamp-amb",
-        "walk-tar1",
-        "walk-tar2",
-        "yellow-buzz",
-        "yellow-explode",
-        "yellow-fire",
-        "yellow-fizzle",
-    ],
-    "village1": [
-        "-fire-crackle",
-        "-water-lap-cls",
-        "bird-1",
-        "bird-2",
-        "bird-3",
-        "bird-4",
-        "bird-house",
-        "boat-engine",
-        "boat-splash",
-        "bubbling-still",
-        "cage-bird-2",
-        "cage-bird-4",
-        "cage-bird-5",
-        "cricket-single",
-        "crickets",
-        "drip-on-wood",
-        "fire-bubble",
-        "fly1",
-        "fly2",
-        "fly3",
-        "fly4",
-        "fly5",
-        "fly6",
-        "fly7",
-        "fly8",
-        "fountain",
-        "gear-creak",
-        "hammer-tap",
-        "hover-bike-hum",
-        "ocean-bg",
-        "seagulls-2",
-        "snd-",
-        "temp-enemy-die",
-        "village-amb",
-        "water-lap",
-        "weld",
-        "welding-loop",
-        "wind-loop",
-        "yakow-1",
-        "yakow-2",
-        "yakow-grazing",
-        "yakow-idle",
-        "yakow-kicked",
-    ],
-    "village2": [
-        "boulder-splash",
-        "control-panel",
-        "hits-head",
-        "rock-roll",
-        "spark",
-        "thunder",
-        "v2ogre-boulder",
-        "v2ogre-roar1",
-        "v2ogre-roar2",
-        "v2ogre-walk",
-        "village2-amb",
-        "wind-chimes",
-    ],
-    "village3": [
-        "-bubling-lava",
-        "cave-wind",
-        "cool-balloon",
-        "lava-amb",
-        "lava-erupt",
-        "lava-steam",
-        "sulphur",
-    ],
+    "common": ['---close-racerin', '---large-steam-l', '-lav-dark-eco', 'arena', 'arena-steps', 'arenadoor-close', 'arenadoor-open', 'babak-breathin', 'babak-chest', 'babak-dies', 'babak-roar', 'babak-taunt', 'babk-taunt', 'balloon-dies', 'bigshark-alert', 'bigshark-bite', 'bigshark-idle', 'bigshark-taunt', 'bigswing', 'blob-explode', 'blob-land', 'blue-eco-charg', 'blue-eco-idle', 'blue-eco-jak', 'blue-eco-on', 'blue-eco-start', 'blue-light', 'bluesage-fires', 'boat-start', 'boat-stop', 'bomb-open', 'bonelurk-roar', 'bonelurker-dies', 'bonelurker-grunt', 'breath-in', 'breath-in-loud', 'breath-out', 'breath-out-loud', 'bridge-button', 'bridge-hover', 'bully-bounce', 'bully-dies', 'bully-dizzy', 'bully-idle', 'bully-jump', 'bully-land', 'bully-spin1', 'bully-spin2', 'bumper-button', 'bumper-pwr-dwn', 'burst-out', 'buzzer', 'buzzer-pickup', 'caught-eel', 'cave-spatula', 'cave-top-falls', 'cave-top-lands', 'cave-top-rises', 'cell-prize', 'chamber-land', 'chamber-lift', 'close-orb-cash', 'crab-walk1', 'crab-walk2', 'crab-walk3', 'crate-jump', 'crystal-on', 'cursor-l-r', 'cursor-options', 'cursor-up-down', 'darkeco-pool', 'dcrate-break', 'death-darkeco', 'death-drown', 'death-fall', 'death-melt', 'door-lock', 'door-unlock', 'dril-step', 'eco-beam', 'eco-bg-blue', 'eco-bg-green', 'eco-bg-red', 'eco-bg-yellow', 'eco-engine-1', 'eco-engine-2', 'eco-plat-hover', 'eco3', 'ecohit2', 'ecoroom1', 'electric-loop', 'elev-button', 'elev-land', 'eng-shut-down', 'eng-start-up', 'explosion', 'explosion-2', 'fire-boulder', 'fire-crackle', 'fire-loop', 'fish-spawn', 'flame-pot', 'flop-down', 'flop-hit', 'flop-land', 'flut-land-crwood', 'flut-land-dirt', 'flut-land-grass', 'flut-land-pcmeta', 'flut-land-sand', 'flut-land-snow', 'flut-land-stone', 'flut-land-straw', 'flut-land-swamp', 'flut-land-water', 'flut-land-wood', 'flylurk-dies', 'flylurk-idle', 'flylurk-plane', 'flylurk-roar', 'flylurk-taunt', 'foothit', 'gdl-gen-loop', 'gdl-pulley', 'gdl-shut-down', 'gdl-start-up', 'get-all-orbs', 'get-big-fish', 'get-blue-eco', 'get-burned', 'get-fried', 'get-green-eco', 'get-powered', 'get-red-eco', 'get-shocked', 'get-small-fish', 'get-yellow-eco', 'glowing-gen', 'green-eco-idle', 'green-eco-jak', 'green-fire', 'green-steam', 'greensage-fires', 'grunt', 'hand-grab', 'heart-drone', 'helix-dark-eco', 'hit-back', 'hit-dizzy', 'hit-dummy', 'hit-lurk-metal', 'hit-metal', 'hit-metal-big', 'hit-metal-large', 'hit-metal-small', 'hit-metal-tiny', 'hit-temple', 'hit-up', 'ice-breathin', 'ice-loop', 'icelurk-land', 'icelurk-step', 'icrate-break', 'irisdoor1', 'irisdoor2', 'jak-clap', 'jak-deatha', 'jak-idle1', 'jak-shocked', 'jak-stretch', 'jng-piston-dwn', 'jng-piston-up', 'jngb-eggtop-seq', 'jump', 'jump-double', 'jump-long', 'jump-low', 'jump-lurk-metal', 'jungle-part', 'kermit-loop', 'land-crwood', 'land-dirt', 'land-dpsnow', 'land-dwater', 'land-grass', 'land-hard', 'land-metal', 'land-pcmetal', 'land-sand', 'land-snow', 'land-stone', 'land-straw', 'land-swamp', 'land-water', 'land-wood', 'launch-fire', 'launch-idle', 'launch-start', 'lav-blue-vent', 'lav-dark-boom', 'lav-green-vent', 'lav-mine-boom', 'lav-spin-gen', 'lav-yell-vent', 'lava-mines', 'lava-pulley', 'ldoor-close', 'ldoor-open', 'lev-mach-fires', 'lev-mach-idle', 'lev-mach-start', 'loop-racering', 'lurkerfish-swim', 'maindoor', 'mayor-step-carp', 'mayor-step-wood', 'mayors-gears', 'medium-steam-lp', 'menu-close', 'menu-stats', 'miners-fire', 'misty-steam', 'money-pickup', 'mother-charge', 'mother-fire', 'mother-hit', 'mother-track', 'mud', 'mud-lurk-inhale', 'mushroom-gen', 'mushroom-off', 'ogre-rock', 'ogre-throw', 'ogre-windup', 'oof', 'open-orb-cash', 'oracle-awake', 'oracle-sleep', 'pedals', 'pill-pickup', 'piston-close', 'piston-open', 'plat-light-off', 'plat-light-on', 'pontoonten', 'powercell-idle', 'powercell-out', 'prec-button1', 'prec-button2', 'prec-button3', 'prec-button4', 'prec-button6', 'prec-button7', 'prec-button8', 'prec-on-water', 'punch', 'punch-hit', 'ramboss-charge', 'ramboss-dies', 'ramboss-fire', 'ramboss-hit', 'ramboss-idle', 'ramboss-land', 'ramboss-roar', 'ramboss-shield', 'ramboss-step', 'ramboss-taunt', 'ramboss-track', 'red-eco-idle', 'red-eco-jak', 'red-fireball', 'redsage-fires', 'robber-dies', 'robber-idle', 'robber-roar', 'robber-taunt', 'robo-blue-lp', 'robo-warning', 'robot-arm', 'robotcage-lp', 'robotcage-off', 'rock-hover', 'roll-crwood', 'roll-dirt', 'roll-dpsnow', 'roll-dwater', 'roll-grass', 'roll-pcmetal', 'roll-sand', 'roll-snow', 'roll-stone', 'roll-straw', 'roll-swamp', 'roll-water', 'roll-wood', 'rounddoor', 'run-step-left', 'run-step-right', 'sagecage-gen', 'sagecage-off', 'sages-machine', 'sandworm-dies', 'scrate-break', 'scrate-nobreak', 'select-menu', 'select-option', 'select-option2', 'shark-bite', 'shark-dies', 'shark-idle', 'shark-swim', 'shield-zap', 'shldlurk-breathi', 'shldlurk-chest', 'shldlurk-dies', 'shldlurk-roar', 'shldlurk-taunt', 'shut-down', 'sidedoor', 'silo-button', 'slide-crwood', 'slide-dirt', 'slide-dpsnow', 'slide-dwater', 'slide-grass', 'slide-pcmetal', 'slide-sand', 'slide-snow', 'slide-stone', 'slide-straw', 'slide-swamp', 'slide-water', 'slide-wood', 'slider2001', 'smack-surface', 'small-steam-lp', 'snow-bumper', 'snow-pist-cls2', 'snow-pist-cls3', 'snow-pist-opn2', 'snow-pist-opn3', 'snow-piston-cls', 'snow-piston-opn', 'snow-plat-1', 'snow-plat-2', 'snow-plat-3', 'snw-door', 'snw-eggtop-seq', 'spin', 'spin-hit', 'spin-kick', 'spin-pole', 'split-steps', 'start-options', 'start-up', 'steam-long', 'steam-medium', 'steam-short', 'stopwatch', 'sunk-top-falls', 'sunk-top-lands', 'sunk-top-rises', 'swim-dive', 'swim-down', 'swim-flop', 'swim-idle1', 'swim-idle2', 'swim-jump', 'swim-kick-surf', 'swim-kick-under', 'swim-noseblow', 'swim-stroke', 'swim-surface', 'swim-to-down', 'swim-turn', 'swim-up', 'temp-enemy-die', 'touch-pipes', 'uppercut', 'uppercut-hit', 'v3-bridge', 'v3-cartride', 'v3-minecart', 'vent-switch', 'walk-crwood1', 'walk-crwood2', 'walk-dirt1', 'walk-dirt2', 'walk-dpsnow1', 'walk-dpsnow2', 'walk-dwater1', 'walk-dwater2', 'walk-grass1', 'walk-grass2', 'walk-metal1', 'walk-metal2', 'walk-pcmetal1', 'walk-pcmetal2', 'walk-sand1', 'walk-sand2', 'walk-slide', 'walk-snow1', 'walk-snow2', 'walk-step-left', 'walk-step-right', 'walk-stone1', 'walk-stone2', 'walk-straw1', 'walk-straw2', 'walk-swamp1', 'walk-swamp2', 'walk-water1', 'walk-water2', 'walk-wood1', 'walk-wood2', 'warning', 'warpgate-act', 'warpgate-butt', 'warpgate-loop', 'warpgate-tele', 'water-drop', 'water-explosion', 'water-loop', 'water-off', 'water-on', 'waterfall', 'wcrate-break', 'wood-gears2', 'yel-eco-idle', 'yel-eco-jak', 'yellsage-fire', 'yeti-breathin', 'yeti-dies', 'yeti-roar', 'yeti-taunt', 'zoom-boost', 'zoom-hit-crwood', 'zoom-hit-dirt', 'zoom-hit-grass', 'zoom-hit-lava', 'zoom-hit-metal', 'zoom-hit-sand', 'zoom-hit-stone', 'zoom-hit-water', 'zoom-hit-wood', 'zoom-land-crwood', 'zoom-land-dirt', 'zoom-land-grass', 'zoom-land-lava', 'zoom-land-metal', 'zoom-land-sand', 'zoom-land-stone', 'zoom-land-water', 'zoom-land-wood', 'zoom-teleport', 'zoomer-crash-2', 'zoomer-explode', 'zoomer-jump', 'zoomer-melt', 'zoomer-rev1', 'zoomer-rev2'],
+    "beach": ['beach-amb2', 'bird', 'cannon-charge', 'cannon-shot', 'crab-slide', 'dirt-crumble', 'drip', 'egg-crack', 'egg-hit', 'falling-egg', 'fuse', 'gears-rumble', 'grotto-pole-hit', 'lurkercrab-dies', 'lurkerdog-bite', 'lurkerdog-dies', 'lurkerdog-idle', 'monkey', 'pelican-flap', 'pelican-gulp', 'puppy-bark', 'rope-stretch', 'sack-incoming', 'sack-land', 'seagull-takeoff', 'shell-down', 'shell-up', 'snap', 'telescope', 'tower-wind2', 'tower-wind3', 'tower-winds', 'vent-rock-break', 'water-lap', 'worm-bite', 'worm-dies', 'worm-idle', 'worm-rise1', 'worm-sink', 'worm-taunt'],
+    "citadel": ['assembly-moves', 'bridge-piece-dn', 'bridge-piece-up', 'bunny-attack', 'bunny-dies', 'bunny-taunt-1', 'citadel-amb', 'eco-beam', 'eco-torch', 'elev-button', 'mushroom-break', 'robot-arm', 'rotate-plat', 'sagecage-open', 'snow-bunny1', 'snow-bunny2', 'yellow-buzz', 'yellow-explode', 'yellow-fire', 'yellow-fizzle'],
+    "darkcave": ['bab-spid-dies', 'bab-spid-roar', 'button-1b', 'cavelevator', 'cavewind', 'crystal-explode', 'drill-idle', 'drill-idle2', 'drill-no-start', 'drill-start', 'drill-stop', 'drlurker-dies', 'drlurker-roar', 'eggs-hatch', 'eggs-lands', 'lay-eggs', 'mom-spid-dies', 'mom-spid-roar', 'spatula', 'spider-step', 'trapdoor', 'web-tramp', 'yellow-buzz', 'yellow-explode', 'yellow-fire', 'yellow-fizzle'],
+    "finalboss": ['-bfg-buzz', 'assembly-moves', 'bfg-buzz', 'bfg-fire', 'bfg-fizzle', 'blob-attack', 'blob-dies', 'blob-jump', 'blob-out', 'blob-roar', 'bomb-spin', 'bridge-piece-dn', 'bridge-piece-up', 'charge-loop', 'dark-eco-buzz', 'dark-eco-fire', 'eco-beam', 'eco-torch', 'elev-land', 'explod-bfg', 'explod-bomb', 'explod-eye', 'explosion1', 'explosion2', 'explosion3', 'mushroom-break', 'red-buzz', 'red-explode', 'red-fire', 'robo-hurt', 'robo-servo1', 'robo-servo2', 'robo-servo3', 'robo-servo4', 'robo-servo5', 'robo-servo6', 'robo-servo7', 'robo-servo8', 'robo-servo9', 'robo-taunt', 'robo-yell', 'sagecage-open', 'silo-moves', 'white-eco-beam', 'white-eco-lp', 'yellow-buzz', 'yellow-explode', 'yellow-fire', 'yellow-fizzle'],
+    "firecanyon": ['bubling-lava', 'cool-balloon', 'explod-mine', 'explosion1', 'explosion2', 'lava-amb', 'lava-steam', 'magma-rock', 'zoomer-loop', 'zoomer-start', 'zoomer-stop'],
+    "jungle": ['accordian-pump', 'aphid-dies', 'aphid-roar', 'aphid-spike-in', 'aphid-spike-out', 'aphid-step', 'beam-connect', 'bird', 'bug-step', 'cascade', 'darkvine-down', 'darkvine-move', 'darkvine-snap', 'darkvine-up', 'eco-tower-rise', 'eco-tower-stop', 'elev-land', 'elev-loop', 'fish-miss', 'floating-rings', 'frog-dies', 'frog-idle', 'frog-taunt', 'frogspeak', 'jungle-river', 'jungle-shores', 'logtrap1', 'logtrap2', 'lurk-bug', 'lurkerfish-bite', 'lurkerfish-dies', 'lurkerfish-idle', 'lurkerm-hum', 'lurkerm-squeak', 'mirror-smash', 'monkey', 'pc-bridge', 'plant-chomp', 'plant-eye', 'plant-fall', 'plant-laugh', 'plant-leaf', 'plant-ouch', 'plant-recover', 'plant-roar', 'plat-flip', 'site-moves', 'snake-bite', 'snake-drop', 'snake-idle', 'snake-rattle', 'spider-step', 'steam-release', 'telescope', 'trampoline', 'wind-loop'],
+    "jungleb": ['accordian-pump', 'beam-connect', 'bird', 'bug-step', 'cascade', 'darkvine-down', 'darkvine-move', 'darkvine-snap', 'darkvine-up', 'eco-tower-rise', 'eco-tower-stop', 'elev-land', 'elev-loop', 'floating-rings', 'frog-dies', 'frog-idle', 'frog-taunt', 'frogspeak', 'jungle-river', 'jungle-shores', 'logtrap1', 'logtrap2', 'lurk-bug', 'lurkerfish-bite', 'lurkerfish-dies', 'lurkerfish-idle', 'lurkerm-hum', 'lurkerm-squeak', 'mirror-smash', 'monkey', 'pc-bridge', 'plant-chomp', 'plant-eye', 'plant-fall', 'plant-laugh', 'plant-leaf', 'plant-ouch', 'plant-recover', 'plant-roar', 'plat-flip', 'site-moves', 'snake-bite', 'snake-drop', 'snake-idle', 'snake-rattle', 'spider-step', 'steam-release', 'telescope', 'trampoline', 'wind-loop'],
+    "lavatube": ['ball-explode', 'ball-gen', 'bubling-lava', 'cool-balloon', 'lav-dark-eco', 'lav-mine-chain', 'lava-amb', 'lava-steam', 'yellow-buzz', 'yellow-explode', 'yellow-fire', 'yellow-fizzle', 'zoomer-loop', 'zoomer-start', 'zoomer-stop'],
+    "maincave": ['bab-spid-dies', 'bab-spid-roar', 'button-1b', 'cavelevator', 'cavewind', 'crush-click', 'crystal-explode', 'drill-idle2', 'eggs-hatch', 'eggs-lands', 'gnawer-chew', 'gnawer-crawl', 'gnawer-dies', 'gnawer-taunt', 'hot-flame', 'lay-eggs', 'mom-spid-dies', 'mom-spid-grunt', 'mom-spid-roar', 'spatula', 'spider-step', 'trapdoor', 'web-tramp', 'yellow-buzz', 'yellow-explode', 'yellow-fire', 'yellow-fizzle'],
+    "misty": ['barrel-bounce', 'barrel-roll', 'bone-bigswing', 'bone-die', 'bone-freehead', 'bone-helmet', 'bone-smallswing', 'bone-stepl', 'bone-stepr', 'bonebridge-fall', 'cage-boom', 'cannon-charge', 'cannon-shot', 'falling-bones', 'fuse', 'get-muse', 'keg-conveyor', 'mud-lurk-laugh', 'mud-lurker-idle', 'mud-plat', 'mudlurker-dies', 'muse-taunt-1', 'muse-taunt-2', 'paddle-boat', 'propeller', 'qsl-breathin', 'qsl-fire', 'qsl-popup', 'sack-incoming', 'sack-land', 'teeter-launch', 'teeter-rockland', 'teeter-rockup', 'teeter-wobble', 'telescope', 'trade-muse', 'water-lap', 'water-lap-cl0se', 'zoomer-loop', 'zoomer-start', 'zoomer-stop'],
+    "ogre": ['bridge-appears', 'bridge-breaks', 'dynomite', 'flylurk-plane', 'hit-lurk-metal', 'hits-head', 'lava-loop', 'lava-plat', 'ogre-amb', 'ogre-boulder', 'ogre-dies', 'ogre-explode', 'ogre-fires', 'ogre-grunt1', 'ogre-grunt2', 'ogre-grunt3', 'ogre-roar1', 'ogre-roar2', 'ogre-roar3', 'ogre-walk', 'ogreboss-out', 'rock-hits-metal', 'rock-in-lava', 'rock-roll', 'yellow-buzz', 'yellow-explode', 'yellow-fire', 'yellow-fizzle', 'zoomer-loop', 'zoomer-start'],
+    "robocave": ['bab-spid-dies', 'bab-spid-roar', 'button-1b', 'cavelevator', 'cavewind', 'crush-click', 'drill-hit', 'drill-idle', 'drill-idle2', 'drill-no-start', 'drill-start', 'drill-stop', 'drlurker-dies', 'drlurker-roar', 'eggs-hatch', 'eggs-lands', 'hot-flame', 'lay-eggs', 'mom-spid-dies', 'mom-spid-roar', 'spatula', 'spider-step', 'trapdoor', 'web-tramp', 'yellow-buzz', 'yellow-explode', 'yellow-fire', 'yellow-fizzle'],
+    "rolling": ['close-racering', 'darkvine-grow', 'darkvine-kill', 'darkvine-move', 'get-mole', 'mole-dig', 'mole-taunt-1', 'mole-taunt-2', 'plant-dies', 'plant-move', 'robber-flap', 'roling-amb', 'zoomer-loop', 'zoomer-start', 'zoomer-stop'],
+    "snow": ['--snowball-roll', 'bunny-attack', 'bunny-dies', 'bunny-taunt-1', 'flut-coo', 'flut-death', 'flut-flap', 'flut-hit', 'ice-explode', 'ice-monster1', 'ice-monster2', 'ice-monster3', 'ice-monster4', 'ice-spike-in', 'ice-spike-out', 'ice-stop', 'jak-slide', 'lodge-close', 'lodge-door-mov', 'ramboss-laugh', 'ramboss-yell', 'set-ram', 'slam-crash', 'snow-bunny1', 'snow-bunny2', 'snow-engine', 'snow-spat-long', 'snow-spat-short', 'snowball-land', 'snowball-roll', 'walk-ice1', 'walk-ice2', 'winter-amb', 'yellow-buzz', 'yellow-explode', 'yellow-fire', 'yellow-fizzle'],
+    "sunken": ['--submerge', 'chamber-move', 'dark-plat-rise', 'elev-button', 'elev-land', 'elev-loop', 'large-splash', 'plat-flip', 'puffer-change', 'puffer-wing', 'slide-loop', 'splita-charge', 'splita-dies', 'splita-idle', 'splita-roar', 'splita-spot', 'splita-taunt', 'splitb-breathin', 'splitb-dies', 'splitb-roar', 'splitb-spot', 'splitb-taunt', 'sub-plat-rises', 'sub-plat-sinks', 'submerge', 'sunken-amb', 'sunken-pool', 'surface', 'wall-plat', 'whirlpool'],
+    "swamp": ['bat-celebrate', 'flut-coo', 'flut-death', 'flut-flap', 'flut-hit', 'kermit-dies', 'kermit-letgo', 'kermit-shoot', 'kermit-speak1', 'kermit-speak2', 'kermit-stretch', 'kermit-taunt', 'land-tar', 'lurkbat-bounce', 'lurkbat-dies', 'lurkbat-idle', 'lurkbat-notice', 'lurkbat-wing', 'lurkrat-bounce', 'lurkrat-dies', 'lurkrat-idle', 'lurkrat-notice', 'lurkrat-walk', 'pole-down', 'pole-up', 'rat-celebrate', 'rat-eat', 'rat-gulp', 'rock-break', 'roll-tar', 'rope-snap', 'rope-stretch', 'slide-tar', 'swamp-amb', 'walk-tar1', 'walk-tar2', 'yellow-buzz', 'yellow-explode', 'yellow-fire', 'yellow-fizzle'],
+    "village1": ['-fire-crackle', '-water-lap-cls', 'bird-1', 'bird-2', 'bird-3', 'bird-4', 'bird-house', 'boat-engine', 'boat-splash', 'bubbling-still', 'cage-bird-2', 'cage-bird-4', 'cage-bird-5', 'cricket-single', 'crickets', 'drip-on-wood', 'fire-bubble', 'fly1', 'fly2', 'fly3', 'fly4', 'fly5', 'fly6', 'fly7', 'fly8', 'fountain', 'gear-creak', 'hammer-tap', 'hover-bike-hum', 'ocean-bg', 'seagulls-2', 'snd-', 'temp-enemy-die', 'village-amb', 'water-lap', 'weld', 'welding-loop', 'wind-loop', 'yakow-1', 'yakow-2', 'yakow-grazing', 'yakow-idle', 'yakow-kicked'],
+    "village2": ['boulder-splash', 'control-panel', 'hits-head', 'rock-roll', 'spark', 'thunder', 'v2ogre-boulder', 'v2ogre-roar1', 'v2ogre-roar2', 'v2ogre-walk', 'village2-amb', 'wind-chimes'],
+    "village3": ['-bubling-lava', 'cave-wind', 'cool-balloon', 'lava-amb', 'lava-erupt', 'lava-steam', 'sulphur'],
 }
 
-def _build_sfx_enum(bank1='none', bank2='none'):
-    """Categorized sound enum. common always included; level banks added on top."""
-    items = []
-    idx   = 0
-
-    items.append(("breath-in", "[Plyr] breath-in", "", idx)); idx += 1
-    items.append(("breath-in-loud", "[Plyr] breath-in-loud", "", idx)); idx += 1
-    items.append(("breath-out", "[Plyr] breath-out", "", idx)); idx += 1
-    items.append(("breath-out-loud", "[Plyr] breath-out-loud", "", idx)); idx += 1
-    items.append(("death-darkeco", "[Plyr] death-darkeco", "", idx)); idx += 1
-    items.append(("death-drown", "[Plyr] death-drown", "", idx)); idx += 1
-    items.append(("death-fall", "[Plyr] death-fall", "", idx)); idx += 1
-    items.append(("death-melt", "[Plyr] death-melt", "", idx)); idx += 1
-    items.append(("flop-down", "[Plyr] flop-down", "", idx)); idx += 1
-    items.append(("flop-hit", "[Plyr] flop-hit", "", idx)); idx += 1
-    items.append(("flop-land", "[Plyr] flop-land", "", idx)); idx += 1
-    items.append(("foothit", "[Plyr] foothit", "", idx)); idx += 1
-    items.append(("get-burned", "[Plyr] get-burned", "", idx)); idx += 1
-    items.append(("get-fried", "[Plyr] get-fried", "", idx)); idx += 1
-    items.append(("get-shocked", "[Plyr] get-shocked", "", idx)); idx += 1
-    items.append(("hit-back", "[Plyr] hit-back", "", idx)); idx += 1
-    items.append(("hit-dizzy", "[Plyr] hit-dizzy", "", idx)); idx += 1
-    items.append(("hit-dummy", "[Plyr] hit-dummy", "", idx)); idx += 1
-    items.append(("hit-lurk-metal", "[Plyr] hit-lurk-metal", "", idx)); idx += 1
-    items.append(("hit-metal", "[Plyr] hit-metal", "", idx)); idx += 1
-    items.append(("hit-metal-big", "[Plyr] hit-metal-big", "", idx)); idx += 1
-    items.append(("hit-metal-large", "[Plyr] hit-metal-large", "", idx)); idx += 1
-    items.append(("hit-metal-small", "[Plyr] hit-metal-small", "", idx)); idx += 1
-    items.append(("hit-metal-tiny", "[Plyr] hit-metal-tiny", "", idx)); idx += 1
-    items.append(("hit-temple", "[Plyr] hit-temple", "", idx)); idx += 1
-    items.append(("hit-up", "[Plyr] hit-up", "", idx)); idx += 1
-    items.append(("jak-clap", "[Plyr] jak-clap", "", idx)); idx += 1
-    items.append(("jak-deatha", "[Plyr] jak-deatha", "", idx)); idx += 1
-    items.append(("jak-idle1", "[Plyr] jak-idle1", "", idx)); idx += 1
-    items.append(("jak-shocked", "[Plyr] jak-shocked", "", idx)); idx += 1
-    items.append(("jak-stretch", "[Plyr] jak-stretch", "", idx)); idx += 1
-    items.append(("jump", "[Plyr] jump", "", idx)); idx += 1
-    items.append(("jump-double", "[Plyr] jump-double", "", idx)); idx += 1
-    items.append(("jump-long", "[Plyr] jump-long", "", idx)); idx += 1
-    items.append(("jump-low", "[Plyr] jump-low", "", idx)); idx += 1
-    items.append(("jump-lurk-metal", "[Plyr] jump-lurk-metal", "", idx)); idx += 1
-    items.append(("land-crwood", "[Plyr] land-crwood", "", idx)); idx += 1
-    items.append(("land-dirt", "[Plyr] land-dirt", "", idx)); idx += 1
-    items.append(("land-dpsnow", "[Plyr] land-dpsnow", "", idx)); idx += 1
-    items.append(("land-dwater", "[Plyr] land-dwater", "", idx)); idx += 1
-    items.append(("land-grass", "[Plyr] land-grass", "", idx)); idx += 1
-    items.append(("land-hard", "[Plyr] land-hard", "", idx)); idx += 1
-    items.append(("land-metal", "[Plyr] land-metal", "", idx)); idx += 1
-    items.append(("land-pcmetal", "[Plyr] land-pcmetal", "", idx)); idx += 1
-    items.append(("land-sand", "[Plyr] land-sand", "", idx)); idx += 1
-    items.append(("land-snow", "[Plyr] land-snow", "", idx)); idx += 1
-    items.append(("land-stone", "[Plyr] land-stone", "", idx)); idx += 1
-    items.append(("land-straw", "[Plyr] land-straw", "", idx)); idx += 1
-    items.append(("land-swamp", "[Plyr] land-swamp", "", idx)); idx += 1
-    items.append(("land-water", "[Plyr] land-water", "", idx)); idx += 1
-    items.append(("land-wood", "[Plyr] land-wood", "", idx)); idx += 1
-    items.append(("oof", "[Plyr] oof", "", idx)); idx += 1
-    items.append(("punch", "[Plyr] punch", "", idx)); idx += 1
-    items.append(("punch-hit", "[Plyr] punch-hit", "", idx)); idx += 1
-    items.append(("roll-crwood", "[Plyr] roll-crwood", "", idx)); idx += 1
-    items.append(("roll-dirt", "[Plyr] roll-dirt", "", idx)); idx += 1
-    items.append(("roll-dpsnow", "[Plyr] roll-dpsnow", "", idx)); idx += 1
-    items.append(("roll-dwater", "[Plyr] roll-dwater", "", idx)); idx += 1
-    items.append(("roll-grass", "[Plyr] roll-grass", "", idx)); idx += 1
-    items.append(("roll-pcmetal", "[Plyr] roll-pcmetal", "", idx)); idx += 1
-    items.append(("roll-sand", "[Plyr] roll-sand", "", idx)); idx += 1
-    items.append(("roll-snow", "[Plyr] roll-snow", "", idx)); idx += 1
-    items.append(("roll-stone", "[Plyr] roll-stone", "", idx)); idx += 1
-    items.append(("roll-straw", "[Plyr] roll-straw", "", idx)); idx += 1
-    items.append(("roll-swamp", "[Plyr] roll-swamp", "", idx)); idx += 1
-    items.append(("roll-water", "[Plyr] roll-water", "", idx)); idx += 1
-    items.append(("roll-wood", "[Plyr] roll-wood", "", idx)); idx += 1
-    items.append(("run-step-left", "[Plyr] run-step-left", "", idx)); idx += 1
-    items.append(("run-step-right", "[Plyr] run-step-right", "", idx)); idx += 1
-    items.append(("slide-crwood", "[Plyr] slide-crwood", "", idx)); idx += 1
-    items.append(("slide-dirt", "[Plyr] slide-dirt", "", idx)); idx += 1
-    items.append(("slide-dpsnow", "[Plyr] slide-dpsnow", "", idx)); idx += 1
-    items.append(("slide-dwater", "[Plyr] slide-dwater", "", idx)); idx += 1
-    items.append(("slide-grass", "[Plyr] slide-grass", "", idx)); idx += 1
-    items.append(("slide-pcmetal", "[Plyr] slide-pcmetal", "", idx)); idx += 1
-    items.append(("slide-sand", "[Plyr] slide-sand", "", idx)); idx += 1
-    items.append(("slide-snow", "[Plyr] slide-snow", "", idx)); idx += 1
-    items.append(("slide-stone", "[Plyr] slide-stone", "", idx)); idx += 1
-    items.append(("slide-straw", "[Plyr] slide-straw", "", idx)); idx += 1
-    items.append(("slide-swamp", "[Plyr] slide-swamp", "", idx)); idx += 1
-    items.append(("slide-water", "[Plyr] slide-water", "", idx)); idx += 1
-    items.append(("slide-wood", "[Plyr] slide-wood", "", idx)); idx += 1
-    items.append(("spin", "[Plyr] spin", "", idx)); idx += 1
-    items.append(("spin-hit", "[Plyr] spin-hit", "", idx)); idx += 1
-    items.append(("spin-kick", "[Plyr] spin-kick", "", idx)); idx += 1
-    items.append(("spin-pole", "[Plyr] spin-pole", "", idx)); idx += 1
-    items.append(("swim-dive", "[Plyr] swim-dive", "", idx)); idx += 1
-    items.append(("swim-down", "[Plyr] swim-down", "", idx)); idx += 1
-    items.append(("swim-flop", "[Plyr] swim-flop", "", idx)); idx += 1
-    items.append(("swim-idle1", "[Plyr] swim-idle1", "", idx)); idx += 1
-    items.append(("swim-idle2", "[Plyr] swim-idle2", "", idx)); idx += 1
-    items.append(("swim-jump", "[Plyr] swim-jump", "", idx)); idx += 1
-    items.append(("swim-kick-surf", "[Plyr] swim-kick-surf", "", idx)); idx += 1
-    items.append(("swim-kick-under", "[Plyr] swim-kick-under", "", idx)); idx += 1
-    items.append(("swim-noseblow", "[Plyr] swim-noseblow", "", idx)); idx += 1
-    items.append(("swim-stroke", "[Plyr] swim-stroke", "", idx)); idx += 1
-    items.append(("swim-surface", "[Plyr] swim-surface", "", idx)); idx += 1
-    items.append(("swim-to-down", "[Plyr] swim-to-down", "", idx)); idx += 1
-    items.append(("swim-turn", "[Plyr] swim-turn", "", idx)); idx += 1
-    items.append(("swim-up", "[Plyr] swim-up", "", idx)); idx += 1
-    items.append(("uppercut", "[Plyr] uppercut", "", idx)); idx += 1
-    items.append(("uppercut-hit", "[Plyr] uppercut-hit", "", idx)); idx += 1
-    items.append(("walk-crwood1", "[Plyr] walk-crwood1", "", idx)); idx += 1
-    items.append(("walk-crwood2", "[Plyr] walk-crwood2", "", idx)); idx += 1
-    items.append(("walk-dirt1", "[Plyr] walk-dirt1", "", idx)); idx += 1
-    items.append(("walk-dirt2", "[Plyr] walk-dirt2", "", idx)); idx += 1
-    items.append(("walk-dpsnow1", "[Plyr] walk-dpsnow1", "", idx)); idx += 1
-    items.append(("walk-dpsnow2", "[Plyr] walk-dpsnow2", "", idx)); idx += 1
-    items.append(("walk-dwater1", "[Plyr] walk-dwater1", "", idx)); idx += 1
-    items.append(("walk-dwater2", "[Plyr] walk-dwater2", "", idx)); idx += 1
-    items.append(("walk-grass1", "[Plyr] walk-grass1", "", idx)); idx += 1
-    items.append(("walk-grass2", "[Plyr] walk-grass2", "", idx)); idx += 1
-    items.append(("walk-metal1", "[Plyr] walk-metal1", "", idx)); idx += 1
-    items.append(("walk-metal2", "[Plyr] walk-metal2", "", idx)); idx += 1
-    items.append(("walk-pcmetal1", "[Plyr] walk-pcmetal1", "", idx)); idx += 1
-    items.append(("walk-pcmetal2", "[Plyr] walk-pcmetal2", "", idx)); idx += 1
-    items.append(("walk-sand1", "[Plyr] walk-sand1", "", idx)); idx += 1
-    items.append(("walk-sand2", "[Plyr] walk-sand2", "", idx)); idx += 1
-    items.append(("walk-slide", "[Plyr] walk-slide", "", idx)); idx += 1
-    items.append(("walk-snow1", "[Plyr] walk-snow1", "", idx)); idx += 1
-    items.append(("walk-snow2", "[Plyr] walk-snow2", "", idx)); idx += 1
-    items.append(("walk-step-left", "[Plyr] walk-step-left", "", idx)); idx += 1
-    items.append(("walk-step-right", "[Plyr] walk-step-right", "", idx)); idx += 1
-    items.append(("walk-stone1", "[Plyr] walk-stone1", "", idx)); idx += 1
-    items.append(("walk-stone2", "[Plyr] walk-stone2", "", idx)); idx += 1
-    items.append(("walk-straw1", "[Plyr] walk-straw1", "", idx)); idx += 1
-    items.append(("walk-straw2", "[Plyr] walk-straw2", "", idx)); idx += 1
-    items.append(("walk-swamp1", "[Plyr] walk-swamp1", "", idx)); idx += 1
-    items.append(("walk-swamp2", "[Plyr] walk-swamp2", "", idx)); idx += 1
-    items.append(("walk-water1", "[Plyr] walk-water1", "", idx)); idx += 1
-    items.append(("walk-water2", "[Plyr] walk-water2", "", idx)); idx += 1
-    items.append(("walk-wood1", "[Plyr] walk-wood1", "", idx)); idx += 1
-    items.append(("walk-wood2", "[Plyr] walk-wood2", "", idx)); idx += 1
-    items.append(("blue-eco-charg", "[Eco] blue-eco-charg", "", idx)); idx += 1
-    items.append(("blue-eco-idle", "[Eco] blue-eco-idle", "", idx)); idx += 1
-    items.append(("blue-eco-jak", "[Eco] blue-eco-jak", "", idx)); idx += 1
-    items.append(("blue-eco-on", "[Eco] blue-eco-on", "", idx)); idx += 1
-    items.append(("blue-eco-start", "[Eco] blue-eco-start", "", idx)); idx += 1
-    items.append(("darkeco-pool", "[Eco] darkeco-pool", "", idx)); idx += 1
-    items.append(("eco-beam", "[Eco] eco-beam", "", idx)); idx += 1
-    items.append(("eco-bg-blue", "[Eco] eco-bg-blue", "", idx)); idx += 1
-    items.append(("eco-bg-green", "[Eco] eco-bg-green", "", idx)); idx += 1
-    items.append(("eco-bg-red", "[Eco] eco-bg-red", "", idx)); idx += 1
-    items.append(("eco-bg-yellow", "[Eco] eco-bg-yellow", "", idx)); idx += 1
-    items.append(("eco-engine-1", "[Eco] eco-engine-1", "", idx)); idx += 1
-    items.append(("eco-engine-2", "[Eco] eco-engine-2", "", idx)); idx += 1
-    items.append(("eco-plat-hover", "[Eco] eco-plat-hover", "", idx)); idx += 1
-    items.append(("eco3", "[Eco] eco3", "", idx)); idx += 1
-    items.append(("ecohit2", "[Eco] ecohit2", "", idx)); idx += 1
-    items.append(("ecoroom1", "[Eco] ecoroom1", "", idx)); idx += 1
-    items.append(("get-blue-eco", "[Eco] get-blue-eco", "", idx)); idx += 1
-    items.append(("get-green-eco", "[Eco] get-green-eco", "", idx)); idx += 1
-    items.append(("get-red-eco", "[Eco] get-red-eco", "", idx)); idx += 1
-    items.append(("get-yellow-eco", "[Eco] get-yellow-eco", "", idx)); idx += 1
-    items.append(("green-eco-idle", "[Eco] green-eco-idle", "", idx)); idx += 1
-    items.append(("green-eco-jak", "[Eco] green-eco-jak", "", idx)); idx += 1
-    items.append(("helix-dark-eco", "[Eco] helix-dark-eco", "", idx)); idx += 1
-    items.append(("lav-blue-vent", "[Eco] lav-blue-vent", "", idx)); idx += 1
-    items.append(("lav-dark-boom", "[Eco] lav-dark-boom", "", idx)); idx += 1
-    items.append(("lav-green-vent", "[Eco] lav-green-vent", "", idx)); idx += 1
-    items.append(("lav-yell-vent", "[Eco] lav-yell-vent", "", idx)); idx += 1
-    items.append(("red-eco-idle", "[Eco] red-eco-idle", "", idx)); idx += 1
-    items.append(("red-eco-jak", "[Eco] red-eco-jak", "", idx)); idx += 1
-    items.append(("yel-eco-idle", "[Eco] yel-eco-idle", "", idx)); idx += 1
-    items.append(("yel-eco-jak", "[Eco] yel-eco-jak", "", idx)); idx += 1
-    items.append(("cave-spatula", "[Env] cave-spatula", "", idx)); idx += 1
-    items.append(("cave-top-falls", "[Env] cave-top-falls", "", idx)); idx += 1
-    items.append(("cave-top-lands", "[Env] cave-top-lands", "", idx)); idx += 1
-    items.append(("cave-top-rises", "[Env] cave-top-rises", "", idx)); idx += 1
-    items.append(("electric-loop", "[Env] electric-loop", "", idx)); idx += 1
-    items.append(("fire-boulder", "[Env] fire-boulder", "", idx)); idx += 1
-    items.append(("fire-crackle", "[Env] fire-crackle", "", idx)); idx += 1
-    items.append(("fire-loop", "[Env] fire-loop", "", idx)); idx += 1
-    items.append(("flame-pot", "[Env] flame-pot", "", idx)); idx += 1
-    items.append(("glowing-gen", "[Env] glowing-gen", "", idx)); idx += 1
-    items.append(("green-steam", "[Env] green-steam", "", idx)); idx += 1
-    items.append(("heart-drone", "[Env] heart-drone", "", idx)); idx += 1
-    items.append(("ice-breathin", "[Env] ice-breathin", "", idx)); idx += 1
-    items.append(("ice-loop", "[Env] ice-loop", "", idx)); idx += 1
-    items.append(("lav-mine-boom", "[Env] lav-mine-boom", "", idx)); idx += 1
-    items.append(("lav-spin-gen", "[Env] lav-spin-gen", "", idx)); idx += 1
-    items.append(("lava-mines", "[Env] lava-mines", "", idx)); idx += 1
-    items.append(("lava-pulley", "[Env] lava-pulley", "", idx)); idx += 1
-    items.append(("medium-steam-lp", "[Env] medium-steam-lp", "", idx)); idx += 1
-    items.append(("misty-steam", "[Env] misty-steam", "", idx)); idx += 1
-    items.append(("mushroom-gen", "[Env] mushroom-gen", "", idx)); idx += 1
-    items.append(("mushroom-off", "[Env] mushroom-off", "", idx)); idx += 1
-    items.append(("rock-hover", "[Env] rock-hover", "", idx)); idx += 1
-    items.append(("small-steam-lp", "[Env] small-steam-lp", "", idx)); idx += 1
-    items.append(("snow-bumper", "[Env] snow-bumper", "", idx)); idx += 1
-    items.append(("snow-plat-1", "[Env] snow-plat-1", "", idx)); idx += 1
-    items.append(("snow-plat-2", "[Env] snow-plat-2", "", idx)); idx += 1
-    items.append(("snow-plat-3", "[Env] snow-plat-3", "", idx)); idx += 1
-    items.append(("steam-long", "[Env] steam-long", "", idx)); idx += 1
-    items.append(("steam-medium", "[Env] steam-medium", "", idx)); idx += 1
-    items.append(("steam-short", "[Env] steam-short", "", idx)); idx += 1
-    items.append(("water-drop", "[Env] water-drop", "", idx)); idx += 1
-    items.append(("water-explosion", "[Env] water-explosion", "", idx)); idx += 1
-    items.append(("water-loop", "[Env] water-loop", "", idx)); idx += 1
-    items.append(("water-off", "[Env] water-off", "", idx)); idx += 1
-    items.append(("water-on", "[Env] water-on", "", idx)); idx += 1
-    items.append(("waterfall", "[Env] waterfall", "", idx)); idx += 1
-    items.append(("arenadoor-close", "[Obj] arenadoor-close", "", idx)); idx += 1
-    items.append(("arenadoor-open", "[Obj] arenadoor-open", "", idx)); idx += 1
-    items.append(("boat-start", "[Obj] boat-start", "", idx)); idx += 1
-    items.append(("boat-stop", "[Obj] boat-stop", "", idx)); idx += 1
-    items.append(("bomb-open", "[Obj] bomb-open", "", idx)); idx += 1
-    items.append(("bridge-button", "[Obj] bridge-button", "", idx)); idx += 1
-    items.append(("bridge-hover", "[Obj] bridge-hover", "", idx)); idx += 1
-    items.append(("bumper-button", "[Obj] bumper-button", "", idx)); idx += 1
-    items.append(("bumper-pwr-dwn", "[Obj] bumper-pwr-dwn", "", idx)); idx += 1
-    items.append(("chamber-land", "[Obj] chamber-land", "", idx)); idx += 1
-    items.append(("chamber-lift", "[Obj] chamber-lift", "", idx)); idx += 1
-    items.append(("crate-jump", "[Obj] crate-jump", "", idx)); idx += 1
-    items.append(("dcrate-break", "[Obj] dcrate-break", "", idx)); idx += 1
-    items.append(("door-lock", "[Obj] door-lock", "", idx)); idx += 1
-    items.append(("door-unlock", "[Obj] door-unlock", "", idx)); idx += 1
-    items.append(("elev-button", "[Obj] elev-button", "", idx)); idx += 1
-    items.append(("elev-land", "[Obj] elev-land", "", idx)); idx += 1
-    items.append(("gdl-gen-loop", "[Obj] gdl-gen-loop", "", idx)); idx += 1
-    items.append(("gdl-pulley", "[Obj] gdl-pulley", "", idx)); idx += 1
-    items.append(("gdl-shut-down", "[Obj] gdl-shut-down", "", idx)); idx += 1
-    items.append(("gdl-start-up", "[Obj] gdl-start-up", "", idx)); idx += 1
-    items.append(("icrate-break", "[Obj] icrate-break", "", idx)); idx += 1
-    items.append(("irisdoor1", "[Obj] irisdoor1", "", idx)); idx += 1
-    items.append(("irisdoor2", "[Obj] irisdoor2", "", idx)); idx += 1
-    items.append(("launch-fire", "[Obj] launch-fire", "", idx)); idx += 1
-    items.append(("launch-idle", "[Obj] launch-idle", "", idx)); idx += 1
-    items.append(("launch-start", "[Obj] launch-start", "", idx)); idx += 1
-    items.append(("ldoor-close", "[Obj] ldoor-close", "", idx)); idx += 1
-    items.append(("ldoor-open", "[Obj] ldoor-open", "", idx)); idx += 1
-    items.append(("lev-mach-fires", "[Obj] lev-mach-fires", "", idx)); idx += 1
-    items.append(("lev-mach-idle", "[Obj] lev-mach-idle", "", idx)); idx += 1
-    items.append(("lev-mach-start", "[Obj] lev-mach-start", "", idx)); idx += 1
-    items.append(("maindoor", "[Obj] maindoor", "", idx)); idx += 1
-    items.append(("mayors-gears", "[Obj] mayors-gears", "", idx)); idx += 1
-    items.append(("miners-fire", "[Obj] miners-fire", "", idx)); idx += 1
-    items.append(("oracle-awake", "[Obj] oracle-awake", "", idx)); idx += 1
-    items.append(("oracle-sleep", "[Obj] oracle-sleep", "", idx)); idx += 1
-    items.append(("pedals", "[Obj] pedals", "", idx)); idx += 1
-    items.append(("piston-close", "[Obj] piston-close", "", idx)); idx += 1
-    items.append(("piston-open", "[Obj] piston-open", "", idx)); idx += 1
-    items.append(("plat-light-off", "[Obj] plat-light-off", "", idx)); idx += 1
-    items.append(("plat-light-on", "[Obj] plat-light-on", "", idx)); idx += 1
-    items.append(("pontoonten", "[Obj] pontoonten", "", idx)); idx += 1
-    items.append(("prec-button1", "[Obj] prec-button1", "", idx)); idx += 1
-    items.append(("prec-button2", "[Obj] prec-button2", "", idx)); idx += 1
-    items.append(("prec-button3", "[Obj] prec-button3", "", idx)); idx += 1
-    items.append(("prec-button4", "[Obj] prec-button4", "", idx)); idx += 1
-    items.append(("prec-button6", "[Obj] prec-button6", "", idx)); idx += 1
-    items.append(("prec-button7", "[Obj] prec-button7", "", idx)); idx += 1
-    items.append(("prec-button8", "[Obj] prec-button8", "", idx)); idx += 1
-    items.append(("robo-blue-lp", "[Obj] robo-blue-lp", "", idx)); idx += 1
-    items.append(("robo-warning", "[Obj] robo-warning", "", idx)); idx += 1
-    items.append(("robotcage-lp", "[Obj] robotcage-lp", "", idx)); idx += 1
-    items.append(("robotcage-off", "[Obj] robotcage-off", "", idx)); idx += 1
-    items.append(("rounddoor", "[Obj] rounddoor", "", idx)); idx += 1
-    items.append(("sagecage-gen", "[Obj] sagecage-gen", "", idx)); idx += 1
-    items.append(("sagecage-off", "[Obj] sagecage-off", "", idx)); idx += 1
-    items.append(("sages-machine", "[Obj] sages-machine", "", idx)); idx += 1
-    items.append(("scrate-break", "[Obj] scrate-break", "", idx)); idx += 1
-    items.append(("scrate-nobreak", "[Obj] scrate-nobreak", "", idx)); idx += 1
-    items.append(("sidedoor", "[Obj] sidedoor", "", idx)); idx += 1
-    items.append(("silo-button", "[Obj] silo-button", "", idx)); idx += 1
-    items.append(("snow-pist-cls2", "[Obj] snow-pist-cls2", "", idx)); idx += 1
-    items.append(("snow-pist-cls3", "[Obj] snow-pist-cls3", "", idx)); idx += 1
-    items.append(("snow-pist-opn2", "[Obj] snow-pist-opn2", "", idx)); idx += 1
-    items.append(("snow-pist-opn3", "[Obj] snow-pist-opn3", "", idx)); idx += 1
-    items.append(("snow-piston-cls", "[Obj] snow-piston-cls", "", idx)); idx += 1
-    items.append(("snow-piston-opn", "[Obj] snow-piston-opn", "", idx)); idx += 1
-    items.append(("snw-door", "[Obj] snw-door", "", idx)); idx += 1
-    items.append(("split-steps", "[Obj] split-steps", "", idx)); idx += 1
-    items.append(("v3-bridge", "[Obj] v3-bridge", "", idx)); idx += 1
-    items.append(("v3-cartride", "[Obj] v3-cartride", "", idx)); idx += 1
-    items.append(("v3-minecart", "[Obj] v3-minecart", "", idx)); idx += 1
-    items.append(("vent-switch", "[Obj] vent-switch", "", idx)); idx += 1
-    items.append(("warpgate-act", "[Obj] warpgate-act", "", idx)); idx += 1
-    items.append(("warpgate-butt", "[Obj] warpgate-butt", "", idx)); idx += 1
-    items.append(("warpgate-loop", "[Obj] warpgate-loop", "", idx)); idx += 1
-    items.append(("warpgate-tele", "[Obj] warpgate-tele", "", idx)); idx += 1
-    items.append(("wcrate-break", "[Obj] wcrate-break", "", idx)); idx += 1
-    items.append(("babak-breathin", "[Enemy] babak-breathin", "", idx)); idx += 1
-    items.append(("babak-chest", "[Enemy] babak-chest", "", idx)); idx += 1
-    items.append(("babak-dies", "[Enemy] babak-dies", "", idx)); idx += 1
-    items.append(("babak-roar", "[Enemy] babak-roar", "", idx)); idx += 1
-    items.append(("babak-taunt", "[Enemy] babak-taunt", "", idx)); idx += 1
-    items.append(("babk-taunt", "[Enemy] babk-taunt", "", idx)); idx += 1
-    items.append(("balloon-dies", "[Enemy] balloon-dies", "", idx)); idx += 1
-    items.append(("bigshark-alert", "[Enemy] bigshark-alert", "", idx)); idx += 1
-    items.append(("bigshark-bite", "[Enemy] bigshark-bite", "", idx)); idx += 1
-    items.append(("bigshark-idle", "[Enemy] bigshark-idle", "", idx)); idx += 1
-    items.append(("bigshark-taunt", "[Enemy] bigshark-taunt", "", idx)); idx += 1
-    items.append(("blob-explode", "[Enemy] blob-explode", "", idx)); idx += 1
-    items.append(("blob-land", "[Enemy] blob-land", "", idx)); idx += 1
-    items.append(("bonelurk-roar", "[Enemy] bonelurk-roar", "", idx)); idx += 1
-    items.append(("bonelurker-dies", "[Enemy] bonelurker-dies", "", idx)); idx += 1
-    items.append(("bonelurker-grunt", "[Enemy] bonelurker-grunt", "", idx)); idx += 1
-    items.append(("bully-bounce", "[Enemy] bully-bounce", "", idx)); idx += 1
-    items.append(("bully-dies", "[Enemy] bully-dies", "", idx)); idx += 1
-    items.append(("bully-dizzy", "[Enemy] bully-dizzy", "", idx)); idx += 1
-    items.append(("bully-idle", "[Enemy] bully-idle", "", idx)); idx += 1
-    items.append(("bully-jump", "[Enemy] bully-jump", "", idx)); idx += 1
-    items.append(("bully-land", "[Enemy] bully-land", "", idx)); idx += 1
-    items.append(("bully-spin1", "[Enemy] bully-spin1", "", idx)); idx += 1
-    items.append(("bully-spin2", "[Enemy] bully-spin2", "", idx)); idx += 1
-    items.append(("caught-eel", "[Enemy] caught-eel", "", idx)); idx += 1
-    items.append(("dril-step", "[Enemy] dril-step", "", idx)); idx += 1
-    items.append(("flut-land-crwood", "[Enemy] flut-land-crwood", "", idx)); idx += 1
-    items.append(("flut-land-dirt", "[Enemy] flut-land-dirt", "", idx)); idx += 1
-    items.append(("flut-land-grass", "[Enemy] flut-land-grass", "", idx)); idx += 1
-    items.append(("flut-land-pcmeta", "[Enemy] flut-land-pcmeta", "", idx)); idx += 1
-    items.append(("flut-land-sand", "[Enemy] flut-land-sand", "", idx)); idx += 1
-    items.append(("flut-land-snow", "[Enemy] flut-land-snow", "", idx)); idx += 1
-    items.append(("flut-land-stone", "[Enemy] flut-land-stone", "", idx)); idx += 1
-    items.append(("flut-land-straw", "[Enemy] flut-land-straw", "", idx)); idx += 1
-    items.append(("flut-land-swamp", "[Enemy] flut-land-swamp", "", idx)); idx += 1
-    items.append(("flut-land-water", "[Enemy] flut-land-water", "", idx)); idx += 1
-    items.append(("flut-land-wood", "[Enemy] flut-land-wood", "", idx)); idx += 1
-    items.append(("flylurk-dies", "[Enemy] flylurk-dies", "", idx)); idx += 1
-    items.append(("flylurk-idle", "[Enemy] flylurk-idle", "", idx)); idx += 1
-    items.append(("flylurk-plane", "[Enemy] flylurk-plane", "", idx)); idx += 1
-    items.append(("flylurk-roar", "[Enemy] flylurk-roar", "", idx)); idx += 1
-    items.append(("flylurk-taunt", "[Enemy] flylurk-taunt", "", idx)); idx += 1
-    items.append(("grunt", "[Enemy] grunt", "", idx)); idx += 1
-    items.append(("icelurk-land", "[Enemy] icelurk-land", "", idx)); idx += 1
-    items.append(("icelurk-step", "[Enemy] icelurk-step", "", idx)); idx += 1
-    items.append(("kermit-loop", "[Enemy] kermit-loop", "", idx)); idx += 1
-    items.append(("lurkerfish-swim", "[Enemy] lurkerfish-swim", "", idx)); idx += 1
-    items.append(("mother-charge", "[Enemy] mother-charge", "", idx)); idx += 1
-    items.append(("mother-fire", "[Enemy] mother-fire", "", idx)); idx += 1
-    items.append(("mother-hit", "[Enemy] mother-hit", "", idx)); idx += 1
-    items.append(("mother-track", "[Enemy] mother-track", "", idx)); idx += 1
-    items.append(("mud-lurk-inhale", "[Enemy] mud-lurk-inhale", "", idx)); idx += 1
-    items.append(("ogre-rock", "[Enemy] ogre-rock", "", idx)); idx += 1
-    items.append(("ogre-throw", "[Enemy] ogre-throw", "", idx)); idx += 1
-    items.append(("ogre-windup", "[Enemy] ogre-windup", "", idx)); idx += 1
-    items.append(("ramboss-charge", "[Enemy] ramboss-charge", "", idx)); idx += 1
-    items.append(("ramboss-dies", "[Enemy] ramboss-dies", "", idx)); idx += 1
-    items.append(("ramboss-fire", "[Enemy] ramboss-fire", "", idx)); idx += 1
-    items.append(("ramboss-hit", "[Enemy] ramboss-hit", "", idx)); idx += 1
-    items.append(("ramboss-idle", "[Enemy] ramboss-idle", "", idx)); idx += 1
-    items.append(("ramboss-land", "[Enemy] ramboss-land", "", idx)); idx += 1
-    items.append(("ramboss-roar", "[Enemy] ramboss-roar", "", idx)); idx += 1
-    items.append(("ramboss-shield", "[Enemy] ramboss-shield", "", idx)); idx += 1
-    items.append(("ramboss-step", "[Enemy] ramboss-step", "", idx)); idx += 1
-    items.append(("ramboss-taunt", "[Enemy] ramboss-taunt", "", idx)); idx += 1
-    items.append(("ramboss-track", "[Enemy] ramboss-track", "", idx)); idx += 1
-    items.append(("robber-dies", "[Enemy] robber-dies", "", idx)); idx += 1
-    items.append(("robber-idle", "[Enemy] robber-idle", "", idx)); idx += 1
-    items.append(("robber-roar", "[Enemy] robber-roar", "", idx)); idx += 1
-    items.append(("robber-taunt", "[Enemy] robber-taunt", "", idx)); idx += 1
-    items.append(("sandworm-dies", "[Enemy] sandworm-dies", "", idx)); idx += 1
-    items.append(("shark-bite", "[Enemy] shark-bite", "", idx)); idx += 1
-    items.append(("shark-dies", "[Enemy] shark-dies", "", idx)); idx += 1
-    items.append(("shark-idle", "[Enemy] shark-idle", "", idx)); idx += 1
-    items.append(("shark-swim", "[Enemy] shark-swim", "", idx)); idx += 1
-    items.append(("shldlurk-breathi", "[Enemy] shldlurk-breathi", "", idx)); idx += 1
-    items.append(("shldlurk-chest", "[Enemy] shldlurk-chest", "", idx)); idx += 1
-    items.append(("shldlurk-dies", "[Enemy] shldlurk-dies", "", idx)); idx += 1
-    items.append(("shldlurk-roar", "[Enemy] shldlurk-roar", "", idx)); idx += 1
-    items.append(("shldlurk-taunt", "[Enemy] shldlurk-taunt", "", idx)); idx += 1
-    items.append(("temp-enemy-die", "[Enemy] temp-enemy-die", "", idx)); idx += 1
-    items.append(("yeti-breathin", "[Enemy] yeti-breathin", "", idx)); idx += 1
-    items.append(("yeti-dies", "[Enemy] yeti-dies", "", idx)); idx += 1
-    items.append(("yeti-roar", "[Enemy] yeti-roar", "", idx)); idx += 1
-    items.append(("yeti-taunt", "[Enemy] yeti-taunt", "", idx)); idx += 1
-    items.append(("zoom-hit-crwood", "[Enemy] zoom-hit-crwood", "", idx)); idx += 1
-    items.append(("zoom-hit-dirt", "[Enemy] zoom-hit-dirt", "", idx)); idx += 1
-    items.append(("zoom-hit-grass", "[Enemy] zoom-hit-grass", "", idx)); idx += 1
-    items.append(("zoom-hit-lava", "[Enemy] zoom-hit-lava", "", idx)); idx += 1
-    items.append(("zoom-hit-metal", "[Enemy] zoom-hit-metal", "", idx)); idx += 1
-    items.append(("zoom-hit-sand", "[Enemy] zoom-hit-sand", "", idx)); idx += 1
-    items.append(("zoom-hit-stone", "[Enemy] zoom-hit-stone", "", idx)); idx += 1
-    items.append(("zoom-hit-water", "[Enemy] zoom-hit-water", "", idx)); idx += 1
-    items.append(("zoom-hit-wood", "[Enemy] zoom-hit-wood", "", idx)); idx += 1
-    items.append(("zoom-land-crwood", "[Enemy] zoom-land-crwood", "", idx)); idx += 1
-    items.append(("zoom-land-dirt", "[Enemy] zoom-land-dirt", "", idx)); idx += 1
-    items.append(("zoom-land-grass", "[Enemy] zoom-land-grass", "", idx)); idx += 1
-    items.append(("zoom-land-lava", "[Enemy] zoom-land-lava", "", idx)); idx += 1
-    items.append(("zoom-land-metal", "[Enemy] zoom-land-metal", "", idx)); idx += 1
-    items.append(("zoom-land-sand", "[Enemy] zoom-land-sand", "", idx)); idx += 1
-    items.append(("zoom-land-stone", "[Enemy] zoom-land-stone", "", idx)); idx += 1
-    items.append(("zoom-land-water", "[Enemy] zoom-land-water", "", idx)); idx += 1
-    items.append(("zoom-land-wood", "[Enemy] zoom-land-wood", "", idx)); idx += 1
-    items.append(("buzzer", "[Pick] buzzer", "", idx)); idx += 1
-    items.append(("buzzer-pickup", "[Pick] buzzer-pickup", "", idx)); idx += 1
-    items.append(("cell-prize", "[Pick] cell-prize", "", idx)); idx += 1
-    items.append(("close-orb-cash", "[Pick] close-orb-cash", "", idx)); idx += 1
-    items.append(("cursor-l-r", "[Pick] cursor-l-r", "", idx)); idx += 1
-    items.append(("cursor-options", "[Pick] cursor-options", "", idx)); idx += 1
-    items.append(("cursor-up-down", "[Pick] cursor-up-down", "", idx)); idx += 1
-    items.append(("get-all-orbs", "[Pick] get-all-orbs", "", idx)); idx += 1
-    items.append(("menu-close", "[Pick] menu-close", "", idx)); idx += 1
-    items.append(("menu-stats", "[Pick] menu-stats", "", idx)); idx += 1
-    items.append(("money-pickup", "[Pick] money-pickup", "", idx)); idx += 1
-    items.append(("open-orb-cash", "[Pick] open-orb-cash", "", idx)); idx += 1
-    items.append(("pill-pickup", "[Pick] pill-pickup", "", idx)); idx += 1
-    items.append(("powercell-idle", "[Pick] powercell-idle", "", idx)); idx += 1
-    items.append(("powercell-out", "[Pick] powercell-out", "", idx)); idx += 1
-    items.append(("select-menu", "[Pick] select-menu", "", idx)); idx += 1
-    items.append(("select-option", "[Pick] select-option", "", idx)); idx += 1
-    items.append(("select-option2", "[Pick] select-option2", "", idx)); idx += 1
-    items.append(("start-options", "[Pick] start-options", "", idx)); idx += 1
-    items.append(("start-up", "[Pick] start-up", "", idx)); idx += 1
-    items.append(("stopwatch", "[Pick] stopwatch", "", idx)); idx += 1
-    items.append(("arena", "[Gen] arena", "", idx)); idx += 1
-    items.append(("arena-steps", "[Gen] arena-steps", "", idx)); idx += 1
-    items.append(("bigswing", "[Gen] bigswing", "", idx)); idx += 1
-    items.append(("blue-light", "[Gen] blue-light", "", idx)); idx += 1
-    items.append(("bluesage-fires", "[Gen] bluesage-fires", "", idx)); idx += 1
-    items.append(("burst-out", "[Gen] burst-out", "", idx)); idx += 1
-    items.append(("crab-walk1", "[Gen] crab-walk1", "", idx)); idx += 1
-    items.append(("crab-walk2", "[Gen] crab-walk2", "", idx)); idx += 1
-    items.append(("crab-walk3", "[Gen] crab-walk3", "", idx)); idx += 1
-    items.append(("crystal-on", "[Gen] crystal-on", "", idx)); idx += 1
-    items.append(("eng-shut-down", "[Gen] eng-shut-down", "", idx)); idx += 1
-    items.append(("eng-start-up", "[Gen] eng-start-up", "", idx)); idx += 1
-    items.append(("explosion", "[Gen] explosion", "", idx)); idx += 1
-    items.append(("explosion-2", "[Gen] explosion-2", "", idx)); idx += 1
-    items.append(("fish-spawn", "[Gen] fish-spawn", "", idx)); idx += 1
-    items.append(("get-big-fish", "[Gen] get-big-fish", "", idx)); idx += 1
-    items.append(("get-powered", "[Gen] get-powered", "", idx)); idx += 1
-    items.append(("get-small-fish", "[Gen] get-small-fish", "", idx)); idx += 1
-    items.append(("green-fire", "[Gen] green-fire", "", idx)); idx += 1
-    items.append(("greensage-fires", "[Gen] greensage-fires", "", idx)); idx += 1
-    items.append(("hand-grab", "[Gen] hand-grab", "", idx)); idx += 1
-    items.append(("jng-piston-dwn", "[Gen] jng-piston-dwn", "", idx)); idx += 1
-    items.append(("jng-piston-up", "[Gen] jng-piston-up", "", idx)); idx += 1
-    items.append(("jngb-eggtop-seq", "[Gen] jngb-eggtop-seq", "", idx)); idx += 1
-    items.append(("jungle-part", "[Gen] jungle-part", "", idx)); idx += 1
-    items.append(("loop-racering", "[Gen] loop-racering", "", idx)); idx += 1
-    items.append(("mayor-step-carp", "[Gen] mayor-step-carp", "", idx)); idx += 1
-    items.append(("mayor-step-wood", "[Gen] mayor-step-wood", "", idx)); idx += 1
-    items.append(("mud", "[Gen] mud", "", idx)); idx += 1
-    items.append(("prec-on-water", "[Gen] prec-on-water", "", idx)); idx += 1
-    items.append(("red-fireball", "[Gen] red-fireball", "", idx)); idx += 1
-    items.append(("redsage-fires", "[Gen] redsage-fires", "", idx)); idx += 1
-    items.append(("robot-arm", "[Gen] robot-arm", "", idx)); idx += 1
-    items.append(("shield-zap", "[Gen] shield-zap", "", idx)); idx += 1
-    items.append(("shut-down", "[Gen] shut-down", "", idx)); idx += 1
-    items.append(("slider2001", "[Gen] slider2001", "", idx)); idx += 1
-    items.append(("smack-surface", "[Gen] smack-surface", "", idx)); idx += 1
-    items.append(("snw-eggtop-seq", "[Gen] snw-eggtop-seq", "", idx)); idx += 1
-    items.append(("sunk-top-falls", "[Gen] sunk-top-falls", "", idx)); idx += 1
-    items.append(("sunk-top-lands", "[Gen] sunk-top-lands", "", idx)); idx += 1
-    items.append(("sunk-top-rises", "[Gen] sunk-top-rises", "", idx)); idx += 1
-    items.append(("touch-pipes", "[Gen] touch-pipes", "", idx)); idx += 1
-    items.append(("warning", "[Gen] warning", "", idx)); idx += 1
-    items.append(("wood-gears2", "[Gen] wood-gears2", "", idx)); idx += 1
-    items.append(("yellsage-fire", "[Gen] yellsage-fire", "", idx)); idx += 1
-    items.append(("zoom-boost", "[Gen] zoom-boost", "", idx)); idx += 1
-    items.append(("zoom-teleport", "[Gen] zoom-teleport", "", idx)); idx += 1
-    items.append(("zoomer-crash-2", "[Gen] zoomer-crash-2", "", idx)); idx += 1
-    items.append(("zoomer-explode", "[Gen] zoomer-explode", "", idx)); idx += 1
-    items.append(("zoomer-jump", "[Gen] zoomer-jump", "", idx)); idx += 1
-    items.append(("zoomer-melt", "[Gen] zoomer-melt", "", idx)); idx += 1
-    items.append(("zoomer-rev1", "[Gen] zoomer-rev1", "", idx)); idx += 1
-    items.append(("zoomer-rev2", "[Gen] zoomer-rev2", "", idx)); idx += 1
-
-    # Level bank sounds
-    level_sounds = set()
-    for b in [bank1, bank2]:
-        if b and b != "none":
-            level_sounds.update(SBK_SOUNDS.get(b, []))
-    # Use bank name as category label
-    for b in [bank1, bank2]:
-        if b and b != "none":
-            for s in sorted(SBK_SOUNDS.get(b, [])):
-                label = f"[{b.title()}] {s}"
-                items.append((s, label, "", idx)); idx += 1
-
-    return items
-
-
+ALL_SFX_ITEMS = [
+    ("breath-in", "[Plyr] breath-in", "", 0),
+    ("breath-in-loud", "[Plyr] breath-in-loud", "", 1),
+    ("breath-out", "[Plyr] breath-out", "", 2),
+    ("breath-out-loud", "[Plyr] breath-out-loud", "", 3),
+    ("death-darkeco", "[Plyr] death-darkeco", "", 4),
+    ("death-drown", "[Plyr] death-drown", "", 5),
+    ("death-fall", "[Plyr] death-fall", "", 6),
+    ("death-melt", "[Plyr] death-melt", "", 7),
+    ("flop-down", "[Plyr] flop-down", "", 8),
+    ("flop-hit", "[Plyr] flop-hit", "", 9),
+    ("flop-land", "[Plyr] flop-land", "", 10),
+    ("foothit", "[Plyr] foothit", "", 11),
+    ("get-burned", "[Plyr] get-burned", "", 12),
+    ("get-fried", "[Plyr] get-fried", "", 13),
+    ("get-shocked", "[Plyr] get-shocked", "", 14),
+    ("hit-back", "[Plyr] hit-back", "", 15),
+    ("hit-dizzy", "[Plyr] hit-dizzy", "", 16),
+    ("hit-dummy", "[Plyr] hit-dummy", "", 17),
+    ("hit-lurk-metal", "[Plyr] hit-lurk-metal", "", 18),
+    ("hit-metal", "[Plyr] hit-metal", "", 19),
+    ("hit-metal-big", "[Plyr] hit-metal-big", "", 20),
+    ("hit-metal-large", "[Plyr] hit-metal-large", "", 21),
+    ("hit-metal-small", "[Plyr] hit-metal-small", "", 22),
+    ("hit-metal-tiny", "[Plyr] hit-metal-tiny", "", 23),
+    ("hit-temple", "[Plyr] hit-temple", "", 24),
+    ("hit-up", "[Plyr] hit-up", "", 25),
+    ("jak-clap", "[Plyr] jak-clap", "", 26),
+    ("jak-deatha", "[Plyr] jak-deatha", "", 27),
+    ("jak-idle1", "[Plyr] jak-idle1", "", 28),
+    ("jak-shocked", "[Plyr] jak-shocked", "", 29),
+    ("jak-stretch", "[Plyr] jak-stretch", "", 30),
+    ("jump", "[Plyr] jump", "", 31),
+    ("jump-double", "[Plyr] jump-double", "", 32),
+    ("jump-long", "[Plyr] jump-long", "", 33),
+    ("jump-low", "[Plyr] jump-low", "", 34),
+    ("jump-lurk-metal", "[Plyr] jump-lurk-metal", "", 35),
+    ("land-crwood", "[Plyr] land-crwood", "", 36),
+    ("land-dirt", "[Plyr] land-dirt", "", 37),
+    ("land-dpsnow", "[Plyr] land-dpsnow", "", 38),
+    ("land-dwater", "[Plyr] land-dwater", "", 39),
+    ("land-grass", "[Plyr] land-grass", "", 40),
+    ("land-hard", "[Plyr] land-hard", "", 41),
+    ("land-metal", "[Plyr] land-metal", "", 42),
+    ("land-pcmetal", "[Plyr] land-pcmetal", "", 43),
+    ("land-sand", "[Plyr] land-sand", "", 44),
+    ("land-snow", "[Plyr] land-snow", "", 45),
+    ("land-stone", "[Plyr] land-stone", "", 46),
+    ("land-straw", "[Plyr] land-straw", "", 47),
+    ("land-swamp", "[Plyr] land-swamp", "", 48),
+    ("land-water", "[Plyr] land-water", "", 49),
+    ("land-wood", "[Plyr] land-wood", "", 50),
+    ("oof", "[Plyr] oof", "", 51),
+    ("punch", "[Plyr] punch", "", 52),
+    ("punch-hit", "[Plyr] punch-hit", "", 53),
+    ("roll-crwood", "[Plyr] roll-crwood", "", 54),
+    ("roll-dirt", "[Plyr] roll-dirt", "", 55),
+    ("roll-dpsnow", "[Plyr] roll-dpsnow", "", 56),
+    ("roll-dwater", "[Plyr] roll-dwater", "", 57),
+    ("roll-grass", "[Plyr] roll-grass", "", 58),
+    ("roll-pcmetal", "[Plyr] roll-pcmetal", "", 59),
+    ("roll-sand", "[Plyr] roll-sand", "", 60),
+    ("roll-snow", "[Plyr] roll-snow", "", 61),
+    ("roll-stone", "[Plyr] roll-stone", "", 62),
+    ("roll-straw", "[Plyr] roll-straw", "", 63),
+    ("roll-swamp", "[Plyr] roll-swamp", "", 64),
+    ("roll-water", "[Plyr] roll-water", "", 65),
+    ("roll-wood", "[Plyr] roll-wood", "", 66),
+    ("run-step-left", "[Plyr] run-step-left", "", 67),
+    ("run-step-right", "[Plyr] run-step-right", "", 68),
+    ("slide-crwood", "[Plyr] slide-crwood", "", 69),
+    ("slide-dirt", "[Plyr] slide-dirt", "", 70),
+    ("slide-dpsnow", "[Plyr] slide-dpsnow", "", 71),
+    ("slide-dwater", "[Plyr] slide-dwater", "", 72),
+    ("slide-grass", "[Plyr] slide-grass", "", 73),
+    ("slide-pcmetal", "[Plyr] slide-pcmetal", "", 74),
+    ("slide-sand", "[Plyr] slide-sand", "", 75),
+    ("slide-snow", "[Plyr] slide-snow", "", 76),
+    ("slide-stone", "[Plyr] slide-stone", "", 77),
+    ("slide-straw", "[Plyr] slide-straw", "", 78),
+    ("slide-swamp", "[Plyr] slide-swamp", "", 79),
+    ("slide-water", "[Plyr] slide-water", "", 80),
+    ("slide-wood", "[Plyr] slide-wood", "", 81),
+    ("spin", "[Plyr] spin", "", 82),
+    ("spin-hit", "[Plyr] spin-hit", "", 83),
+    ("spin-kick", "[Plyr] spin-kick", "", 84),
+    ("spin-pole", "[Plyr] spin-pole", "", 85),
+    ("swim-dive", "[Plyr] swim-dive", "", 86),
+    ("swim-down", "[Plyr] swim-down", "", 87),
+    ("swim-flop", "[Plyr] swim-flop", "", 88),
+    ("swim-idle1", "[Plyr] swim-idle1", "", 89),
+    ("swim-idle2", "[Plyr] swim-idle2", "", 90),
+    ("swim-jump", "[Plyr] swim-jump", "", 91),
+    ("swim-kick-surf", "[Plyr] swim-kick-surf", "", 92),
+    ("swim-kick-under", "[Plyr] swim-kick-under", "", 93),
+    ("swim-noseblow", "[Plyr] swim-noseblow", "", 94),
+    ("swim-stroke", "[Plyr] swim-stroke", "", 95),
+    ("swim-surface", "[Plyr] swim-surface", "", 96),
+    ("swim-to-down", "[Plyr] swim-to-down", "", 97),
+    ("swim-turn", "[Plyr] swim-turn", "", 98),
+    ("swim-up", "[Plyr] swim-up", "", 99),
+    ("uppercut", "[Plyr] uppercut", "", 100),
+    ("uppercut-hit", "[Plyr] uppercut-hit", "", 101),
+    ("walk-crwood1", "[Plyr] walk-crwood1", "", 102),
+    ("walk-crwood2", "[Plyr] walk-crwood2", "", 103),
+    ("walk-dirt1", "[Plyr] walk-dirt1", "", 104),
+    ("walk-dirt2", "[Plyr] walk-dirt2", "", 105),
+    ("walk-dpsnow1", "[Plyr] walk-dpsnow1", "", 106),
+    ("walk-dpsnow2", "[Plyr] walk-dpsnow2", "", 107),
+    ("walk-dwater1", "[Plyr] walk-dwater1", "", 108),
+    ("walk-dwater2", "[Plyr] walk-dwater2", "", 109),
+    ("walk-grass1", "[Plyr] walk-grass1", "", 110),
+    ("walk-grass2", "[Plyr] walk-grass2", "", 111),
+    ("walk-metal1", "[Plyr] walk-metal1", "", 112),
+    ("walk-metal2", "[Plyr] walk-metal2", "", 113),
+    ("walk-pcmetal1", "[Plyr] walk-pcmetal1", "", 114),
+    ("walk-pcmetal2", "[Plyr] walk-pcmetal2", "", 115),
+    ("walk-sand1", "[Plyr] walk-sand1", "", 116),
+    ("walk-sand2", "[Plyr] walk-sand2", "", 117),
+    ("walk-slide", "[Plyr] walk-slide", "", 118),
+    ("walk-snow1", "[Plyr] walk-snow1", "", 119),
+    ("walk-snow2", "[Plyr] walk-snow2", "", 120),
+    ("walk-step-left", "[Plyr] walk-step-left", "", 121),
+    ("walk-step-right", "[Plyr] walk-step-right", "", 122),
+    ("walk-stone1", "[Plyr] walk-stone1", "", 123),
+    ("walk-stone2", "[Plyr] walk-stone2", "", 124),
+    ("walk-straw1", "[Plyr] walk-straw1", "", 125),
+    ("walk-straw2", "[Plyr] walk-straw2", "", 126),
+    ("walk-swamp1", "[Plyr] walk-swamp1", "", 127),
+    ("walk-swamp2", "[Plyr] walk-swamp2", "", 128),
+    ("walk-water1", "[Plyr] walk-water1", "", 129),
+    ("walk-water2", "[Plyr] walk-water2", "", 130),
+    ("walk-wood1", "[Plyr] walk-wood1", "", 131),
+    ("walk-wood2", "[Plyr] walk-wood2", "", 132),
+    ("blue-eco-charg", "[Eco] blue-eco-charg", "", 133),
+    ("blue-eco-idle", "[Eco] blue-eco-idle", "", 134),
+    ("blue-eco-jak", "[Eco] blue-eco-jak", "", 135),
+    ("blue-eco-on", "[Eco] blue-eco-on", "", 136),
+    ("blue-eco-start", "[Eco] blue-eco-start", "", 137),
+    ("darkeco-pool", "[Eco] darkeco-pool", "", 138),
+    ("eco-beam", "[Eco] eco-beam", "", 139),
+    ("eco-bg-blue", "[Eco] eco-bg-blue", "", 140),
+    ("eco-bg-green", "[Eco] eco-bg-green", "", 141),
+    ("eco-bg-red", "[Eco] eco-bg-red", "", 142),
+    ("eco-bg-yellow", "[Eco] eco-bg-yellow", "", 143),
+    ("eco-engine-1", "[Eco] eco-engine-1", "", 144),
+    ("eco-engine-2", "[Eco] eco-engine-2", "", 145),
+    ("eco-plat-hover", "[Eco] eco-plat-hover", "", 146),
+    ("eco3", "[Eco] eco3", "", 147),
+    ("ecohit2", "[Eco] ecohit2", "", 148),
+    ("ecoroom1", "[Eco] ecoroom1", "", 149),
+    ("get-blue-eco", "[Eco] get-blue-eco", "", 150),
+    ("get-green-eco", "[Eco] get-green-eco", "", 151),
+    ("get-red-eco", "[Eco] get-red-eco", "", 152),
+    ("get-yellow-eco", "[Eco] get-yellow-eco", "", 153),
+    ("green-eco-idle", "[Eco] green-eco-idle", "", 154),
+    ("green-eco-jak", "[Eco] green-eco-jak", "", 155),
+    ("helix-dark-eco", "[Eco] helix-dark-eco", "", 156),
+    ("lav-blue-vent", "[Eco] lav-blue-vent", "", 157),
+    ("lav-dark-boom", "[Eco] lav-dark-boom", "", 158),
+    ("lav-green-vent", "[Eco] lav-green-vent", "", 159),
+    ("lav-yell-vent", "[Eco] lav-yell-vent", "", 160),
+    ("red-eco-idle", "[Eco] red-eco-idle", "", 161),
+    ("red-eco-jak", "[Eco] red-eco-jak", "", 162),
+    ("yel-eco-idle", "[Eco] yel-eco-idle", "", 163),
+    ("yel-eco-jak", "[Eco] yel-eco-jak", "", 164),
+    ("cave-spatula", "[Env] cave-spatula", "", 165),
+    ("cave-top-falls", "[Env] cave-top-falls", "", 166),
+    ("cave-top-lands", "[Env] cave-top-lands", "", 167),
+    ("cave-top-rises", "[Env] cave-top-rises", "", 168),
+    ("electric-loop", "[Env] electric-loop", "", 169),
+    ("fire-boulder", "[Env] fire-boulder", "", 170),
+    ("fire-crackle", "[Env] fire-crackle", "", 171),
+    ("fire-loop", "[Env] fire-loop", "", 172),
+    ("flame-pot", "[Env] flame-pot", "", 173),
+    ("glowing-gen", "[Env] glowing-gen", "", 174),
+    ("green-steam", "[Env] green-steam", "", 175),
+    ("heart-drone", "[Env] heart-drone", "", 176),
+    ("ice-breathin", "[Env] ice-breathin", "", 177),
+    ("ice-loop", "[Env] ice-loop", "", 178),
+    ("lav-mine-boom", "[Env] lav-mine-boom", "", 179),
+    ("lav-spin-gen", "[Env] lav-spin-gen", "", 180),
+    ("lava-mines", "[Env] lava-mines", "", 181),
+    ("lava-pulley", "[Env] lava-pulley", "", 182),
+    ("medium-steam-lp", "[Env] medium-steam-lp", "", 183),
+    ("misty-steam", "[Env] misty-steam", "", 184),
+    ("mushroom-gen", "[Env] mushroom-gen", "", 185),
+    ("mushroom-off", "[Env] mushroom-off", "", 186),
+    ("rock-hover", "[Env] rock-hover", "", 187),
+    ("small-steam-lp", "[Env] small-steam-lp", "", 188),
+    ("snow-bumper", "[Env] snow-bumper", "", 189),
+    ("snow-plat-1", "[Env] snow-plat-1", "", 190),
+    ("snow-plat-2", "[Env] snow-plat-2", "", 191),
+    ("snow-plat-3", "[Env] snow-plat-3", "", 192),
+    ("steam-long", "[Env] steam-long", "", 193),
+    ("steam-medium", "[Env] steam-medium", "", 194),
+    ("steam-short", "[Env] steam-short", "", 195),
+    ("water-drop", "[Env] water-drop", "", 196),
+    ("water-explosion", "[Env] water-explosion", "", 197),
+    ("water-loop", "[Env] water-loop", "", 198),
+    ("water-off", "[Env] water-off", "", 199),
+    ("water-on", "[Env] water-on", "", 200),
+    ("waterfall", "[Env] waterfall", "", 201),
+    ("arenadoor-close", "[Obj] arenadoor-close", "", 202),
+    ("arenadoor-open", "[Obj] arenadoor-open", "", 203),
+    ("boat-start", "[Obj] boat-start", "", 204),
+    ("boat-stop", "[Obj] boat-stop", "", 205),
+    ("bomb-open", "[Obj] bomb-open", "", 206),
+    ("bridge-button", "[Obj] bridge-button", "", 207),
+    ("bridge-hover", "[Obj] bridge-hover", "", 208),
+    ("bumper-button", "[Obj] bumper-button", "", 209),
+    ("bumper-pwr-dwn", "[Obj] bumper-pwr-dwn", "", 210),
+    ("chamber-land", "[Obj] chamber-land", "", 211),
+    ("chamber-lift", "[Obj] chamber-lift", "", 212),
+    ("crate-jump", "[Obj] crate-jump", "", 213),
+    ("dcrate-break", "[Obj] dcrate-break", "", 214),
+    ("door-lock", "[Obj] door-lock", "", 215),
+    ("door-unlock", "[Obj] door-unlock", "", 216),
+    ("elev-button", "[Obj] elev-button", "", 217),
+    ("elev-land", "[Obj] elev-land", "", 218),
+    ("gdl-gen-loop", "[Obj] gdl-gen-loop", "", 219),
+    ("gdl-pulley", "[Obj] gdl-pulley", "", 220),
+    ("gdl-shut-down", "[Obj] gdl-shut-down", "", 221),
+    ("gdl-start-up", "[Obj] gdl-start-up", "", 222),
+    ("icrate-break", "[Obj] icrate-break", "", 223),
+    ("irisdoor1", "[Obj] irisdoor1", "", 224),
+    ("irisdoor2", "[Obj] irisdoor2", "", 225),
+    ("launch-fire", "[Obj] launch-fire", "", 226),
+    ("launch-idle", "[Obj] launch-idle", "", 227),
+    ("launch-start", "[Obj] launch-start", "", 228),
+    ("ldoor-close", "[Obj] ldoor-close", "", 229),
+    ("ldoor-open", "[Obj] ldoor-open", "", 230),
+    ("lev-mach-fires", "[Obj] lev-mach-fires", "", 231),
+    ("lev-mach-idle", "[Obj] lev-mach-idle", "", 232),
+    ("lev-mach-start", "[Obj] lev-mach-start", "", 233),
+    ("maindoor", "[Obj] maindoor", "", 234),
+    ("mayors-gears", "[Obj] mayors-gears", "", 235),
+    ("miners-fire", "[Obj] miners-fire", "", 236),
+    ("oracle-awake", "[Obj] oracle-awake", "", 237),
+    ("oracle-sleep", "[Obj] oracle-sleep", "", 238),
+    ("pedals", "[Obj] pedals", "", 239),
+    ("piston-close", "[Obj] piston-close", "", 240),
+    ("piston-open", "[Obj] piston-open", "", 241),
+    ("plat-light-off", "[Obj] plat-light-off", "", 242),
+    ("plat-light-on", "[Obj] plat-light-on", "", 243),
+    ("pontoonten", "[Obj] pontoonten", "", 244),
+    ("prec-button1", "[Obj] prec-button1", "", 245),
+    ("prec-button2", "[Obj] prec-button2", "", 246),
+    ("prec-button3", "[Obj] prec-button3", "", 247),
+    ("prec-button4", "[Obj] prec-button4", "", 248),
+    ("prec-button6", "[Obj] prec-button6", "", 249),
+    ("prec-button7", "[Obj] prec-button7", "", 250),
+    ("prec-button8", "[Obj] prec-button8", "", 251),
+    ("robo-blue-lp", "[Obj] robo-blue-lp", "", 252),
+    ("robo-warning", "[Obj] robo-warning", "", 253),
+    ("robotcage-lp", "[Obj] robotcage-lp", "", 254),
+    ("robotcage-off", "[Obj] robotcage-off", "", 255),
+    ("rounddoor", "[Obj] rounddoor", "", 256),
+    ("sagecage-gen", "[Obj] sagecage-gen", "", 257),
+    ("sagecage-off", "[Obj] sagecage-off", "", 258),
+    ("sages-machine", "[Obj] sages-machine", "", 259),
+    ("scrate-break", "[Obj] scrate-break", "", 260),
+    ("scrate-nobreak", "[Obj] scrate-nobreak", "", 261),
+    ("sidedoor", "[Obj] sidedoor", "", 262),
+    ("silo-button", "[Obj] silo-button", "", 263),
+    ("snow-pist-cls2", "[Obj] snow-pist-cls2", "", 264),
+    ("snow-pist-cls3", "[Obj] snow-pist-cls3", "", 265),
+    ("snow-pist-opn2", "[Obj] snow-pist-opn2", "", 266),
+    ("snow-pist-opn3", "[Obj] snow-pist-opn3", "", 267),
+    ("snow-piston-cls", "[Obj] snow-piston-cls", "", 268),
+    ("snow-piston-opn", "[Obj] snow-piston-opn", "", 269),
+    ("snw-door", "[Obj] snw-door", "", 270),
+    ("split-steps", "[Obj] split-steps", "", 271),
+    ("v3-bridge", "[Obj] v3-bridge", "", 272),
+    ("v3-cartride", "[Obj] v3-cartride", "", 273),
+    ("v3-minecart", "[Obj] v3-minecart", "", 274),
+    ("vent-switch", "[Obj] vent-switch", "", 275),
+    ("warpgate-act", "[Obj] warpgate-act", "", 276),
+    ("warpgate-butt", "[Obj] warpgate-butt", "", 277),
+    ("warpgate-loop", "[Obj] warpgate-loop", "", 278),
+    ("warpgate-tele", "[Obj] warpgate-tele", "", 279),
+    ("wcrate-break", "[Obj] wcrate-break", "", 280),
+    ("babak-breathin", "[Enemy] babak-breathin", "", 281),
+    ("babak-chest", "[Enemy] babak-chest", "", 282),
+    ("babak-dies", "[Enemy] babak-dies", "", 283),
+    ("babak-roar", "[Enemy] babak-roar", "", 284),
+    ("babak-taunt", "[Enemy] babak-taunt", "", 285),
+    ("babk-taunt", "[Enemy] babk-taunt", "", 286),
+    ("balloon-dies", "[Enemy] balloon-dies", "", 287),
+    ("bigshark-alert", "[Enemy] bigshark-alert", "", 288),
+    ("bigshark-bite", "[Enemy] bigshark-bite", "", 289),
+    ("bigshark-idle", "[Enemy] bigshark-idle", "", 290),
+    ("bigshark-taunt", "[Enemy] bigshark-taunt", "", 291),
+    ("blob-explode", "[Enemy] blob-explode", "", 292),
+    ("blob-land", "[Enemy] blob-land", "", 293),
+    ("bonelurk-roar", "[Enemy] bonelurk-roar", "", 294),
+    ("bonelurker-dies", "[Enemy] bonelurker-dies", "", 295),
+    ("bonelurker-grunt", "[Enemy] bonelurker-grunt", "", 296),
+    ("bully-bounce", "[Enemy] bully-bounce", "", 297),
+    ("bully-dies", "[Enemy] bully-dies", "", 298),
+    ("bully-dizzy", "[Enemy] bully-dizzy", "", 299),
+    ("bully-idle", "[Enemy] bully-idle", "", 300),
+    ("bully-jump", "[Enemy] bully-jump", "", 301),
+    ("bully-land", "[Enemy] bully-land", "", 302),
+    ("bully-spin1", "[Enemy] bully-spin1", "", 303),
+    ("bully-spin2", "[Enemy] bully-spin2", "", 304),
+    ("caught-eel", "[Enemy] caught-eel", "", 305),
+    ("dril-step", "[Enemy] dril-step", "", 306),
+    ("flut-land-crwood", "[Enemy] flut-land-crwood", "", 307),
+    ("flut-land-dirt", "[Enemy] flut-land-dirt", "", 308),
+    ("flut-land-grass", "[Enemy] flut-land-grass", "", 309),
+    ("flut-land-pcmeta", "[Enemy] flut-land-pcmeta", "", 310),
+    ("flut-land-sand", "[Enemy] flut-land-sand", "", 311),
+    ("flut-land-snow", "[Enemy] flut-land-snow", "", 312),
+    ("flut-land-stone", "[Enemy] flut-land-stone", "", 313),
+    ("flut-land-straw", "[Enemy] flut-land-straw", "", 314),
+    ("flut-land-swamp", "[Enemy] flut-land-swamp", "", 315),
+    ("flut-land-water", "[Enemy] flut-land-water", "", 316),
+    ("flut-land-wood", "[Enemy] flut-land-wood", "", 317),
+    ("flylurk-dies", "[Enemy] flylurk-dies", "", 318),
+    ("flylurk-idle", "[Enemy] flylurk-idle", "", 319),
+    ("flylurk-plane", "[Enemy] flylurk-plane", "", 320),
+    ("flylurk-roar", "[Enemy] flylurk-roar", "", 321),
+    ("flylurk-taunt", "[Enemy] flylurk-taunt", "", 322),
+    ("grunt", "[Enemy] grunt", "", 323),
+    ("icelurk-land", "[Enemy] icelurk-land", "", 324),
+    ("icelurk-step", "[Enemy] icelurk-step", "", 325),
+    ("kermit-loop", "[Enemy] kermit-loop", "", 326),
+    ("lurkerfish-swim", "[Enemy] lurkerfish-swim", "", 327),
+    ("mother-charge", "[Enemy] mother-charge", "", 328),
+    ("mother-fire", "[Enemy] mother-fire", "", 329),
+    ("mother-hit", "[Enemy] mother-hit", "", 330),
+    ("mother-track", "[Enemy] mother-track", "", 331),
+    ("mud-lurk-inhale", "[Enemy] mud-lurk-inhale", "", 332),
+    ("ogre-rock", "[Enemy] ogre-rock", "", 333),
+    ("ogre-throw", "[Enemy] ogre-throw", "", 334),
+    ("ogre-windup", "[Enemy] ogre-windup", "", 335),
+    ("ramboss-charge", "[Enemy] ramboss-charge", "", 336),
+    ("ramboss-dies", "[Enemy] ramboss-dies", "", 337),
+    ("ramboss-fire", "[Enemy] ramboss-fire", "", 338),
+    ("ramboss-hit", "[Enemy] ramboss-hit", "", 339),
+    ("ramboss-idle", "[Enemy] ramboss-idle", "", 340),
+    ("ramboss-land", "[Enemy] ramboss-land", "", 341),
+    ("ramboss-roar", "[Enemy] ramboss-roar", "", 342),
+    ("ramboss-shield", "[Enemy] ramboss-shield", "", 343),
+    ("ramboss-step", "[Enemy] ramboss-step", "", 344),
+    ("ramboss-taunt", "[Enemy] ramboss-taunt", "", 345),
+    ("ramboss-track", "[Enemy] ramboss-track", "", 346),
+    ("robber-dies", "[Enemy] robber-dies", "", 347),
+    ("robber-idle", "[Enemy] robber-idle", "", 348),
+    ("robber-roar", "[Enemy] robber-roar", "", 349),
+    ("robber-taunt", "[Enemy] robber-taunt", "", 350),
+    ("sandworm-dies", "[Enemy] sandworm-dies", "", 351),
+    ("shark-bite", "[Enemy] shark-bite", "", 352),
+    ("shark-dies", "[Enemy] shark-dies", "", 353),
+    ("shark-idle", "[Enemy] shark-idle", "", 354),
+    ("shark-swim", "[Enemy] shark-swim", "", 355),
+    ("shldlurk-breathi", "[Enemy] shldlurk-breathi", "", 356),
+    ("shldlurk-chest", "[Enemy] shldlurk-chest", "", 357),
+    ("shldlurk-dies", "[Enemy] shldlurk-dies", "", 358),
+    ("shldlurk-roar", "[Enemy] shldlurk-roar", "", 359),
+    ("shldlurk-taunt", "[Enemy] shldlurk-taunt", "", 360),
+    ("temp-enemy-die", "[Enemy] temp-enemy-die", "", 361),
+    ("yeti-breathin", "[Enemy] yeti-breathin", "", 362),
+    ("yeti-dies", "[Enemy] yeti-dies", "", 363),
+    ("yeti-roar", "[Enemy] yeti-roar", "", 364),
+    ("yeti-taunt", "[Enemy] yeti-taunt", "", 365),
+    ("zoom-hit-crwood", "[Enemy] zoom-hit-crwood", "", 366),
+    ("zoom-hit-dirt", "[Enemy] zoom-hit-dirt", "", 367),
+    ("zoom-hit-grass", "[Enemy] zoom-hit-grass", "", 368),
+    ("zoom-hit-lava", "[Enemy] zoom-hit-lava", "", 369),
+    ("zoom-hit-metal", "[Enemy] zoom-hit-metal", "", 370),
+    ("zoom-hit-sand", "[Enemy] zoom-hit-sand", "", 371),
+    ("zoom-hit-stone", "[Enemy] zoom-hit-stone", "", 372),
+    ("zoom-hit-water", "[Enemy] zoom-hit-water", "", 373),
+    ("zoom-hit-wood", "[Enemy] zoom-hit-wood", "", 374),
+    ("zoom-land-crwood", "[Enemy] zoom-land-crwood", "", 375),
+    ("zoom-land-dirt", "[Enemy] zoom-land-dirt", "", 376),
+    ("zoom-land-grass", "[Enemy] zoom-land-grass", "", 377),
+    ("zoom-land-lava", "[Enemy] zoom-land-lava", "", 378),
+    ("zoom-land-metal", "[Enemy] zoom-land-metal", "", 379),
+    ("zoom-land-sand", "[Enemy] zoom-land-sand", "", 380),
+    ("zoom-land-stone", "[Enemy] zoom-land-stone", "", 381),
+    ("zoom-land-water", "[Enemy] zoom-land-water", "", 382),
+    ("zoom-land-wood", "[Enemy] zoom-land-wood", "", 383),
+    ("buzzer", "[Pick] buzzer", "", 384),
+    ("buzzer-pickup", "[Pick] buzzer-pickup", "", 385),
+    ("cell-prize", "[Pick] cell-prize", "", 386),
+    ("close-orb-cash", "[Pick] close-orb-cash", "", 387),
+    ("cursor-l-r", "[Pick] cursor-l-r", "", 388),
+    ("cursor-options", "[Pick] cursor-options", "", 389),
+    ("cursor-up-down", "[Pick] cursor-up-down", "", 390),
+    ("get-all-orbs", "[Pick] get-all-orbs", "", 391),
+    ("menu-close", "[Pick] menu-close", "", 392),
+    ("menu-stats", "[Pick] menu-stats", "", 393),
+    ("money-pickup", "[Pick] money-pickup", "", 394),
+    ("open-orb-cash", "[Pick] open-orb-cash", "", 395),
+    ("pill-pickup", "[Pick] pill-pickup", "", 396),
+    ("powercell-idle", "[Pick] powercell-idle", "", 397),
+    ("powercell-out", "[Pick] powercell-out", "", 398),
+    ("select-menu", "[Pick] select-menu", "", 399),
+    ("select-option", "[Pick] select-option", "", 400),
+    ("select-option2", "[Pick] select-option2", "", 401),
+    ("start-options", "[Pick] start-options", "", 402),
+    ("start-up", "[Pick] start-up", "", 403),
+    ("stopwatch", "[Pick] stopwatch", "", 404),
+    ("arena", "[Gen] arena", "", 405),
+    ("arena-steps", "[Gen] arena-steps", "", 406),
+    ("bigswing", "[Gen] bigswing", "", 407),
+    ("blue-light", "[Gen] blue-light", "", 408),
+    ("bluesage-fires", "[Gen] bluesage-fires", "", 409),
+    ("burst-out", "[Gen] burst-out", "", 410),
+    ("crab-walk1", "[Gen] crab-walk1", "", 411),
+    ("crab-walk2", "[Gen] crab-walk2", "", 412),
+    ("crab-walk3", "[Gen] crab-walk3", "", 413),
+    ("crystal-on", "[Gen] crystal-on", "", 414),
+    ("eng-shut-down", "[Gen] eng-shut-down", "", 415),
+    ("eng-start-up", "[Gen] eng-start-up", "", 416),
+    ("explosion", "[Gen] explosion", "", 417),
+    ("explosion-2", "[Gen] explosion-2", "", 418),
+    ("fish-spawn", "[Gen] fish-spawn", "", 419),
+    ("get-big-fish", "[Gen] get-big-fish", "", 420),
+    ("get-powered", "[Gen] get-powered", "", 421),
+    ("get-small-fish", "[Gen] get-small-fish", "", 422),
+    ("green-fire", "[Gen] green-fire", "", 423),
+    ("greensage-fires", "[Gen] greensage-fires", "", 424),
+    ("hand-grab", "[Gen] hand-grab", "", 425),
+    ("jng-piston-dwn", "[Gen] jng-piston-dwn", "", 426),
+    ("jng-piston-up", "[Gen] jng-piston-up", "", 427),
+    ("jngb-eggtop-seq", "[Gen] jngb-eggtop-seq", "", 428),
+    ("jungle-part", "[Gen] jungle-part", "", 429),
+    ("loop-racering", "[Gen] loop-racering", "", 430),
+    ("mayor-step-carp", "[Gen] mayor-step-carp", "", 431),
+    ("mayor-step-wood", "[Gen] mayor-step-wood", "", 432),
+    ("mud", "[Gen] mud", "", 433),
+    ("prec-on-water", "[Gen] prec-on-water", "", 434),
+    ("red-fireball", "[Gen] red-fireball", "", 435),
+    ("redsage-fires", "[Gen] redsage-fires", "", 436),
+    ("robot-arm", "[Gen] robot-arm", "", 437),
+    ("shield-zap", "[Gen] shield-zap", "", 438),
+    ("shut-down", "[Gen] shut-down", "", 439),
+    ("slider2001", "[Gen] slider2001", "", 440),
+    ("smack-surface", "[Gen] smack-surface", "", 441),
+    ("snw-eggtop-seq", "[Gen] snw-eggtop-seq", "", 442),
+    ("sunk-top-falls", "[Gen] sunk-top-falls", "", 443),
+    ("sunk-top-lands", "[Gen] sunk-top-lands", "", 444),
+    ("sunk-top-rises", "[Gen] sunk-top-rises", "", 445),
+    ("touch-pipes", "[Gen] touch-pipes", "", 446),
+    ("warning", "[Gen] warning", "", 447),
+    ("wood-gears2", "[Gen] wood-gears2", "", 448),
+    ("yellsage-fire", "[Gen] yellsage-fire", "", 449),
+    ("zoom-boost", "[Gen] zoom-boost", "", 450),
+    ("zoom-teleport", "[Gen] zoom-teleport", "", 451),
+    ("zoomer-crash-2", "[Gen] zoomer-crash-2", "", 452),
+    ("zoomer-explode", "[Gen] zoomer-explode", "", 453),
+    ("zoomer-jump", "[Gen] zoomer-jump", "", 454),
+    ("zoomer-melt", "[Gen] zoomer-melt", "", 455),
+    ("zoomer-rev1", "[Gen] zoomer-rev1", "", 456),
+    ("zoomer-rev2", "[Gen] zoomer-rev2", "", 457),
+    ("beach-amb2__beach", "[Beach] beach-amb2", "", 458),
+    ("bird__beach", "[Beach] bird", "", 459),
+    ("cannon-charge__beach", "[Beach] cannon-charge", "", 460),
+    ("cannon-shot__beach", "[Beach] cannon-shot", "", 461),
+    ("crab-slide__beach", "[Beach] crab-slide", "", 462),
+    ("dirt-crumble__beach", "[Beach] dirt-crumble", "", 463),
+    ("drip__beach", "[Beach] drip", "", 464),
+    ("egg-crack__beach", "[Beach] egg-crack", "", 465),
+    ("egg-hit__beach", "[Beach] egg-hit", "", 466),
+    ("falling-egg__beach", "[Beach] falling-egg", "", 467),
+    ("fuse__beach", "[Beach] fuse", "", 468),
+    ("gears-rumble__beach", "[Beach] gears-rumble", "", 469),
+    ("grotto-pole-hit__beach", "[Beach] grotto-pole-hit", "", 470),
+    ("lurkercrab-dies__beach", "[Beach] lurkercrab-dies", "", 471),
+    ("lurkerdog-bite__beach", "[Beach] lurkerdog-bite", "", 472),
+    ("lurkerdog-dies__beach", "[Beach] lurkerdog-dies", "", 473),
+    ("lurkerdog-idle__beach", "[Beach] lurkerdog-idle", "", 474),
+    ("monkey__beach", "[Beach] monkey", "", 475),
+    ("pelican-flap__beach", "[Beach] pelican-flap", "", 476),
+    ("pelican-gulp__beach", "[Beach] pelican-gulp", "", 477),
+    ("puppy-bark__beach", "[Beach] puppy-bark", "", 478),
+    ("rope-stretch__beach", "[Beach] rope-stretch", "", 479),
+    ("sack-incoming__beach", "[Beach] sack-incoming", "", 480),
+    ("sack-land__beach", "[Beach] sack-land", "", 481),
+    ("seagull-takeoff__beach", "[Beach] seagull-takeoff", "", 482),
+    ("shell-down__beach", "[Beach] shell-down", "", 483),
+    ("shell-up__beach", "[Beach] shell-up", "", 484),
+    ("snap__beach", "[Beach] snap", "", 485),
+    ("telescope__beach", "[Beach] telescope", "", 486),
+    ("tower-wind2__beach", "[Beach] tower-wind2", "", 487),
+    ("tower-wind3__beach", "[Beach] tower-wind3", "", 488),
+    ("tower-winds__beach", "[Beach] tower-winds", "", 489),
+    ("vent-rock-break__beach", "[Beach] vent-rock-break", "", 490),
+    ("water-lap__beach", "[Beach] water-lap", "", 491),
+    ("worm-bite__beach", "[Beach] worm-bite", "", 492),
+    ("worm-dies__beach", "[Beach] worm-dies", "", 493),
+    ("worm-idle__beach", "[Beach] worm-idle", "", 494),
+    ("worm-rise1__beach", "[Beach] worm-rise1", "", 495),
+    ("worm-sink__beach", "[Beach] worm-sink", "", 496),
+    ("worm-taunt__beach", "[Beach] worm-taunt", "", 497),
+    ("assembly-moves__citadel", "[Citad] assembly-moves", "", 498),
+    ("bridge-piece-dn__citadel", "[Citad] bridge-piece-dn", "", 499),
+    ("bridge-piece-up__citadel", "[Citad] bridge-piece-up", "", 500),
+    ("bunny-attack__citadel", "[Citad] bunny-attack", "", 501),
+    ("bunny-dies__citadel", "[Citad] bunny-dies", "", 502),
+    ("bunny-taunt-1__citadel", "[Citad] bunny-taunt-1", "", 503),
+    ("citadel-amb__citadel", "[Citad] citadel-amb", "", 504),
+    ("eco-beam__citadel", "[Citad] eco-beam", "", 505),
+    ("eco-torch__citadel", "[Citad] eco-torch", "", 506),
+    ("elev-button__citadel", "[Citad] elev-button", "", 507),
+    ("mushroom-break__citadel", "[Citad] mushroom-break", "", 508),
+    ("robot-arm__citadel", "[Citad] robot-arm", "", 509),
+    ("rotate-plat__citadel", "[Citad] rotate-plat", "", 510),
+    ("sagecage-open__citadel", "[Citad] sagecage-open", "", 511),
+    ("snow-bunny1__citadel", "[Citad] snow-bunny1", "", 512),
+    ("snow-bunny2__citadel", "[Citad] snow-bunny2", "", 513),
+    ("yellow-buzz__citadel", "[Citad] yellow-buzz", "", 514),
+    ("yellow-explode__citadel", "[Citad] yellow-explode", "", 515),
+    ("yellow-fire__citadel", "[Citad] yellow-fire", "", 516),
+    ("yellow-fizzle__citadel", "[Citad] yellow-fizzle", "", 517),
+    ("bab-spid-dies__darkcave", "[Darkc] bab-spid-dies", "", 518),
+    ("bab-spid-roar__darkcave", "[Darkc] bab-spid-roar", "", 519),
+    ("button-1b__darkcave", "[Darkc] button-1b", "", 520),
+    ("cavelevator__darkcave", "[Darkc] cavelevator", "", 521),
+    ("cavewind__darkcave", "[Darkc] cavewind", "", 522),
+    ("crystal-explode__darkcave", "[Darkc] crystal-explode", "", 523),
+    ("drill-idle__darkcave", "[Darkc] drill-idle", "", 524),
+    ("drill-idle2__darkcave", "[Darkc] drill-idle2", "", 525),
+    ("drill-no-start__darkcave", "[Darkc] drill-no-start", "", 526),
+    ("drill-start__darkcave", "[Darkc] drill-start", "", 527),
+    ("drill-stop__darkcave", "[Darkc] drill-stop", "", 528),
+    ("drlurker-dies__darkcave", "[Darkc] drlurker-dies", "", 529),
+    ("drlurker-roar__darkcave", "[Darkc] drlurker-roar", "", 530),
+    ("eggs-hatch__darkcave", "[Darkc] eggs-hatch", "", 531),
+    ("eggs-lands__darkcave", "[Darkc] eggs-lands", "", 532),
+    ("lay-eggs__darkcave", "[Darkc] lay-eggs", "", 533),
+    ("mom-spid-dies__darkcave", "[Darkc] mom-spid-dies", "", 534),
+    ("mom-spid-roar__darkcave", "[Darkc] mom-spid-roar", "", 535),
+    ("spatula__darkcave", "[Darkc] spatula", "", 536),
+    ("spider-step__darkcave", "[Darkc] spider-step", "", 537),
+    ("trapdoor__darkcave", "[Darkc] trapdoor", "", 538),
+    ("web-tramp__darkcave", "[Darkc] web-tramp", "", 539),
+    ("yellow-buzz__darkcave", "[Darkc] yellow-buzz", "", 540),
+    ("yellow-explode__darkcave", "[Darkc] yellow-explode", "", 541),
+    ("yellow-fire__darkcave", "[Darkc] yellow-fire", "", 542),
+    ("yellow-fizzle__darkcave", "[Darkc] yellow-fizzle", "", 543),
+    ("-bfg-buzz__finalboss", "[Final] -bfg-buzz", "", 544),
+    ("assembly-moves__finalboss", "[Final] assembly-moves", "", 545),
+    ("bfg-buzz__finalboss", "[Final] bfg-buzz", "", 546),
+    ("bfg-fire__finalboss", "[Final] bfg-fire", "", 547),
+    ("bfg-fizzle__finalboss", "[Final] bfg-fizzle", "", 548),
+    ("blob-attack__finalboss", "[Final] blob-attack", "", 549),
+    ("blob-dies__finalboss", "[Final] blob-dies", "", 550),
+    ("blob-jump__finalboss", "[Final] blob-jump", "", 551),
+    ("blob-out__finalboss", "[Final] blob-out", "", 552),
+    ("blob-roar__finalboss", "[Final] blob-roar", "", 553),
+    ("bomb-spin__finalboss", "[Final] bomb-spin", "", 554),
+    ("bridge-piece-dn__finalboss", "[Final] bridge-piece-dn", "", 555),
+    ("bridge-piece-up__finalboss", "[Final] bridge-piece-up", "", 556),
+    ("charge-loop__finalboss", "[Final] charge-loop", "", 557),
+    ("dark-eco-buzz__finalboss", "[Final] dark-eco-buzz", "", 558),
+    ("dark-eco-fire__finalboss", "[Final] dark-eco-fire", "", 559),
+    ("eco-beam__finalboss", "[Final] eco-beam", "", 560),
+    ("eco-torch__finalboss", "[Final] eco-torch", "", 561),
+    ("elev-land__finalboss", "[Final] elev-land", "", 562),
+    ("explod-bfg__finalboss", "[Final] explod-bfg", "", 563),
+    ("explod-bomb__finalboss", "[Final] explod-bomb", "", 564),
+    ("explod-eye__finalboss", "[Final] explod-eye", "", 565),
+    ("explosion1__finalboss", "[Final] explosion1", "", 566),
+    ("explosion2__finalboss", "[Final] explosion2", "", 567),
+    ("explosion3__finalboss", "[Final] explosion3", "", 568),
+    ("mushroom-break__finalboss", "[Final] mushroom-break", "", 569),
+    ("red-buzz__finalboss", "[Final] red-buzz", "", 570),
+    ("red-explode__finalboss", "[Final] red-explode", "", 571),
+    ("red-fire__finalboss", "[Final] red-fire", "", 572),
+    ("robo-hurt__finalboss", "[Final] robo-hurt", "", 573),
+    ("robo-servo1__finalboss", "[Final] robo-servo1", "", 574),
+    ("robo-servo2__finalboss", "[Final] robo-servo2", "", 575),
+    ("robo-servo3__finalboss", "[Final] robo-servo3", "", 576),
+    ("robo-servo4__finalboss", "[Final] robo-servo4", "", 577),
+    ("robo-servo5__finalboss", "[Final] robo-servo5", "", 578),
+    ("robo-servo6__finalboss", "[Final] robo-servo6", "", 579),
+    ("robo-servo7__finalboss", "[Final] robo-servo7", "", 580),
+    ("robo-servo8__finalboss", "[Final] robo-servo8", "", 581),
+    ("robo-servo9__finalboss", "[Final] robo-servo9", "", 582),
+    ("robo-taunt__finalboss", "[Final] robo-taunt", "", 583),
+    ("robo-yell__finalboss", "[Final] robo-yell", "", 584),
+    ("sagecage-open__finalboss", "[Final] sagecage-open", "", 585),
+    ("silo-moves__finalboss", "[Final] silo-moves", "", 586),
+    ("white-eco-beam__finalboss", "[Final] white-eco-beam", "", 587),
+    ("white-eco-lp__finalboss", "[Final] white-eco-lp", "", 588),
+    ("yellow-buzz__finalboss", "[Final] yellow-buzz", "", 589),
+    ("yellow-explode__finalboss", "[Final] yellow-explode", "", 590),
+    ("yellow-fire__finalboss", "[Final] yellow-fire", "", 591),
+    ("yellow-fizzle__finalboss", "[Final] yellow-fizzle", "", 592),
+    ("bubling-lava__firecanyon", "[Firec] bubling-lava", "", 593),
+    ("cool-balloon__firecanyon", "[Firec] cool-balloon", "", 594),
+    ("explod-mine__firecanyon", "[Firec] explod-mine", "", 595),
+    ("explosion1__firecanyon", "[Firec] explosion1", "", 596),
+    ("explosion2__firecanyon", "[Firec] explosion2", "", 597),
+    ("lava-amb__firecanyon", "[Firec] lava-amb", "", 598),
+    ("lava-steam__firecanyon", "[Firec] lava-steam", "", 599),
+    ("magma-rock__firecanyon", "[Firec] magma-rock", "", 600),
+    ("zoomer-loop__firecanyon", "[Firec] zoomer-loop", "", 601),
+    ("zoomer-start__firecanyon", "[Firec] zoomer-start", "", 602),
+    ("zoomer-stop__firecanyon", "[Firec] zoomer-stop", "", 603),
+    ("accordian-pump__jungle", "[Jungl] accordian-pump", "", 604),
+    ("aphid-dies__jungle", "[Jungl] aphid-dies", "", 605),
+    ("aphid-roar__jungle", "[Jungl] aphid-roar", "", 606),
+    ("aphid-spike-in__jungle", "[Jungl] aphid-spike-in", "", 607),
+    ("aphid-spike-out__jungle", "[Jungl] aphid-spike-out", "", 608),
+    ("aphid-step__jungle", "[Jungl] aphid-step", "", 609),
+    ("beam-connect__jungle", "[Jungl] beam-connect", "", 610),
+    ("bird__jungle", "[Jungl] bird", "", 611),
+    ("bug-step__jungle", "[Jungl] bug-step", "", 612),
+    ("cascade__jungle", "[Jungl] cascade", "", 613),
+    ("darkvine-down__jungle", "[Jungl] darkvine-down", "", 614),
+    ("darkvine-move__jungle", "[Jungl] darkvine-move", "", 615),
+    ("darkvine-snap__jungle", "[Jungl] darkvine-snap", "", 616),
+    ("darkvine-up__jungle", "[Jungl] darkvine-up", "", 617),
+    ("eco-tower-rise__jungle", "[Jungl] eco-tower-rise", "", 618),
+    ("eco-tower-stop__jungle", "[Jungl] eco-tower-stop", "", 619),
+    ("elev-land__jungle", "[Jungl] elev-land", "", 620),
+    ("elev-loop__jungle", "[Jungl] elev-loop", "", 621),
+    ("fish-miss__jungle", "[Jungl] fish-miss", "", 622),
+    ("floating-rings__jungle", "[Jungl] floating-rings", "", 623),
+    ("frog-dies__jungle", "[Jungl] frog-dies", "", 624),
+    ("frog-idle__jungle", "[Jungl] frog-idle", "", 625),
+    ("frog-taunt__jungle", "[Jungl] frog-taunt", "", 626),
+    ("frogspeak__jungle", "[Jungl] frogspeak", "", 627),
+    ("jungle-river__jungle", "[Jungl] jungle-river", "", 628),
+    ("jungle-shores__jungle", "[Jungl] jungle-shores", "", 629),
+    ("logtrap1__jungle", "[Jungl] logtrap1", "", 630),
+    ("logtrap2__jungle", "[Jungl] logtrap2", "", 631),
+    ("lurk-bug__jungle", "[Jungl] lurk-bug", "", 632),
+    ("lurkerfish-bite__jungle", "[Jungl] lurkerfish-bite", "", 633),
+    ("lurkerfish-dies__jungle", "[Jungl] lurkerfish-dies", "", 634),
+    ("lurkerfish-idle__jungle", "[Jungl] lurkerfish-idle", "", 635),
+    ("lurkerm-hum__jungle", "[Jungl] lurkerm-hum", "", 636),
+    ("lurkerm-squeak__jungle", "[Jungl] lurkerm-squeak", "", 637),
+    ("mirror-smash__jungle", "[Jungl] mirror-smash", "", 638),
+    ("monkey__jungle", "[Jungl] monkey", "", 639),
+    ("pc-bridge__jungle", "[Jungl] pc-bridge", "", 640),
+    ("plant-chomp__jungle", "[Jungl] plant-chomp", "", 641),
+    ("plant-eye__jungle", "[Jungl] plant-eye", "", 642),
+    ("plant-fall__jungle", "[Jungl] plant-fall", "", 643),
+    ("plant-laugh__jungle", "[Jungl] plant-laugh", "", 644),
+    ("plant-leaf__jungle", "[Jungl] plant-leaf", "", 645),
+    ("plant-ouch__jungle", "[Jungl] plant-ouch", "", 646),
+    ("plant-recover__jungle", "[Jungl] plant-recover", "", 647),
+    ("plant-roar__jungle", "[Jungl] plant-roar", "", 648),
+    ("plat-flip__jungle", "[Jungl] plat-flip", "", 649),
+    ("site-moves__jungle", "[Jungl] site-moves", "", 650),
+    ("snake-bite__jungle", "[Jungl] snake-bite", "", 651),
+    ("snake-drop__jungle", "[Jungl] snake-drop", "", 652),
+    ("snake-idle__jungle", "[Jungl] snake-idle", "", 653),
+    ("snake-rattle__jungle", "[Jungl] snake-rattle", "", 654),
+    ("spider-step__jungle", "[Jungl] spider-step", "", 655),
+    ("steam-release__jungle", "[Jungl] steam-release", "", 656),
+    ("telescope__jungle", "[Jungl] telescope", "", 657),
+    ("trampoline__jungle", "[Jungl] trampoline", "", 658),
+    ("wind-loop__jungle", "[Jungl] wind-loop", "", 659),
+    ("accordian-pump__jungleb", "[Jungl] accordian-pump", "", 660),
+    ("beam-connect__jungleb", "[Jungl] beam-connect", "", 661),
+    ("bird__jungleb", "[Jungl] bird", "", 662),
+    ("bug-step__jungleb", "[Jungl] bug-step", "", 663),
+    ("cascade__jungleb", "[Jungl] cascade", "", 664),
+    ("darkvine-down__jungleb", "[Jungl] darkvine-down", "", 665),
+    ("darkvine-move__jungleb", "[Jungl] darkvine-move", "", 666),
+    ("darkvine-snap__jungleb", "[Jungl] darkvine-snap", "", 667),
+    ("darkvine-up__jungleb", "[Jungl] darkvine-up", "", 668),
+    ("eco-tower-rise__jungleb", "[Jungl] eco-tower-rise", "", 669),
+    ("eco-tower-stop__jungleb", "[Jungl] eco-tower-stop", "", 670),
+    ("elev-land__jungleb", "[Jungl] elev-land", "", 671),
+    ("elev-loop__jungleb", "[Jungl] elev-loop", "", 672),
+    ("floating-rings__jungleb", "[Jungl] floating-rings", "", 673),
+    ("frog-dies__jungleb", "[Jungl] frog-dies", "", 674),
+    ("frog-idle__jungleb", "[Jungl] frog-idle", "", 675),
+    ("frog-taunt__jungleb", "[Jungl] frog-taunt", "", 676),
+    ("frogspeak__jungleb", "[Jungl] frogspeak", "", 677),
+    ("jungle-river__jungleb", "[Jungl] jungle-river", "", 678),
+    ("jungle-shores__jungleb", "[Jungl] jungle-shores", "", 679),
+    ("logtrap1__jungleb", "[Jungl] logtrap1", "", 680),
+    ("logtrap2__jungleb", "[Jungl] logtrap2", "", 681),
+    ("lurk-bug__jungleb", "[Jungl] lurk-bug", "", 682),
+    ("lurkerfish-bite__jungleb", "[Jungl] lurkerfish-bite", "", 683),
+    ("lurkerfish-dies__jungleb", "[Jungl] lurkerfish-dies", "", 684),
+    ("lurkerfish-idle__jungleb", "[Jungl] lurkerfish-idle", "", 685),
+    ("lurkerm-hum__jungleb", "[Jungl] lurkerm-hum", "", 686),
+    ("lurkerm-squeak__jungleb", "[Jungl] lurkerm-squeak", "", 687),
+    ("mirror-smash__jungleb", "[Jungl] mirror-smash", "", 688),
+    ("monkey__jungleb", "[Jungl] monkey", "", 689),
+    ("pc-bridge__jungleb", "[Jungl] pc-bridge", "", 690),
+    ("plant-chomp__jungleb", "[Jungl] plant-chomp", "", 691),
+    ("plant-eye__jungleb", "[Jungl] plant-eye", "", 692),
+    ("plant-fall__jungleb", "[Jungl] plant-fall", "", 693),
+    ("plant-laugh__jungleb", "[Jungl] plant-laugh", "", 694),
+    ("plant-leaf__jungleb", "[Jungl] plant-leaf", "", 695),
+    ("plant-ouch__jungleb", "[Jungl] plant-ouch", "", 696),
+    ("plant-recover__jungleb", "[Jungl] plant-recover", "", 697),
+    ("plant-roar__jungleb", "[Jungl] plant-roar", "", 698),
+    ("plat-flip__jungleb", "[Jungl] plat-flip", "", 699),
+    ("site-moves__jungleb", "[Jungl] site-moves", "", 700),
+    ("snake-bite__jungleb", "[Jungl] snake-bite", "", 701),
+    ("snake-drop__jungleb", "[Jungl] snake-drop", "", 702),
+    ("snake-idle__jungleb", "[Jungl] snake-idle", "", 703),
+    ("snake-rattle__jungleb", "[Jungl] snake-rattle", "", 704),
+    ("spider-step__jungleb", "[Jungl] spider-step", "", 705),
+    ("steam-release__jungleb", "[Jungl] steam-release", "", 706),
+    ("telescope__jungleb", "[Jungl] telescope", "", 707),
+    ("trampoline__jungleb", "[Jungl] trampoline", "", 708),
+    ("wind-loop__jungleb", "[Jungl] wind-loop", "", 709),
+    ("ball-explode__lavatube", "[Lavat] ball-explode", "", 710),
+    ("ball-gen__lavatube", "[Lavat] ball-gen", "", 711),
+    ("bubling-lava__lavatube", "[Lavat] bubling-lava", "", 712),
+    ("cool-balloon__lavatube", "[Lavat] cool-balloon", "", 713),
+    ("lav-dark-eco__lavatube", "[Lavat] lav-dark-eco", "", 714),
+    ("lav-mine-chain__lavatube", "[Lavat] lav-mine-chain", "", 715),
+    ("lava-amb__lavatube", "[Lavat] lava-amb", "", 716),
+    ("lava-steam__lavatube", "[Lavat] lava-steam", "", 717),
+    ("yellow-buzz__lavatube", "[Lavat] yellow-buzz", "", 718),
+    ("yellow-explode__lavatube", "[Lavat] yellow-explode", "", 719),
+    ("yellow-fire__lavatube", "[Lavat] yellow-fire", "", 720),
+    ("yellow-fizzle__lavatube", "[Lavat] yellow-fizzle", "", 721),
+    ("zoomer-loop__lavatube", "[Lavat] zoomer-loop", "", 722),
+    ("zoomer-start__lavatube", "[Lavat] zoomer-start", "", 723),
+    ("zoomer-stop__lavatube", "[Lavat] zoomer-stop", "", 724),
+    ("bab-spid-dies__maincave", "[Mainc] bab-spid-dies", "", 725),
+    ("bab-spid-roar__maincave", "[Mainc] bab-spid-roar", "", 726),
+    ("button-1b__maincave", "[Mainc] button-1b", "", 727),
+    ("cavelevator__maincave", "[Mainc] cavelevator", "", 728),
+    ("cavewind__maincave", "[Mainc] cavewind", "", 729),
+    ("crush-click__maincave", "[Mainc] crush-click", "", 730),
+    ("crystal-explode__maincave", "[Mainc] crystal-explode", "", 731),
+    ("drill-idle2__maincave", "[Mainc] drill-idle2", "", 732),
+    ("eggs-hatch__maincave", "[Mainc] eggs-hatch", "", 733),
+    ("eggs-lands__maincave", "[Mainc] eggs-lands", "", 734),
+    ("gnawer-chew__maincave", "[Mainc] gnawer-chew", "", 735),
+    ("gnawer-crawl__maincave", "[Mainc] gnawer-crawl", "", 736),
+    ("gnawer-dies__maincave", "[Mainc] gnawer-dies", "", 737),
+    ("gnawer-taunt__maincave", "[Mainc] gnawer-taunt", "", 738),
+    ("hot-flame__maincave", "[Mainc] hot-flame", "", 739),
+    ("lay-eggs__maincave", "[Mainc] lay-eggs", "", 740),
+    ("mom-spid-dies__maincave", "[Mainc] mom-spid-dies", "", 741),
+    ("mom-spid-grunt__maincave", "[Mainc] mom-spid-grunt", "", 742),
+    ("mom-spid-roar__maincave", "[Mainc] mom-spid-roar", "", 743),
+    ("spatula__maincave", "[Mainc] spatula", "", 744),
+    ("spider-step__maincave", "[Mainc] spider-step", "", 745),
+    ("trapdoor__maincave", "[Mainc] trapdoor", "", 746),
+    ("web-tramp__maincave", "[Mainc] web-tramp", "", 747),
+    ("yellow-buzz__maincave", "[Mainc] yellow-buzz", "", 748),
+    ("yellow-explode__maincave", "[Mainc] yellow-explode", "", 749),
+    ("yellow-fire__maincave", "[Mainc] yellow-fire", "", 750),
+    ("yellow-fizzle__maincave", "[Mainc] yellow-fizzle", "", 751),
+    ("barrel-bounce__misty", "[Misty] barrel-bounce", "", 752),
+    ("barrel-roll__misty", "[Misty] barrel-roll", "", 753),
+    ("bone-bigswing__misty", "[Misty] bone-bigswing", "", 754),
+    ("bone-die__misty", "[Misty] bone-die", "", 755),
+    ("bone-freehead__misty", "[Misty] bone-freehead", "", 756),
+    ("bone-helmet__misty", "[Misty] bone-helmet", "", 757),
+    ("bone-smallswing__misty", "[Misty] bone-smallswing", "", 758),
+    ("bone-stepl__misty", "[Misty] bone-stepl", "", 759),
+    ("bone-stepr__misty", "[Misty] bone-stepr", "", 760),
+    ("bonebridge-fall__misty", "[Misty] bonebridge-fall", "", 761),
+    ("cage-boom__misty", "[Misty] cage-boom", "", 762),
+    ("cannon-charge__misty", "[Misty] cannon-charge", "", 763),
+    ("cannon-shot__misty", "[Misty] cannon-shot", "", 764),
+    ("falling-bones__misty", "[Misty] falling-bones", "", 765),
+    ("fuse__misty", "[Misty] fuse", "", 766),
+    ("get-muse__misty", "[Misty] get-muse", "", 767),
+    ("keg-conveyor__misty", "[Misty] keg-conveyor", "", 768),
+    ("mud-lurk-laugh__misty", "[Misty] mud-lurk-laugh", "", 769),
+    ("mud-lurker-idle__misty", "[Misty] mud-lurker-idle", "", 770),
+    ("mud-plat__misty", "[Misty] mud-plat", "", 771),
+    ("mudlurker-dies__misty", "[Misty] mudlurker-dies", "", 772),
+    ("muse-taunt-1__misty", "[Misty] muse-taunt-1", "", 773),
+    ("muse-taunt-2__misty", "[Misty] muse-taunt-2", "", 774),
+    ("paddle-boat__misty", "[Misty] paddle-boat", "", 775),
+    ("propeller__misty", "[Misty] propeller", "", 776),
+    ("qsl-breathin__misty", "[Misty] qsl-breathin", "", 777),
+    ("qsl-fire__misty", "[Misty] qsl-fire", "", 778),
+    ("qsl-popup__misty", "[Misty] qsl-popup", "", 779),
+    ("sack-incoming__misty", "[Misty] sack-incoming", "", 780),
+    ("sack-land__misty", "[Misty] sack-land", "", 781),
+    ("teeter-launch__misty", "[Misty] teeter-launch", "", 782),
+    ("teeter-rockland__misty", "[Misty] teeter-rockland", "", 783),
+    ("teeter-rockup__misty", "[Misty] teeter-rockup", "", 784),
+    ("teeter-wobble__misty", "[Misty] teeter-wobble", "", 785),
+    ("telescope__misty", "[Misty] telescope", "", 786),
+    ("trade-muse__misty", "[Misty] trade-muse", "", 787),
+    ("water-lap__misty", "[Misty] water-lap", "", 788),
+    ("water-lap-cl0se__misty", "[Misty] water-lap-cl0se", "", 789),
+    ("zoomer-loop__misty", "[Misty] zoomer-loop", "", 790),
+    ("zoomer-start__misty", "[Misty] zoomer-start", "", 791),
+    ("zoomer-stop__misty", "[Misty] zoomer-stop", "", 792),
+    ("bridge-appears__ogre", "[Ogre] bridge-appears", "", 793),
+    ("bridge-breaks__ogre", "[Ogre] bridge-breaks", "", 794),
+    ("dynomite__ogre", "[Ogre] dynomite", "", 795),
+    ("flylurk-plane__ogre", "[Ogre] flylurk-plane", "", 796),
+    ("hit-lurk-metal__ogre", "[Ogre] hit-lurk-metal", "", 797),
+    ("hits-head__ogre", "[Ogre] hits-head", "", 798),
+    ("lava-loop__ogre", "[Ogre] lava-loop", "", 799),
+    ("lava-plat__ogre", "[Ogre] lava-plat", "", 800),
+    ("ogre-amb__ogre", "[Ogre] ogre-amb", "", 801),
+    ("ogre-boulder__ogre", "[Ogre] ogre-boulder", "", 802),
+    ("ogre-dies__ogre", "[Ogre] ogre-dies", "", 803),
+    ("ogre-explode__ogre", "[Ogre] ogre-explode", "", 804),
+    ("ogre-fires__ogre", "[Ogre] ogre-fires", "", 805),
+    ("ogre-grunt1__ogre", "[Ogre] ogre-grunt1", "", 806),
+    ("ogre-grunt2__ogre", "[Ogre] ogre-grunt2", "", 807),
+    ("ogre-grunt3__ogre", "[Ogre] ogre-grunt3", "", 808),
+    ("ogre-roar1__ogre", "[Ogre] ogre-roar1", "", 809),
+    ("ogre-roar2__ogre", "[Ogre] ogre-roar2", "", 810),
+    ("ogre-roar3__ogre", "[Ogre] ogre-roar3", "", 811),
+    ("ogre-walk__ogre", "[Ogre] ogre-walk", "", 812),
+    ("ogreboss-out__ogre", "[Ogre] ogreboss-out", "", 813),
+    ("rock-hits-metal__ogre", "[Ogre] rock-hits-metal", "", 814),
+    ("rock-in-lava__ogre", "[Ogre] rock-in-lava", "", 815),
+    ("rock-roll__ogre", "[Ogre] rock-roll", "", 816),
+    ("yellow-buzz__ogre", "[Ogre] yellow-buzz", "", 817),
+    ("yellow-explode__ogre", "[Ogre] yellow-explode", "", 818),
+    ("yellow-fire__ogre", "[Ogre] yellow-fire", "", 819),
+    ("yellow-fizzle__ogre", "[Ogre] yellow-fizzle", "", 820),
+    ("zoomer-loop__ogre", "[Ogre] zoomer-loop", "", 821),
+    ("zoomer-start__ogre", "[Ogre] zoomer-start", "", 822),
+    ("bab-spid-dies__robocave", "[Roboc] bab-spid-dies", "", 823),
+    ("bab-spid-roar__robocave", "[Roboc] bab-spid-roar", "", 824),
+    ("button-1b__robocave", "[Roboc] button-1b", "", 825),
+    ("cavelevator__robocave", "[Roboc] cavelevator", "", 826),
+    ("cavewind__robocave", "[Roboc] cavewind", "", 827),
+    ("crush-click__robocave", "[Roboc] crush-click", "", 828),
+    ("drill-hit__robocave", "[Roboc] drill-hit", "", 829),
+    ("drill-idle__robocave", "[Roboc] drill-idle", "", 830),
+    ("drill-idle2__robocave", "[Roboc] drill-idle2", "", 831),
+    ("drill-no-start__robocave", "[Roboc] drill-no-start", "", 832),
+    ("drill-start__robocave", "[Roboc] drill-start", "", 833),
+    ("drill-stop__robocave", "[Roboc] drill-stop", "", 834),
+    ("drlurker-dies__robocave", "[Roboc] drlurker-dies", "", 835),
+    ("drlurker-roar__robocave", "[Roboc] drlurker-roar", "", 836),
+    ("eggs-hatch__robocave", "[Roboc] eggs-hatch", "", 837),
+    ("eggs-lands__robocave", "[Roboc] eggs-lands", "", 838),
+    ("hot-flame__robocave", "[Roboc] hot-flame", "", 839),
+    ("lay-eggs__robocave", "[Roboc] lay-eggs", "", 840),
+    ("mom-spid-dies__robocave", "[Roboc] mom-spid-dies", "", 841),
+    ("mom-spid-roar__robocave", "[Roboc] mom-spid-roar", "", 842),
+    ("spatula__robocave", "[Roboc] spatula", "", 843),
+    ("spider-step__robocave", "[Roboc] spider-step", "", 844),
+    ("trapdoor__robocave", "[Roboc] trapdoor", "", 845),
+    ("web-tramp__robocave", "[Roboc] web-tramp", "", 846),
+    ("yellow-buzz__robocave", "[Roboc] yellow-buzz", "", 847),
+    ("yellow-explode__robocave", "[Roboc] yellow-explode", "", 848),
+    ("yellow-fire__robocave", "[Roboc] yellow-fire", "", 849),
+    ("yellow-fizzle__robocave", "[Roboc] yellow-fizzle", "", 850),
+    ("close-racering__rolling", "[Rolli] close-racering", "", 851),
+    ("darkvine-grow__rolling", "[Rolli] darkvine-grow", "", 852),
+    ("darkvine-kill__rolling", "[Rolli] darkvine-kill", "", 853),
+    ("darkvine-move__rolling", "[Rolli] darkvine-move", "", 854),
+    ("get-mole__rolling", "[Rolli] get-mole", "", 855),
+    ("mole-dig__rolling", "[Rolli] mole-dig", "", 856),
+    ("mole-taunt-1__rolling", "[Rolli] mole-taunt-1", "", 857),
+    ("mole-taunt-2__rolling", "[Rolli] mole-taunt-2", "", 858),
+    ("plant-dies__rolling", "[Rolli] plant-dies", "", 859),
+    ("plant-move__rolling", "[Rolli] plant-move", "", 860),
+    ("robber-flap__rolling", "[Rolli] robber-flap", "", 861),
+    ("roling-amb__rolling", "[Rolli] roling-amb", "", 862),
+    ("zoomer-loop__rolling", "[Rolli] zoomer-loop", "", 863),
+    ("zoomer-start__rolling", "[Rolli] zoomer-start", "", 864),
+    ("zoomer-stop__rolling", "[Rolli] zoomer-stop", "", 865),
+    ("--snowball-roll__snow", "[Snow] --snowball-roll", "", 866),
+    ("bunny-attack__snow", "[Snow] bunny-attack", "", 867),
+    ("bunny-dies__snow", "[Snow] bunny-dies", "", 868),
+    ("bunny-taunt-1__snow", "[Snow] bunny-taunt-1", "", 869),
+    ("flut-coo__snow", "[Snow] flut-coo", "", 870),
+    ("flut-death__snow", "[Snow] flut-death", "", 871),
+    ("flut-flap__snow", "[Snow] flut-flap", "", 872),
+    ("flut-hit__snow", "[Snow] flut-hit", "", 873),
+    ("ice-explode__snow", "[Snow] ice-explode", "", 874),
+    ("ice-monster1__snow", "[Snow] ice-monster1", "", 875),
+    ("ice-monster2__snow", "[Snow] ice-monster2", "", 876),
+    ("ice-monster3__snow", "[Snow] ice-monster3", "", 877),
+    ("ice-monster4__snow", "[Snow] ice-monster4", "", 878),
+    ("ice-spike-in__snow", "[Snow] ice-spike-in", "", 879),
+    ("ice-spike-out__snow", "[Snow] ice-spike-out", "", 880),
+    ("ice-stop__snow", "[Snow] ice-stop", "", 881),
+    ("jak-slide__snow", "[Snow] jak-slide", "", 882),
+    ("lodge-close__snow", "[Snow] lodge-close", "", 883),
+    ("lodge-door-mov__snow", "[Snow] lodge-door-mov", "", 884),
+    ("ramboss-laugh__snow", "[Snow] ramboss-laugh", "", 885),
+    ("ramboss-yell__snow", "[Snow] ramboss-yell", "", 886),
+    ("set-ram__snow", "[Snow] set-ram", "", 887),
+    ("slam-crash__snow", "[Snow] slam-crash", "", 888),
+    ("snow-bunny1__snow", "[Snow] snow-bunny1", "", 889),
+    ("snow-bunny2__snow", "[Snow] snow-bunny2", "", 890),
+    ("snow-engine__snow", "[Snow] snow-engine", "", 891),
+    ("snow-spat-long__snow", "[Snow] snow-spat-long", "", 892),
+    ("snow-spat-short__snow", "[Snow] snow-spat-short", "", 893),
+    ("snowball-land__snow", "[Snow] snowball-land", "", 894),
+    ("snowball-roll__snow", "[Snow] snowball-roll", "", 895),
+    ("walk-ice1__snow", "[Snow] walk-ice1", "", 896),
+    ("walk-ice2__snow", "[Snow] walk-ice2", "", 897),
+    ("winter-amb__snow", "[Snow] winter-amb", "", 898),
+    ("yellow-buzz__snow", "[Snow] yellow-buzz", "", 899),
+    ("yellow-explode__snow", "[Snow] yellow-explode", "", 900),
+    ("yellow-fire__snow", "[Snow] yellow-fire", "", 901),
+    ("yellow-fizzle__snow", "[Snow] yellow-fizzle", "", 902),
+    ("--submerge__sunken", "[Sunke] --submerge", "", 903),
+    ("chamber-move__sunken", "[Sunke] chamber-move", "", 904),
+    ("dark-plat-rise__sunken", "[Sunke] dark-plat-rise", "", 905),
+    ("elev-button__sunken", "[Sunke] elev-button", "", 906),
+    ("elev-land__sunken", "[Sunke] elev-land", "", 907),
+    ("elev-loop__sunken", "[Sunke] elev-loop", "", 908),
+    ("large-splash__sunken", "[Sunke] large-splash", "", 909),
+    ("plat-flip__sunken", "[Sunke] plat-flip", "", 910),
+    ("puffer-change__sunken", "[Sunke] puffer-change", "", 911),
+    ("puffer-wing__sunken", "[Sunke] puffer-wing", "", 912),
+    ("slide-loop__sunken", "[Sunke] slide-loop", "", 913),
+    ("splita-charge__sunken", "[Sunke] splita-charge", "", 914),
+    ("splita-dies__sunken", "[Sunke] splita-dies", "", 915),
+    ("splita-idle__sunken", "[Sunke] splita-idle", "", 916),
+    ("splita-roar__sunken", "[Sunke] splita-roar", "", 917),
+    ("splita-spot__sunken", "[Sunke] splita-spot", "", 918),
+    ("splita-taunt__sunken", "[Sunke] splita-taunt", "", 919),
+    ("splitb-breathin__sunken", "[Sunke] splitb-breathin", "", 920),
+    ("splitb-dies__sunken", "[Sunke] splitb-dies", "", 921),
+    ("splitb-roar__sunken", "[Sunke] splitb-roar", "", 922),
+    ("splitb-spot__sunken", "[Sunke] splitb-spot", "", 923),
+    ("splitb-taunt__sunken", "[Sunke] splitb-taunt", "", 924),
+    ("sub-plat-rises__sunken", "[Sunke] sub-plat-rises", "", 925),
+    ("sub-plat-sinks__sunken", "[Sunke] sub-plat-sinks", "", 926),
+    ("submerge__sunken", "[Sunke] submerge", "", 927),
+    ("sunken-amb__sunken", "[Sunke] sunken-amb", "", 928),
+    ("sunken-pool__sunken", "[Sunke] sunken-pool", "", 929),
+    ("surface__sunken", "[Sunke] surface", "", 930),
+    ("wall-plat__sunken", "[Sunke] wall-plat", "", 931),
+    ("whirlpool__sunken", "[Sunke] whirlpool", "", 932),
+    ("bat-celebrate__swamp", "[Swamp] bat-celebrate", "", 933),
+    ("flut-coo__swamp", "[Swamp] flut-coo", "", 934),
+    ("flut-death__swamp", "[Swamp] flut-death", "", 935),
+    ("flut-flap__swamp", "[Swamp] flut-flap", "", 936),
+    ("flut-hit__swamp", "[Swamp] flut-hit", "", 937),
+    ("kermit-dies__swamp", "[Swamp] kermit-dies", "", 938),
+    ("kermit-letgo__swamp", "[Swamp] kermit-letgo", "", 939),
+    ("kermit-shoot__swamp", "[Swamp] kermit-shoot", "", 940),
+    ("kermit-speak1__swamp", "[Swamp] kermit-speak1", "", 941),
+    ("kermit-speak2__swamp", "[Swamp] kermit-speak2", "", 942),
+    ("kermit-stretch__swamp", "[Swamp] kermit-stretch", "", 943),
+    ("kermit-taunt__swamp", "[Swamp] kermit-taunt", "", 944),
+    ("land-tar__swamp", "[Swamp] land-tar", "", 945),
+    ("lurkbat-bounce__swamp", "[Swamp] lurkbat-bounce", "", 946),
+    ("lurkbat-dies__swamp", "[Swamp] lurkbat-dies", "", 947),
+    ("lurkbat-idle__swamp", "[Swamp] lurkbat-idle", "", 948),
+    ("lurkbat-notice__swamp", "[Swamp] lurkbat-notice", "", 949),
+    ("lurkbat-wing__swamp", "[Swamp] lurkbat-wing", "", 950),
+    ("lurkrat-bounce__swamp", "[Swamp] lurkrat-bounce", "", 951),
+    ("lurkrat-dies__swamp", "[Swamp] lurkrat-dies", "", 952),
+    ("lurkrat-idle__swamp", "[Swamp] lurkrat-idle", "", 953),
+    ("lurkrat-notice__swamp", "[Swamp] lurkrat-notice", "", 954),
+    ("lurkrat-walk__swamp", "[Swamp] lurkrat-walk", "", 955),
+    ("pole-down__swamp", "[Swamp] pole-down", "", 956),
+    ("pole-up__swamp", "[Swamp] pole-up", "", 957),
+    ("rat-celebrate__swamp", "[Swamp] rat-celebrate", "", 958),
+    ("rat-eat__swamp", "[Swamp] rat-eat", "", 959),
+    ("rat-gulp__swamp", "[Swamp] rat-gulp", "", 960),
+    ("rock-break__swamp", "[Swamp] rock-break", "", 961),
+    ("roll-tar__swamp", "[Swamp] roll-tar", "", 962),
+    ("rope-snap__swamp", "[Swamp] rope-snap", "", 963),
+    ("rope-stretch__swamp", "[Swamp] rope-stretch", "", 964),
+    ("slide-tar__swamp", "[Swamp] slide-tar", "", 965),
+    ("swamp-amb__swamp", "[Swamp] swamp-amb", "", 966),
+    ("walk-tar1__swamp", "[Swamp] walk-tar1", "", 967),
+    ("walk-tar2__swamp", "[Swamp] walk-tar2", "", 968),
+    ("yellow-buzz__swamp", "[Swamp] yellow-buzz", "", 969),
+    ("yellow-explode__swamp", "[Swamp] yellow-explode", "", 970),
+    ("yellow-fire__swamp", "[Swamp] yellow-fire", "", 971),
+    ("yellow-fizzle__swamp", "[Swamp] yellow-fizzle", "", 972),
+    ("-fire-crackle__village1", "[Villa] -fire-crackle", "", 973),
+    ("-water-lap-cls__village1", "[Villa] -water-lap-cls", "", 974),
+    ("bird-1__village1", "[Villa] bird-1", "", 975),
+    ("bird-2__village1", "[Villa] bird-2", "", 976),
+    ("bird-3__village1", "[Villa] bird-3", "", 977),
+    ("bird-4__village1", "[Villa] bird-4", "", 978),
+    ("bird-house__village1", "[Villa] bird-house", "", 979),
+    ("boat-engine__village1", "[Villa] boat-engine", "", 980),
+    ("boat-splash__village1", "[Villa] boat-splash", "", 981),
+    ("bubbling-still__village1", "[Villa] bubbling-still", "", 982),
+    ("cage-bird-2__village1", "[Villa] cage-bird-2", "", 983),
+    ("cage-bird-4__village1", "[Villa] cage-bird-4", "", 984),
+    ("cage-bird-5__village1", "[Villa] cage-bird-5", "", 985),
+    ("cricket-single__village1", "[Villa] cricket-single", "", 986),
+    ("crickets__village1", "[Villa] crickets", "", 987),
+    ("drip-on-wood__village1", "[Villa] drip-on-wood", "", 988),
+    ("fire-bubble__village1", "[Villa] fire-bubble", "", 989),
+    ("fly1__village1", "[Villa] fly1", "", 990),
+    ("fly2__village1", "[Villa] fly2", "", 991),
+    ("fly3__village1", "[Villa] fly3", "", 992),
+    ("fly4__village1", "[Villa] fly4", "", 993),
+    ("fly5__village1", "[Villa] fly5", "", 994),
+    ("fly6__village1", "[Villa] fly6", "", 995),
+    ("fly7__village1", "[Villa] fly7", "", 996),
+    ("fly8__village1", "[Villa] fly8", "", 997),
+    ("fountain__village1", "[Villa] fountain", "", 998),
+    ("gear-creak__village1", "[Villa] gear-creak", "", 999),
+    ("hammer-tap__village1", "[Villa] hammer-tap", "", 1000),
+    ("hover-bike-hum__village1", "[Villa] hover-bike-hum", "", 1001),
+    ("ocean-bg__village1", "[Villa] ocean-bg", "", 1002),
+    ("seagulls-2__village1", "[Villa] seagulls-2", "", 1003),
+    ("snd-__village1", "[Villa] snd-", "", 1004),
+    ("temp-enemy-die__village1", "[Villa] temp-enemy-die", "", 1005),
+    ("village-amb__village1", "[Villa] village-amb", "", 1006),
+    ("water-lap__village1", "[Villa] water-lap", "", 1007),
+    ("weld__village1", "[Villa] weld", "", 1008),
+    ("welding-loop__village1", "[Villa] welding-loop", "", 1009),
+    ("wind-loop__village1", "[Villa] wind-loop", "", 1010),
+    ("yakow-1__village1", "[Villa] yakow-1", "", 1011),
+    ("yakow-2__village1", "[Villa] yakow-2", "", 1012),
+    ("yakow-grazing__village1", "[Villa] yakow-grazing", "", 1013),
+    ("yakow-idle__village1", "[Villa] yakow-idle", "", 1014),
+    ("yakow-kicked__village1", "[Villa] yakow-kicked", "", 1015),
+    ("boulder-splash__village2", "[Villa] boulder-splash", "", 1016),
+    ("control-panel__village2", "[Villa] control-panel", "", 1017),
+    ("hits-head__village2", "[Villa] hits-head", "", 1018),
+    ("rock-roll__village2", "[Villa] rock-roll", "", 1019),
+    ("spark__village2", "[Villa] spark", "", 1020),
+    ("thunder__village2", "[Villa] thunder", "", 1021),
+    ("v2ogre-boulder__village2", "[Villa] v2ogre-boulder", "", 1022),
+    ("v2ogre-roar1__village2", "[Villa] v2ogre-roar1", "", 1023),
+    ("v2ogre-roar2__village2", "[Villa] v2ogre-roar2", "", 1024),
+    ("v2ogre-walk__village2", "[Villa] v2ogre-walk", "", 1025),
+    ("village2-amb__village2", "[Villa] village2-amb", "", 1026),
+    ("wind-chimes__village2", "[Villa] wind-chimes", "", 1027),
+    ("-bubling-lava__village3", "[Villa] -bubling-lava", "", 1028),
+    ("cave-wind__village3", "[Villa] cave-wind", "", 1029),
+    ("cool-balloon__village3", "[Villa] cool-balloon", "", 1030),
+    ("lava-amb__village3", "[Villa] lava-amb", "", 1031),
+    ("lava-erupt__village3", "[Villa] lava-erupt", "", 1032),
+    ("lava-steam__village3", "[Villa] lava-steam", "", 1033),
+    ("sulphur__village3", "[Villa] sulphur", "", 1034),
+]
 
 # ---------------------------------------------------------------------------
 # SCENE PROPERTIES
@@ -2468,18 +1995,25 @@ class OGProperties(PropertyGroup):
                              description="Starting actor ID for this level. Must be unique across all custom levels to avoid ghost entity spawns.")
     lightbake_samples: IntProperty(name="Sample Count", default=128, min=1, max=4096,
                                    description="Number of Cycles render samples used when baking lighting to vertex colors")
-    # Audio — sound banks (max 2, common always loaded automatically)
+    # Audio
     sound_bank_1:           EnumProperty(name="Bank 1", items=LEVEL_BANKS, default="none",
                                          description="First level sound bank to load (common is always included)")
     sound_bank_2:           EnumProperty(name="Bank 2", items=LEVEL_BANKS, default="none",
                                          description="Second level sound bank to load (max 2 total)")
     ambient_default_radius: FloatProperty(name="Default Emitter Radius (m)", default=15.0, min=1.0, max=200.0,
                                           description="Bsphere radius for new sound emitter empties")
-    sfx_sound: EnumProperty(
-        name="Sound",
-        description="Select a sound to place — common sounds always shown, level bank sounds added when banks are selected",
-        items=lambda self, ctx: _build_sfx_enum(self.sound_bank_1, self.sound_bank_2),
-    )
+    sfx_sound:              EnumProperty(name="Sound", items=ALL_SFX_ITEMS, default="jump",
+                                         description="Sound to place — [Plyr/Eco/Env/Obj/Enemy/Pick/Gen] = common, [Bank] = level bank")
+    # Audio
+    music_bank:             EnumProperty(name="Music Bank", items=MUSIC_BANK_ITEMS, default="none",
+                                         description="Music bank to load for this level")
+    music_bank_custom:      StringProperty(name="Custom Bank Name", default="",
+                                           description="Custom music bank name (used when Music Bank is set to Custom)")
+    sound_banks:            StringProperty(name="Sound Banks",
+                                           description="Space-separated list of sound banks e.g. 'common village1'",
+                                           default="")
+    ambient_default_radius: FloatProperty(name="Default Emitter Radius (m)", default=15.0, min=1.0, max=200.0,
+                                          description="Bsphere radius for new sound emitter empties")
 
 # ---------------------------------------------------------------------------
 # PROCESS MANAGEMENT
@@ -2960,17 +2494,25 @@ def patch_level_info(name, spawns, scene=None):
     if not p.exists(): log(f"WARNING: {p} not found"); return
     # Audio settings from scene props (if scene provided)
     if scene is not None:
+        props = scene.og_props
+        _bank = props.music_bank_custom.strip() if props.music_bank == "custom" else props.music_bank
+        _music_val = f"'{_bank}" if _bank and _bank != "none" else "#f"
+        _sbanks = " ".join(f"'{s}" for s in props.sound_banks.split() if s)
+        _sbanks_val = f"'({_sbanks})" if _sbanks else "'()"
+    else:
+        _music_val = "#f"
+        _sbanks_val = "'()"
+    if scene is not None:
         props  = scene.og_props
         b1     = props.sound_bank_1 if props.sound_bank_1 != "none" else None
         b2     = props.sound_bank_2 if props.sound_bank_2 != "none" else None
         banks  = [f"'{b}" for b in [b1, b2] if b]
         _sbanks_val = f"'({' '.join(banks)})" if banks else "'()"
-        # music-bank mirrors first level bank (matches vanilla convention)
         _music_val  = f"'{b1}" if b1 else "#f"
     else:
-        _music_val  = "#f"
         _sbanks_val = "'()"
-    block = (f"\n(define {name}\n"
+        _music_val  = "#f"
+        block = (f"\n(define {name}\n"
              f"  (new 'static 'level-load-info\n"
              f"       :index 27\n"
              f"       :name '{name}\n"
@@ -3980,13 +3522,101 @@ class OG_OT_AddSoundEmitter(Operator):
     bl_label   = "Add Sound Emitter"
     bl_options = {"REGISTER", "UNDO"}
 
+    def execute(self, ctx):
+        props = ctx.scene.og_props
+        existing = [o for o in ctx.scene.objects if o.name.startswith("AMBIENT_snd")]
+        idx  = len(existing) + 1
+        name = f"AMBIENT_snd{idx:03d}"
+
+        bpy.ops.object.empty_add(type="SPHERE", location=ctx.scene.cursor.location)
+        o = ctx.active_object
+        o.name = name
+        o.show_name = True
+        o.empty_display_size = max(0.3, props.ambient_default_radius * 0.05)
+        o.color = (0.2, 0.8, 1.0, 1.0)
+
+        # Stamp editable custom props
+        o["og_sound_name"]   = "silence"
+        o["og_sound_radius"] = props.ambient_default_radius
+        o["og_sound_volume"] = 1.0
+        o["og_sound_mode"]   = "ambient"
+
+        self.report({"INFO"}, f"Added '{name}' — edit og_sound_name in Object Properties")
+        return {"FINISHED"}
+
+
+class OG_PT_Audio(Panel):
+    bl_label       = "🔊  Audio / Ambience"
+    bl_idname      = "OG_PT_audio"
+    bl_space_type  = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category    = "OpenGOAL"
+    bl_options     = {"DEFAULT_CLOSED"}
+
+    def draw(self, ctx):
+        layout = self.layout
+        props  = ctx.scene.og_props
+
+        # ── Level-wide Music ─────────────────────────────────────────────
+        box = layout.box()
+        box.label(text="Level Music", icon="PLAY")
+        col = box.column(align=True)
+        col.prop(props, "music_bank", text="Bank")
+        if props.music_bank == "custom":
+            col.prop(props, "music_bank_custom", text="Name")
+
+        # ── Sound Banks ──────────────────────────────────────────────────
+        box2 = layout.box()
+        box2.label(text="Sound Banks", icon="SPEAKER")
+        box2.prop(props, "sound_banks", text="")
+        box2.label(text="Space-separated  e.g.  common village1", icon="INFO")
+
+        layout.separator(factor=0.4)
+
+        # ── Sound Emitters ───────────────────────────────────────────────
+        box3 = layout.box()
+        box3.label(text="Sound Emitters", icon="OUTLINER_OB_SPEAKER")
+        col3 = box3.column(align=True)
+        col3.prop(props, "ambient_default_radius", text="Default Radius (m)")
+        col3.operator("og.add_sound_emitter", text="Add Emitter at Cursor", icon="ADD")
+
+        # List existing emitters
+        emitters = [o for o in ctx.scene.objects
+                    if o.name.startswith("AMBIENT_") and o.type == "EMPTY"]
+        if emitters:
+            layout.separator(factor=0.3)
+            sub = layout.box()
+            sub.label(text=f"{len(emitters)} emitter(s) in scene:", icon="OUTLINER_OB_EMPTY")
+            for o in emitters[:8]:
+                row = sub.row(align=True)
+                snd = o.get("og_sound_name", "hint")
+                row.label(text=f"{o.name}  →  {snd}", icon="DOT")
+            if len(emitters) > 8:
+                sub.label(text=f"… and {len(emitters) - 8} more")
+        else:
+            layout.label(text="No emitters placed yet", icon="INFO")
+
+
+# ---------------------------------------------------------------------------
+# OPERATOR + PANEL — Audio / Ambience
+# ---------------------------------------------------------------------------
+
+class OG_OT_AddSoundEmitter(Operator):
+    """Add a sound emitter empty at the 3D cursor"""
+    bl_idname  = "og.add_sound_emitter"
+    bl_label   = "Add Sound Emitter"
+    bl_options = {"REGISTER", "UNDO"}
+
     sound_name: bpy.props.StringProperty()
 
     def execute(self, ctx):
         props = ctx.scene.og_props
         existing = [o for o in ctx.scene.objects if o.name.startswith("AMBIENT_snd")]
         idx  = len(existing) + 1
-        snd  = self.sound_name.strip() or "silence"
+        # Strip bank suffix if present (e.g. "cannon-shot__beach" -> "cannon-shot")
+        snd  = self.sound_name.split("__")[0] if "__" in self.sound_name else self.sound_name
+        if not snd:
+            snd = "silence"
         name = f"AMBIENT_snd{idx:03d}"
 
         bpy.ops.object.empty_add(type="SPHERE", location=ctx.scene.cursor.location)
@@ -4027,8 +3657,8 @@ class OG_PT_Audio(Panel):
         col.prop(props, "sound_bank_2", text="Bank 2")
         if b1 != "none" and b1 == b2:
             box.label(text="⚠ Bank 1 and Bank 2 are the same", icon="ERROR")
-        n_level = len(set(SBK_SOUNDS.get(b1,[])) | set(SBK_SOUNDS.get(b2,[])))
         n_common = len(SBK_SOUNDS.get("common", []))
+        n_level  = len(set(SBK_SOUNDS.get(b1,[])) | set(SBK_SOUNDS.get(b2,[])))
         box.label(text=f"{n_common} common  +  {n_level} level  =  {n_common + n_level} available", icon="INFO")
 
         layout.separator(factor=0.4)
@@ -4039,10 +3669,7 @@ class OG_PT_Audio(Panel):
         col3 = box3.column(align=True)
         col3.prop(props, "ambient_default_radius", text="Default Radius (m)")
         col3.separator(factor=0.4)
-
-        # Single wide categorized dropdown
         col3.prop(props, "sfx_sound", text="Sound")
-
         col3.separator(factor=0.4)
         row = col3.row()
         row.scale_y = 1.4
@@ -4064,8 +3691,6 @@ class OG_PT_Audio(Panel):
                 sub.label(text=f"… and {len(emitters) - 8} more")
         else:
             layout.label(text="No emitters placed yet", icon="INFO")
-
-
 
 # ---------------------------------------------------------------------------
 # PANELS
