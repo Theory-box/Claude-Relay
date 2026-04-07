@@ -2977,7 +2977,7 @@ class OG_OT_PickNavMesh(Operator):
 # ---------------------------------------------------------------------------
 
 classes = (
-    OGPreferences, OGProperties,
+    OGPreferences, OGProperties, OGBakeProps,
     OG_OT_SpawnPlayer, OG_OT_SpawnEntity,
     OG_OT_SpawnCamera,
     OG_OT_AddWaypoint, OG_OT_DeleteWaypoint,
