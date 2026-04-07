@@ -1811,9 +1811,28 @@ class OG_OT_DeleteWaypoint(Operator):
 
 
 class OG_OT_Play(Operator):
-    bl_idname = "og.play"
-    bl_label  = "Play Level"
-    bl_description = "Kill existing GK/GOALC, launch fresh and load your level"
+    """Launch GK in debug mode. No GOALC, no auto-load — just opens the game
+    so you can navigate to your level manually via the debug menu."""
+    bl_idname      = "og.play"
+    bl_label       = "Launch Game (Debug)"
+    bl_description = "Kill existing GK, launch fresh in debug mode. Navigate to your level manually."
+
+    def execute(self, ctx):
+        kill_gk()
+        ok, msg = launch_gk()
+        if not ok:
+            self.report({"ERROR"}, msg)
+            return {"CANCELLED"}
+        self.report({"INFO"}, "Game launched in debug mode — select your level manually")
+        return {"FINISHED"}
+
+
+class OG_OT_PlayAutoLoad(Operator):
+    """Kill GK+GOALC, relaunch, and auto-load the level via nREPL.
+    Slower (~30-60s) but fully automated."""
+    bl_idname      = "og.play_autoload"
+    bl_label       = "Launch & Auto-Load Level"
+    bl_description = "Kill GK/GOALC, relaunch, and automatically load your level via nREPL (slower)"
     _timer = None
 
     def execute(self, ctx):
@@ -2409,9 +2428,11 @@ class OG_PT_BuildPlay(Panel):
 
         col = layout.column(align=True)
         col.scale_y = 1.8
-        col.operator("og.export_build", text="⚙  Export & Compile", icon="EXPORT")
+        col.operator("og.export_build",  text="⚙  Export & Compile",        icon="EXPORT")
         col.scale_y = 1.8
-        col.operator("og.play",         text="▶  Play Level",       icon="PLAY")
+        col.operator("og.play",          text="▶  Launch Game (Debug)",      icon="PLAY")
+        col.scale_y = 1.4
+        col.operator("og.play_autoload", text="⚡  Launch & Auto-Load Level", icon="SEQUENCE_COLOR_04")
 
 
 # ── Developer Tools ───────────────────────────────────────────────────────────
@@ -2598,7 +2619,7 @@ classes = (
     OG_OT_MarkNavMesh, OG_OT_UnmarkNavMesh,
     OG_OT_LinkNavMesh, OG_OT_UnlinkNavMesh,
     OG_OT_PickNavMesh,
-    OG_OT_ExportBuild, OG_OT_Play,
+    OG_OT_ExportBuild, OG_OT_Play, OG_OT_PlayAutoLoad,
     OG_OT_ExportBuildPlay,
     OG_OT_OpenFolder, OG_OT_OpenFile,
     OG_PT_LevelSettings,
