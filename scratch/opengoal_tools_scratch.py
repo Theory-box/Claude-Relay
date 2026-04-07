@@ -911,6 +911,67 @@ def launch_gk():
     except Exception as e:
         return False, str(e)
 
+
+# ---------------------------------------------------------------------------
+# ENEMY PREVIEW MESH
+# ---------------------------------------------------------------------------
+
+def _decompiler_glb(ag_filename):
+    """Return path to decompiler-output GLB for an art group, or None if missing.
+    ag_filename is e.g. 'babak-ag.go' → looks for decompiler_out/jak1/glb_out/babak-ag.glb
+    """
+    if not ag_filename:
+        return None
+    ag_stem = ag_filename.replace(".go", "")  # 'babak-ag.go' -> 'babak-ag'
+    p = _data() / "decompiler_out" / "jak1" / "glb_out" / f"{ag_stem}.glb"
+    return p if p.exists() else None
+
+
+def _import_enemy_preview(actor_obj, etype):
+    """Import the enemy GLB as a viewport-only preview parented to actor_obj.
+    The imported meshes are tagged og_preview=True so export_glb() skips them.
+    Returns True if a preview was imported, False if no GLB found.
+    """
+    info = ENTITY_DEFS.get(etype, {})
+    ag   = info.get("ag")
+    glb_path = _decompiler_glb(ag)
+    if not glb_path:
+        return False
+
+    # Remember objects before import
+    before = set(bpy.data.objects)
+
+    try:
+        bpy.ops.import_scene.gltf(filepath=str(glb_path))
+    except Exception as e:
+        log(f"[preview] import failed for {glb_path}: {e}")
+        return False
+
+    imported = [o for o in bpy.data.objects if o not in before]
+    if not imported:
+        return False
+
+    for o in imported:
+        # Tag as preview — export_glb() will skip these
+        o["og_preview"] = True
+        # Viewport only — not selectable, not renderable
+        o.hide_render   = True
+        o.hide_select   = True
+        # Parent to actor empty, keep world transform
+        o.parent        = actor_obj
+        o.matrix_parent_inverse = actor_obj.matrix_world.inverted()
+
+    log(f"[preview] imported {len(imported)} objects from {glb_path.name}")
+    return True
+
+
+def _remove_enemy_preview(actor_obj):
+    """Remove all og_preview children of actor_obj."""
+    to_remove = [o for o in bpy.data.objects
+                 if o.get("og_preview") and o.parent == actor_obj]
+    for o in to_remove:
+        bpy.data.objects.remove(o, do_unlink=True)
+
 # ---------------------------------------------------------------------------
 # SCENE PARSING
 # ---------------------------------------------------------------------------
@@ -1317,13 +1378,21 @@ def patch_game_gp(name, code_deps=None):
 
 def export_glb(ctx, name):
     d = _ldir(name); d.mkdir(parents=True, exist_ok=True)
-    bpy.ops.export_scene.gltf(
-        filepath=str(d / f"{name}.glb"), export_format="GLB",
-        export_vertex_color="ACTIVE", export_normals=True,
-        export_materials="EXPORT", export_texcoords=True,
-        export_apply=True, use_selection=False,
-        export_yup=True, export_skins=False, export_animations=False)
-    log("Exported GLB")
+    # Temporarily hide preview meshes so they aren't included in the level GLB
+    previews = [o for o in bpy.data.objects if o.get("og_preview")]
+    for o in previews:
+        o.hide_viewport = True
+    try:
+        bpy.ops.export_scene.gltf(
+            filepath=str(d / f"{name}.glb"), export_format="GLB",
+            export_vertex_color="ACTIVE", export_normals=True,
+            export_materials="EXPORT", export_texcoords=True,
+            export_apply=True, use_selection=False,
+            export_yup=True, export_skins=False, export_animations=False)
+        log("Exported GLB")
+    finally:
+        for o in previews:
+            o.hide_viewport = False
 
 # ---------------------------------------------------------------------------
 # OPERATORS — Spawn / NavMesh
@@ -1378,6 +1447,8 @@ class OG_OT_SpawnEntity(Operator):
             self.report({"INFO"}, f"Added {o.name}  (prop — idle animation only, no AI/combat)")
         else:
             self.report({"INFO"}, f"Added {o.name}")
+        # Import enemy preview mesh if decompiler GLB exists
+        _import_enemy_preview(o, etype)
         return {"FINISHED"}
 
 class OG_OT_MarkNavMesh(Operator):
