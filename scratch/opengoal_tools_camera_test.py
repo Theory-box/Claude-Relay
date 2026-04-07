@@ -1866,8 +1866,18 @@ def _bg_play(name):
         #   2. It fires before GAME.CGO finishes linking, so the level may load
         #      into an unready engine state.
         # Instead we send (bg) manually via nREPL once *game-info* is confirmed live.
+        # Build startup.gc: (lt) + (bg) + (start) + camera triggers all run
+        # in compile mode before listener connects — lambdas can compile there.
+        startup_cmds = ["(lt)"]
+        startup_cmds.append(f"(bg '{name}-vis)")
+        startup_cmds.append(
+            f"(start 'play (or (get-continue-by-name *game-info* \"{name}-start\")"
+            f" (get-or-create-continue! *game-info*)))"
+        )
+        for cmd in build_camera_nrepl_commands(cameras):
+            startup_cmds.append(cmd)
         state["status"] = "Writing startup.gc..."
-        write_startup_gc(["(lt)"])
+        write_startup_gc(startup_cmds)
 
         state["status"] = "Launching GOALC (waiting for nREPL)..."
         ok, msg = launch_goalc(wait_for_nrepl=True)
@@ -1878,34 +1888,7 @@ def _bg_play(name):
         ok, msg = launch_gk()
         if not ok: state["error"] = msg; return
 
-        # Poll until *game-info* exists (GAME.CGO finished linking) then load level + spawn.
-        # Match "'ready" (with leading quote) to catch only the GOAL symbol return value,
-        # not console noise like "Listener: ready" which was causing false-positive triggers.
-        state["status"] = "Waiting for game to finish loading..."
-        spawned = False
-        for _ in range(240):
-            time.sleep(0.5)
-            r = goalc_send("(if (nonzero? *game-info*) 'ready 'wait)", timeout=3)
-            if r and "'ready" in r:
-                state["status"] = "Loading level..."
-                goalc_send(f"(bg '{name}-vis)", timeout=30)
-                time.sleep(1.0)  # brief extra wait for level geometry to become active
-                state["status"] = "Spawning player..."
-                goalc_send(f"(start 'play (or (get-continue-by-name *game-info* \"{name}-start\") (get-or-create-continue! *game-info*)))")
-                # Spawn camera trigger processes via inline nREPL expressions.
-                # Named functions in level DGOs aren't in the REPL's global symbol table,
-                # so we send the full spawn expression inline instead.
-                time.sleep(2.0)
-                for cmd in build_camera_nrepl_commands(cameras):
-                    log(f"[cam-trigger] spawning: {cmd[:60]}...")
-                    r3 = goalc_send(cmd, timeout=5)
-                    log(f"[cam-trigger] response: {repr(r3)}")
-                spawned = True
-                break
-        if not spawned:
-            state["status"] = "Done (spawn timed out — load level manually)"
-            return
-        state["status"] = "Done!"
+        state["status"] = "Done — loading via startup.gc"
     except Exception as e:
         state["error"] = str(e)
     finally:
@@ -2159,8 +2142,21 @@ def _bg_build_and_play(name, scene):
         # Putting (bg) in run_after_listen causes "generated code, but wasn't
         # supposed to" spam every time GK reconnects after play is done.
         # We send (bg) manually via nREPL once *game-info* is confirmed live.
+        # Build startup.gc with (lt) + all post-connect commands.
+        # run_after_listen fires BEFORE listener mode — so lambdas can compile.
+        # Order: (lt) connects, then bg+start+camera triggers run in compile mode.
+        startup_cmds = ["(lt)"]
+        # (bg) and (start) go in startup.gc so they run in compile mode
+        startup_cmds.append(f"(bg '{name}-vis)")
+        startup_cmds.append(
+            f"(start 'play (or (get-continue-by-name *game-info* \"{name}-start\")"
+            f" (get-or-create-continue! *game-info*)))"
+        )
+        # Camera trigger spawns also go here — lambdas need compile mode
+        for cmd in build_camera_nrepl_commands(cameras):
+            startup_cmds.append(cmd)
         state["status"] = "Writing startup.gc..."
-        write_startup_gc(["(lt)"])
+        write_startup_gc(startup_cmds)
 
         # Restart GOALC so it reads the new startup.gc.
         state["status"] = "Restarting GOALC with launch startup..."
@@ -2184,22 +2180,14 @@ def _bg_build_and_play(name, scene):
             time.sleep(0.5)
             r = goalc_send("(if (nonzero? *game-info*) 'ready 'wait)", timeout=3)
             if r and "'ready" in r:
-                state["status"] = "Loading level..."
-                goalc_send(f"(bg '{name}-vis)", timeout=30)
-                time.sleep(1.0)
-                state["status"] = "Spawning player..."
-                goalc_send(f"(start 'play (or (get-continue-by-name *game-info* \"{name}-start\") (get-or-create-continue! *game-info*)))")
-                time.sleep(2.0)
-                for cmd in build_camera_nrepl_commands(cameras):
-                    log(f"[cam-trigger] spawning: {cmd[:60]}...")
-                    r3 = goalc_send(cmd, timeout=5)
-                    log(f"[cam-trigger] response: {repr(r3)}")
+                # (bg), (start), and camera triggers are in startup.gc run_after_listen
+                # They fire automatically once *game-info* is ready and (lt) connects.
                 spawned = True
                 break
         if not spawned:
             state["status"] = "Done (spawn timed out — load level manually)"
             return
-        state["status"] = "Done!"
+        state["status"] = "Done — level loading via startup.gc"
         state["ok"] = True
 
     except Exception as e:
