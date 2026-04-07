@@ -1975,507 +1975,483 @@ SBK_SOUNDS = {
 }
 
 def _build_sfx_enum(bank1='none', bank2='none'):
-    """Build categorized sound enum. common always included; level banks added on top."""
+    """Categorized sound enum. common always included; level banks added on top."""
     items = []
     idx   = 0
 
-    def sep(label):
-        nonlocal idx
-        items.append(("__sep__" + label, f"── {label} ──", "", idx))
-        idx += 1
+    items.append(("breath-in", "[Player] breath-in", "", idx)); idx += 1
+    items.append(("breath-in-loud", "[Player] breath-in-loud", "", idx)); idx += 1
+    items.append(("breath-out", "[Player] breath-out", "", idx)); idx += 1
+    items.append(("breath-out-loud", "[Player] breath-out-loud", "", idx)); idx += 1
+    items.append(("death-darkeco", "[Player] death-darkeco", "", idx)); idx += 1
+    items.append(("death-drown", "[Player] death-drown", "", idx)); idx += 1
+    items.append(("death-fall", "[Player] death-fall", "", idx)); idx += 1
+    items.append(("death-melt", "[Player] death-melt", "", idx)); idx += 1
+    items.append(("flop-down", "[Player] flop-down", "", idx)); idx += 1
+    items.append(("flop-hit", "[Player] flop-hit", "", idx)); idx += 1
+    items.append(("flop-land", "[Player] flop-land", "", idx)); idx += 1
+    items.append(("foothit", "[Player] foothit", "", idx)); idx += 1
+    items.append(("get-burned", "[Player] get-burned", "", idx)); idx += 1
+    items.append(("get-fried", "[Player] get-fried", "", idx)); idx += 1
+    items.append(("get-shocked", "[Player] get-shocked", "", idx)); idx += 1
+    items.append(("hit-back", "[Player] hit-back", "", idx)); idx += 1
+    items.append(("hit-dizzy", "[Player] hit-dizzy", "", idx)); idx += 1
+    items.append(("hit-dummy", "[Player] hit-dummy", "", idx)); idx += 1
+    items.append(("hit-lurk-metal", "[Player] hit-lurk-metal", "", idx)); idx += 1
+    items.append(("hit-metal", "[Player] hit-metal", "", idx)); idx += 1
+    items.append(("hit-metal-big", "[Player] hit-metal-big", "", idx)); idx += 1
+    items.append(("hit-metal-large", "[Player] hit-metal-large", "", idx)); idx += 1
+    items.append(("hit-metal-small", "[Player] hit-metal-small", "", idx)); idx += 1
+    items.append(("hit-metal-tiny", "[Player] hit-metal-tiny", "", idx)); idx += 1
+    items.append(("hit-temple", "[Player] hit-temple", "", idx)); idx += 1
+    items.append(("hit-up", "[Player] hit-up", "", idx)); idx += 1
+    items.append(("jak-clap", "[Player] jak-clap", "", idx)); idx += 1
+    items.append(("jak-deatha", "[Player] jak-deatha", "", idx)); idx += 1
+    items.append(("jak-idle1", "[Player] jak-idle1", "", idx)); idx += 1
+    items.append(("jak-shocked", "[Player] jak-shocked", "", idx)); idx += 1
+    items.append(("jak-stretch", "[Player] jak-stretch", "", idx)); idx += 1
+    items.append(("jump", "[Player] jump", "", idx)); idx += 1
+    items.append(("jump-double", "[Player] jump-double", "", idx)); idx += 1
+    items.append(("jump-long", "[Player] jump-long", "", idx)); idx += 1
+    items.append(("jump-low", "[Player] jump-low", "", idx)); idx += 1
+    items.append(("jump-lurk-metal", "[Player] jump-lurk-metal", "", idx)); idx += 1
+    items.append(("land-crwood", "[Player] land-crwood", "", idx)); idx += 1
+    items.append(("land-dirt", "[Player] land-dirt", "", idx)); idx += 1
+    items.append(("land-dpsnow", "[Player] land-dpsnow", "", idx)); idx += 1
+    items.append(("land-dwater", "[Player] land-dwater", "", idx)); idx += 1
+    items.append(("land-grass", "[Player] land-grass", "", idx)); idx += 1
+    items.append(("land-hard", "[Player] land-hard", "", idx)); idx += 1
+    items.append(("land-metal", "[Player] land-metal", "", idx)); idx += 1
+    items.append(("land-pcmetal", "[Player] land-pcmetal", "", idx)); idx += 1
+    items.append(("land-sand", "[Player] land-sand", "", idx)); idx += 1
+    items.append(("land-snow", "[Player] land-snow", "", idx)); idx += 1
+    items.append(("land-stone", "[Player] land-stone", "", idx)); idx += 1
+    items.append(("land-straw", "[Player] land-straw", "", idx)); idx += 1
+    items.append(("land-swamp", "[Player] land-swamp", "", idx)); idx += 1
+    items.append(("land-water", "[Player] land-water", "", idx)); idx += 1
+    items.append(("land-wood", "[Player] land-wood", "", idx)); idx += 1
+    items.append(("oof", "[Player] oof", "", idx)); idx += 1
+    items.append(("punch", "[Player] punch", "", idx)); idx += 1
+    items.append(("punch-hit", "[Player] punch-hit", "", idx)); idx += 1
+    items.append(("roll-crwood", "[Player] roll-crwood", "", idx)); idx += 1
+    items.append(("roll-dirt", "[Player] roll-dirt", "", idx)); idx += 1
+    items.append(("roll-dpsnow", "[Player] roll-dpsnow", "", idx)); idx += 1
+    items.append(("roll-dwater", "[Player] roll-dwater", "", idx)); idx += 1
+    items.append(("roll-grass", "[Player] roll-grass", "", idx)); idx += 1
+    items.append(("roll-pcmetal", "[Player] roll-pcmetal", "", idx)); idx += 1
+    items.append(("roll-sand", "[Player] roll-sand", "", idx)); idx += 1
+    items.append(("roll-snow", "[Player] roll-snow", "", idx)); idx += 1
+    items.append(("roll-stone", "[Player] roll-stone", "", idx)); idx += 1
+    items.append(("roll-straw", "[Player] roll-straw", "", idx)); idx += 1
+    items.append(("roll-swamp", "[Player] roll-swamp", "", idx)); idx += 1
+    items.append(("roll-water", "[Player] roll-water", "", idx)); idx += 1
+    items.append(("roll-wood", "[Player] roll-wood", "", idx)); idx += 1
+    items.append(("run-step-left", "[Player] run-step-left", "", idx)); idx += 1
+    items.append(("run-step-right", "[Player] run-step-right", "", idx)); idx += 1
+    items.append(("slide-crwood", "[Player] slide-crwood", "", idx)); idx += 1
+    items.append(("slide-dirt", "[Player] slide-dirt", "", idx)); idx += 1
+    items.append(("slide-dpsnow", "[Player] slide-dpsnow", "", idx)); idx += 1
+    items.append(("slide-dwater", "[Player] slide-dwater", "", idx)); idx += 1
+    items.append(("slide-grass", "[Player] slide-grass", "", idx)); idx += 1
+    items.append(("slide-pcmetal", "[Player] slide-pcmetal", "", idx)); idx += 1
+    items.append(("slide-sand", "[Player] slide-sand", "", idx)); idx += 1
+    items.append(("slide-snow", "[Player] slide-snow", "", idx)); idx += 1
+    items.append(("slide-stone", "[Player] slide-stone", "", idx)); idx += 1
+    items.append(("slide-straw", "[Player] slide-straw", "", idx)); idx += 1
+    items.append(("slide-swamp", "[Player] slide-swamp", "", idx)); idx += 1
+    items.append(("slide-water", "[Player] slide-water", "", idx)); idx += 1
+    items.append(("slide-wood", "[Player] slide-wood", "", idx)); idx += 1
+    items.append(("spin", "[Player] spin", "", idx)); idx += 1
+    items.append(("spin-hit", "[Player] spin-hit", "", idx)); idx += 1
+    items.append(("spin-kick", "[Player] spin-kick", "", idx)); idx += 1
+    items.append(("spin-pole", "[Player] spin-pole", "", idx)); idx += 1
+    items.append(("swim-dive", "[Player] swim-dive", "", idx)); idx += 1
+    items.append(("swim-down", "[Player] swim-down", "", idx)); idx += 1
+    items.append(("swim-flop", "[Player] swim-flop", "", idx)); idx += 1
+    items.append(("swim-idle1", "[Player] swim-idle1", "", idx)); idx += 1
+    items.append(("swim-idle2", "[Player] swim-idle2", "", idx)); idx += 1
+    items.append(("swim-jump", "[Player] swim-jump", "", idx)); idx += 1
+    items.append(("swim-kick-surf", "[Player] swim-kick-surf", "", idx)); idx += 1
+    items.append(("swim-kick-under", "[Player] swim-kick-under", "", idx)); idx += 1
+    items.append(("swim-noseblow", "[Player] swim-noseblow", "", idx)); idx += 1
+    items.append(("swim-stroke", "[Player] swim-stroke", "", idx)); idx += 1
+    items.append(("swim-surface", "[Player] swim-surface", "", idx)); idx += 1
+    items.append(("swim-to-down", "[Player] swim-to-down", "", idx)); idx += 1
+    items.append(("swim-turn", "[Player] swim-turn", "", idx)); idx += 1
+    items.append(("swim-up", "[Player] swim-up", "", idx)); idx += 1
+    items.append(("uppercut", "[Player] uppercut", "", idx)); idx += 1
+    items.append(("uppercut-hit", "[Player] uppercut-hit", "", idx)); idx += 1
+    items.append(("walk-crwood1", "[Player] walk-crwood1", "", idx)); idx += 1
+    items.append(("walk-crwood2", "[Player] walk-crwood2", "", idx)); idx += 1
+    items.append(("walk-dirt1", "[Player] walk-dirt1", "", idx)); idx += 1
+    items.append(("walk-dirt2", "[Player] walk-dirt2", "", idx)); idx += 1
+    items.append(("walk-dpsnow1", "[Player] walk-dpsnow1", "", idx)); idx += 1
+    items.append(("walk-dpsnow2", "[Player] walk-dpsnow2", "", idx)); idx += 1
+    items.append(("walk-dwater1", "[Player] walk-dwater1", "", idx)); idx += 1
+    items.append(("walk-dwater2", "[Player] walk-dwater2", "", idx)); idx += 1
+    items.append(("walk-grass1", "[Player] walk-grass1", "", idx)); idx += 1
+    items.append(("walk-grass2", "[Player] walk-grass2", "", idx)); idx += 1
+    items.append(("walk-metal1", "[Player] walk-metal1", "", idx)); idx += 1
+    items.append(("walk-metal2", "[Player] walk-metal2", "", idx)); idx += 1
+    items.append(("walk-pcmetal1", "[Player] walk-pcmetal1", "", idx)); idx += 1
+    items.append(("walk-pcmetal2", "[Player] walk-pcmetal2", "", idx)); idx += 1
+    items.append(("walk-sand1", "[Player] walk-sand1", "", idx)); idx += 1
+    items.append(("walk-sand2", "[Player] walk-sand2", "", idx)); idx += 1
+    items.append(("walk-slide", "[Player] walk-slide", "", idx)); idx += 1
+    items.append(("walk-snow1", "[Player] walk-snow1", "", idx)); idx += 1
+    items.append(("walk-snow2", "[Player] walk-snow2", "", idx)); idx += 1
+    items.append(("walk-step-left", "[Player] walk-step-left", "", idx)); idx += 1
+    items.append(("walk-step-right", "[Player] walk-step-right", "", idx)); idx += 1
+    items.append(("walk-stone1", "[Player] walk-stone1", "", idx)); idx += 1
+    items.append(("walk-stone2", "[Player] walk-stone2", "", idx)); idx += 1
+    items.append(("walk-straw1", "[Player] walk-straw1", "", idx)); idx += 1
+    items.append(("walk-straw2", "[Player] walk-straw2", "", idx)); idx += 1
+    items.append(("walk-swamp1", "[Player] walk-swamp1", "", idx)); idx += 1
+    items.append(("walk-swamp2", "[Player] walk-swamp2", "", idx)); idx += 1
+    items.append(("walk-water1", "[Player] walk-water1", "", idx)); idx += 1
+    items.append(("walk-water2", "[Player] walk-water2", "", idx)); idx += 1
+    items.append(("walk-wood1", "[Player] walk-wood1", "", idx)); idx += 1
+    items.append(("walk-wood2", "[Player] walk-wood2", "", idx)); idx += 1
+    items.append(("blue-eco-charg", "[Eco] blue-eco-charg", "", idx)); idx += 1
+    items.append(("blue-eco-idle", "[Eco] blue-eco-idle", "", idx)); idx += 1
+    items.append(("blue-eco-jak", "[Eco] blue-eco-jak", "", idx)); idx += 1
+    items.append(("blue-eco-on", "[Eco] blue-eco-on", "", idx)); idx += 1
+    items.append(("blue-eco-start", "[Eco] blue-eco-start", "", idx)); idx += 1
+    items.append(("darkeco-pool", "[Eco] darkeco-pool", "", idx)); idx += 1
+    items.append(("eco-beam", "[Eco] eco-beam", "", idx)); idx += 1
+    items.append(("eco-bg-blue", "[Eco] eco-bg-blue", "", idx)); idx += 1
+    items.append(("eco-bg-green", "[Eco] eco-bg-green", "", idx)); idx += 1
+    items.append(("eco-bg-red", "[Eco] eco-bg-red", "", idx)); idx += 1
+    items.append(("eco-bg-yellow", "[Eco] eco-bg-yellow", "", idx)); idx += 1
+    items.append(("eco-engine-1", "[Eco] eco-engine-1", "", idx)); idx += 1
+    items.append(("eco-engine-2", "[Eco] eco-engine-2", "", idx)); idx += 1
+    items.append(("eco-plat-hover", "[Eco] eco-plat-hover", "", idx)); idx += 1
+    items.append(("eco3", "[Eco] eco3", "", idx)); idx += 1
+    items.append(("ecohit2", "[Eco] ecohit2", "", idx)); idx += 1
+    items.append(("ecoroom1", "[Eco] ecoroom1", "", idx)); idx += 1
+    items.append(("get-blue-eco", "[Eco] get-blue-eco", "", idx)); idx += 1
+    items.append(("get-green-eco", "[Eco] get-green-eco", "", idx)); idx += 1
+    items.append(("get-red-eco", "[Eco] get-red-eco", "", idx)); idx += 1
+    items.append(("get-yellow-eco", "[Eco] get-yellow-eco", "", idx)); idx += 1
+    items.append(("green-eco-idle", "[Eco] green-eco-idle", "", idx)); idx += 1
+    items.append(("green-eco-jak", "[Eco] green-eco-jak", "", idx)); idx += 1
+    items.append(("helix-dark-eco", "[Eco] helix-dark-eco", "", idx)); idx += 1
+    items.append(("lav-blue-vent", "[Eco] lav-blue-vent", "", idx)); idx += 1
+    items.append(("lav-dark-boom", "[Eco] lav-dark-boom", "", idx)); idx += 1
+    items.append(("lav-green-vent", "[Eco] lav-green-vent", "", idx)); idx += 1
+    items.append(("lav-yell-vent", "[Eco] lav-yell-vent", "", idx)); idx += 1
+    items.append(("red-eco-idle", "[Eco] red-eco-idle", "", idx)); idx += 1
+    items.append(("red-eco-jak", "[Eco] red-eco-jak", "", idx)); idx += 1
+    items.append(("yel-eco-idle", "[Eco] yel-eco-idle", "", idx)); idx += 1
+    items.append(("yel-eco-jak", "[Eco] yel-eco-jak", "", idx)); idx += 1
+    items.append(("cave-spatula", "[Environment] cave-spatula", "", idx)); idx += 1
+    items.append(("cave-top-falls", "[Environment] cave-top-falls", "", idx)); idx += 1
+    items.append(("cave-top-lands", "[Environment] cave-top-lands", "", idx)); idx += 1
+    items.append(("cave-top-rises", "[Environment] cave-top-rises", "", idx)); idx += 1
+    items.append(("electric-loop", "[Environment] electric-loop", "", idx)); idx += 1
+    items.append(("fire-boulder", "[Environment] fire-boulder", "", idx)); idx += 1
+    items.append(("fire-crackle", "[Environment] fire-crackle", "", idx)); idx += 1
+    items.append(("fire-loop", "[Environment] fire-loop", "", idx)); idx += 1
+    items.append(("flame-pot", "[Environment] flame-pot", "", idx)); idx += 1
+    items.append(("glowing-gen", "[Environment] glowing-gen", "", idx)); idx += 1
+    items.append(("green-steam", "[Environment] green-steam", "", idx)); idx += 1
+    items.append(("heart-drone", "[Environment] heart-drone", "", idx)); idx += 1
+    items.append(("ice-breathin", "[Environment] ice-breathin", "", idx)); idx += 1
+    items.append(("ice-loop", "[Environment] ice-loop", "", idx)); idx += 1
+    items.append(("lav-mine-boom", "[Environment] lav-mine-boom", "", idx)); idx += 1
+    items.append(("lav-spin-gen", "[Environment] lav-spin-gen", "", idx)); idx += 1
+    items.append(("lava-mines", "[Environment] lava-mines", "", idx)); idx += 1
+    items.append(("lava-pulley", "[Environment] lava-pulley", "", idx)); idx += 1
+    items.append(("medium-steam-lp", "[Environment] medium-steam-lp", "", idx)); idx += 1
+    items.append(("misty-steam", "[Environment] misty-steam", "", idx)); idx += 1
+    items.append(("mushroom-gen", "[Environment] mushroom-gen", "", idx)); idx += 1
+    items.append(("mushroom-off", "[Environment] mushroom-off", "", idx)); idx += 1
+    items.append(("rock-hover", "[Environment] rock-hover", "", idx)); idx += 1
+    items.append(("small-steam-lp", "[Environment] small-steam-lp", "", idx)); idx += 1
+    items.append(("snow-bumper", "[Environment] snow-bumper", "", idx)); idx += 1
+    items.append(("snow-plat-1", "[Environment] snow-plat-1", "", idx)); idx += 1
+    items.append(("snow-plat-2", "[Environment] snow-plat-2", "", idx)); idx += 1
+    items.append(("snow-plat-3", "[Environment] snow-plat-3", "", idx)); idx += 1
+    items.append(("steam-long", "[Environment] steam-long", "", idx)); idx += 1
+    items.append(("steam-medium", "[Environment] steam-medium", "", idx)); idx += 1
+    items.append(("steam-short", "[Environment] steam-short", "", idx)); idx += 1
+    items.append(("water-drop", "[Environment] water-drop", "", idx)); idx += 1
+    items.append(("water-explosion", "[Environment] water-explosion", "", idx)); idx += 1
+    items.append(("water-loop", "[Environment] water-loop", "", idx)); idx += 1
+    items.append(("water-off", "[Environment] water-off", "", idx)); idx += 1
+    items.append(("water-on", "[Environment] water-on", "", idx)); idx += 1
+    items.append(("waterfall", "[Environment] waterfall", "", idx)); idx += 1
+    items.append(("arenadoor-close", "[Objects] arenadoor-close", "", idx)); idx += 1
+    items.append(("arenadoor-open", "[Objects] arenadoor-open", "", idx)); idx += 1
+    items.append(("boat-start", "[Objects] boat-start", "", idx)); idx += 1
+    items.append(("boat-stop", "[Objects] boat-stop", "", idx)); idx += 1
+    items.append(("bomb-open", "[Objects] bomb-open", "", idx)); idx += 1
+    items.append(("bridge-button", "[Objects] bridge-button", "", idx)); idx += 1
+    items.append(("bridge-hover", "[Objects] bridge-hover", "", idx)); idx += 1
+    items.append(("bumper-button", "[Objects] bumper-button", "", idx)); idx += 1
+    items.append(("bumper-pwr-dwn", "[Objects] bumper-pwr-dwn", "", idx)); idx += 1
+    items.append(("chamber-land", "[Objects] chamber-land", "", idx)); idx += 1
+    items.append(("chamber-lift", "[Objects] chamber-lift", "", idx)); idx += 1
+    items.append(("crate-jump", "[Objects] crate-jump", "", idx)); idx += 1
+    items.append(("dcrate-break", "[Objects] dcrate-break", "", idx)); idx += 1
+    items.append(("door-lock", "[Objects] door-lock", "", idx)); idx += 1
+    items.append(("door-unlock", "[Objects] door-unlock", "", idx)); idx += 1
+    items.append(("elev-button", "[Objects] elev-button", "", idx)); idx += 1
+    items.append(("elev-land", "[Objects] elev-land", "", idx)); idx += 1
+    items.append(("gdl-gen-loop", "[Objects] gdl-gen-loop", "", idx)); idx += 1
+    items.append(("gdl-pulley", "[Objects] gdl-pulley", "", idx)); idx += 1
+    items.append(("gdl-shut-down", "[Objects] gdl-shut-down", "", idx)); idx += 1
+    items.append(("gdl-start-up", "[Objects] gdl-start-up", "", idx)); idx += 1
+    items.append(("icrate-break", "[Objects] icrate-break", "", idx)); idx += 1
+    items.append(("irisdoor1", "[Objects] irisdoor1", "", idx)); idx += 1
+    items.append(("irisdoor2", "[Objects] irisdoor2", "", idx)); idx += 1
+    items.append(("launch-fire", "[Objects] launch-fire", "", idx)); idx += 1
+    items.append(("launch-idle", "[Objects] launch-idle", "", idx)); idx += 1
+    items.append(("launch-start", "[Objects] launch-start", "", idx)); idx += 1
+    items.append(("ldoor-close", "[Objects] ldoor-close", "", idx)); idx += 1
+    items.append(("ldoor-open", "[Objects] ldoor-open", "", idx)); idx += 1
+    items.append(("lev-mach-fires", "[Objects] lev-mach-fires", "", idx)); idx += 1
+    items.append(("lev-mach-idle", "[Objects] lev-mach-idle", "", idx)); idx += 1
+    items.append(("lev-mach-start", "[Objects] lev-mach-start", "", idx)); idx += 1
+    items.append(("maindoor", "[Objects] maindoor", "", idx)); idx += 1
+    items.append(("mayors-gears", "[Objects] mayors-gears", "", idx)); idx += 1
+    items.append(("miners-fire", "[Objects] miners-fire", "", idx)); idx += 1
+    items.append(("oracle-awake", "[Objects] oracle-awake", "", idx)); idx += 1
+    items.append(("oracle-sleep", "[Objects] oracle-sleep", "", idx)); idx += 1
+    items.append(("pedals", "[Objects] pedals", "", idx)); idx += 1
+    items.append(("piston-close", "[Objects] piston-close", "", idx)); idx += 1
+    items.append(("piston-open", "[Objects] piston-open", "", idx)); idx += 1
+    items.append(("plat-light-off", "[Objects] plat-light-off", "", idx)); idx += 1
+    items.append(("plat-light-on", "[Objects] plat-light-on", "", idx)); idx += 1
+    items.append(("pontoonten", "[Objects] pontoonten", "", idx)); idx += 1
+    items.append(("prec-button1", "[Objects] prec-button1", "", idx)); idx += 1
+    items.append(("prec-button2", "[Objects] prec-button2", "", idx)); idx += 1
+    items.append(("prec-button3", "[Objects] prec-button3", "", idx)); idx += 1
+    items.append(("prec-button4", "[Objects] prec-button4", "", idx)); idx += 1
+    items.append(("prec-button6", "[Objects] prec-button6", "", idx)); idx += 1
+    items.append(("prec-button7", "[Objects] prec-button7", "", idx)); idx += 1
+    items.append(("prec-button8", "[Objects] prec-button8", "", idx)); idx += 1
+    items.append(("robo-blue-lp", "[Objects] robo-blue-lp", "", idx)); idx += 1
+    items.append(("robo-warning", "[Objects] robo-warning", "", idx)); idx += 1
+    items.append(("robotcage-lp", "[Objects] robotcage-lp", "", idx)); idx += 1
+    items.append(("robotcage-off", "[Objects] robotcage-off", "", idx)); idx += 1
+    items.append(("rounddoor", "[Objects] rounddoor", "", idx)); idx += 1
+    items.append(("sagecage-gen", "[Objects] sagecage-gen", "", idx)); idx += 1
+    items.append(("sagecage-off", "[Objects] sagecage-off", "", idx)); idx += 1
+    items.append(("sages-machine", "[Objects] sages-machine", "", idx)); idx += 1
+    items.append(("scrate-break", "[Objects] scrate-break", "", idx)); idx += 1
+    items.append(("scrate-nobreak", "[Objects] scrate-nobreak", "", idx)); idx += 1
+    items.append(("sidedoor", "[Objects] sidedoor", "", idx)); idx += 1
+    items.append(("silo-button", "[Objects] silo-button", "", idx)); idx += 1
+    items.append(("snow-pist-cls2", "[Objects] snow-pist-cls2", "", idx)); idx += 1
+    items.append(("snow-pist-cls3", "[Objects] snow-pist-cls3", "", idx)); idx += 1
+    items.append(("snow-pist-opn2", "[Objects] snow-pist-opn2", "", idx)); idx += 1
+    items.append(("snow-pist-opn3", "[Objects] snow-pist-opn3", "", idx)); idx += 1
+    items.append(("snow-piston-cls", "[Objects] snow-piston-cls", "", idx)); idx += 1
+    items.append(("snow-piston-opn", "[Objects] snow-piston-opn", "", idx)); idx += 1
+    items.append(("snw-door", "[Objects] snw-door", "", idx)); idx += 1
+    items.append(("split-steps", "[Objects] split-steps", "", idx)); idx += 1
+    items.append(("v3-bridge", "[Objects] v3-bridge", "", idx)); idx += 1
+    items.append(("v3-cartride", "[Objects] v3-cartride", "", idx)); idx += 1
+    items.append(("v3-minecart", "[Objects] v3-minecart", "", idx)); idx += 1
+    items.append(("vent-switch", "[Objects] vent-switch", "", idx)); idx += 1
+    items.append(("warpgate-act", "[Objects] warpgate-act", "", idx)); idx += 1
+    items.append(("warpgate-butt", "[Objects] warpgate-butt", "", idx)); idx += 1
+    items.append(("warpgate-loop", "[Objects] warpgate-loop", "", idx)); idx += 1
+    items.append(("warpgate-tele", "[Objects] warpgate-tele", "", idx)); idx += 1
+    items.append(("wcrate-break", "[Objects] wcrate-break", "", idx)); idx += 1
+    items.append(("babak-breathin", "[Enemies] babak-breathin", "", idx)); idx += 1
+    items.append(("babak-chest", "[Enemies] babak-chest", "", idx)); idx += 1
+    items.append(("babak-dies", "[Enemies] babak-dies", "", idx)); idx += 1
+    items.append(("babak-roar", "[Enemies] babak-roar", "", idx)); idx += 1
+    items.append(("babak-taunt", "[Enemies] babak-taunt", "", idx)); idx += 1
+    items.append(("babk-taunt", "[Enemies] babk-taunt", "", idx)); idx += 1
+    items.append(("balloon-dies", "[Enemies] balloon-dies", "", idx)); idx += 1
+    items.append(("bigshark-alert", "[Enemies] bigshark-alert", "", idx)); idx += 1
+    items.append(("bigshark-bite", "[Enemies] bigshark-bite", "", idx)); idx += 1
+    items.append(("bigshark-idle", "[Enemies] bigshark-idle", "", idx)); idx += 1
+    items.append(("bigshark-taunt", "[Enemies] bigshark-taunt", "", idx)); idx += 1
+    items.append(("blob-explode", "[Enemies] blob-explode", "", idx)); idx += 1
+    items.append(("blob-land", "[Enemies] blob-land", "", idx)); idx += 1
+    items.append(("bonelurk-roar", "[Enemies] bonelurk-roar", "", idx)); idx += 1
+    items.append(("bonelurker-dies", "[Enemies] bonelurker-dies", "", idx)); idx += 1
+    items.append(("bonelurker-grunt", "[Enemies] bonelurker-grunt", "", idx)); idx += 1
+    items.append(("bully-bounce", "[Enemies] bully-bounce", "", idx)); idx += 1
+    items.append(("bully-dies", "[Enemies] bully-dies", "", idx)); idx += 1
+    items.append(("bully-dizzy", "[Enemies] bully-dizzy", "", idx)); idx += 1
+    items.append(("bully-idle", "[Enemies] bully-idle", "", idx)); idx += 1
+    items.append(("bully-jump", "[Enemies] bully-jump", "", idx)); idx += 1
+    items.append(("bully-land", "[Enemies] bully-land", "", idx)); idx += 1
+    items.append(("bully-spin1", "[Enemies] bully-spin1", "", idx)); idx += 1
+    items.append(("bully-spin2", "[Enemies] bully-spin2", "", idx)); idx += 1
+    items.append(("caught-eel", "[Enemies] caught-eel", "", idx)); idx += 1
+    items.append(("dril-step", "[Enemies] dril-step", "", idx)); idx += 1
+    items.append(("flut-land-crwood", "[Enemies] flut-land-crwood", "", idx)); idx += 1
+    items.append(("flut-land-dirt", "[Enemies] flut-land-dirt", "", idx)); idx += 1
+    items.append(("flut-land-grass", "[Enemies] flut-land-grass", "", idx)); idx += 1
+    items.append(("flut-land-pcmeta", "[Enemies] flut-land-pcmeta", "", idx)); idx += 1
+    items.append(("flut-land-sand", "[Enemies] flut-land-sand", "", idx)); idx += 1
+    items.append(("flut-land-snow", "[Enemies] flut-land-snow", "", idx)); idx += 1
+    items.append(("flut-land-stone", "[Enemies] flut-land-stone", "", idx)); idx += 1
+    items.append(("flut-land-straw", "[Enemies] flut-land-straw", "", idx)); idx += 1
+    items.append(("flut-land-swamp", "[Enemies] flut-land-swamp", "", idx)); idx += 1
+    items.append(("flut-land-water", "[Enemies] flut-land-water", "", idx)); idx += 1
+    items.append(("flut-land-wood", "[Enemies] flut-land-wood", "", idx)); idx += 1
+    items.append(("flylurk-dies", "[Enemies] flylurk-dies", "", idx)); idx += 1
+    items.append(("flylurk-idle", "[Enemies] flylurk-idle", "", idx)); idx += 1
+    items.append(("flylurk-plane", "[Enemies] flylurk-plane", "", idx)); idx += 1
+    items.append(("flylurk-roar", "[Enemies] flylurk-roar", "", idx)); idx += 1
+    items.append(("flylurk-taunt", "[Enemies] flylurk-taunt", "", idx)); idx += 1
+    items.append(("grunt", "[Enemies] grunt", "", idx)); idx += 1
+    items.append(("icelurk-land", "[Enemies] icelurk-land", "", idx)); idx += 1
+    items.append(("icelurk-step", "[Enemies] icelurk-step", "", idx)); idx += 1
+    items.append(("kermit-loop", "[Enemies] kermit-loop", "", idx)); idx += 1
+    items.append(("lurkerfish-swim", "[Enemies] lurkerfish-swim", "", idx)); idx += 1
+    items.append(("mother-charge", "[Enemies] mother-charge", "", idx)); idx += 1
+    items.append(("mother-fire", "[Enemies] mother-fire", "", idx)); idx += 1
+    items.append(("mother-hit", "[Enemies] mother-hit", "", idx)); idx += 1
+    items.append(("mother-track", "[Enemies] mother-track", "", idx)); idx += 1
+    items.append(("mud-lurk-inhale", "[Enemies] mud-lurk-inhale", "", idx)); idx += 1
+    items.append(("ogre-rock", "[Enemies] ogre-rock", "", idx)); idx += 1
+    items.append(("ogre-throw", "[Enemies] ogre-throw", "", idx)); idx += 1
+    items.append(("ogre-windup", "[Enemies] ogre-windup", "", idx)); idx += 1
+    items.append(("ramboss-charge", "[Enemies] ramboss-charge", "", idx)); idx += 1
+    items.append(("ramboss-dies", "[Enemies] ramboss-dies", "", idx)); idx += 1
+    items.append(("ramboss-fire", "[Enemies] ramboss-fire", "", idx)); idx += 1
+    items.append(("ramboss-hit", "[Enemies] ramboss-hit", "", idx)); idx += 1
+    items.append(("ramboss-idle", "[Enemies] ramboss-idle", "", idx)); idx += 1
+    items.append(("ramboss-land", "[Enemies] ramboss-land", "", idx)); idx += 1
+    items.append(("ramboss-roar", "[Enemies] ramboss-roar", "", idx)); idx += 1
+    items.append(("ramboss-shield", "[Enemies] ramboss-shield", "", idx)); idx += 1
+    items.append(("ramboss-step", "[Enemies] ramboss-step", "", idx)); idx += 1
+    items.append(("ramboss-taunt", "[Enemies] ramboss-taunt", "", idx)); idx += 1
+    items.append(("ramboss-track", "[Enemies] ramboss-track", "", idx)); idx += 1
+    items.append(("robber-dies", "[Enemies] robber-dies", "", idx)); idx += 1
+    items.append(("robber-idle", "[Enemies] robber-idle", "", idx)); idx += 1
+    items.append(("robber-roar", "[Enemies] robber-roar", "", idx)); idx += 1
+    items.append(("robber-taunt", "[Enemies] robber-taunt", "", idx)); idx += 1
+    items.append(("sandworm-dies", "[Enemies] sandworm-dies", "", idx)); idx += 1
+    items.append(("shark-bite", "[Enemies] shark-bite", "", idx)); idx += 1
+    items.append(("shark-dies", "[Enemies] shark-dies", "", idx)); idx += 1
+    items.append(("shark-idle", "[Enemies] shark-idle", "", idx)); idx += 1
+    items.append(("shark-swim", "[Enemies] shark-swim", "", idx)); idx += 1
+    items.append(("shldlurk-breathi", "[Enemies] shldlurk-breathi", "", idx)); idx += 1
+    items.append(("shldlurk-chest", "[Enemies] shldlurk-chest", "", idx)); idx += 1
+    items.append(("shldlurk-dies", "[Enemies] shldlurk-dies", "", idx)); idx += 1
+    items.append(("shldlurk-roar", "[Enemies] shldlurk-roar", "", idx)); idx += 1
+    items.append(("shldlurk-taunt", "[Enemies] shldlurk-taunt", "", idx)); idx += 1
+    items.append(("temp-enemy-die", "[Enemies] temp-enemy-die", "", idx)); idx += 1
+    items.append(("yeti-breathin", "[Enemies] yeti-breathin", "", idx)); idx += 1
+    items.append(("yeti-dies", "[Enemies] yeti-dies", "", idx)); idx += 1
+    items.append(("yeti-roar", "[Enemies] yeti-roar", "", idx)); idx += 1
+    items.append(("yeti-taunt", "[Enemies] yeti-taunt", "", idx)); idx += 1
+    items.append(("zoom-hit-crwood", "[Enemies] zoom-hit-crwood", "", idx)); idx += 1
+    items.append(("zoom-hit-dirt", "[Enemies] zoom-hit-dirt", "", idx)); idx += 1
+    items.append(("zoom-hit-grass", "[Enemies] zoom-hit-grass", "", idx)); idx += 1
+    items.append(("zoom-hit-lava", "[Enemies] zoom-hit-lava", "", idx)); idx += 1
+    items.append(("zoom-hit-metal", "[Enemies] zoom-hit-metal", "", idx)); idx += 1
+    items.append(("zoom-hit-sand", "[Enemies] zoom-hit-sand", "", idx)); idx += 1
+    items.append(("zoom-hit-stone", "[Enemies] zoom-hit-stone", "", idx)); idx += 1
+    items.append(("zoom-hit-water", "[Enemies] zoom-hit-water", "", idx)); idx += 1
+    items.append(("zoom-hit-wood", "[Enemies] zoom-hit-wood", "", idx)); idx += 1
+    items.append(("zoom-land-crwood", "[Enemies] zoom-land-crwood", "", idx)); idx += 1
+    items.append(("zoom-land-dirt", "[Enemies] zoom-land-dirt", "", idx)); idx += 1
+    items.append(("zoom-land-grass", "[Enemies] zoom-land-grass", "", idx)); idx += 1
+    items.append(("zoom-land-lava", "[Enemies] zoom-land-lava", "", idx)); idx += 1
+    items.append(("zoom-land-metal", "[Enemies] zoom-land-metal", "", idx)); idx += 1
+    items.append(("zoom-land-sand", "[Enemies] zoom-land-sand", "", idx)); idx += 1
+    items.append(("zoom-land-stone", "[Enemies] zoom-land-stone", "", idx)); idx += 1
+    items.append(("zoom-land-water", "[Enemies] zoom-land-water", "", idx)); idx += 1
+    items.append(("zoom-land-wood", "[Enemies] zoom-land-wood", "", idx)); idx += 1
+    items.append(("buzzer", "[Pickups] buzzer", "", idx)); idx += 1
+    items.append(("buzzer-pickup", "[Pickups] buzzer-pickup", "", idx)); idx += 1
+    items.append(("cell-prize", "[Pickups] cell-prize", "", idx)); idx += 1
+    items.append(("close-orb-cash", "[Pickups] close-orb-cash", "", idx)); idx += 1
+    items.append(("cursor-l-r", "[Pickups] cursor-l-r", "", idx)); idx += 1
+    items.append(("cursor-options", "[Pickups] cursor-options", "", idx)); idx += 1
+    items.append(("cursor-up-down", "[Pickups] cursor-up-down", "", idx)); idx += 1
+    items.append(("get-all-orbs", "[Pickups] get-all-orbs", "", idx)); idx += 1
+    items.append(("menu-close", "[Pickups] menu-close", "", idx)); idx += 1
+    items.append(("menu-stats", "[Pickups] menu-stats", "", idx)); idx += 1
+    items.append(("money-pickup", "[Pickups] money-pickup", "", idx)); idx += 1
+    items.append(("open-orb-cash", "[Pickups] open-orb-cash", "", idx)); idx += 1
+    items.append(("pill-pickup", "[Pickups] pill-pickup", "", idx)); idx += 1
+    items.append(("powercell-idle", "[Pickups] powercell-idle", "", idx)); idx += 1
+    items.append(("powercell-out", "[Pickups] powercell-out", "", idx)); idx += 1
+    items.append(("select-menu", "[Pickups] select-menu", "", idx)); idx += 1
+    items.append(("select-option", "[Pickups] select-option", "", idx)); idx += 1
+    items.append(("select-option2", "[Pickups] select-option2", "", idx)); idx += 1
+    items.append(("start-options", "[Pickups] start-options", "", idx)); idx += 1
+    items.append(("start-up", "[Pickups] start-up", "", idx)); idx += 1
+    items.append(("stopwatch", "[Pickups] stopwatch", "", idx)); idx += 1
+    items.append(("arena", "[Common] arena", "", idx)); idx += 1
+    items.append(("arena-steps", "[Common] arena-steps", "", idx)); idx += 1
+    items.append(("bigswing", "[Common] bigswing", "", idx)); idx += 1
+    items.append(("blue-light", "[Common] blue-light", "", idx)); idx += 1
+    items.append(("bluesage-fires", "[Common] bluesage-fires", "", idx)); idx += 1
+    items.append(("burst-out", "[Common] burst-out", "", idx)); idx += 1
+    items.append(("crab-walk1", "[Common] crab-walk1", "", idx)); idx += 1
+    items.append(("crab-walk2", "[Common] crab-walk2", "", idx)); idx += 1
+    items.append(("crab-walk3", "[Common] crab-walk3", "", idx)); idx += 1
+    items.append(("crystal-on", "[Common] crystal-on", "", idx)); idx += 1
+    items.append(("eng-shut-down", "[Common] eng-shut-down", "", idx)); idx += 1
+    items.append(("eng-start-up", "[Common] eng-start-up", "", idx)); idx += 1
+    items.append(("explosion", "[Common] explosion", "", idx)); idx += 1
+    items.append(("explosion-2", "[Common] explosion-2", "", idx)); idx += 1
+    items.append(("fish-spawn", "[Common] fish-spawn", "", idx)); idx += 1
+    items.append(("get-big-fish", "[Common] get-big-fish", "", idx)); idx += 1
+    items.append(("get-powered", "[Common] get-powered", "", idx)); idx += 1
+    items.append(("get-small-fish", "[Common] get-small-fish", "", idx)); idx += 1
+    items.append(("green-fire", "[Common] green-fire", "", idx)); idx += 1
+    items.append(("greensage-fires", "[Common] greensage-fires", "", idx)); idx += 1
+    items.append(("hand-grab", "[Common] hand-grab", "", idx)); idx += 1
+    items.append(("jng-piston-dwn", "[Common] jng-piston-dwn", "", idx)); idx += 1
+    items.append(("jng-piston-up", "[Common] jng-piston-up", "", idx)); idx += 1
+    items.append(("jngb-eggtop-seq", "[Common] jngb-eggtop-seq", "", idx)); idx += 1
+    items.append(("jungle-part", "[Common] jungle-part", "", idx)); idx += 1
+    items.append(("loop-racering", "[Common] loop-racering", "", idx)); idx += 1
+    items.append(("mayor-step-carp", "[Common] mayor-step-carp", "", idx)); idx += 1
+    items.append(("mayor-step-wood", "[Common] mayor-step-wood", "", idx)); idx += 1
+    items.append(("mud", "[Common] mud", "", idx)); idx += 1
+    items.append(("prec-on-water", "[Common] prec-on-water", "", idx)); idx += 1
+    items.append(("red-fireball", "[Common] red-fireball", "", idx)); idx += 1
+    items.append(("redsage-fires", "[Common] redsage-fires", "", idx)); idx += 1
+    items.append(("robot-arm", "[Common] robot-arm", "", idx)); idx += 1
+    items.append(("shield-zap", "[Common] shield-zap", "", idx)); idx += 1
+    items.append(("shut-down", "[Common] shut-down", "", idx)); idx += 1
+    items.append(("slider2001", "[Common] slider2001", "", idx)); idx += 1
+    items.append(("smack-surface", "[Common] smack-surface", "", idx)); idx += 1
+    items.append(("snw-eggtop-seq", "[Common] snw-eggtop-seq", "", idx)); idx += 1
+    items.append(("sunk-top-falls", "[Common] sunk-top-falls", "", idx)); idx += 1
+    items.append(("sunk-top-lands", "[Common] sunk-top-lands", "", idx)); idx += 1
+    items.append(("sunk-top-rises", "[Common] sunk-top-rises", "", idx)); idx += 1
+    items.append(("touch-pipes", "[Common] touch-pipes", "", idx)); idx += 1
+    items.append(("warning", "[Common] warning", "", idx)); idx += 1
+    items.append(("wood-gears2", "[Common] wood-gears2", "", idx)); idx += 1
+    items.append(("yellsage-fire", "[Common] yellsage-fire", "", idx)); idx += 1
+    items.append(("zoom-boost", "[Common] zoom-boost", "", idx)); idx += 1
+    items.append(("zoom-teleport", "[Common] zoom-teleport", "", idx)); idx += 1
+    items.append(("zoomer-crash-2", "[Common] zoomer-crash-2", "", idx)); idx += 1
+    items.append(("zoomer-explode", "[Common] zoomer-explode", "", idx)); idx += 1
+    items.append(("zoomer-jump", "[Common] zoomer-jump", "", idx)); idx += 1
+    items.append(("zoomer-melt", "[Common] zoomer-melt", "", idx)); idx += 1
+    items.append(("zoomer-rev1", "[Common] zoomer-rev1", "", idx)); idx += 1
+    items.append(("zoomer-rev2", "[Common] zoomer-rev2", "", idx)); idx += 1
 
-    def add(name):
-        nonlocal idx
-        items.append((name, name, "", idx))
-        idx += 1
-
-    # ── Common sounds (always loaded) ──
-    sep("Common: Player")
-    add("breath-in")
-    add("breath-in-loud")
-    add("breath-out")
-    add("breath-out-loud")
-    add("death-darkeco")
-    add("death-drown")
-    add("death-fall")
-    add("death-melt")
-    add("flop-down")
-    add("flop-hit")
-    add("flop-land")
-    add("foothit")
-    add("get-burned")
-    add("get-fried")
-    add("get-shocked")
-    add("hit-back")
-    add("hit-dizzy")
-    add("hit-dummy")
-    add("hit-lurk-metal")
-    add("hit-metal")
-    add("hit-metal-big")
-    add("hit-metal-large")
-    add("hit-metal-small")
-    add("hit-metal-tiny")
-    add("hit-temple")
-    add("hit-up")
-    add("jak-clap")
-    add("jak-deatha")
-    add("jak-idle1")
-    add("jak-shocked")
-    add("jak-stretch")
-    add("jump")
-    add("jump-double")
-    add("jump-long")
-    add("jump-low")
-    add("jump-lurk-metal")
-    add("land-crwood")
-    add("land-dirt")
-    add("land-dpsnow")
-    add("land-dwater")
-    add("land-grass")
-    add("land-hard")
-    add("land-metal")
-    add("land-pcmetal")
-    add("land-sand")
-    add("land-snow")
-    add("land-stone")
-    add("land-straw")
-    add("land-swamp")
-    add("land-water")
-    add("land-wood")
-    add("oof")
-    add("punch")
-    add("punch-hit")
-    add("roll-crwood")
-    add("roll-dirt")
-    add("roll-dpsnow")
-    add("roll-dwater")
-    add("roll-grass")
-    add("roll-pcmetal")
-    add("roll-sand")
-    add("roll-snow")
-    add("roll-stone")
-    add("roll-straw")
-    add("roll-swamp")
-    add("roll-water")
-    add("roll-wood")
-    add("run-step-left")
-    add("run-step-right")
-    add("slide-crwood")
-    add("slide-dirt")
-    add("slide-dpsnow")
-    add("slide-dwater")
-    add("slide-grass")
-    add("slide-pcmetal")
-    add("slide-sand")
-    add("slide-snow")
-    add("slide-stone")
-    add("slide-straw")
-    add("slide-swamp")
-    add("slide-water")
-    add("slide-wood")
-    add("spin")
-    add("spin-hit")
-    add("spin-kick")
-    add("spin-pole")
-    add("swim-dive")
-    add("swim-down")
-    add("swim-flop")
-    add("swim-idle1")
-    add("swim-idle2")
-    add("swim-jump")
-    add("swim-kick-surf")
-    add("swim-kick-under")
-    add("swim-noseblow")
-    add("swim-stroke")
-    add("swim-surface")
-    add("swim-to-down")
-    add("swim-turn")
-    add("swim-up")
-    add("uppercut")
-    add("uppercut-hit")
-    add("walk-crwood1")
-    add("walk-crwood2")
-    add("walk-dirt1")
-    add("walk-dirt2")
-    add("walk-dpsnow1")
-    add("walk-dpsnow2")
-    add("walk-dwater1")
-    add("walk-dwater2")
-    add("walk-grass1")
-    add("walk-grass2")
-    add("walk-metal1")
-    add("walk-metal2")
-    add("walk-pcmetal1")
-    add("walk-pcmetal2")
-    add("walk-sand1")
-    add("walk-sand2")
-    add("walk-slide")
-    add("walk-snow1")
-    add("walk-snow2")
-    add("walk-step-left")
-    add("walk-step-right")
-    add("walk-stone1")
-    add("walk-stone2")
-    add("walk-straw1")
-    add("walk-straw2")
-    add("walk-swamp1")
-    add("walk-swamp2")
-    add("walk-water1")
-    add("walk-water2")
-    add("walk-wood1")
-    add("walk-wood2")
-
-    sep("Common: Eco")
-    add("blue-eco-charg")
-    add("blue-eco-idle")
-    add("blue-eco-jak")
-    add("blue-eco-on")
-    add("blue-eco-start")
-    add("darkeco-pool")
-    add("eco-beam")
-    add("eco-bg-blue")
-    add("eco-bg-green")
-    add("eco-bg-red")
-    add("eco-bg-yellow")
-    add("eco-engine-1")
-    add("eco-engine-2")
-    add("eco-plat-hover")
-    add("eco3")
-    add("ecohit2")
-    add("ecoroom1")
-    add("get-blue-eco")
-    add("get-green-eco")
-    add("get-red-eco")
-    add("get-yellow-eco")
-    add("green-eco-idle")
-    add("green-eco-jak")
-    add("helix-dark-eco")
-    add("lav-blue-vent")
-    add("lav-dark-boom")
-    add("lav-green-vent")
-    add("lav-yell-vent")
-    add("red-eco-idle")
-    add("red-eco-jak")
-    add("yel-eco-idle")
-    add("yel-eco-jak")
-
-    sep("Common: Environment")
-    add("cave-spatula")
-    add("cave-top-falls")
-    add("cave-top-lands")
-    add("cave-top-rises")
-    add("electric-loop")
-    add("fire-boulder")
-    add("fire-crackle")
-    add("fire-loop")
-    add("flame-pot")
-    add("glowing-gen")
-    add("green-steam")
-    add("heart-drone")
-    add("ice-breathin")
-    add("ice-loop")
-    add("lav-mine-boom")
-    add("lav-spin-gen")
-    add("lava-mines")
-    add("lava-pulley")
-    add("medium-steam-lp")
-    add("misty-steam")
-    add("mushroom-gen")
-    add("mushroom-off")
-    add("rock-hover")
-    add("small-steam-lp")
-    add("snow-bumper")
-    add("snow-plat-1")
-    add("snow-plat-2")
-    add("snow-plat-3")
-    add("steam-long")
-    add("steam-medium")
-    add("steam-short")
-    add("water-drop")
-    add("water-explosion")
-    add("water-loop")
-    add("water-off")
-    add("water-on")
-    add("waterfall")
-
-    sep("Common: Objects")
-    add("arenadoor-close")
-    add("arenadoor-open")
-    add("boat-start")
-    add("boat-stop")
-    add("bomb-open")
-    add("bridge-button")
-    add("bridge-hover")
-    add("bumper-button")
-    add("bumper-pwr-dwn")
-    add("chamber-land")
-    add("chamber-lift")
-    add("crate-jump")
-    add("dcrate-break")
-    add("door-lock")
-    add("door-unlock")
-    add("elev-button")
-    add("elev-land")
-    add("gdl-gen-loop")
-    add("gdl-pulley")
-    add("gdl-shut-down")
-    add("gdl-start-up")
-    add("icrate-break")
-    add("irisdoor1")
-    add("irisdoor2")
-    add("launch-fire")
-    add("launch-idle")
-    add("launch-start")
-    add("ldoor-close")
-    add("ldoor-open")
-    add("lev-mach-fires")
-    add("lev-mach-idle")
-    add("lev-mach-start")
-    add("maindoor")
-    add("mayors-gears")
-    add("miners-fire")
-    add("oracle-awake")
-    add("oracle-sleep")
-    add("pedals")
-    add("piston-close")
-    add("piston-open")
-    add("plat-light-off")
-    add("plat-light-on")
-    add("pontoonten")
-    add("prec-button1")
-    add("prec-button2")
-    add("prec-button3")
-    add("prec-button4")
-    add("prec-button6")
-    add("prec-button7")
-    add("prec-button8")
-    add("robo-blue-lp")
-    add("robo-warning")
-    add("robotcage-lp")
-    add("robotcage-off")
-    add("rounddoor")
-    add("sagecage-gen")
-    add("sagecage-off")
-    add("sages-machine")
-    add("scrate-break")
-    add("scrate-nobreak")
-    add("sidedoor")
-    add("silo-button")
-    add("snow-pist-cls2")
-    add("snow-pist-cls3")
-    add("snow-pist-opn2")
-    add("snow-pist-opn3")
-    add("snow-piston-cls")
-    add("snow-piston-opn")
-    add("snw-door")
-    add("split-steps")
-    add("v3-bridge")
-    add("v3-cartride")
-    add("v3-minecart")
-    add("vent-switch")
-    add("warpgate-act")
-    add("warpgate-butt")
-    add("warpgate-loop")
-    add("warpgate-tele")
-    add("wcrate-break")
-
-    sep("Common: Enemies")
-    add("babak-breathin")
-    add("babak-chest")
-    add("babak-dies")
-    add("babak-roar")
-    add("babak-taunt")
-    add("babk-taunt")
-    add("balloon-dies")
-    add("bigshark-alert")
-    add("bigshark-bite")
-    add("bigshark-idle")
-    add("bigshark-taunt")
-    add("blob-explode")
-    add("blob-land")
-    add("bonelurk-roar")
-    add("bonelurker-dies")
-    add("bonelurker-grunt")
-    add("bully-bounce")
-    add("bully-dies")
-    add("bully-dizzy")
-    add("bully-idle")
-    add("bully-jump")
-    add("bully-land")
-    add("bully-spin1")
-    add("bully-spin2")
-    add("caught-eel")
-    add("dril-step")
-    add("flut-land-crwood")
-    add("flut-land-dirt")
-    add("flut-land-grass")
-    add("flut-land-pcmeta")
-    add("flut-land-sand")
-    add("flut-land-snow")
-    add("flut-land-stone")
-    add("flut-land-straw")
-    add("flut-land-swamp")
-    add("flut-land-water")
-    add("flut-land-wood")
-    add("flylurk-dies")
-    add("flylurk-idle")
-    add("flylurk-plane")
-    add("flylurk-roar")
-    add("flylurk-taunt")
-    add("grunt")
-    add("icelurk-land")
-    add("icelurk-step")
-    add("kermit-loop")
-    add("lurkerfish-swim")
-    add("mother-charge")
-    add("mother-fire")
-    add("mother-hit")
-    add("mother-track")
-    add("mud-lurk-inhale")
-    add("ogre-rock")
-    add("ogre-throw")
-    add("ogre-windup")
-    add("ramboss-charge")
-    add("ramboss-dies")
-    add("ramboss-fire")
-    add("ramboss-hit")
-    add("ramboss-idle")
-    add("ramboss-land")
-    add("ramboss-roar")
-    add("ramboss-shield")
-    add("ramboss-step")
-    add("ramboss-taunt")
-    add("ramboss-track")
-    add("robber-dies")
-    add("robber-idle")
-    add("robber-roar")
-    add("robber-taunt")
-    add("sandworm-dies")
-    add("shark-bite")
-    add("shark-dies")
-    add("shark-idle")
-    add("shark-swim")
-    add("shldlurk-breathi")
-    add("shldlurk-chest")
-    add("shldlurk-dies")
-    add("shldlurk-roar")
-    add("shldlurk-taunt")
-    add("temp-enemy-die")
-    add("yeti-breathin")
-    add("yeti-dies")
-    add("yeti-roar")
-    add("yeti-taunt")
-    add("zoom-hit-crwood")
-    add("zoom-hit-dirt")
-    add("zoom-hit-grass")
-    add("zoom-hit-lava")
-    add("zoom-hit-metal")
-    add("zoom-hit-sand")
-    add("zoom-hit-stone")
-    add("zoom-hit-water")
-    add("zoom-hit-wood")
-    add("zoom-land-crwood")
-    add("zoom-land-dirt")
-    add("zoom-land-grass")
-    add("zoom-land-lava")
-    add("zoom-land-metal")
-    add("zoom-land-sand")
-    add("zoom-land-stone")
-    add("zoom-land-water")
-    add("zoom-land-wood")
-
-    sep("Common: UI / Pickups")
-    add("buzzer")
-    add("buzzer-pickup")
-    add("cell-prize")
-    add("close-orb-cash")
-    add("cursor-l-r")
-    add("cursor-options")
-    add("cursor-up-down")
-    add("get-all-orbs")
-    add("menu-close")
-    add("menu-stats")
-    add("money-pickup")
-    add("open-orb-cash")
-    add("pill-pickup")
-    add("powercell-idle")
-    add("powercell-out")
-    add("select-menu")
-    add("select-option")
-    add("select-option2")
-    add("start-options")
-    add("start-up")
-    add("stopwatch")
-
-    sep("Common: Other")
-    add("---close-racerin")
-    add("---large-steam-l")
-    add("-lav-dark-eco")
-    add("arena")
-    add("arena-steps")
-    add("bigswing")
-    add("blue-light")
-    add("bluesage-fires")
-    add("burst-out")
-    add("crab-walk1")
-    add("crab-walk2")
-    add("crab-walk3")
-    add("crystal-on")
-    add("eng-shut-down")
-    add("eng-start-up")
-    add("explosion")
-    add("explosion-2")
-    add("fish-spawn")
-    add("get-big-fish")
-    add("get-powered")
-    add("get-small-fish")
-    add("green-fire")
-    add("greensage-fires")
-    add("hand-grab")
-    add("jng-piston-dwn")
-    add("jng-piston-up")
-    add("jngb-eggtop-seq")
-    add("jungle-part")
-    add("loop-racering")
-    add("mayor-step-carp")
-    add("mayor-step-wood")
-    add("mud")
-    add("prec-on-water")
-    add("red-fireball")
-    add("redsage-fires")
-    add("robot-arm")
-    add("shield-zap")
-    add("shut-down")
-    add("slider2001")
-    add("smack-surface")
-    add("snw-eggtop-seq")
-    add("sunk-top-falls")
-    add("sunk-top-lands")
-    add("sunk-top-rises")
-    add("touch-pipes")
-    add("warning")
-    add("wood-gears2")
-    add("yellsage-fire")
-    add("zoom-boost")
-    add("zoom-teleport")
-    add("zoomer-crash-2")
-    add("zoomer-explode")
-    add("zoomer-jump")
-    add("zoomer-melt")
-    add("zoomer-rev1")
-    add("zoomer-rev2")
-
-    # ── Level bank sounds ──
+    # Level bank sounds
     level_sounds = set()
     for b in [bank1, bank2]:
         if b and b != "none":
             level_sounds.update(SBK_SOUNDS.get(b, []))
-    if level_sounds:
-        sep("Level Bank Sounds")
-        for s in sorted(level_sounds):
-            add(s)
+    # Use bank name as category label
+    for b in [bank1, bank2]:
+        if b and b != "none":
+            for s in sorted(SBK_SOUNDS.get(b, [])):
+                label = f"[{b.title()}] {s}"
+                items.append((s, label, "", idx)); idx += 1
 
     return items
+
 
 
 # ---------------------------------------------------------------------------
@@ -4070,11 +4046,8 @@ class OG_PT_Audio(Panel):
         col3.separator(factor=0.4)
         row = col3.row()
         row.scale_y = 1.4
-        # Disable if separator item selected
-        valid = props.sfx_sound and not props.sfx_sound.startswith("__sep__")
-        row.enabled = valid
         op = row.operator("og.add_sound_emitter", text="Add Emitter at Cursor", icon="ADD")
-        op.sound_name = props.sfx_sound if valid else ""
+        op.sound_name = props.sfx_sound
 
         # List existing emitters
         emitters = [o for o in ctx.scene.objects
