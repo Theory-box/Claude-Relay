@@ -196,3 +196,57 @@ The fixed version is in `scratch/opengoal_tools_with_audio.py`.
 **Recommended first task on this branch:**
 Replace `addons/opengoal_tools.py` with the fixed scratch version,
 then implement looping sound emitters using confirmed-working `cycle-speed < 0` format.
+
+---
+
+## Audio Panel Implementation Session (April 7 2026)
+
+### Status: feature/audio branch updated ✅
+
+### What was done
+All fixes applied directly to `addons/opengoal_tools.py` on `feature/audio`.
+
+**JSONC crash fix:**
+- `type`: `'ambient-sound` → `'sound`
+- `sound-name` → `effect-name`
+- bare string → `["symbol", name]`
+- `cycle-speed`: now `["float", -1.0, 0.0]` for loop (engine crash confirmed for one-shot)
+
+**Icon fix:** `SEQUENCE_COLOR_04` → `PLAY`
+
+**Sound data:** Replaced `MUSIC_BANK_ITEMS` with full `LEVEL_BANKS + SBK_SOUNDS + ALL_SFX_ITEMS` (1048 sounds from actual .SBK files)
+
+**Scene props:**
+- `sound_bank_1`, `sound_bank_2` (replaces freetext `sound_banks`)
+- `sfx_sound` EnumProperty (1048 searchable sounds)
+- `music_bank` now uses `LEVEL_BANKS`
+- Removed `music_bank_custom`, `sound_banks`
+
+**New operator:** `OG_OT_PickSound` — `invoke_search_popup` over all 1048 sounds
+
+**Panel improvements:**
+- Two bank dropdowns + duplicate warning + live sound count
+- Pick... button opens searchable sound popup
+- Add Emitter places emitter with currently picked sound
+- Emitter list shows sound + loop/one-shot mode
+
+### Files changed
+- `addons/opengoal_tools.py` on `feature/audio`
+
+### To test
+1. Install `addons/opengoal_tools.py` from `feature/audio` branch
+2. Audio panel → set Bank 1 to `village1`, Music Bank to `village1`
+3. Pick sound → search "waterfall" → select → Add Emitter at Cursor
+4. Export & compile → walk into emitter bsphere → should hear waterfall looping
+5. Check level-info.gc has `:sound-banks '(village1)` and `:music-bank 'village1`
+6. Music should start playing on level load
+
+### Known limitation
+One-shot sounds (`og_sound_mode = "one-shot"`) still crash — engine bug in
+`ambient-type-sound` using `lookup-tag-idx 'exact 0.0` on tags at `-1e9`.
+Only looping sounds work via ambient system. One-shots require obs.gc trigger.
+
+### Next steps
+- [ ] Test in-game
+- [ ] If music ambient zones wanted: add `'music` type ambient support to panel
+- [ ] If merge approved: `git checkout main && git merge feature/audio && git push`
