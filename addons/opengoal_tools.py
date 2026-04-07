@@ -3496,34 +3496,13 @@ class OG_OT_PickSound(Operator):
     )
 
     def execute(self, ctx):
-        props = ctx.scene.og_props
-        # Strip bank suffix if present (e.g. "cannon-shot__beach" -> "cannon-shot")
-        snd = self.sfx_sound.split("__")[0] if "__" in self.sfx_sound else self.sfx_sound
-        if not snd:
-            snd = "silence"
-        existing = [o for o in ctx.scene.objects if o.name.startswith("AMBIENT_snd")]
-        idx  = len(existing) + 1
-        name = f"AMBIENT_snd{idx:03d}"
-
-        bpy.ops.object.empty_add(type="SPHERE", location=ctx.scene.cursor.location)
-        o = ctx.active_object
-        o.name     = name
-        o.show_name = True
-        o.empty_display_size = max(0.3, props.ambient_default_radius * 0.05)
-        o.color    = (0.2, 0.8, 1.0, 1.0)
-
-        o["og_sound_name"]   = snd
-        o["og_sound_radius"] = props.ambient_default_radius
-        o["og_sound_mode"]   = "loop"
-
-        # Store last picked sound back to scene prop for display
+        # Just store the selected sound — emitter is placed separately via Add Emitter
         ctx.scene.og_props.sfx_sound = self.sfx_sound
-
-        self.report({"INFO"}, f"Added '{name}' → {snd}")
+        snd = self.sfx_sound.split("__")[0] if "__" in self.sfx_sound else self.sfx_sound
+        self.report({"INFO"}, f"Sound selected: {snd}")
         return {"FINISHED"}
 
     def invoke(self, ctx, event):
-        # Pre-select current scene sound
         self.sfx_sound = ctx.scene.og_props.sfx_sound
         ctx.window_manager.invoke_search_popup(self)
         return {"RUNNING_MODAL"}
@@ -3599,11 +3578,11 @@ class OG_PT_Audio(Panel):
         col3.prop(props, "ambient_default_radius", text="Default Radius (m)")
         col3.separator(factor=0.4)
 
-        # Sound picker row
-        row = col3.row(align=True)
+        # Sound picker — full width button, shows selected sound name
         snd_display = props.sfx_sound.split("__")[0] if "__" in props.sfx_sound else props.sfx_sound
-        row.label(text=f"Sound:  {snd_display}", icon="PLAY_SOUND")
-        row.operator("og.pick_sound", text="Pick...", icon="VIEWZOOM")
+        pick_row = col3.row(align=True)
+        pick_row.scale_y = 1.2
+        pick_row.operator("og.pick_sound", text=f"🔊  {snd_display}", icon="VIEWZOOM")
 
         col3.separator(factor=0.4)
         row2 = col3.row()
