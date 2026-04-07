@@ -2008,6 +2008,25 @@ class OGProperties(PropertyGroup):
                                           description="Bsphere radius for new sound emitter empties")
     sfx_name_custom:        StringProperty(name="Custom SFX Name", default="",
                                            description="Manual sound name (used when Custom is selected in the dropdown)")
+    sfx_pick_common: EnumProperty(
+        name="Common Sound",
+        description="Pick from always-available common sounds",
+        items=lambda self, ctx: [("none","— pick a sound —","",0)] +
+              [(s, s, "", i+1) for i, s in enumerate(sorted(SBK_SOUNDS.get("common", [])))],
+    )
+    sfx_pick_level: EnumProperty(
+        name="Level Sound",
+        description="Pick from sounds in your selected level banks",
+        items=lambda self, ctx: (
+            [("none","— pick a sound —","",0)] +
+            [(s, s, "", i+1) for i, s in enumerate(sorted(
+                set(SBK_SOUNDS.get(self.sound_bank_1, [])) |
+                set(SBK_SOUNDS.get(self.sound_bank_2, []))
+            ))]
+            if (self.sound_bank_1 != "none" or self.sound_bank_2 != "none")
+            else [("none","— select a bank first —","",0)]
+        ),
+    )
 
 # ---------------------------------------------------------------------------
 # PROCESS MANAGEMENT
@@ -3541,18 +3560,6 @@ class OG_PT_Audio(Panel):
     bl_category    = "OpenGOAL"
     bl_options     = {"DEFAULT_CLOSED"}
 
-    # Cached enum + cache key so we only rebuild when banks change
-    _cached_enum = []
-    _cache_key   = ("none", "none")
-
-    @classmethod
-    def _sfx_items(cls, b1, b2):
-        key = (b1, b2)
-        if key != cls._cache_key or not cls._cached_enum:
-            cls._cached_enum = _get_sfx_enum(b1, b2)
-            cls._cache_key   = key
-        return cls._cached_enum
-
     def draw(self, ctx):
         layout = self.layout
         props  = ctx.scene.og_props
@@ -3565,15 +3572,12 @@ class OG_PT_Audio(Panel):
         col = box.column(align=True)
         col.prop(props, "sound_bank_1", text="Bank 1")
         col.prop(props, "sound_bank_2", text="Bank 2")
-        # Warn if same bank selected twice
         if b1 != "none" and b1 == b2:
             box.label(text="⚠ Bank 1 and Bank 2 are the same", icon="ERROR")
-        # Info: what's loaded
-        active = [b for b in [b1, b2] if b != "none"]
-        n_sounds = len(set(SBK_SOUNDS.get('common',[])) |
-                       set(SBK_SOUNDS.get(b1,[])) |
-                       set(SBK_SOUNDS.get(b2,[])))
-        box.label(text=f"common always loaded  +  {len(active)} level bank(s)  =  {n_sounds} sounds available", icon="INFO")
+        active  = [b for b in [b1, b2] if b != "none"]
+        n_common = len(SBK_SOUNDS.get("common", []))
+        n_level  = len(set(SBK_SOUNDS.get(b1,[])) | set(SBK_SOUNDS.get(b2,[])))
+        box.label(text=f"{n_common} common  +  {n_level} level  =  {n_common + n_level} sounds available", icon="INFO")
 
         layout.separator(factor=0.4)
 
@@ -3583,33 +3587,31 @@ class OG_PT_Audio(Panel):
         col3 = box3.column(align=True)
         col3.prop(props, "ambient_default_radius", text="Default Radius (m)")
 
-        # Dynamic sound dropdown filtered to loaded banks
-        items = self._sfx_items(b1, b2)
-        # Use a string prop + manual enum rendering via operator buttons
-        # Since Blender EnumProperty can't be dynamic at draw-time easily,
-        # we show a search-friendly prop + the custom field
-        col3.prop(props, "sfx_name_custom", text="Sound Name")
+        col3.separator(factor=0.4)
+        col3.label(text="Pick a sound:", icon="LONGDISPLAY")
 
-        # Quick-pick buttons for sounds — show first bank's sounds as buttons
-        # grouped in rows of 3 for easy selection
-        if active:
-            col3.separator(factor=0.3)
-            col3.label(text="Quick-pick (click to set):", icon="LONGDISPLAY")
-            # Show sounds from selected level banks (not common — too many)
-            quick_sounds = []
-            for b in active:
-                quick_sounds += SBK_SOUNDS.get(b, [])
-            quick_sounds = sorted(set(quick_sounds))[:30]  # cap at 30
-            flow = box3.grid_flow(row_major=True, columns=3, even_columns=True, align=True)
-            for snd in quick_sounds:
-                op = flow.operator("og.set_sfx_name", text=snd)
-                op.sound_name = snd
+        # Dropdown 1 — common sounds (always available)
+        row = col3.row(align=True)
+        row.prop(props, "sfx_pick_common", text="General")
+        op = row.operator("og.set_sfx_name", text="", icon="IMPORT")
+        op.sound_name = props.sfx_pick_common if props.sfx_pick_common != "none" else ""
+
+        # Dropdown 2 — level bank sounds (filtered to selected banks)
+        row2 = col3.row(align=True)
+        row2.prop(props, "sfx_pick_level", text="Level")
+        op2 = row2.operator("og.set_sfx_name", text="", icon="IMPORT")
+        op2.sound_name = props.sfx_pick_level if props.sfx_pick_level != "none" else ""
+
+        col3.separator(factor=0.3)
+        col3.label(text="Sound name to place:", icon="DOT")
+        col3.prop(props, "sfx_name_custom", text="")
 
         col3.separator(factor=0.4)
-        row = col3.row()
-        row.scale_y = 1.4
-        op = row.operator("og.add_sound_emitter", text="Add Emitter at Cursor", icon="ADD")
-        op.sound_name = props.sfx_name_custom.strip() or "silence"
+        row3 = col3.row()
+        row3.scale_y = 1.4
+        row3.enabled = bool(props.sfx_name_custom.strip())
+        op3 = row3.operator("og.add_sound_emitter", text="Add Emitter at Cursor", icon="ADD")
+        op3.sound_name = props.sfx_name_custom.strip()
 
         # List existing emitters
         emitters = [o for o in ctx.scene.objects
