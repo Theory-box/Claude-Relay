@@ -876,6 +876,8 @@ class OGProperties(PropertyGroup):
                                description="Fallback navmesh sphere radius for nav-unsafe enemies")
     base_id:     IntProperty(name="Base Actor ID", default=10000, min=1000, max=60000,
                              description="Starting actor ID for this level. Must be unique across all custom levels to avoid ghost entity spawns.")
+    lightbake_samples: IntProperty(name="Sample Count", default=128, min=1, max=4096,
+                                   description="Number of Cycles render samples used when baking lighting to vertex colors")
 
 # ---------------------------------------------------------------------------
 # PROCESS MANAGEMENT
@@ -2875,6 +2877,133 @@ class OG_OT_PickNavMesh(Operator):
 
 
 # ---------------------------------------------------------------------------
+# OPERATOR — Light Bake (Cycles → Vertex Color)
+# ---------------------------------------------------------------------------
+
+class OG_OT_BakeLighting(Operator):
+    """Bake Cycles lighting to vertex colors on each selected mesh object."""
+    bl_idname      = "og.bake_lighting"
+    bl_label       = "Bake Lighting"
+    bl_description = "Bake Cycles lighting to vertex colors on each selected mesh object"
+
+    def execute(self, ctx):
+        scene   = ctx.scene
+        props   = scene.og_props
+        samples = props.lightbake_samples
+
+        # Collect only MESH objects from the selection
+        targets = [o for o in ctx.selected_objects if o.type == "MESH"]
+        if not targets:
+            self.report({"ERROR"}, "No mesh objects selected")
+            return {"CANCELLED"}
+
+        # Store previous render settings
+        prev_engine  = scene.render.engine
+        prev_samples = scene.cycles.samples
+        prev_device  = scene.cycles.device
+
+        scene.render.engine  = "CYCLES"
+        scene.cycles.samples = samples
+
+        baked = []
+        failed = []
+
+        for obj in targets:
+            try:
+                # Ensure vertex color layer exists (named "BakedLight")
+                vc_name = "BakedLight"
+                mesh = obj.data
+                if vc_name not in mesh.color_attributes:
+                    mesh.color_attributes.new(name=vc_name, type="BYTE_COLOR", domain="CORNER")
+
+                # Set as active render and active display layer
+                attr = mesh.color_attributes[vc_name]
+                mesh.color_attributes.active_color = attr
+
+                # Deselect all, select only this object, make it active
+                bpy.ops.object.select_all(action="DESELECT")
+                obj.select_set(True)
+                ctx.view_layer.objects.active = obj
+
+                # Run Cycles bake — diffuse pass (combined colour + indirect)
+                bpy.ops.object.bake(
+                    type="DIFFUSE",
+                    pass_filter={"COLOR", "DIRECT", "INDIRECT"},
+                    target="VERTEX_COLORS",
+                    save_mode="INTERNAL",
+                )
+                baked.append(obj.name)
+
+            except Exception as exc:
+                failed.append(f"{obj.name}: {exc}")
+
+        # Restore render settings
+        scene.render.engine  = prev_engine
+        scene.cycles.samples = prev_samples
+
+        # Restore original selection
+        bpy.ops.object.select_all(action="DESELECT")
+        for obj in targets:
+            obj.select_set(True)
+        if targets:
+            ctx.view_layer.objects.active = targets[0]
+
+        if failed:
+            self.report({"WARNING"}, f"Baked {len(baked)}, failed: {'; '.join(failed)}")
+        else:
+            self.report({"INFO"}, f"Baked lighting to vertex colors on: {', '.join(baked)}")
+
+        return {"FINISHED"}
+
+
+# ---------------------------------------------------------------------------
+# PANEL — Light Baking
+# ---------------------------------------------------------------------------
+
+class OG_PT_LightBaking(Panel):
+    bl_label       = "OpenGOAL Light Baking"
+    bl_idname      = "OG_PT_lightbaking"
+    bl_space_type  = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category    = "OpenGOAL"
+    bl_options     = {"DEFAULT_CLOSED"}
+
+    def draw(self, ctx):
+        layout = self.layout
+        props  = ctx.scene.og_props
+
+        # Sample count input
+        col = layout.column(align=True)
+        col.label(text="Cycles Bake Settings:", icon="LIGHT")
+        col.prop(props, "lightbake_samples")
+
+        layout.separator(factor=0.5)
+
+        # Info about what will be baked
+        targets = [o for o in ctx.selected_objects if o.type == "MESH"]
+        if targets:
+            box = layout.box()
+            box.label(text=f"{len(targets)} mesh(es) selected:", icon="OBJECT_DATA")
+            for o in targets[:6]:
+                box.label(text=f"  • {o.name}")
+            if len(targets) > 6:
+                box.label(text=f"  … and {len(targets) - 6} more")
+        else:
+            layout.label(text="Select mesh object(s) to bake", icon="INFO")
+
+        layout.separator(factor=0.5)
+
+        # Bake button — disabled when nothing is selected
+        row = layout.row()
+        row.enabled = len(targets) > 0
+        row.scale_y = 1.6
+        row.operator("og.bake_lighting", text="Bake Lighting → Vertex Color", icon="RENDER_STILL")
+
+        layout.separator(factor=0.3)
+        layout.label(text="Result stored in 'BakedLight' layer", icon="GROUP_VCOL")
+
+
+# ---------------------------------------------------------------------------
 # REGISTER / UNREGISTER
 # ---------------------------------------------------------------------------
 
@@ -2889,6 +3018,7 @@ classes = (
     OG_OT_ExportBuild, OG_OT_GeoRebuild, OG_OT_Play, OG_OT_PlayAutoLoad,
     OG_OT_ExportBuildPlay,
     OG_OT_OpenFolder, OG_OT_OpenFile,
+    OG_OT_BakeLighting,
     OG_PT_LevelSettings,
     OG_PT_Scene,
     OG_PT_PlaceObjects,
@@ -2898,6 +3028,7 @@ classes = (
     OG_PT_BuildPlay,
     OG_PT_DevTools,
     OG_PT_Collision,
+    OG_PT_LightBaking,
 )
 
 def register():
