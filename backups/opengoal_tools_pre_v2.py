@@ -1322,8 +1322,7 @@ def export_glb(ctx, name):
         export_vertex_color="ACTIVE", export_normals=True,
         export_materials="EXPORT", export_texcoords=True,
         export_apply=True, use_selection=False,
-        export_yup=True, export_skins=False, export_animations=False,
-        export_extras=True)
+        export_yup=True, export_skins=False, export_animations=False)
     log("Exported GLB")
 
 # ---------------------------------------------------------------------------
@@ -2289,42 +2288,6 @@ class OG_PT_Waypoints(Panel):
 
 # ── NavMesh ───────────────────────────────────────────────────────────────────
 
-
-class OG_OT_SpawnCamera(Operator):
-    bl_idname = "og.spawn_camera"
-    bl_label  = "Add Camera"
-    bl_description = "Place a camera entity at the 3D cursor (placeholder — switching coming soon)"
-    def execute(self, ctx):
-        n = len([o for o in ctx.scene.objects if o.name.startswith("CAMERA_") and o.type == "EMPTY"])
-        bpy.ops.object.empty_add(type="ARROWS", location=ctx.scene.cursor.location)
-        o = ctx.active_object
-        o.name = f"CAMERA_{n}"
-        o.show_name = True
-        o.empty_display_size = 0.8
-        o.color = (0.0, 0.8, 0.9, 1.0)
-        self.report({"INFO"}, f"Added {o.name} — camera switching coming soon!")
-        return {"FINISHED"}
-
-
-class OG_PT_Camera(Panel):
-    bl_label       = "📷  Camera"
-    bl_idname      = "OG_PT_camera"
-    bl_space_type  = "VIEW_3D"
-    bl_region_type = "UI"
-    bl_category    = "OpenGOAL"
-    bl_options     = {"DEFAULT_CLOSED"}
-
-    @classmethod
-    def poll(cls, ctx): return True
-
-    def draw(self, ctx):
-        layout = self.layout
-        layout.operator("og.spawn_camera", text="Add Camera", icon="CAMERA_DATA")
-        layout.separator()
-        box = layout.box()
-        box.label(text="Camera switching: coming soon", icon="INFO")
-
-
 class OG_PT_NavMesh(Panel):
     bl_label       = "🕸  NavMesh"
     bl_idname      = "OG_PT_navmesh"
@@ -2652,7 +2615,6 @@ class OG_OT_PickNavMesh(Operator):
 classes = (
     OGPreferences, OGProperties,
     OG_OT_SpawnPlayer, OG_OT_SpawnEntity,
-    OG_OT_SpawnCamera,
     OG_OT_AddWaypoint, OG_OT_DeleteWaypoint,
     OG_OT_MarkNavMesh, OG_OT_UnmarkNavMesh,
     OG_OT_LinkNavMesh, OG_OT_UnlinkNavMesh,
@@ -2664,7 +2626,6 @@ classes = (
     OG_PT_Scene,
     OG_PT_PlaceObjects,
     OG_PT_Waypoints,
-    OG_PT_Camera,
     OG_PT_NavMesh,
     OG_PT_BuildPlay,
     OG_PT_DevTools,
