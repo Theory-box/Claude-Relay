@@ -680,7 +680,7 @@ def write_gc(name, cameras=None):
         "",
     ]
 
-    cam_triggers = []
+    cam_triggers = []  # list of (cam_name, gu_min_x, gu_max_x, gu_min_y, gu_max_y, gu_min_z, gu_max_z, ev_enter, ev_exit)
 
     if cameras:
         for cam_data in cameras:
@@ -689,8 +689,6 @@ def write_gc(name, cameras=None):
             if not vol_lump:
                 continue  # no volume -- always-active camera, no trigger needed
 
-            # vol_lump = ["vector-vol", [x,y,z,1.0], [x,y,z,1.0], ...]
-            # corners are in Blender metres (coord-flipped to GOAL axes)
             corners = vol_lump[1:]
             xs = [c[0] for c in corners]
             ys = [c[1] for c in corners]
@@ -699,60 +697,44 @@ def write_gc(name, cameras=None):
             min_y, max_y = min(ys), max(ys)
             min_z, max_z = min(zs), max(zs)
 
-            # GOAL uses metres * 4096 as its fixed-point unit
             def gu(v):
                 return str(round(v * 4096.0, 1))
 
-            cam_triggers.append(cam_name)
-
-            # Build using string concat to avoid quote-in-f-string issues
             ev_enter = "(send-event *camera* 'change-to-entity-by-name " + '"' + cam_name + '"' + ")"
             ev_exit  = "(send-event *camera* 'clear-entity)"
+            cam_triggers.append((cam_name, gu(min_x), gu(max_x), gu(min_y), gu(max_y), gu(min_z), gu(max_z), ev_enter, ev_exit))
 
-            # Emit a named defun. The init fn calls it via process-spawn-function.
-            # For process type, the function IS the thread body — loop+suspend keeps
-            # it alive. This matches game-info.gc line 239 pattern exactly.
-            trigger_fn = "cam-trigger-" + cam_name.replace("-", "_")
-            lines += [
-                ";; Camera trigger: " + cam_name,
-                ";; AABB (m): x[" + str(min_x) + "," + str(max_x) + "]"
-                      + " y[" + str(min_y) + "," + str(max_y) + "]"
-                      + " z[" + str(min_z) + "," + str(max_z) + "]",
-                "(defun " + trigger_fn + " ()",
-                "  (let ((inside #f))",
-                "    (loop",
-                "      (when *target*",
-                "        (let* ((pos    (-> *target* control trans))",
-                "               (in-vol (and",
-                "                         (< (the float " + gu(min_x) + ") (-> pos x))",
-                "                         (< (-> pos x) (the float " + gu(max_x) + "))",
-                "                         (< (the float " + gu(min_y) + ") (-> pos y))",
-                "                         (< (-> pos y) (the float " + gu(max_y) + "))",
-                "                         (< (the float " + gu(min_z) + ") (-> pos z))",
-                "                         (< (-> pos z) (the float " + gu(max_z) + ")))))",
-                "          (cond",
-                "            ((and in-vol (not inside))",
-                "             (set! inside #t)",
-                "             " + ev_enter + ")",
-                "            ((and (not in-vol) inside)",
-                "             (set! inside #f)",
-                "             " + ev_exit + "))))",
-                "      (suspend))))",
-                "",
-            ]
-
-    # Init function — spawns one trigger process per camera volume.
-    # Each is spawned as: (process-spawn-function process (lambda () (fn) (none)) :to *entity-pool*)
-    # Wrapping in lambda avoids any issues with passing a named function ref directly.
+    # Init function — for each camera volume, spawn a persistent process via an
+    # inline lambda. The lambda body IS the process thread (loop + suspend keeps
+    # it alive each frame). This matches all real game usage of process-spawn-function.
     init_fn = name.replace("-", "_") + "_obs_init"
     lines.append("(defun " + init_fn + " ()")
-    for fn in cam_triggers:
-        tfn = "cam-trigger-" + fn.replace("-", "_")
-        lines.append(
-            "  (process-spawn-function process"
-            + " (lambda () (" + tfn + ") (none))"
-            + " :to *entity-pool*)"
-        )
+    for (cname, gx0, gx1, gy0, gy1, gz0, gz1, ev_in, ev_out) in cam_triggers:
+        lines += [
+            "  ;; trigger for: " + cname,
+            "  (process-spawn-function process",
+            "    (lambda ()",
+            "      (let ((inside #f))",
+            "        (loop",
+            "          (when *target*",
+            "            (let* ((pos    (-> *target* control trans))",
+            "                   (in-vol (and",
+            "                             (< (the float " + gx0 + ") (-> pos x))",
+            "                             (< (-> pos x) (the float " + gx1 + "))",
+            "                             (< (the float " + gy0 + ") (-> pos y))",
+            "                             (< (-> pos y) (the float " + gy1 + "))",
+            "                             (< (the float " + gz0 + ") (-> pos z))",
+            "                             (< (-> pos z) (the float " + gz1 + ")))))",
+            "              (cond",
+            "                ((and in-vol (not inside))",
+            "                 (set! inside #t)",
+            "                 " + ev_in + ")",
+            "                ((and (not in-vol) inside)",
+            "                 (set! inside #f)",
+            "                 " + ev_out + "))))",
+            "          (suspend))))",
+            "    :to *entity-pool*)",
+        ]
     lines += ["  (none))", ""]
 
     p.write_text("\n".join(lines))
@@ -1273,7 +1255,7 @@ def collect_cameras(scene):
 
         out.append({
             "trans":     [gx, gy, gz],
-            "etype":     "process",   # entity-camera retries birth! every frame; process sets bit-0 once and stops
+            "etype":     "camera-tracker",  # no art group, no init-from-entity! -> sets bit-0 once, stops retrying
             "game_task": "(game-task none)",
             "quat":      [qx, qy, qz, qw],
             "vis_id":    0,
@@ -1917,14 +1899,14 @@ def _bg_play(name):
                 time.sleep(1.0)  # brief extra wait for level geometry to become active
                 state["status"] = "Spawning player..."
                 goalc_send(f"(start 'play (or (get-continue-by-name *game-info* \"{name}-start\") (get-or-create-continue! *game-info*)))")
-                # Poll until *target* is alive, then call obs-init to spawn camera triggers
+                # Wait for player to spawn then call obs-init.
+                # obs-init spawns trigger processes that poll (when *target* ...) themselves,
+                # so even if called slightly before *target* exists they'll wait.
                 init_fn = name.replace("-", "_") + "_obs_init"
-                for _ in range(60):
-                    time.sleep(0.25)
-                    r2 = goalc_send("(if *target* 'alive 'wait)", timeout=3)
-                    if r2 and "'alive" in r2:
-                        goalc_send(f"({init_fn})", timeout=5)
-                        break
+                time.sleep(2.0)
+                log(f"[obs-init] calling ({init_fn})...")
+                r3 = goalc_send(f"({init_fn})", timeout=5)
+                log(f"[obs-init] response: {repr(r3)}")
                 spawned = True
                 break
         if not spawned:
@@ -2215,12 +2197,10 @@ def _bg_build_and_play(name, scene):
                 state["status"] = "Spawning player..."
                 goalc_send(f"(start 'play (or (get-continue-by-name *game-info* \"{name}-start\") (get-or-create-continue! *game-info*)))")
                 init_fn = name.replace("-", "_") + "_obs_init"
-                for _ in range(60):
-                    time.sleep(0.25)
-                    r2 = goalc_send("(if *target* 'alive 'wait)", timeout=3)
-                    if r2 and "'alive" in r2:
-                        goalc_send(f"({init_fn})", timeout=5)
-                        break
+                time.sleep(2.0)
+                log(f"[obs-init] calling ({init_fn})...")
+                r3 = goalc_send(f"({init_fn})", timeout=5)
+                log(f"[obs-init] response: {repr(r3)}")
                 spawned = True
                 break
         if not spawned:
