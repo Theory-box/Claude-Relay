@@ -277,8 +277,10 @@ def _draw_wiki_preview(layout, etype: str):
     if pcoll and etype in pcoll:
         icon_id = pcoll[etype].icon_id
         col = box.column(align=True)
-        col.scale_y = 1.0
-        col.template_icon(icon_value=icon_id, scale=10.0)
+        ui_scale   = bpy.context.preferences.system.ui_scale
+        region_w   = bpy.context.region.width
+        icon_scale = max(4.0, min(20.0, (region_w - 32) / (ui_scale * 20)))
+        col.template_icon(icon_value=icon_id, scale=icon_scale)
     elif wiki.get('img'):
         box.label(text="Image not found — check enemy-images/ folder", icon="ERROR")
     else:
