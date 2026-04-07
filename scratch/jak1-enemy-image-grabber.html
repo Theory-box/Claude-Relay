@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Jak 1 Enemy Image Grabber</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: system-ui, sans-serif; background: #1a1a1a; color: #e0e0e0; padding: 24px; min-height: 100vh; }
+  h1 { font-size: 20px; font-weight: 500; margin-bottom: 6px; color: #fff; }
+  .sub { font-size: 13px; color: #888; margin-bottom: 24px; }
+  .controls { display: flex; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; }
+  button { background: #2a2a2a; border: 1px solid #444; color: #e0e0e0; padding: 8px 18px; border-radius: 6px; cursor: pointer; font-size: 13px; transition: background 0.15s; }
+  button:hover { background: #333; }
+  button:disabled { opacity: 0.4; cursor: default; }
+  button.primary { background: #1a5c9e; border-color: #2a7cd4; color: #fff; }
+  button.primary:hover { background: #1e6db5; }
+  #log { background: #111; border: 1px solid #333; border-radius: 8px; padding: 14px; font-family: monospace; font-size: 12px; height: 160px; overflow-y: auto; margin-bottom: 20px; }
+  .log-line { padding: 2px 0; line-height: 1.5; }
+  .log-ok { color: #6fcf97; }
+  .log-err { color: #eb5757; }
+  .log-info { color: #9b9b9b; }
+  .log-warn { color: #f2c94c; }
+  .stats { display: flex; gap: 12px; margin-bottom: 20px; }
+  .stat { background: #222; border: 1px solid #333; border-radius: 8px; padding: 10px 16px; flex: 1; min-width: 100px; }
+  .stat-val { font-size: 22px; font-weight: 600; color: #fff; }
+  .stat-lbl { font-size: 11px; color: #666; margin-top: 2px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; }
+  .card { background: #222; border: 1px solid #333; border-radius: 8px; overflow: hidden; }
+  .card img { width: 100%; height: 130px; object-fit: contain; background: #111; display: block; padding: 8px; }
+  .card-info { padding: 8px 10px; }
+  .card-name { font-size: 12px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #ddd; }
+  .card-actions { display: flex; gap: 6px; margin-top: 6px; }
+  .card-btn { font-size: 11px; padding: 3px 8px; border-radius: 4px; background: #2a2a2a; border: 1px solid #444; color: #bbb; cursor: pointer; text-decoration: none; }
+  .card-btn:hover { background: #333; }
+  .progress-bar { height: 3px; background: #333; border-radius: 2px; margin-bottom: 20px; overflow: hidden; }
+  .progress-fill { height: 100%; background: #1a5c9e; border-radius: 2px; transition: width 0.3s; width: 0%; }
+  #zip-section { margin-top: 20px; display: none; }
+</style>
+</head>
+<body>
+
+<h1>Jak 1 Enemy Image Grabber</h1>
+<p class="sub">Fetches all enemy images from the Jak & Daxter Fandom wiki. Runs entirely in your browser — no install needed.</p>
+
+<div class="controls">
+  <button class="primary" id="btn-fetch" onclick="startFetch()">Fetch all enemy images</button>
+  <button id="btn-dl-all" onclick="downloadAll()" disabled>Download all as ZIP</button>
+  <button id="btn-clear" onclick="clearAll()">Clear</button>
+</div>
+
+<div class="progress-bar"><div class="progress-fill" id="progress"></div></div>
+
+<div class="stats">
+  <div class="stat"><div class="stat-val" id="s-found">0</div><div class="stat-lbl">images found</div></div>
+  <div class="stat"><div class="stat-val" id="s-loaded">0</div><div class="stat-lbl">loaded</div></div>
+  <div class="stat"><div class="stat-val" id="s-errors">0</div><div class="stat-lbl">errors</div></div>
+</div>
+
+<div id="log"></div>
+<div class="grid" id="grid"></div>
+
+<div id="zip-section">
+  <button class="primary" onclick="downloadAll()">Download ZIP again</button>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script>
+const API = 'https://jakanddaxter.fandom.com/api.php';
+const CORS = 'https://corsproxy.io/?';
+const CATEGORY = 'Category:Enemy_images_from_The_Precursor_Legacy';
+let allImages = [];
+let loaded = 0, errors = 0;
+
+function log(msg, cls = 'log-info') {
+  const d = document.getElementById('log');
+  const line = document.createElement('div');
+  line.className = 'log-line ' + cls;
+  line.textContent = new Date().toLocaleTimeString() + ' ' + msg;
+  d.appendChild(line);
+  d.scrollTop = d.scrollHeight;
+}
+
+function setProgress(pct) {
+  document.getElementById('progress').style.width = pct + '%';
+}
+
+function updateStats() {
+  document.getElementById('s-found').textContent = allImages.length;
+  document.getElementById('s-loaded').textContent = loaded;
+  document.getElementById('s-errors').textContent = errors;
+}
+
+async function apiGet(params) {
+  const url = CORS + encodeURIComponent(API + '?' + new URLSearchParams({...params, format: 'json', origin: '*'}));
+  const r = await fetch(url);
+  if (!r.ok) throw new Error('HTTP ' + r.status);
+  return r.json();
+}
+
+async function getAllFilesInCategory() {
+  let files = [], cont = null;
+  do {
+    const params = {
+      action: 'query',
+      list: 'categorymembers',
+      cmtitle: CATEGORY,
+      cmlimit: 500,
+      cmtype: 'file',
+      ...(cont ? { cmcontinue: cont } : {})
+    };
+    const data = await apiGet(params);
+    const members = data.query?.categorymembers || [];
+    files.push(...members.map(m => m.title));
+    cont = data.continue?.cmcontinue;
+    log(`Got ${members.length} file names (total so far: ${files.length})`, 'log-ok');
+  } while (cont);
+  return files;
+}
+
+async function getImageUrls(titles) {
+  const urls = {};
+  const CHUNK = 50;
+  for (let i = 0; i < titles.length; i += CHUNK) {
+    const chunk = titles.slice(i, i + CHUNK);
+    const data = await apiGet({
+      action: 'query',
+      titles: chunk.join('|'),
+      prop: 'imageinfo',
+      iiprop: 'url|extmetadata',
+      iiurlwidth: 400
+    });
+    const pages = data.query?.pages || {};
+    for (const page of Object.values(pages)) {
+      if (page.imageinfo?.[0]?.url) {
+        const info = page.imageinfo[0];
+        const meta = info.extmetadata || {};
+        urls[page.title] = {
+          url: info.url,
+          thumbUrl: info.thumburl || info.url,
+          description: meta.ImageDescription?.value?.replace(/<[^>]+>/g, '') || '',
+        };
+      }
+    }
+    setProgress(10 + (i / titles.length) * 40);
+    log(`Resolved URLs for ${Math.min(i + CHUNK, titles.length)}/${titles.length}`, 'log-info');
+  }
+  return urls;
+}
+
+function cleanName(title) {
+  return title.replace(/^File:/, '').replace(/\.(png|jpg|jpeg|gif|webp)$/i, '').replace(/_/g, ' ');
+}
+
+function renderCard(title, info) {
+  const grid = document.getElementById('grid');
+  const card = document.createElement('div');
+  card.className = 'card';
+  card.id = 'card-' + title.replace(/[^a-z0-9]/gi, '_');
+
+  const img = document.createElement('img');
+  img.src = info.thumbUrl;
+  img.alt = cleanName(title);
+  img.onload = () => { loaded++; updateStats(); };
+  img.onerror = () => { errors++; updateStats(); img.style.opacity = '0.3'; };
+
+  const info_div = document.createElement('div');
+  info_div.className = 'card-info';
+
+  const name_div = document.createElement('div');
+  name_div.className = 'card-name';
+  name_div.textContent = cleanName(title);
+  name_div.title = cleanName(title);
+
+  const actions = document.createElement('div');
+  actions.className = 'card-actions';
+
+  const dlBtn = document.createElement('a');
+  dlBtn.className = 'card-btn';
+  dlBtn.textContent = 'Save';
+  dlBtn.href = info.url;
+  dlBtn.download = title.replace(/^File:/, '');
+  dlBtn.target = '_blank';
+
+  actions.appendChild(dlBtn);
+  info_div.appendChild(name_div);
+  if (info.description) {
+    const desc = document.createElement('div');
+    desc.style.cssText = 'font-size:11px;color:#666;margin-top:3px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;';
+    desc.textContent = info.description;
+    info_div.appendChild(desc);
+  }
+  info_div.appendChild(actions);
+  card.appendChild(img);
+  card.appendChild(info_div);
+  grid.appendChild(card);
+}
+
+async function startFetch() {
+  document.getElementById('btn-fetch').disabled = true;
+  document.getElementById('btn-dl-all').disabled = true;
+  document.getElementById('grid').innerHTML = '';
+  document.getElementById('log').innerHTML = '';
+  allImages = []; loaded = 0; errors = 0;
+  updateStats();
+  setProgress(2);
+
+  try {
+    log('Connecting to Fandom wiki API via CORS proxy...', 'log-info');
+    const files = await getAllFilesInCategory();
+    if (files.length === 0) { log('No files found in category!', 'log-err'); return; }
+    log(`Found ${files.length} images in category`, 'log-ok');
+    setProgress(10);
+
+    const urlMap = await getImageUrls(files);
+    log(`Resolved ${Object.keys(urlMap).length} image URLs`, 'log-ok');
+    setProgress(50);
+
+    for (const [title, info] of Object.entries(urlMap)) {
+      allImages.push({ title, ...info });
+      renderCard(title, info);
+    }
+
+    setProgress(100);
+    log(`Done! ${allImages.length} images rendered.`, 'log-ok');
+    document.getElementById('btn-dl-all').disabled = false;
+    document.getElementById('zip-section').style.display = 'block';
+  } catch (e) {
+    log('Error: ' + e.message, 'log-err');
+    log('If this failed, the CORS proxy may be down. Try again or refresh.', 'log-warn');
+    console.error(e);
+  } finally {
+    document.getElementById('btn-fetch').disabled = false;
+  }
+}
+
+async function downloadAll() {
+  if (allImages.length === 0) return;
+  log('Building ZIP file...', 'log-info');
+  const zip = new JSZip();
+  const folder = zip.folder('jak1-enemy-images');
+
+  const metaLines = ['filename,name,description'];
+
+  let done = 0;
+  for (const img of allImages) {
+    try {
+      const res = await fetch(CORS + encodeURIComponent(img.url));
+      const blob = await res.blob();
+      const fname = img.title.replace(/^File:/, '');
+      folder.file(fname, blob);
+      const cleanN = cleanName(img.title);
+      metaLines.push(`"${fname}","${cleanN}","${(img.description || '').replace(/"/g, "'")}"`);
+    } catch (e) {
+      log(`Skipped ${img.title}: ${e.message}`, 'log-warn');
+    }
+    done++;
+    setProgress(Math.round((done / allImages.length) * 100));
+    if (done % 10 === 0) log(`Downloading... ${done}/${allImages.length}`, 'log-info');
+  }
+
+  folder.file('metadata.csv', metaLines.join('\n'));
+
+  log('Generating ZIP...', 'log-info');
+  const blob = await zip.generateAsync({ type: 'blob' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'jak1-enemy-images.zip';
+  a.click();
+  log('ZIP downloaded!', 'log-ok');
+}
+
+function clearAll() {
+  document.getElementById('grid').innerHTML = '';
+  document.getElementById('log').innerHTML = '';
+  allImages = []; loaded = 0; errors = 0;
+  updateStats();
+  setProgress(0);
+  document.getElementById('btn-dl-all').disabled = true;
+  document.getElementById('zip-section').style.display = 'none';
+}
+</script>
+</body>
+</html>
