@@ -1385,12 +1385,26 @@ def patch_game_gp(name, code_deps=None):
 
 def export_glb(ctx, name):
     d = _ldir(name); d.mkdir(parents=True, exist_ok=True)
+
+    # Stamp trigger objects with the custom props the C++ extractor reads.
+    # og_trigger=True  →  invisible (no render) + set_collision + ignore (no collide)
+    # CAMVOL_ meshes are always treated as triggers automatically.
+    for o in ctx.scene.objects:
+        if o.type != "MESH":
+            continue
+        is_trigger = o.get("og_trigger", False) or o.name.startswith("CAMVOL_")
+        if is_trigger:
+            o["set_invisible"] = 1
+            o["set_collision"] = 1
+            o["ignore"]        = 1
+
     bpy.ops.export_scene.gltf(
         filepath=str(d / f"{name}.glb"), export_format="GLB",
         export_vertex_color="ACTIVE", export_normals=True,
         export_materials="EXPORT", export_texcoords=True,
         export_apply=True, use_selection=False,
-        export_yup=True, export_skins=False, export_animations=False)
+        export_yup=True, export_skins=False, export_animations=False,
+        export_extras=True)   # writes custom props into GLB extras (set_invisible etc.)
     log("Exported GLB")
 
 # ---------------------------------------------------------------------------
@@ -2408,10 +2422,13 @@ class OG_OT_LinkCameraVolume(Operator):
         if not vol.name.startswith("CAMVOL_"):
             vol.name = "CAMVOL_" + vol.name
 
+        # Auto-tag as trigger: invisible, no collision, pure zone marker
+        vol["og_trigger"] = True
+
         for cam in cameras:
             cam["og_camvol_link"] = vol.name
 
-        self.report({"INFO"}, f"Linked {len(cameras)} camera(s) → '{vol.name}'")
+        self.report({"INFO"}, f"Linked {len(cameras)} camera(s) → '{vol.name}' (auto-tagged as trigger)")
         return {"FINISHED"}
 
 
@@ -2509,7 +2526,15 @@ class OG_PT_Camera(Panel):
                       if o.get("og_camvol_link") == sel.name
                       and o.name.startswith("CAMERA_")]
             box = layout.box()
+            is_trigger = sel.get("og_trigger", False)
+            if is_trigger:
+                box.label(text="Trigger zone (auto)", icon="CHECKMARK")
+                box.label(text="No collision, not rendered")
+            else:
+                box.label(text="Not a trigger — collision ON", icon="ERROR")
+                box.label(text="Enable 'Trigger Zone' in Collision panel")
             if linked:
+                box.separator()
                 box.label(text=f"{len(linked)} camera(s) use this volume:")
                 for cam in linked:
                     box.label(text=f"  {cam.name}", icon="CAMERA_DATA")
@@ -2773,6 +2798,15 @@ class OG_PT_Collision(Panel):
                     box.label(text="No navmesh linked!", icon="ERROR")
                 layout.separator(factor=0.3)
 
+        # Trigger zone — overrides everything else
+        row = layout.row()
+        row.prop(ob, "og_trigger", icon="EMPTY_AXIS")
+        if ob.og_trigger:
+            box = layout.box()
+            box.label(text="No collision, not rendered", icon="INFO")
+            box.label(text="Used for camera volumes etc.")
+            return
+
         layout.prop(ob, "set_invisible")
         layout.prop(ob, "enable_custom_weights")
         layout.prop(ob, "copy_eye_draws")
@@ -2887,6 +2921,9 @@ def register():
     bpy.types.Material.collide_mode     = bpy.props.EnumProperty(items=pat_modes,    name="Mode")
     bpy.types.MATERIAL_PT_custom_props.prepend(_draw_mat)
 
+    bpy.types.Object.og_trigger            = bpy.props.BoolProperty(
+        name="Trigger Zone",
+        description="No collision, no rendering. Use for camera volumes and other trigger zones")
     bpy.types.Object.set_invisible         = bpy.props.BoolProperty(name="Invisible")
     bpy.types.Object.set_collision         = bpy.props.BoolProperty(name="Apply Collision Properties")
     bpy.types.Object.enable_custom_weights = bpy.props.BoolProperty(name="Use Custom Bone Weights")
@@ -2911,7 +2948,7 @@ def unregister():
               "nolineofsight","nocamera","collide_material","collide_event","collide_mode"):
         try: delattr(bpy.types.Material, a)
         except Exception: pass
-    for a in ("set_invisible","set_collision","ignore","noedge","noentity",
+    for a in ("og_trigger","set_invisible","set_collision","ignore","noedge","noentity",
               "nolineofsight","nocamera","collide_material","collide_event","collide_mode",
               "enable_custom_weights","copy_eye_draws","copy_mod_draws"):
         try: delattr(bpy.types.Object, a)
