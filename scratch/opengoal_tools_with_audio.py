@@ -893,6 +893,222 @@ MUSIC_BANK_ITEMS = [
     ("custom",     "Custom (type below)", "", 20),
 ]
 
+SFX_NAMES = [
+    ("custom", "Custom (type below)", "Enter a sound name manually", 0),
+    ("aphid-spike-in", "aphid-spike-in", "", 1),
+    ("aphid-spike-out", "aphid-spike-out", "", 2),
+    ("arena-steps", "arena-steps", "", 3),
+    ("b-eco-pickup", "b-eco-pickup", "", 4),
+    ("barrel-bounce", "barrel-bounce", "", 5),
+    ("barrel-roll", "barrel-roll", "", 6),
+    ("beam-connect", "beam-connect", "", 7),
+    ("bfg-fire", "bfg-fire", "", 8),
+    ("bigshark-alert", "bigshark-alert", "", 9),
+    ("bigshark-bite", "bigshark-bite", "", 10),
+    ("bigshark-idle", "bigshark-idle", "", 11),
+    ("blob-explode", "blob-explode", "", 12),
+    ("blob-jump", "blob-jump", "", 13),
+    ("blob-land", "blob-land", "", 14),
+    ("blob-out", "blob-out", "", 15),
+    ("blue-eco-on", "blue-eco-on", "", 16),
+    ("blue-eco-start", "blue-eco-start", "", 17),
+    ("boat-engine", "boat-engine", "", 18),
+    ("bomb-open", "bomb-open", "", 19),
+    ("boulder-splash", "boulder-splash", "", 20),
+    ("break-dummy", "break-dummy", "", 21),
+    ("bridge-piece-dn", "bridge-piece-dn", "", 22),
+    ("bridge-piece-up", "bridge-piece-up", "", 23),
+    ("bully-bounce", "bully-bounce", "", 24),
+    ("bumper-pwr-dwn", "bumper-pwr-dwn", "", 25),
+    ("buzzer-pickup", "buzzer-pickup", "", 26),
+    ("cannon-charge", "cannon-charge", "", 27),
+    ("cannon-shot", "cannon-shot", "", 28),
+    ("caught-eel", "caught-eel", "", 29),
+    ("cell-prize", "cell-prize", "", 30),
+    ("close-orb-cash", "close-orb-cash", "", 31),
+    ("close-racering", "close-racering", "", 32),
+    ("cool-balloon", "cool-balloon", "", 33),
+    ("cool-rolling-st", "cool-rolling-st", "", 34),
+    ("crate-jump", "crate-jump", "", 35),
+    ("crystal-explode", "crystal-explode", "", 36),
+    ("cursor-l-r", "cursor-l-r", "", 37),
+    ("cursor-options", "cursor-options", "", 38),
+    ("cursor-up-down", "cursor-up-down", "", 39),
+    ("darkvine-grow", "darkvine-grow", "", 40),
+    ("darkvine-kill", "darkvine-kill", "", 41),
+    ("darkvine-move", "darkvine-move", "", 42),
+    ("dcrate-break", "dcrate-break", "", 43),
+    ("death-darkeco", "death-darkeco", "", 44),
+    ("death-drown", "death-drown", "", 45),
+    ("death-fall", "death-fall", "", 46),
+    ("death-melt", "death-melt", "", 47),
+    ("dirt-crumble", "dirt-crumble", "", 48),
+    ("door-lock", "door-lock", "", 49),
+    ("door-unlock", "door-unlock", "", 50),
+    ("eco-plat-hover", "eco-plat-hover", "", 51),
+    ("eco-torch", "eco-torch", "", 52),
+    ("eco-tower-rise", "eco-tower-rise", "", 53),
+    ("eco-tower-stop", "eco-tower-stop", "", 54),
+    ("egg-hit", "egg-hit", "", 55),
+    ("eggs-lands", "eggs-lands", "", 56),
+    ("electric-loop", "electric-loop", "", 57),
+    ("elev-land", "elev-land", "", 58),
+    ("elev-loop", "elev-loop", "", 59),
+    ("eng-shut-down", "eng-shut-down", "", 60),
+    ("eng-start-up", "eng-start-up", "", 61),
+    ("explod-bomb", "explod-bomb", "", 62),
+    ("explod-eye", "explod-eye", "", 63),
+    ("explosion", "explosion", "", 64),
+    ("falling-bones", "falling-bones", "", 65),
+    ("fish-miss", "fish-miss", "", 66),
+    ("fish-spawn", "fish-spawn", "", 67),
+    ("flop-land", "flop-land", "", 68),
+    ("flut-coo", "flut-coo", "", 69),
+    ("flut-flap", "flut-flap", "", 70),
+    ("flut-hit", "flut-hit", "", 71),
+    ("g-eco-pickup", "g-eco-pickup", "", 72),
+    ("gdl-start-up", "gdl-start-up", "", 73),
+    ("gears-rumble", "gears-rumble", "", 74),
+    ("get-all-orbs", "get-all-orbs", "", 75),
+    ("get-big-fish", "get-big-fish", "", 76),
+    ("get-blue-eco", "get-blue-eco", "", 77),
+    ("get-burned", "get-burned", "", 78),
+    ("get-green-eco", "get-green-eco", "", 79),
+    ("get-red-eco", "get-red-eco", "", 80),
+    ("get-shocked", "get-shocked", "", 81),
+    ("get-small-fish", "get-small-fish", "", 82),
+    ("get-yellow-eco", "get-yellow-eco", "", 83),
+    ("gnawer-dies", "gnawer-dies", "", 84),
+    ("green-fire", "green-fire", "", 85),
+    ("grotto-pole-hit", "grotto-pole-hit", "", 86),
+    ("head-butt", "head-butt", "", 87),
+    ("hit-up", "hit-up", "", 88),
+    ("hot-flame", "hot-flame", "", 89),
+    ("ice-explode", "ice-explode", "", 90),
+    ("ice-loop", "ice-loop", "", 91),
+    ("ice-stop", "ice-stop", "", 92),
+    ("icrate-break", "icrate-break", "", 93),
+    ("icrate-nobreak", "icrate-nobreak", "", 94),
+    ("irisdoor2", "irisdoor2", "", 95),
+    ("jngb-eggtop-seq", "jngb-eggtop-seq", "", 96),
+    ("jump", "jump", "", 97),
+    ("jump-long", "jump-long", "", 98),
+    ("kermit-loop", "kermit-loop", "", 99),
+    ("kermit-stretch", "kermit-stretch", "", 100),
+    ("land-grass", "land-grass", "", 101),
+    ("land-pcmetal", "land-pcmetal", "", 102),
+    ("launch-fire", "launch-fire", "", 103),
+    ("launch-idle", "launch-idle", "", 104),
+    ("launch-start", "launch-start", "", 105),
+    ("lay-eggs", "lay-eggs", "", 106),
+    ("ldoor-close", "ldoor-close", "", 107),
+    ("ldoor-open", "ldoor-open", "", 108),
+    ("lodge-close", "lodge-close", "", 109),
+    ("magma-rock", "magma-rock", "", 110),
+    ("maindoor", "maindoor", "", 111),
+    ("menu-close", "menu-close", "", 112),
+    ("menu-stats", "menu-stats", "", 113),
+    ("mirror-smash", "mirror-smash", "", 114),
+    ("money-pickup", "money-pickup", "", 115),
+    ("mother-fire", "mother-fire", "", 116),
+    ("mother-hit", "mother-hit", "", 117),
+    ("mother-track", "mother-track", "", 118),
+    ("ogre-boulder", "ogre-boulder", "", 119),
+    ("ogre-explode", "ogre-explode", "", 120),
+    ("ogre-fires", "ogre-fires", "", 121),
+    ("ogre-grunt1", "ogre-grunt1", "", 122),
+    ("ogre-grunt2", "ogre-grunt2", "", 123),
+    ("ogre-grunt3", "ogre-grunt3", "", 124),
+    ("ogre-rock", "ogre-rock", "", 125),
+    ("oof", "oof", "", 126),
+    ("open-orb-cash", "open-orb-cash", "", 127),
+    ("pedals", "pedals", "", 128),
+    ("pill-pickup", "pill-pickup", "", 129),
+    ("plant-leaf", "plant-leaf", "", 130),
+    ("plat-flip", "plat-flip", "", 131),
+    ("plat-light-off", "plat-light-off", "", 132),
+    ("plat-light-on", "plat-light-on", "", 133),
+    ("prec-button1", "prec-button1", "", 134),
+    ("prec-button8", "prec-button8", "", 135),
+    ("propeller", "propeller", "", 136),
+    ("pu-powercell", "pu-powercell", "", 137),
+    ("puppy-bark", "puppy-bark", "", 138),
+    ("r-eco-pickup", "r-eco-pickup", "", 139),
+    ("ramboss-charge", "ramboss-charge", "", 140),
+    ("ramboss-fire", "ramboss-fire", "", 141),
+    ("ramboss-hit", "ramboss-hit", "", 142),
+    ("ramboss-track", "ramboss-track", "", 143),
+    ("rat-eat", "rat-eat", "", 144),
+    ("rat-gulp", "rat-gulp", "", 145),
+    ("red-explode", "red-explode", "", 146),
+    ("red-fire", "red-fire", "", 147),
+    ("robo-warning", "robo-warning", "", 148),
+    ("robotcage-off", "robotcage-off", "", 149),
+    ("rock-break", "rock-break", "", 150),
+    ("rock-in-lava", "rock-in-lava", "", 151),
+    ("sack-incoming", "sack-incoming", "", 152),
+    ("sack-land", "sack-land", "", 153),
+    ("sagecage-off", "sagecage-off", "", 154),
+    ("sagecage-open", "sagecage-open", "", 155),
+    ("scrate-break", "scrate-break", "", 156),
+    ("scrate-nobreak", "scrate-nobreak", "", 157),
+    ("seagull-takeoff", "seagull-takeoff", "", 158),
+    ("select-menu", "select-menu", "", 159),
+    ("select-option", "select-option", "", 160),
+    ("set-ram", "set-ram", "", 161),
+    ("silo-button", "silo-button", "", 162),
+    ("site-moves", "site-moves", "", 163),
+    ("slam-crash", "slam-crash", "", 164),
+    ("slide-loop", "slide-loop", "", 165),
+    ("slider2001", "slider2001", "", 166),
+    ("smack-surface", "smack-surface", "", 167),
+    ("snow-spat-long", "snow-spat-long", "", 168),
+    ("snow-spat-short", "snow-spat-short", "", 169),
+    ("snowball-land", "snowball-land", "", 170),
+    ("snowball-roll", "snowball-roll", "", 171),
+    ("start-options", "start-options", "", 172),
+    ("starts-options", "starts-options", "", 173),
+    ("stopwatch", "stopwatch", "", 174),
+    ("sunk-top-falls", "sunk-top-falls", "", 175),
+    ("sunk-top-lands", "sunk-top-lands", "", 176),
+    ("sunk-top-rises", "sunk-top-rises", "", 177),
+    ("swim-stroke", "swim-stroke", "", 178),
+    ("telescope", "telescope", "", 179),
+    ("thunder", "thunder", "", 180),
+    ("trampoline", "trampoline", "", 181),
+    ("uppercut", "uppercut", "", 182),
+    ("v2ogre-boulder", "v2ogre-boulder", "", 183),
+    ("vent-switch", "vent-switch", "", 184),
+    ("wall-plat", "wall-plat", "", 185),
+    ("warning", "warning", "", 186),
+    ("warpgate-act", "warpgate-act", "", 187),
+    ("warpgate-butt", "warpgate-butt", "", 188),
+    ("warpgate-tele", "warpgate-tele", "", 189),
+    ("water-drop", "water-drop", "", 190),
+    ("water-explosion", "water-explosion", "", 191),
+    ("water-off", "water-off", "", 192),
+    ("water-on", "water-on", "", 193),
+    ("wcrate-break", "wcrate-break", "", 194),
+    ("web-tramp", "web-tramp", "", 195),
+    ("welding-loop", "welding-loop", "", 196),
+    ("worm-rise1", "worm-rise1", "", 197),
+    ("y-eco-pickup", "y-eco-pickup", "", 198),
+    ("yellow-buzz", "yellow-buzz", "", 199),
+    ("yellow-explode", "yellow-explode", "", 200),
+    ("yellow-fire", "yellow-fire", "", 201),
+    ("yellow-fizzle", "yellow-fizzle", "", 202),
+    ("zoom-boost", "zoom-boost", "", 203),
+    ("zoomer-crash-2", "zoomer-crash-2", "", 204),
+    ("zoomer-explode", "zoomer-explode", "", 205),
+    ("zoomer-jump", "zoomer-jump", "", 206),
+    ("zoomer-loop", "zoomer-loop", "", 207),
+    ("zoomer-melt", "zoomer-melt", "", 208),
+    ("zoomer-rev1", "zoomer-rev1", "", 209),
+    ("zoomer-rev2", "zoomer-rev2", "", 210),
+    ("zoomer-start", "zoomer-start", "", 211),
+    ("zoomer-stop", "zoomer-stop", "", 212),
+]
+
 # ---------------------------------------------------------------------------
 # SCENE PROPERTIES
 # ---------------------------------------------------------------------------
@@ -917,6 +1133,10 @@ class OGProperties(PropertyGroup):
                                            default="")
     ambient_default_radius: FloatProperty(name="Default Emitter Radius (m)", default=15.0, min=1.0, max=200.0,
                                           description="Bsphere radius for new sound emitter empties")
+    sfx_name:        EnumProperty(name="Sound Effect", items=SFX_NAMES, default="custom",
+                                  description="Sound effect name for new emitter (sourced from Jak 1 game code)")
+    sfx_name_custom: StringProperty(name="Custom SFX Name", default="thunder",
+                                    description="Manual sound name when Custom is selected")
 
 # ---------------------------------------------------------------------------
 # PROCESS MANAGEMENT
@@ -2419,6 +2639,12 @@ class OG_OT_AddSoundEmitter(Operator):
         props = ctx.scene.og_props
         existing = [o for o in ctx.scene.objects if o.name.startswith("AMBIENT_snd")]
         idx  = len(existing) + 1
+
+        # Resolve sound name from enum or custom field
+        snd = props.sfx_name_custom.strip() if props.sfx_name == "custom" else props.sfx_name
+        if not snd:
+            snd = "thunder"
+
         name = f"AMBIENT_snd{idx:03d}"
 
         bpy.ops.object.empty_add(type="SPHERE", location=ctx.scene.cursor.location)
@@ -2429,12 +2655,12 @@ class OG_OT_AddSoundEmitter(Operator):
         o.color = (0.2, 0.8, 1.0, 1.0)
 
         # Stamp editable custom props
-        o["og_sound_name"]   = "silence"
+        o["og_sound_name"]   = snd
         o["og_sound_radius"] = props.ambient_default_radius
         o["og_sound_volume"] = 1.0
         o["og_sound_mode"]   = "ambient"
 
-        self.report({"INFO"}, f"Added '{name}' — edit og_sound_name in Object Properties")
+        self.report({"INFO"}, f"Added '{name}' → {snd}")
         return {"FINISHED"}
 
 
@@ -2471,6 +2697,10 @@ class OG_PT_Audio(Panel):
         box3.label(text="Sound Emitters", icon="OUTLINER_OB_SPEAKER")
         col3 = box3.column(align=True)
         col3.prop(props, "ambient_default_radius", text="Default Radius (m)")
+        col3.prop(props, "sfx_name", text="Sound")
+        if props.sfx_name == "custom":
+            col3.prop(props, "sfx_name_custom", text="Name")
+        col3.separator(factor=0.3)
         col3.operator("og.add_sound_emitter", text="Add Emitter at Cursor", icon="ADD")
 
         # List existing emitters
