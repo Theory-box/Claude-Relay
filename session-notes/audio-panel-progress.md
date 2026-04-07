@@ -250,3 +250,24 @@ Only looping sounds work via ambient system. One-shots require obs.gc trigger.
 - [ ] Test in-game
 - [ ] If music ambient zones wanted: add `'music` type ambient support to panel
 - [ ] If merge approved: `git checkout main && git merge feature/audio && git push`
+
+---
+
+## ✅ CONFIRMED WORKING — April 7 2026
+
+Sound emitters work in-game. Tested with `waterfall` sound, `village1` bank.
+
+### Root bugs fixed this session
+1. **JSONC crash**: `type='ambient-sound` → `'sound`, `sound-name` → `effect-name`, bare string → `["symbol",name]`
+2. **Sound bank GOAL syntax**: was `'('beach)` → fixed to `'(beach)`
+3. **Icon**: `SEQUENCE_COLOR_04` → `PLAY`
+4. **Autoload button**: removed from Build & Play panel
+
+### Merged to main ✅
+Commit: `8e2eb13` on main
+
+### Next session starting point
+- feature/audio branch still exists for future audio work
+- One-shot ambients still broken (engine bug) — obs.gc trigger is the workaround
+- Music ambient zones (`type='music`) not yet exposed in Blender UI — could add
+- Could add a mode toggle (loop/one-shot) to emitter UI once engine bug is patched

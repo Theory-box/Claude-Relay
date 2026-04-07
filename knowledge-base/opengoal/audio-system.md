@@ -282,15 +282,28 @@ Sounds safe to use in any custom level (always in `common`): `waterfall`, `water
 
 ---
 
-## Implications for the Blender Addon
+## Blender Addon — Current State (confirmed working April 2026)
 
-### What works:
-- `:sound-banks` — loads audio banks, use 1-2 names from the valid list above
-- `:music-bank` — sets default music on level load AND on respawn after death
-- Sound emitters via `AMBIENT_` empties using `["symbol", "sound-name"]` lump format
-- Music zones via `"type": "'music"` ambients with `music`, `flava`, `priority` lumps
-- Trigger volume music via obs.gc `set-setting!` (same pattern as camera triggers)
+### ✅ Working
+- **Sound emitters** — place via Audio panel → Pick sound → Add Emitter at Cursor
+  - Exports as `type='sound` ambient with `effect-name=["symbol","name"]` and `cycle-speed=["float",-1.0,0.0]`
+  - Looping mode (`cycle-speed < 0`) confirmed working in-game
+- **Sound bank dropdowns** — Bank 1 + Bank 2, max 2 loaded simultaneously
+  - Exports as `:sound-banks '(bank1 bank2)` — GOAL list-of-symbols syntax
+  - Correct syntax is `'(beach village1)` NOT `'('beach 'village1)` (common bug)
+- **Music bank dropdown** — exports as `:music-bank 'village1`
+  - Sets music on level load AND resets after player death
+- **Sound picker** — searchable popup over all 1048 sounds from actual .SBK files
+- **Live sound count** — panel shows common + level bank sounds available
 
-### Notes:
-- `ambient-sounds` list in level-load-info is unused by all vanilla levels — likely a PS2-era remnant, ignore it
-- `"type": "'sound"` ambient `effect-name` must use `["symbol", ...]` array format, not a bare string
+### ❌ Known broken: one-shot sound ambients
+- `cycle-speed >= 0` (one-shot/interval) crashes game on bsphere entry
+- Root cause: `birth-ambient!` calls `lookup-tag-idx 'exact 0.0` but C++ builder
+  writes all tags at `DEFAULT_RES_TIME = -1e9` — exact match never fires,
+  count stays 0, `rand-vu-int-count(0)` crashes
+- **Workaround**: use loop mode, or use obs.gc `sound-play` trigger
+
+### Notes
+- `ambient-sounds` list in level-load-info is unused by all vanilla levels — ignore it
+- `effect-name` lump must use `["symbol", ...]` array format, not a bare string
+- Sound names must exist in a loaded bank — `common` bank always loaded (461 sounds)
