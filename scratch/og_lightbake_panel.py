@@ -1,3 +1,13 @@
+bl_info = {
+    "name":        "OG Light Baking (test panel)",
+    "author":      "OpenGOAL Tools",
+    "version":     (1, 0, 0),
+    "blender":     (4, 4, 0),
+    "location":    "View3D > N-Panel > OpenGOAL",
+    "description": "Bake scene lighting to vertex colors on selected meshes",
+    "category":    "3D View",
+}
+
 """
 OG_PT_LightBaking — scratch patch
 Adds a "🔆 Light Baking" panel to the OpenGOAL N-panel tab.
