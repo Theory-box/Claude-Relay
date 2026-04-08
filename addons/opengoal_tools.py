@@ -823,27 +823,27 @@ def collect_cameras(scene):
 
         # Blender -> game camera quaternion.
         #
-        # Strategy: extract the Blender camera's look direction (-local Z in world space),
-        # remap it to game coordinates, then build a canonical game rotation using
-        # game world-up as the roll reference. This matches the game engine's own
-        # forward-down->inv-matrix convention and prevents upside-down cameras.
+        # Extract the camera look direction (-local Z in Blender world space),
+        # remap to game coords (bl.x->gx, bl.z->gy, -bl.y->gz) with sign correction,
+        # then build a canonical rotation using game world-down as roll reference.
+        # This matches forward-down->inv-matrix in geometry.gc.
         #
-        # Coordinate remap (same as position): bl(x,y,z) -> game(x,z,-y)
+        # Sign note: the remap for the Y axis must be negated (-bl.z not +bl.z)
+        # to avoid X/Z facing cameras appearing inverted in game.
+        # Confirmed empirically: +Y/-Y correct without fix, +X/-X +Z/-Z inverted.
         m3 = cam_obj.matrix_world.to_3x3()
         bl_look = -m3.col[2]   # BL camera looks along local -Z (world space)
-        # Remap look direction to game space
-        gl = mathutils.Vector((bl_look.x, bl_look.z, -bl_look.y))
+        # Remap to game space — note: game_y = -bl.z (negated vs position remap)
+        gl = mathutils.Vector((bl_look.x, -bl_look.z, -bl_look.y))
         gl.normalize()
-        # Build canonical game rotation: forward=gl, up derived from world down (0,-1,0)
-        # Mirrors forward-down->inv-matrix in geometry.gc
+        # Build canonical game rotation: forward=gl, roll from world down (0,-1,0)
         game_down = mathutils.Vector((0.0, -1.0, 0.0))
         right = gl.cross(game_down)
         if right.length < 1e-6:
-            right = mathutils.Vector((1.0, 0.0, 0.0))  # degenerate: looking straight up/down
+            right = mathutils.Vector((1.0, 0.0, 0.0))  # degenerate: straight up/down
         right.normalize()
         up = gl.cross(right)
         up.normalize()
-        # Assemble rotation matrix rows = [right, up, forward] then convert to quat
         game_mat = mathutils.Matrix([right, up, gl])
         gq = game_mat.to_quaternion()
         qx = round(gq.x, 6)
@@ -4060,16 +4060,21 @@ class OG_OT_SpawnCamera(Operator):
     def execute(self, ctx):
         n = len([o for o in ctx.scene.objects
                  if o.name.startswith("CAMERA_") and o.type == "CAMERA"])
+        cam_name = f"CAMERA_{n}"
         bpy.ops.object.camera_add(location=ctx.scene.cursor.location)
         o = ctx.active_object
-        o.name = f"CAMERA_{n}"
+        # Set name twice: Blender resolves duplicate data-block names after the
+        # first assignment, so the second set lands the exact name we want.
+        o.name      = cam_name
+        o.name      = cam_name
+        o.data.name = cam_name
         o.show_name = True
         o.color = (0.0, 0.8, 0.9, 1.0)
         # Default custom properties
         o["og_cam_mode"]   = "fixed"
         o["og_cam_interp"] = 1.0
         o["og_cam_fov"]    = 0.0
-        o["og_cam_look_at"] = ""   # Empty object name to look at (optional)
+        o["og_cam_look_at"] = ""
         self.report({"INFO"}, f"Added {o.name}  |  Numpad-0 to look through it")
         return {"FINISHED"}
 
