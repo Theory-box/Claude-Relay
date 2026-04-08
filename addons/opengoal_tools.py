@@ -822,15 +822,12 @@ def collect_cameras(scene):
         gz = round(-loc.y, 4)
 
         # Blender -> game quaternion.
-        # Blender camera (no rotation) looks in world -Z = game -Y = DOWN.
-        # Game camera (identity quat) looks in game -Z = FORWARD.
-        # Fix: left-multiply Blender quat by -90° around game X.
-        # This maps Blender cam axes to game cam axes correctly.
-        # Verified for all 6 cardinal directions.
+        # User confirmed: rotating Y+180 in Blender makes the camera
+        # point correctly in-game. So we bake that Y+180 into the export.
         import mathutils
         q = cam_obj.matrix_world.to_quaternion()
-        corr = mathutils.Quaternion((1, 0, 0), math.radians(-90))
-        gq = corr @ q
+        flip = mathutils.Quaternion((0, 1, 0), math.radians(180))
+        gq = q @ flip
         qx = round(gq.x, 6)
         qy = round(gq.y, 6)
         qz = round(gq.z, 6)
