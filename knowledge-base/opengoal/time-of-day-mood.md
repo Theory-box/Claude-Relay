@@ -55,10 +55,45 @@ This file controls how actor colors/shading respond to each ToD slot. If you wan
 
 ---
 
+## `mood-tables.gc` — Table Structure
+
+> Source: Kuitar [DUST], April 2026. Marked iirc where confidence is lower.
+
+Each level defines three named tables in this file.
+
+---
+
+### `levelname-mood-light-table`
+Controls actual lighting applied to actors. Each entry in the array corresponds to one time of day. Levels with no day/night cycle may have only a single entry.
+
+Can technically be used for purposes beyond time of day.
+
+| Field | Purpose |
+|---|---|
+| `direction` | Direction of the main light (e.g. sun direction) |
+| `lgt-color` | Color of the main light (e.g. sun color) |
+| `prt-color` | Unknown — not recalled |
+| `amb-color` | Ambient color applied across the whole model |
+| `shadow` | Direction of the shadow cast — separate from `direction` for unknown engine reasons |
+
+---
+
+### `levelname-mood-sun-table`
+Controls the appearance of the sun and sky itself (iirc). Distinct from actor lighting.
+
+---
+
+### `levelname-mood-fog-table`
+Controls distant fog — color and distance falloff.
+
+---
+
 ## Open Questions / Unknowns
-- ⚠ Exact format of `mood-tables.gc` entries for custom actors not yet documented.
+- ⚠ `prt-color` field purpose unknown.
+- ⚠ Why `shadow` direction is separate from `direction` — likely an engine quirk, exact reason unclear.
 - ⚠ Whether custom levels can define new mood table entries (vs only referencing existing ones) is untested.
 - ⚠ `_GREENSUN` slot — relationship to sky type not fully confirmed.
+- ⚠ `levelname-mood-sun-table` exact structure not yet documented.
 
 ---
 
