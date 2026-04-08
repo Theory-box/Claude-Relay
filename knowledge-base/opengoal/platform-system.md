@@ -517,11 +517,26 @@ Or directly:
 4. **Sync params** — period (seconds), phase (0–1), ease-out (0–1), ease-in (0–1) → `'sync` res lump
 5. **Scale** — optional uniform scale → `'scale` res lump
 
+### JSONC lump type tags (confirmed from `goalc/build_level/common/Entity.cpp`):
+
+| Tag | GOAL type | Notes |
+|---|---|---|
+| `"float"` | `ResFloat` — `vector<float>` | Multiple values allowed: `["float", 4.0, 0.0, 0.15, 0.15]` |
+| `"meters"` | `ResFloat` — values × `METER_LENGTH` | Single or multi: `["meters", 20.0]` |
+| `"degrees"` | `ResFloat` — values × `DEGREES_LENGTH` | |
+| `"vector4m"` | `ResVector` — values × `METER_LENGTH` | Used for path points and spheres |
+| `"uint32"` | `ResUInt32` | Integer flags: `["uint32", 1]` |
+
 ### Sync res lump format:
 ```python
-# In Python addon — format for res lump 'sync:
-# [period_seconds (float), phase (float), ease_out (float), ease_in (float)]
-# If only period+phase provided (2 floats), engine uses 0.15/0.15 defaults for easing
+# JSONC format for 'sync lump — confirmed working:
+# ["float", period_seconds, phase, ease_out, ease_in]
+# All 4 floats collected into ResFloat vector<float>
+# load-params! in GOAL reads: [0]=period_s, [1]=phase, [2]=out_ease, [3]=in_ease
+# If only 2 provided: engine uses 0.15/0.15 defaults for easing
+#
+# Example: 4s period, no phase offset, default easing:
+# "sync": ["float", 4.0, 0.0, 0.15, 0.15]
 ```
 
 ### Movement modes:
@@ -543,4 +558,39 @@ Without this line, Jak will not be carried by the platform.
 
 ### alloc-riders — number of slots:
 Almost always `1` (only Jak rides). Some platforms use more (multi-character support).
+
+---
+
+## 12. Implemented JSONC Lump Reference (Blender Addon)
+
+Per-actor lump output from the addon at export time. Stored as Blender custom properties on the ACTOR_ empty.
+
+### `plat` / `side-to-side-plat`
+```json
+"lump": {
+  "sync":  ["float", 4.0, 0.0, 0.15, 0.15],
+  "path":  ["vector4m", [x,y,z,1], [x,y,z,1], ...],
+  "fact-options": ["uint32", 1]   // only if og_sync_wrap=1 (loop mode)
+}
+```
+Custom properties: `og_sync_period` (4.0s), `og_sync_phase` (0.0), `og_sync_ease_out` (0.15), `og_sync_ease_in` (0.15), `og_sync_wrap` (0)
+
+### `plat-eco`
+```json
+"lump": {
+  "sync":         ["float", 4.0, 0.0, 0.15, 0.15],
+  "path":         ["vector4m", [x,y,z,1], ...],
+  "notice-dist":  ["meters", -1.0],
+  "fact-options": ["uint32", 1]   // only if og_sync_wrap=1
+}
+```
+Custom properties: same as plat + `og_notice_dist` (-1.0 = always active, >0 = needs blue eco within Xm)
+
+### `plat-button`
+```json
+"lump": {
+  "path": ["vector4m", [start_x,y,z,1], [end_x,y,z,1]]
+}
+```
+Needs ≥2 waypoints (start position, end position). No sync needed — movement triggered by player contact.
 
