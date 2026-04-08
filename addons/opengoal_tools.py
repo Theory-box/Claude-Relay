@@ -834,7 +834,7 @@ def collect_cameras(scene):
         m3 = cam_obj.matrix_world.to_3x3()
         bl_look = -m3.col[2]   # BL camera looks along local -Z (world space)
         # Remap to game space — note: game_y = -bl.z (negated vs position remap)
-        gl = mathutils.Vector((bl_look.x, -bl_look.z, -bl_look.y))
+        gl = mathutils.Vector((bl_look.x, bl_look.z, -bl_look.y))
         gl.normalize()
         # Build canonical game rotation: forward=gl, roll from world down (0,-1,0)
         game_down = mathutils.Vector((0.0, -1.0, 0.0))
@@ -846,10 +846,13 @@ def collect_cameras(scene):
         up.normalize()
         game_mat = mathutils.Matrix([right, up, gl])
         gq = game_mat.to_quaternion()
-        qx = round(gq.x, 6)
-        qy = round(gq.y, 6)
-        qz = round(gq.z, 6)
-        qw = round(gq.w, 6)
+        # Game's quaternion->matrix uses the conjugate convention (negate xyz).
+        # Confirmed empirically: sending (0,-0.7071,0,0.7071) for a BL +X camera
+        # produced r2=(-1,0,0) in game. Conjugate fixes it to r2=(+1,0,0).
+        qx = round(-gq.x, 6)
+        qy = round(-gq.y, 6)
+        qz = round(-gq.z, 6)
+        qw = round( gq.w, 6)
 
         cam_mode = cam_obj.get("og_cam_mode",  "fixed")
         interp_t = float(cam_obj.get("og_cam_interp", 1.0))
