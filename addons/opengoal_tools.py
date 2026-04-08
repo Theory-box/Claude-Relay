@@ -2253,6 +2253,11 @@ class OGProperties(PropertyGroup):
                                          description="Currently selected sound for emitter placement")
     ambient_default_radius: FloatProperty(name="Default Emitter Radius (m)", default=15.0, min=1.0, max=200.0,
                                           description="Bsphere radius for new sound emitter empties")
+    # Level flow
+    bottom_height:     FloatProperty(name="Death Plane (m)", default=-20.0, min=-500.0, max=-1.0,
+                                     description="Y height below which the player gets an endlessfall death (negative = below level floor)")
+    vis_nick_override: StringProperty(name="Vis Nick Override", default="",
+                                      description="Override the auto-generated 3-letter vis nickname (leave blank to use auto)")
 
 # ---------------------------------------------------------------------------
 # PROCESS MANAGEMENT
@@ -2420,12 +2425,101 @@ def launch_gk():
 # ---------------------------------------------------------------------------
 
 def collect_spawns(scene):
+    """Collect SPAWN_ empties into continue-point data dicts.
+
+    Each dict contains:
+      name       — uid string (e.g. "start", "spawn1", or custom SPAWN_<name>)
+      x/y/z      — game-space position (metres, Blender→game remap applied)
+      qx/qy/qz/qw — game-space facing quaternion from the empty's rotation
+      cam_x/cam_y/cam_z — camera-trans position (from linked SPAWN_<uid>_CAM empty,
+                          or defaults to spawn pos + 4m up)
+      cam_rot    — camera 3x3 row-major matrix as flat list of 9 floats
+                   (from linked SPAWN_<uid>_CAM empty, or identity)
+      is_checkpoint — True if this is a CHECKPOINT_ empty (auto-assigned mid-level)
+    """
     out = []
-    for o in scene.objects:
-        if o.name.startswith("SPAWN_") and o.type == "EMPTY":
+    for o in sorted(scene.objects, key=lambda o: o.name):
+        is_spawn      = o.name.startswith("SPAWN_")      and o.type == "EMPTY"
+        is_checkpoint = o.name.startswith("CHECKPOINT_") and o.type == "EMPTY"
+        if not (is_spawn or is_checkpoint):
+            continue
+
+        if is_spawn:
             uid = o.name[6:] or "start"
-            l = o.location
-            out.append({"name":uid, "x":l.x, "y":l.z, "z":-l.y})
+        else:
+            uid = o.name[11:] or "cp0"
+
+        l = o.location
+        gx = round(l.x,  4)
+        gy = round(l.z,  4)
+        gz = round(-l.y, 4)
+
+        # ── Facing quaternion ────────────────────────────────────────────────
+        # Blender empty rotation → game-space quaternion.
+        # Convention: empty faces +Y in Blender → game forward is +X.
+        # Remap: bl(x,y,z) → game(x,z,-y).  Conjugate applied (engine reads inverse).
+        m3 = o.matrix_world.to_3x3()
+        bl_fwd = m3.col[1]                                    # Blender +Y local = "forward"
+        gf = mathutils.Vector((bl_fwd.x, bl_fwd.z, -bl_fwd.y))
+        gf.normalize()
+        game_up = mathutils.Vector((0.0, 1.0, 0.0))
+        right = game_up.cross(gf)
+        if right.length < 1e-6:
+            right = mathutils.Vector((1.0, 0.0, 0.0))
+        right.normalize()
+        up = gf.cross(right)
+        up.normalize()
+        gmat = mathutils.Matrix([right, up, gf])
+        gq   = gmat.to_quaternion()
+        qx   = round(-gq.x, 6)
+        qy   = round(-gq.y, 6)
+        qz   = round(-gq.z, 6)
+        qw   = round( gq.w, 6)
+
+        # ── Camera empty (optional) ──────────────────────────────────────────
+        # User can place a SPAWN_<uid>_CAM or CHECKPOINT_<uid>_CAM empty to
+        # set the camera position/orientation at respawn.
+        # If absent, we default to spawn pos + 4m up, identity rotation.
+        cam_suffix = "_CAM"
+        cam_name   = o.name + cam_suffix
+        cam_obj    = scene.objects.get(cam_name)
+
+        if cam_obj and cam_obj.type == "EMPTY":
+            cl = cam_obj.location
+            cam_x = round(cl.x,  4)
+            cam_y = round(cl.z,  4)
+            cam_z = round(-cl.y, 4)
+            # Build camera rotation matrix (same conjugate formula as camera system)
+            cm3      = cam_obj.matrix_world.to_3x3()
+            bl_look  = -cm3.col[2]                            # camera looks along -local_Z
+            gl = mathutils.Vector((bl_look.x, bl_look.z, -bl_look.y))
+            gl.normalize()
+            game_down = mathutils.Vector((0.0, -1.0, 0.0))
+            cr = gl.cross(game_down)
+            if cr.length < 1e-6:
+                cr = mathutils.Vector((1.0, 0.0, 0.0))
+            cr.normalize()
+            cu = gl.cross(cr)
+            cu.normalize()
+            # camera-rot is a 3x3 row-major matrix stored as 9 floats
+            cam_rot = [
+                round(cr.x, 6), round(cr.y, 6), round(cr.z, 6),
+                round(cu.x, 6), round(cu.y, 6), round(cu.z, 6),
+                round(gl.x, 6), round(gl.y, 6), round(gl.z, 6),
+            ]
+        else:
+            # Default: camera sits 4m above spawn, looks forward (identity-ish)
+            cam_x, cam_y, cam_z = gx, gy + 4.0, gz
+            cam_rot = [1.0, 0.0, 0.0,  0.0, 1.0, 0.0,  0.0, 0.0, 1.0]
+
+        out.append({
+            "name":          uid,
+            "x": gx, "y": gy, "z": gz,
+            "qx": qx, "qy": qy, "qz": qz, "qw": qw,
+            "cam_x": cam_x, "cam_y": cam_y, "cam_z": cam_z,
+            "cam_rot":       cam_rot,
+            "is_checkpoint": is_checkpoint,
+        })
     return out
 
 def collect_actors(scene):
@@ -2723,29 +2817,43 @@ def write_gd(name, ags, code_deps, tpages=None):
 
 
 def _make_continues(name, spawns):
+    """Build the GOAL :continues list for level-load-info.
+
+    Each spawn dict now carries full quat + camera data from collect_spawns.
+    Spawns include both SPAWN_ (primary) and CHECKPOINT_ (auto-assigned) empties.
+    """
     def cp(sp):
+        cr = sp.get("cam_rot", [1,0,0, 0,1,0, 0,0,1])
+        cr_str = " ".join(str(v) for v in cr)
         return (f"(new 'static 'continue-point\n"
                 f"             :name \"{name}-{sp['name']}\"\n"
                 f"             :level '{name}\n"
                 f"             :trans (new 'static 'vector"
                 f" :x (meters {sp['x']:.4f}) :y (meters {sp['y']:.4f}) :z (meters {sp['z']:.4f}) :w 1.0)\n"
-                f"             :quat (new 'static 'quaternion :w 1.0)\n"
-                f"             :camera-trans (new 'static 'vector :x 0.0 :y 4096.0 :z 0.0 :w 1.0)\n"
-                f"             :camera-rot (new 'static 'array float 9 1.0 0.0 0.0 0.0 1.0 0.0 0.0 0.0 1.0)\n"
+                f"             :quat (new 'static 'quaternion"
+                f" :x {sp.get('qx',0.0)} :y {sp.get('qy',0.0)} :z {sp.get('qz',0.0)} :w {sp.get('qw',1.0)})\n"
+                f"             :camera-trans (new 'static 'vector"
+                f" :x (meters {sp.get('cam_x', sp['x']):.4f})"
+                f" :y (meters {sp.get('cam_y', sp['y']+4.0):.4f})"
+                f" :z (meters {sp.get('cam_z', sp['z']):.4f}) :w 1.0)\n"
+                f"             :camera-rot (new 'static 'array float 9 {cr_str})\n"
                 f"             :load-commands '()\n"
                 f"             :vis-nick 'none\n"
                 f"             :lev0 '{name}\n"
                 f"             :disp0 'display\n"
                 f"             :lev1 #f\n"
                 f"             :disp1 #f)")
+
     if spawns:
         return "'(" + "\n             ".join(cp(s) for s in spawns) + ")"
+
+    # No spawns placed — emit a safe default at origin + 10m up
     return (f"'((new 'static 'continue-point\n"
             f"             :name \"{name}-start\"\n"
             f"             :level '{name}\n"
             f"             :trans (new 'static 'vector :x 0.0 :y (meters 10.) :z 0.0 :w 1.0)\n"
             f"             :quat (new 'static 'quaternion :w 1.0)\n"
-            f"             :camera-trans (new 'static 'vector :x 0.0 :y 4096.0 :z 0.0 :w 1.0)\n"
+            f"             :camera-trans (new 'static 'vector :x 0.0 :y (meters 14.) :z 0.0 :w 1.0)\n"
             f"             :camera-rot (new 'static 'array float 9 1.0 0.0 0.0 0.0 1.0 0.0 0.0 0.0 1.0)\n"
             f"             :load-commands '()\n"
             f"             :vis-nick 'none\n"
@@ -2765,16 +2873,47 @@ def patch_level_info(name, spawns, scene=None):
         _sb_list = [s for s in [props.sound_bank_1, props.sound_bank_2] if s and s != "none"]
         _sbanks = " ".join(s for s in _sb_list)
         _sbanks_val = f"'({_sbanks})" if _sbanks else "'()"
+        # Level flow settings
+        _bot_h   = float(props.bottom_height)
+        _vis_ov  = props.vis_nick_override.strip()
+        _vnick   = _vis_ov if _vis_ov else _nick(name)
     else:
         _music_val = "#f"
         _sbanks_val = "'()"
+        _bot_h   = -20.0
+        _vnick   = _nick(name)
         props = None
+
+    # ── Auto-compute bsphere from spawn positions ────────────────────────────
+    # Centre = mean of all spawn XZ positions, Y = mean spawn Y + 2m.
+    # Radius = max distance from centre to any spawn + 64m padding so the
+    # engine considers the level "nearby" well before the player reaches it.
+    # Fallback when no spawns: a very large sphere (40km radius) that always passes.
+    if spawns:
+        xs  = [s["x"] for s in spawns]
+        ys  = [s["y"] for s in spawns]
+        zs  = [s["z"] for s in spawns]
+        cx  = sum(xs) / len(xs)
+        cy  = sum(ys) / len(ys) + 2.0
+        cz  = sum(zs) / len(zs)
+        r   = max(
+            math.sqrt((s["x"]-cx)**2 + (s["y"]-cy)**2 + (s["z"]-cz)**2)
+            for s in spawns
+        ) + 64.0
+        # Convert to game units (4096 per metre) for the sphere :w value
+        bsphere_w = round(r * 4096.0, 1)
+        bsphere_str = (f"(new 'static 'sphere"
+                       f" :x (meters {cx:.4f}) :y (meters {cy:.4f}) :z (meters {cz:.4f})"
+                       f" :w {bsphere_w})")
+    else:
+        bsphere_str = "(new 'static 'sphere :w 167772160000.0)"  # ~40km radius
+
     block = (f"\n(define {name}\n"
              f"  (new 'static 'level-load-info\n"
              f"       :index 27\n"
              f"       :name '{name}\n"
              f"       :visname '{name}-vis\n"
-             f"       :nickname '{_nick(name)}\n"
+             f"       :nickname '{_vnick}\n"
              f"       :packages '()\n"
              f"       :sound-banks {_sbanks_val}\n"
              f"       :music-bank {_music_val}\n"
@@ -2791,8 +2930,8 @@ def patch_level_info(name, spawns, scene=None):
              f"       :load-commands '()\n"
              f"       :alt-load-commands '()\n"
              f"       :bsp-mask #xffffffffffffffff\n"
-             f"       :bsphere (new 'static 'sphere :w 167772160000.0)\n"
-             f"       :bottom-height (meters -20)\n"
+             f"       :bsphere {bsphere_str}\n"
+             f"       :bottom-height (meters {_bot_h:.1f})\n"
              f"       :run-packages '()\n"
              f"       :wait-for-load #t))\n"
              f"\n(cons! *level-load-list* '{name})\n")
@@ -3038,6 +3177,61 @@ class OG_OT_SpawnPlayer(Operator):
         o.name = f"SPAWN_{uid}"; o.show_name = True
         o.empty_display_size = 1.0; o.color = (0.0,1.0,0.0,1.0)
         self.report({"INFO"}, f"Added {o.name}")
+        return {"FINISHED"}
+
+
+class OG_OT_SpawnCheckpoint(Operator):
+    bl_idname = "og.spawn_checkpoint"
+    bl_label  = "Add Checkpoint"
+    bl_description = (
+        "Place a mid-level checkpoint empty at the 3D cursor. "
+        "The engine auto-assigns the nearest zero-flag checkpoint as the player "
+        "moves around, so these act as silent progress saves without any trigger actors."
+    )
+    def execute(self, ctx):
+        n   = len([o for o in ctx.scene.objects if o.name.startswith("CHECKPOINT_")])
+        uid = f"cp{n}"
+        bpy.ops.object.empty_add(type="SINGLE_ARROW", location=ctx.scene.cursor.location)
+        o = ctx.active_object
+        o.name = f"CHECKPOINT_{uid}"; o.show_name = True
+        o.empty_display_size = 1.2; o.color = (1.0, 0.85, 0.0, 1.0)
+        self.report({"INFO"}, f"Added {o.name}")
+        return {"FINISHED"}
+
+
+class OG_OT_SpawnCamAnchor(Operator):
+    bl_idname = "og.spawn_cam_anchor"
+    bl_label  = "Add Spawn Camera"
+    bl_description = (
+        "Place a camera-anchor empty linked to the selected SPAWN_ or CHECKPOINT_ empty. "
+        "This sets the camera position and orientation used when the player respawns at that point."
+    )
+    def execute(self, ctx):
+        sel = ctx.active_object
+        if sel is None or sel.type != "EMPTY":
+            self.report({"ERROR"}, "Select a SPAWN_ or CHECKPOINT_ empty first")
+            return {"CANCELLED"}
+        is_spawn = sel.name.startswith("SPAWN_") or sel.name.startswith("CHECKPOINT_")
+        if not is_spawn:
+            self.report({"ERROR"}, "Selected object must be a SPAWN_ or CHECKPOINT_ empty")
+            return {"CANCELLED"}
+        cam_name = sel.name + "_CAM"
+        if ctx.scene.objects.get(cam_name):
+            self.report({"WARNING"}, f"{cam_name} already exists")
+            return {"CANCELLED"}
+        # Place camera 6m behind and 3m above spawn in Blender space
+        offset = mathutils.Vector((0.0, -6.0, 3.0))
+        loc    = sel.matrix_world.translation + sel.matrix_world.to_3x3() @ offset
+        bpy.ops.object.empty_add(type="ARROWS", location=loc)
+        o = ctx.active_object
+        o.name = cam_name; o.show_name = True
+        o.empty_display_size = 0.8; o.color = (0.2, 0.6, 1.0, 1.0)
+        # Point it toward the spawn (face -Z toward spawn so camera looks at it)
+        direction = sel.matrix_world.translation - loc
+        if direction.length > 1e-4:
+            rot_quat = direction.to_track_quat('-Z', 'Y')
+            o.rotation_euler = rot_quat.to_euler()
+        self.report({"INFO"}, f"Added {cam_name}")
         return {"FINISHED"}
 
 class OG_OT_SpawnEntity(Operator):
@@ -4060,7 +4254,7 @@ class OG_PT_Audio(Panel):
 # Panel hierarchy (all under "OpenGOAL" N-panel tab):
 #
 #  OG_PT_LevelSettings   — Level name, base ID
-#  OG_PT_Scene           — Player spawn (expandable later)
+#  OG_PT_Scene           — Level Flow: spawns, checkpoints, death plane, bsphere
 #  OG_PT_PlaceObjects    — Entity picker + Add Entity
 #  OG_PT_Waypoints       — Waypoint management (context-sensitive, collapsible)
 #  OG_PT_NavMesh         — NavMesh linking via object picker
@@ -4105,10 +4299,10 @@ class OG_PT_LevelSettings(Panel):
                 row.label(text=f"ISO: {_iso(name)}   Nick: {_nick(name)}", icon="INFO")
 
 
-# ── Scene Setup ──────────────────────────────────────────────────────────────
+# ── Scene Setup / Level Flow ──────────────────────────────────────────────────
 
 class OG_PT_Scene(Panel):
-    bl_label       = "🎬  Scene"
+    bl_label       = "🗺  Level Flow"
     bl_idname      = "OG_PT_scene"
     bl_space_type  = "VIEW_3D"
     bl_region_type = "UI"
@@ -4117,7 +4311,79 @@ class OG_PT_Scene(Panel):
 
     def draw(self, ctx):
         layout = self.layout
-        layout.operator("og.spawn_player", text="Add Player Spawn", icon="ARMATURE_DATA")
+        props  = ctx.scene.og_props
+        scene  = ctx.scene
+
+        # ── Spawn points ──────────────────────────────────────────────────────
+        layout.label(text="Spawn Points", icon="ARMATURE_DATA")
+        col = layout.column(align=True)
+        col.operator("og.spawn_player",     text="Add Player Spawn",  icon="ADD")
+        col.operator("og.spawn_checkpoint", text="Add Checkpoint",    icon="KEYFRAME")
+
+        spawns      = [o for o in scene.objects if o.name.startswith("SPAWN_")      and o.type == "EMPTY"]
+        checkpoints = [o for o in scene.objects if o.name.startswith("CHECKPOINT_") and o.type == "EMPTY"]
+
+        if spawns or checkpoints:
+            layout.separator(factor=0.4)
+            box = layout.box()
+
+            if spawns:
+                box.label(text=f"Player Spawns ({len(spawns)})", icon="ARMATURE_DATA")
+                for o in sorted(spawns, key=lambda x: x.name):
+                    row = box.row(align=True)
+                    row.label(text=o.name, icon="EMPTY_ARROWS")
+                    cam_obj = scene.objects.get(o.name + "_CAM")
+                    if cam_obj:
+                        row.label(text="📷", icon="NONE")
+                    else:
+                        sub = row.row()
+                        sub.alert = True
+                        sub.label(text="no cam", icon="NONE")
+
+            if checkpoints:
+                box.separator(factor=0.3)
+                box.label(text=f"Checkpoints ({len(checkpoints)})", icon="KEYFRAME_HLT")
+                for o in sorted(checkpoints, key=lambda x: x.name):
+                    row = box.row(align=True)
+                    row.label(text=o.name, icon="EMPTY_SINGLE_ARROW")
+                    cam_obj = scene.objects.get(o.name + "_CAM")
+                    if cam_obj:
+                        row.label(text="📷", icon="NONE")
+
+            # ── Camera anchor helper ──────────────────────────────────────────
+            sel = ctx.active_object
+            if sel and sel.type == "EMPTY" and (sel.name.startswith("SPAWN_") or sel.name.startswith("CHECKPOINT_")):
+                cam_exists = bool(scene.objects.get(sel.name + "_CAM"))
+                layout.separator(factor=0.3)
+                if not cam_exists:
+                    layout.operator("og.spawn_cam_anchor", text=f"Add Camera for {sel.name}", icon="CAMERA_DATA")
+                else:
+                    row = layout.row()
+                    row.enabled = False
+                    row.label(text=f"{sel.name}_CAM exists ✓", icon="CHECKMARK")
+
+        # ── Level flow settings ───────────────────────────────────────────────
+        layout.separator(factor=0.5)
+        layout.label(text="Level Settings", icon="SETTINGS")
+
+        col = layout.column(align=True)
+        col.prop(props, "bottom_height",     text="Death Plane (m)")
+        col.prop(props, "vis_nick_override",  text="Vis Nick")
+
+        # Bsphere preview
+        if spawns or checkpoints:
+            all_pts = spawns + checkpoints
+            xs = [o.location.x for o in all_pts]
+            ys = [o.location.z for o in all_pts]
+            zs = [-o.location.y for o in all_pts]
+            cx = sum(xs)/len(xs); cy = sum(ys)/len(ys); cz = sum(zs)/len(zs)
+            r  = max(
+                math.sqrt((o.location.x-cx)**2 + (o.location.z-cy)**2 + (-o.location.y-cz)**2)
+                for o in all_pts
+            ) + 64.0
+            info_row = layout.row()
+            info_row.enabled = False
+            info_row.label(text=f"Bsphere: r≈{r:.0f}m  centre ({cx:.1f}, {cy:.1f}, {cz:.1f})", icon="SPHERE")
 
 
 # ── Place Objects ─────────────────────────────────────────────────────────────
@@ -5166,7 +5432,7 @@ class OG_PT_LevelManager(Panel):
 
 classes = (
     OGPreferences, OGProperties,
-    OG_OT_SpawnPlayer, OG_OT_SpawnEntity,
+    OG_OT_SpawnPlayer, OG_OT_SpawnCheckpoint, OG_OT_SpawnCamAnchor, OG_OT_SpawnEntity,
     OG_OT_SpawnCamera, OG_OT_SpawnCamVolume, OG_OT_SpawnCamAlign, OG_OT_SpawnCamPivot,
     OG_OT_SpawnCamLookAt,
     OG_OT_LinkCamVolume, OG_OT_UnlinkCamVolume,
