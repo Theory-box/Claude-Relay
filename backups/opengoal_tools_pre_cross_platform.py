@@ -1035,40 +1035,31 @@ class OGPreferences(AddonPreferences):
 
     exe_path: StringProperty(
         name="EXE folder",
-        description=(
-            "Folder containing the OpenGOAL executables (gk / gk.exe and goalc / goalc.exe). "
-            "Usually the versioned release folder, e.g. .../opengoal/v0.2.29/"
-        ),
+        description="Folder containing gk.exe and goalc.exe",
         subtype="DIR_PATH",
-        default="",
+        default=r"C:\Users\John\Documents\JakAndDaxter\versions\official\v0.2.29",
     )
     data_path: StringProperty(
         name="Data folder",
-        description=(
-            "Your active jak1 source folder — the one that contains data/goal_src. "
-            "Usually .../jak-project/ or .../active/jak1/"
-        ),
+        description="Folder containing data/goal_src  (usually active/jak1)",
         subtype="DIR_PATH",
-        default="",
+        default=r"C:\Users\John\Documents\JakAndDaxter\active\jak1",
     )
+
     def draw(self, ctx):
-        layout = self.layout
-        layout.label(text="EXE folder — contains gk / goalc executables:")
-        layout.prop(self, "exe_path", text="")
-        layout.label(text="Data folder — contains data/goal_src (e.g. your jak-project folder):")
-        layout.prop(self, "data_path", text="")
+        self.layout.label(text="EXE folder — contains gk.exe and goalc.exe:")
+        self.layout.prop(self, "exe_path", text="")
+        self.layout.label(text="Data folder — contains data/goal_src (e.g. active/jak1):")
+        self.layout.prop(self, "data_path", text="")
 
 # ---------------------------------------------------------------------------
 # PATH HELPERS
 # ---------------------------------------------------------------------------
 
-import sys as _sys
-_EXE = ".exe" if _sys.platform == "win32" else ""   # platform-aware exe extension
-
-GOALC_PORT    = 8181   # runtime default; overridden per-launch from preferences
+GOALC_PORT    = 8182   # 8181 permanently held by 3dxnlserver.exe (3Dconnexion SpaceMouse driver)
 GOALC_TIMEOUT = 120
 
-def _find_free_nrepl_port(start=8181, attempts=10):
+def _find_free_nrepl_port(start=8182, attempts=10):
     """Find a free TCP port for GOALC's nREPL server.
 
     Strategy: try to CONNECT to each port. If connection is refused, nothing
@@ -1106,8 +1097,8 @@ def _data_root():
     p = prefs.preferences.data_path if prefs else ""
     return Path(_strip(p)) if p.strip() else Path(".")
 
-def _gk():         return _exe_root() / f"gk{_EXE}"
-def _goalc():      return _exe_root() / f"goalc{_EXE}"
+def _gk():         return _exe_root() / "gk.exe"
+def _goalc():      return _exe_root() / "goalc.exe"
 def _data():       return _data_root() / "data"
 def _levels_dir(): return _data() / "custom_assets" / "jak1" / "levels"
 def _goal_src():   return _data() / "goal_src" / "jak1"
@@ -2264,11 +2255,11 @@ def _kill_process(exe_name):
         pass
 
 def kill_gk():
-    _kill_process(f"gk{_EXE}")
+    _kill_process("gk.exe")
     time.sleep(0.5)
 
 def kill_goalc():
-    _kill_process(f"goalc{_EXE}")
+    _kill_process("goalc.exe")
     time.sleep(0.5)
     # On Windows, SO_EXCLUSIVEADDRUSE holds port 8181 until the process fully
     # exits. Poll until the port is free so the next launch_goalc() doesn't
@@ -2341,11 +2332,11 @@ def launch_goalc(wait_for_nrepl=False):
     global GOALC_PORT
     exe = _goalc()
     if not exe.exists():
-        return False, f"goalc not found at {exe}"
+        return False, f"goalc.exe not found at {exe}"
     # Caller is responsible for kill_goalc() + port-free wait before calling here.
     # Do NOT kill internally — it would reset the port-free polling the caller did.
-    # Find a free port starting from the user-configured preference.
-    GOALC_PORT = _find_free_nrepl_port()
+    # Find a free port before launching so goalc doesn't show "nREPL: DISABLED".
+    GOALC_PORT = _find_free_nrepl_port(start=8182)  # skip 8181 (3Dconnexion SpaceMouse)
     log(f"[nREPL] launching GOALC on port {GOALC_PORT}")
     try:
         data_dir = str(_data())
@@ -2371,7 +2362,7 @@ def launch_gk():
     exe = _gk()
     if not exe.exists(): return False, f"Not found: {exe}"
     # Kill existing GK — no window stacking
-    if _process_running(f"gk{_EXE}"):
+    if _process_running("gk.exe"):
         log("launch_gk: killing existing GK")
         kill_gk()
     try:
@@ -4757,8 +4748,8 @@ class OG_PT_DevTools(Panel):
         gk_ok = _gk().exists()
         gc_ok = _goalc().exists()
         gp_ok = _game_gp().exists()
-        box.label(text=f"gk{_EXE}:    {'✓ OK' if gk_ok else '✗ NOT FOUND'}", icon="CHECKMARK" if gk_ok else "ERROR")
-        box.label(text=f"goalc{_EXE}: {'✓ OK' if gc_ok else '✗ NOT FOUND'}", icon="CHECKMARK" if gc_ok else "ERROR")
+        box.label(text=f"gk.exe:    {'✓ OK' if gk_ok else '✗ NOT FOUND'}", icon="CHECKMARK" if gk_ok else "ERROR")
+        box.label(text=f"goalc.exe: {'✓ OK' if gc_ok else '✗ NOT FOUND'}", icon="CHECKMARK" if gc_ok else "ERROR")
         box.label(text=f"game.gp:   {'✓ OK' if gp_ok else '✗ NOT FOUND'}", icon="CHECKMARK" if gp_ok else "ERROR")
         box.operator("preferences.addon_show", text="Set EXE / Data Paths", icon="PREFERENCES").module = __name__
 
