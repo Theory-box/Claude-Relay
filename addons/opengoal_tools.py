@@ -2437,8 +2437,19 @@ def collect_spawns(scene):
                    (from linked SPAWN_<uid>_CAM empty, or identity)
       is_checkpoint — True if this is a CHECKPOINT_ empty (auto-assigned mid-level)
     """
+    # R_remap: Blender(x,y,z) → game(x,z,-y), stored as a 3×3 row matrix.
+    # Used to conjugate Blender rotation matrices into game space:
+    #   game_rot = R_remap @ bl_rot @ R_remap^T
+    # Verified: identity Blender empty → identity game quat (x:0 y:0 z:0 w:1).
+    R_remap = mathutils.Matrix(((1,0,0),(0,0,1),(0,-1,0)))
+
     out = []
     for o in sorted(scene.objects, key=lambda o: o.name):
+        # BUG FIX: _CAM anchor empties share the SPAWN_/CHECKPOINT_ prefix.
+        # Skip them here — they are not spawns/checkpoints themselves.
+        if o.name.endswith("_CAM"):
+            continue
+
         is_spawn      = o.name.startswith("SPAWN_")      and o.type == "EMPTY"
         is_checkpoint = o.name.startswith("CHECKPOINT_") and o.type == "EMPTY"
         if not (is_spawn or is_checkpoint):
@@ -2455,22 +2466,12 @@ def collect_spawns(scene):
         gz = round(-l.y, 4)
 
         # ── Facing quaternion ────────────────────────────────────────────────
-        # Blender empty rotation → game-space quaternion.
-        # Convention: empty faces +Y in Blender → game forward is +X.
-        # Remap: bl(x,y,z) → game(x,z,-y).  Conjugate applied (engine reads inverse).
-        m3 = o.matrix_world.to_3x3()
-        bl_fwd = m3.col[1]                                    # Blender +Y local = "forward"
-        gf = mathutils.Vector((bl_fwd.x, bl_fwd.z, -bl_fwd.y))
-        gf.normalize()
-        game_up = mathutils.Vector((0.0, 1.0, 0.0))
-        right = game_up.cross(gf)
-        if right.length < 1e-6:
-            right = mathutils.Vector((1.0, 0.0, 0.0))
-        right.normalize()
-        up = gf.cross(right)
-        up.normalize()
-        gmat = mathutils.Matrix([right, up, gf])
-        gq   = gmat.to_quaternion()
+        # Correct remap: game_rot = R_remap @ bl_rot @ R_remap^T
+        # This ensures an unrotated Blender empty produces identity game quat (w=1).
+        # The engine reads quaternions as the inverse, so we negate x/y/z (conjugate).
+        m3      = o.matrix_world.to_3x3()
+        game_m3 = R_remap @ m3 @ R_remap.transposed()
+        gq      = game_m3.to_quaternion()
         qx   = round(-gq.x, 6)
         qy   = round(-gq.y, 6)
         qz   = round(-gq.z, 6)
@@ -2819,8 +2820,12 @@ def write_gd(name, ags, code_deps, tpages=None):
 def _make_continues(name, spawns):
     """Build the GOAL :continues list for level-load-info.
 
-    Each spawn dict now carries full quat + camera data from collect_spawns.
+    Each spawn dict carries full quat + camera data from collect_spawns.
     Spawns include both SPAWN_ (primary) and CHECKPOINT_ (auto-assigned) empties.
+
+    :vis-nick is intentionally 'none for all custom-level continues.
+    Custom levels have no vis data, so vis?=#f at runtime and this field is never
+    acted upon. Matches the test-zone reference implementation in level-info.gc.
     """
     def cp(sp):
         cr = sp.get("cam_rot", [1,0,0, 0,1,0, 0,0,1])
@@ -2903,7 +2908,7 @@ def patch_level_info(name, spawns, scene=None):
         # Convert to game units (4096 per metre) for the sphere :w value
         bsphere_w = round(r * 4096.0, 1)
         bsphere_str = (f"(new 'static 'sphere"
-                       f" :x (meters {cx:.4f}) :y (meters {cy:.4f}) :z (meters {cz:.4f})"
+                       f" :x {round(cx*4096.0, 1)} :y {round(cy*4096.0, 1)} :z {round(cz*4096.0, 1)}"
                        f" :w {bsphere_w})")
     else:
         bsphere_str = "(new 'static 'sphere :w 167772160000.0)"  # ~40km radius
