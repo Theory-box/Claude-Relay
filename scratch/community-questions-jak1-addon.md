@@ -117,3 +117,22 @@ Set all needed fields via Blender custom properties before export, and accept th
 | Multi-level per blend | One scene = one level | Medium (collection properties) | Medium |
 | JSON preservation | Full regen, manual edits wiped | Low (passthrough block) | Low if Q1 solved |
 
+
+---
+
+## Additional Note from Same Person
+
+> "Also you should definitely change the spawn checkpoint in `mod-settings.gc` if you're using mod-base :p"
+
+This is a tip about mod-base workflow, not a question — but worth documenting.
+
+When using mod-base, the spawn checkpoint is defined in `mod-settings.gc`. If you don't change it, you'll spawn at whatever the default is (likely a vanilla level start point), not your custom level. The addon currently patches `level-info.gc` to register the level and its continue points, but it may not be guiding users to also update `mod-settings.gc` to actually spawn there.
+
+**Things to check:**
+- Does the addon's onboarding / documentation mention `mod-settings.gc` at all?
+- Should the Build & Export flow include a step or reminder to set the spawn checkpoint?
+- Could the addon write or patch `mod-settings.gc` automatically (set spawn to the first continue point of the exported level)?
+- Or at minimum, add a UI reminder in the Build & Play panel: "Don't forget to set your spawn in mod-settings.gc"
+
+**Context:** This is probably catching out new users who follow the export flow, get into the game, and find themselves spawning somewhere completely wrong.
+
