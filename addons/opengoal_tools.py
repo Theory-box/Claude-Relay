@@ -1108,6 +1108,38 @@ def _data_root():
 
 def _gk():         return _exe_root() / f"gk{_EXE}"
 def _goalc():      return _exe_root() / f"goalc{_EXE}"
+
+def _check_paths():
+    """Return an error string if required preferences paths are missing or invalid,
+    or None if everything looks okay. Call this at the top of every operator execute()."""
+    prefs = bpy.context.preferences.addons.get(__name__)
+    if not prefs:
+        return "Addon preferences not found — try disabling and re-enabling the addon."
+    p = prefs.preferences
+    if not p.exe_path.strip():
+        return (
+            "EXE path is not set. "
+            "Go to Edit > Preferences > Add-ons > OpenGOAL Level Tools and set the EXE folder "
+            "(the folder containing gk / goalc)."
+        )
+    if not p.data_path.strip():
+        return (
+            "Data path is not set. "
+            "Go to Edit > Preferences > Add-ons > OpenGOAL Level Tools and set the Data folder "
+            "(your jak-project folder that contains data/goal_src)."
+        )
+    exe_root = Path(_strip(p.exe_path))
+    if not exe_root.exists():
+        return f"EXE folder not found: {exe_root}\nCheck your path in addon preferences."
+    data_root = Path(_strip(p.data_path))
+    if not data_root.exists():
+        return f"Data folder not found: {data_root}\nCheck your path in addon preferences."
+    if not _goalc().exists():
+        return (
+            f"goalc{_EXE} not found in {exe_root}\n"
+            "Make sure the EXE folder points to the OpenGOAL release folder."
+        )
+    return None
 def _data():       return _data_root() / "data"
 def _levels_dir(): return _data() / "custom_assets" / "jak1" / "levels"
 def _goal_src():   return _data() / "goal_src" / "jak1"
@@ -3010,7 +3042,22 @@ def remove_level(name):
     return msgs
 
 
+def _paths_configured():
+    """Return (ok, error_message). Checks both preferences paths are set."""
+    prefs = bpy.context.preferences.addons.get(__name__)
+    if not prefs:
+        return False, "Addon preferences not found — try disabling and re-enabling the addon."
+    p = prefs.preferences
+    if not p.exe_path.strip():
+        return False, "EXE path not set. Go to Edit > Preferences > Add-ons > OpenGOAL Level Tools and set the EXE folder."
+    if not p.data_path.strip():
+        return False, "Data path not set. Go to Edit > Preferences > Add-ons > OpenGOAL Level Tools and set the Data folder."
+    return True, ""
+
 def export_glb(ctx, name):
+    ok, err = _paths_configured()
+    if not ok:
+        raise RuntimeError(err)
     d = _ldir(name); d.mkdir(parents=True, exist_ok=True)
     bpy.ops.export_scene.gltf(
         filepath=str(d / f"{name}.glb"), export_format="GLB",
@@ -3332,6 +3379,9 @@ class OG_OT_ExportBuild(Operator):
         if len(name) > 10:
             self.report({"ERROR"}, f"Level name '{name}' is {len(name)} chars — max is 10. Shorten it in Level Settings.")
             return {"CANCELLED"}
+        path_err = _check_paths()
+        if path_err:
+            self.report({"ERROR"}, path_err); return {"CANCELLED"}
         try:
             export_glb(ctx, name)
         except Exception as e:
@@ -3712,6 +3762,9 @@ class OG_OT_GeoRebuild(Operator):
         if len(name) > 10:
             self.report({"ERROR"}, f"Level name '{name}' is {len(name)} chars — max is 10. Shorten it in Level Settings.")
             return {"CANCELLED"}
+        path_err = _check_paths()
+        if path_err:
+            self.report({"ERROR"}, path_err); return {"CANCELLED"}
         try:
             export_glb(ctx, name)
         except Exception as e:
@@ -3868,6 +3921,9 @@ class OG_OT_ExportBuildPlay(Operator):
         if not name:
             self.report({"ERROR"}, "Enter a level name first")
             return {"CANCELLED"}
+        path_err = _check_paths()
+        if path_err:
+            self.report({"ERROR"}, path_err); return {"CANCELLED"}
         try:
             export_glb(ctx, name)
         except Exception as e:
@@ -4751,6 +4807,13 @@ class OG_PT_BuildPlay(Panel):
 
     def draw(self, ctx):
         layout = self.layout
+        paths_ok, _ = _paths_configured()
+        if not paths_ok:
+            box = layout.box()
+            box.label(text="Paths not set — open preferences", icon="ERROR")
+            box.operator("preferences.addon_show", text="Set EXE / Data Paths", icon="PREFERENCES").module = __name__
+            return
+
         gk_ok  = _gk().exists()
         gc_ok  = _goalc().exists()
         gp_ok  = _game_gp().exists()
