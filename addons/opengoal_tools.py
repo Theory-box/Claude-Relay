@@ -860,6 +860,16 @@ def collect_cameras(scene):
         if fov_deg > 0.0:
             lump["fov"] = ["degrees", round(fov_deg, 2)]
 
+        # Look-at target: export "interesting" lump (bypasses quaternion entirely)
+        look_at_name = cam_obj.get("og_cam_look_at", "").strip()
+        if look_at_name:
+            look_obj = scene.objects.get(look_at_name)
+            if look_obj:
+                lt = look_obj.matrix_world.translation
+                lump["interesting"] = ["vector3m", [round(lt.x,4), round(lt.z,4), round(-lt.y,4)]]
+                log(f"  [camera] {cam_name} look-at -> {look_at_name} game({lump['interesting'][1]})")
+            else:
+                log(f"  [camera] WARNING: look-at object '{look_at_name}' not found in scene")
         if cam_mode == "standoff":
             align_name = cam_name + "_ALIGN"
             align_obj  = scene.objects.get(align_name)
@@ -4059,6 +4069,7 @@ class OG_OT_SpawnCamera(Operator):
         o["og_cam_mode"]   = "fixed"
         o["og_cam_interp"] = 1.0
         o["og_cam_fov"]    = 0.0
+        o["og_cam_look_at"] = ""   # Empty object name to look at (optional)
         self.report({"INFO"}, f"Added {o.name}  |  Numpad-0 to look through it")
         return {"FINISHED"}
 
@@ -4196,6 +4207,31 @@ class OG_OT_SpawnCamPivot(Operator):
         return {"FINISHED"}
 
 
+
+
+class OG_OT_SpawnCamLookAt(Operator):
+    bl_idname = "og.spawn_cam_look_at"
+    bl_label  = "Add Look-At Target"
+    bl_description = (
+        "Add an empty that the camera will always face.\n"
+        "Bypasses quaternion export — just point the camera at a world position.\n"
+        "Place the empty on the object / area you want the camera to look at."
+    )
+    def execute(self, ctx):
+        sel = ctx.active_object
+        if not sel or not sel.name.startswith("CAMERA_") or sel.type != "CAMERA":
+            self.report({"ERROR"}, "Select a CAMERA_N camera first")
+            return {"CANCELLED"}
+        look_name = sel.name + "_LOOKAT"
+        bpy.ops.object.empty_add(type="ARROWS", location=ctx.scene.cursor.location)
+        o = ctx.active_object
+        o.name = look_name
+        o.show_name = True
+        o.empty_display_size = 0.4
+        o.color = (1.0, 0.8, 0.0, 1.0)
+        sel["og_cam_look_at"] = look_name
+        self.report({"INFO"}, f"Added {look_name}  —  move it to where the camera should look")
+        return {"FINISHED"}
 class OG_PT_Camera(Panel):
     bl_label       = "📷  Camera"
     bl_idname      = "OG_PT_camera"
@@ -4323,6 +4359,20 @@ class OG_PT_Camera(Panel):
             box.operator("og.spawn_cam_align", text="Add Player Anchor")
         if mode == "orbit" and not scene.objects.get(cam.name + "_PIVOT"):
             box.operator("og.spawn_cam_pivot", text="Add Orbit Pivot")
+        # Look-at target UI
+        look_at_name = cam.get("og_cam_look_at", "").strip()
+        look_obj = scene.objects.get(look_at_name) if look_at_name else None
+        lbox = layout.box()
+        lrow = lbox.row()
+        if look_obj:
+            lrow.label(text=f"Look at: {look_at_name}", icon="CHECKMARK")
+            lrow2 = lbox.row()
+            op = lrow2.operator("og.set_cam_prop", text="Clear", icon="X")
+            op.cam_name = cam.name; op.prop_name = "og_cam_look_at"; op.str_val = ""
+            lbox.label(text="Camera ignores its rotation — aims at target", icon="INFO")
+        else:
+            lrow.label(text="No Look-At target  (uses camera rotation)", icon="DOT")
+            lbox.operator("og.spawn_cam_look_at", text="Add Look-At Target", icon="PIVOT_CURSOR")
 
     def _draw_volume_props(self, layout, vol, scene):
         """Context panel when a CAMVOL_ mesh is active."""
@@ -4825,6 +4875,7 @@ classes = (
     OGPreferences, OGProperties,
     OG_OT_SpawnPlayer, OG_OT_SpawnEntity,
     OG_OT_SpawnCamera, OG_OT_SpawnCamVolume, OG_OT_SpawnCamAlign, OG_OT_SpawnCamPivot,
+    OG_OT_SpawnCamLookAt,
     OG_OT_LinkCamVolume, OG_OT_UnlinkCamVolume,
     OG_OT_SetCamProp, OG_OT_NudgeCamFloat,
     OG_OT_AddWaypoint, OG_OT_DeleteWaypoint,
