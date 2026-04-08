@@ -47,7 +47,49 @@ Obstacle spheres embedded in the mesh as static blockers.
 ---
 
 ### `nav-node`
-Binary tree nodes used to spatially accelerate poly lookup. The tree is traversed by `recursive-inside-poly`. Leaf nodes store up to ~8 triangle indices (`first-tris` + `last-tris`). Interior nodes have `left-offset` / `right-offset` to children. Used by `find-poly-fast` before falling back to linear scan.
+Binary tree nodes used by `find-poly-fast` → `recursive-inside-poly` to spatially accelerate poly lookup. **Size: 48 bytes** (`#x30`).
+
+**Exact byte layout** (from `decompiler/config/jak1/all-types.gc`):
+```
+offset  0  center-x    (float)     ─┐
+offset  4  center-y    (float)      │ also: center (vector :overlay-at 0)
+offset  8  center-z    (float)      │
+offset 12  type        (uint16)    ─┘ 0=interior, nonzero=leaf
+offset 14  parent-offset (uint16)   byte offset back to parent (unused in recursion)
+offset 16  radius-x    (float)     ─┐
+offset 20  radius-y    (float)      │ also: radius (vector :overlay-at 16)
+offset 24  radius-z    (float)      │ AABB half-extents in mesh-local space
+offset 28  left-offset (uint16)    ─┘ ┐ INTERIOR ONLY: byte offset from nodes[0]
+offset 30  right-offset (uint16)       ┘   to left/right child node
+offset 28  num-tris    (uint32) ─── LEAF ONLY: overlays left+right (count 1-8)
+offset 32  scale-x     (float)     not used by engine, safe to set to 1.0
+offset 36  first-tris  (uint8[4])  leaf poly indices 0-3
+offset 40  scale-z     (float)     interleaved between tris arrays, not used
+offset 44  last-tris   (uint8[4])  leaf poly indices 4-7
+```
+
+**Interior nodes** (`type == 0`): `left-offset` and `right-offset` are byte offsets from the **start of the nodes array** to the left and right child nodes. Compute as `child_array_index * 48`.
+
+**Leaf nodes** (`type != 0`): `num-tris` reads the full 32 bits at offset 28 (overlaying both uint16 offset fields). The engine iterates poly indices via pointer arithmetic that skips `scale-z` at offset 40:
+```
+;; Engine traversal of leaf (simplified):
+(let ((ptr (-> node first-tris)))    ;; starts at offset 36
+  (dotimes (i num-tris)
+    (check-poly (-> ptr 0))
+    (set! ptr (&+ ptr 1))            ;; advance 1 byte per iteration
+    (if (= i 3) (set! ptr (&+ ptr 4)))))  ;; at index 3: skip scale-z (offset 40)
+;; Result: reads offsets 36,37,38,39, skips 40-43, reads 44,45,46,47
+```
+This means `first-tris[0-3]` and `last-tris[0-3]` are the correct indices; `scale-z` is harmlessly skipped.
+
+**BVH traversal** (`recursive-inside-poly`):
+1. Check `point-inside-rect?` on this node's AABB — if point outside, return -1 immediately
+2. If `type == 0` (interior): recurse into left child, then right child
+3. If `type != 0` (leaf): check each stored poly index with `point-inside-poly?`
+
+The `(>= left-offset 0)` guard is effectively a no-op (`uint16` always >= 0). Both children are always visited if the AABB passes. Interior nodes use AABB culling — tightly-fitting AABBs are critical for performance.
+
+**`*default-nav-mesh*`** has **no nodes** (node-count=0, nodes=null). `find-poly-fast` calls `(-> this nodes 0)` unconditionally, which would crash on null. The default mesh is only used as a fallback for entities that can't find a real mesh — enemies on it never pathfind so `find-poly-fast` is never called for them in practice.
 
 ---
 
@@ -85,7 +127,8 @@ A portal between two adjacent triangles, used by the pathfinder. Contains the tw
 ---
 
 ### `nav-mesh` (basic)
-The complete navmesh for an entity/level region:
+The complete navmesh for an entity/level region. **`basic` type** — has a 4-byte type-pointer header prepended. Use `(new 'static 'nav-mesh ...)` in GOAL static init; the compiler sets the type pointer automatically.
+
 ```
 (deftype nav-mesh (basic)
   ((user-list           engine)                    ;; nav-engine: list of nav-controls using this mesh
@@ -110,6 +153,12 @@ The complete navmesh for an entity/level region:
 - Max **255 vertices** (`vertex-count <= 255`)
 
 **Route table:** `route` is a packed 2-bits-per-entry matrix of size `poly-count × poly-count`. Entry `[src][dst]` gives the edge index (0/1/2) to follow from `src` toward `dst`. Value `3` means no route. Built by `update-route-table`.
+
+**Safe to omit in static init** (zero-initialized defaults are correct):
+- `user-list` — set separately after static init by your engine init code
+- `poly-lookup-history`, `debug-time` — internal counters, safe as 0
+- `static-sphere-count` / `static-sphere` — 0 = no static obstacle spheres
+- `cache` — 4-entry LRU, all zeros = all cache misses, falls through to BVH lookup correctly
 
 ---
 
@@ -253,6 +302,8 @@ All movement tuning is in a `nav-enemy-info` struct (a `basic`). Each enemy type
    (shadow-size               meters)
    (notice-nav-radius         meters)          ;; radius used in is-in-mesh? to verify player is on same mesh
    (nav-nearest-y-threshold   meters)          ;; max Y snap to mesh (passed to nav-control constructor)
+                                               ;; CONFIRMED: ALL Jak 1 nav-enemies use (meters 10) = 10m
+                                               ;; Only bonelurker uses (meters 5). green-eco-lurker uses (meters 400).
    (notice-distance           meters)          ;; distance at which enemy notices player
    (proximity-notice-distance meters)          ;; distance for touch-notice (bypasses line-of-sight check)
    (stop-chase-distance       meters)          ;; if player goes beyond this, give up chase
@@ -581,5 +632,109 @@ Poly color coding in debug draw:
 
 9. **NaN guard in nav-control-method-28** — OG added an explicit NaN check for enemies with invalid positions (occurs during spawn/despawn). If implementing sphere gathering, always check for NaN.
 
-10. **`*default-nav-mesh*`** is a tiny 2-triangle fallback mesh at y=-200704. If an entity ends up on this, it means `nav-mesh-connect` failed to find a real mesh. Check res-lump `'nav-mesh-actor` linkage.
+10. **`*default-nav-mesh*`** is a tiny 2-triangle fallback mesh at y=-200704 with **no nodes array**. If an entity ends up on this, `nav-mesh-connect` failed. Check res-lump `'nav-mesh-actor` linkage. Enemies on this mesh never pathfind.
 
+11. **`(>= left-offset 0)` guard is a no-op.** `left-offset` is `uint16` — always >= 0. The engine relies entirely on AABB culling (`point-inside-rect?`) to prune the tree, not a null-sentinel check. Interior nodes always recurse into both children if AABB passes.
+
+12. **nav-nearest-y-threshold: all enemies use 10m.** Confirmed across all Jak 1 nav-enemies. Exceptions: bonelurker (5m), green-eco-lurker (400m). The `res-lump 'nearest-y-threshold` override lets you tune per-actor without modifying enemy source.
+
+13. **Non-manifold edges** (3+ polys sharing one edge) are treated as boundaries (`adj=0xFF`). The enemy can't cross those edges. Valid user error — keep meshes manifold.
+
+14. **`find-poly-fast` always calls `(-> this nodes 0)`** regardless of `node-count`. If `nodes` is null/empty, this will crash. Always provide at least 1 node. The default-nav-mesh sidesteps this by having enemies that use it never reach `find-poly-fast` in practice.
+
+---
+
+## 15. Static Navmesh in GAME.CGO — Injection Pattern
+
+When injecting a navmesh via `entity.gc`, the mesh is allocated as `'static` inside GAME.CGO. This creates important constraints:
+
+### Memory lifetime
+- `'static` data in a `defun`/`defmethod` lives in the **GAME.CGO binary segment** — loaded once at game start, never freed.
+- The **level heap** (where `entity-actor` objects and the nav-engine live) is freed on level unload.
+- The static nav-mesh struct **persists across level unloads/reloads**.
+
+### Do NOT call `entity-nav-login` or `update-route-table`
+`update-route-table` writes into the route array to patch it. Static data in GAME.CGO is **read-only after load**. Writing to it causes a segfault. Skip it entirely.
+
+### Do NOT use `(zero? user-list)` as a guard
+On level reload, the entity-actors are recreated fresh from BSP data. The static nav-mesh struct retains its old `user-list` value — a non-zero **dangling pointer** into the freed level heap. Testing `(zero? user-list)` gives false, so the re-allocation is skipped, leaving the engine pointer pointing into freed memory → **crash on second visit to the level**.
+
+**Always allocate unconditionally:**
+```scheme
+;; CORRECT — always allocate, even if user-list appears non-zero:
+(when (nonzero? (-> this nav-mesh))
+  (set! (-> (-> this nav-mesh) user-list)
+        (new 'loading-level 'engine 'nav-engine
+          (res-lump-value this 'nav-max-users int :default (the-as uint128 32)))))
+```
+
+This is safe because `birth!` is called exactly once per entity per level load. The old dangling pointer is simply overwritten.
+
+### Shared meshes across multiple actors
+Multiple entity-actors can point to the same static nav-mesh. All use the same `user-list` engine. The first actor to birth allocates the engine. This is correct and matches `entity-nav-login`'s own pattern. The nav-engine's alive-list contains all actors using the mesh, enabling mutual obstacle avoidance.
+
+### Complete injection pattern
+```scheme
+;; Place this defun BEFORE the (defmethod birth! ...) in entity.gc:
+(defun custom-nav-mesh-check-and-setup ((this entity-actor))
+  (case (-> this aid)
+    ((10001)    ;; actor AID for enemy 1
+      (set! (-> this nav-mesh)
+        (new 'static 'nav-mesh
+          :bounds (new 'static 'sphere :x (meters OX) :y (meters OY) :z (meters OZ) :w (meters RADIUS))
+          :origin (new 'static 'vector :x (meters OX) :y (meters OY) :z (meters OZ) :w 1.0)
+          :node-count N-NODES
+          :nodes (new 'static 'inline-array nav-node N-NODES
+            ;; ... node data ...
+          )
+          :vertex-count N-VERTS
+          :vertex (new 'static 'inline-array nav-vertex N-VERTS
+            ;; ... vertex data ...
+          )
+          :poly-count N-POLYS
+          :poly (new 'static 'inline-array nav-poly N-POLYS
+            ;; ... poly data ...
+          )
+          :route (new 'static 'inline-array vector4ub N-ROUTE
+            ;; ... route table ...
+          )
+        )
+      )
+    )
+    ;; ... additional AIDs ...
+  )
+  ;; Always allocate fresh — DO NOT guard with (zero? user-list)
+  (when (nonzero? (-> this nav-mesh))
+    (set! (-> (-> this nav-mesh) user-list)
+          (new 'loading-level 'engine 'nav-engine
+            (res-lump-value this 'nav-max-users int :default (the-as uint128 32)))))
+  (none))
+
+;; Call it at the START of birth! body:
+;;   (custom-nav-mesh-check-and-setup this)
+;;   (let* ((entity-type ...) ...)  ;; original birth! code
+```
+
+---
+
+## 16. Route Table — Verified Bit-Packing
+
+The route table packs `poly-count² × 2-bit` entries into bytes. Verified round-trip against the engine's exact read formula.
+
+**Pack (Python):**
+```python
+bit_idx  = (from_poly * poly_count + to_poly) * 2
+byte_idx = bit_idx // 8
+bit_off  = bit_idx % 8
+route_bytes[byte_idx] |= (next_edge_index & 3) << bit_off
+```
+
+**Engine read** (from `nav-mesh-lookup-route`):
+```scheme
+(let ((v1-3 (* (+ from-id (* to-id poly-count)) 2)))
+  (logand (ash (-> route-bytes (/ v1-3 8)) (- (logand v1-3 7))) 3))
+```
+
+Note: engine uses `(frm + to*N)*2` while our Python uses `(frm*N + to)*2` — these are **transposed**. Both work as long as you're consistent in how you build and read the table. The addon builds with `(frm*N + to)` and the `setup-portal` / `get-adj-poly` methods read using `(from-id + to-id*N)` order. Verify these match when debugging pathfinding issues.
+
+---
