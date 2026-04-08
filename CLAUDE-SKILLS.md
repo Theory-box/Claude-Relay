@@ -132,7 +132,8 @@ git checkout feature/X && git pull && git merge main
 - `feature/*`     → `addons/opengoal_tools.py` is the working file. Edit freely.
 - `scratch/`      → still available for throwaway experiments or multi-step WIP.
 - `knowledge-base/` → PROTECTED on all branches. Propose changes in chat, wait for approval.
-- `session-notes/`  → free to update on any branch.
+- `knowledge-base/` → **ALWAYS lives on main.** After writing or updating any knowledge doc on a feature branch, immediately cherry-pick or copy it to main and push. Knowledge docs must never stay branch-only.
+- `session-notes/`  → stays on its feature branch. Never pushed to main.
 
 **Merging to main:**
 Only when the user explicitly says "merge to main", or after you ask and are given permission.
@@ -151,7 +152,9 @@ git checkout feature/X   # return to working branch after
 - `knowledge-base/` files are NEVER overwritten without explicit user approval
 - If an improvement is identified, propose the change in chat first and wait for approval
 - If approved, push the update and note what changed in the commit message
-- `session-notes/` and `scratch/` can be written freely without approval
+- **knowledge-base/ always lives on main** — after any approved write, immediately push the file to main (cherry-pick the commit, or copy + commit directly on main). Knowledge docs must not stay branch-only.
+- `session-notes/` stays on its feature branch and is never pushed to main
+- `scratch/` can be written freely without approval
 - When in doubt, write to `scratch/` as a draft and ask the user to review
 
 ---
