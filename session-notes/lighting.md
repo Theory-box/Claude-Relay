@@ -1,6 +1,54 @@
 # Lighting Research Session Notes
 
-## Status: Research COMPLETE — ready for implementation
+## Status: Research COMPLETE — Addon implementation COMPLETE — ready for testing
+
+## Branch: feature/lighting
+
+## Completed This Session
+- Full source read of all lighting-related .gc files in jak-project
+- Created `knowledge-base/opengoal/lighting-system.md` — comprehensive doc (now on main)
+- Implemented all lighting addon features (see below)
+- Two full bug-audit passes
+
+## Addon Changes (addons/opengoal_tools.py)
+### New properties on OGProperties
+- `mood` — EnumProperty, 21 presets, default=village1
+- `sky` — BoolProperty, default=True
+- `sun_fade` — FloatProperty 0.0–1.0, default=1.0
+- `tod_slot` — EnumProperty, 8 ToD slots (_SUNRISE→_GREENSUN), default=_NOON
+
+### New data
+- `MOOD_ITEMS` — 21 mood presets with descriptions
+- `MOOD_FUNC_OVERRIDES` — handles beach→update-mood-village1 mismatch
+- `TOD_SLOTS` — ordered list matching tod_slot enum
+
+### New operators
+- `OG_OT_BakeToDSlot` — bake current lighting into selected ToD slot
+- `OG_OT_BakeAllToDSlots` — bake all 8 slots with same lighting, resets active to _NOON
+
+### Modified
+- `patch_level_info` — now reads mood/sky/sun_fade from scene props
+- `export_glb` — adds export_attributes=True on Blender >=3.4
+- `OG_PT_LevelSettings` — new Lighting box with mood/sky/sun_fade
+- `OG_PT_LightBaking` — ToD slot picker + bake operators, warning labels
+- `OG_OT_BakeLighting` — fixed active_object restoration (was targets[0], now prev_active)
+
+## Bugs Found and Fixed (audit passes)
+1. beach mood → update-mood-beach (doesn't exist) → fixed via MOOD_FUNC_OVERRIDES
+2. sun_fade :g format → '1' not '1.0' (GOAL needs float literal) → fixed with :.1f for integers
+3. export_attributes TypeError on Blender <3.4 → guarded with version check + log warning
+4. Active object not restored after bake (all 3 operators) → save/restore prev_active
+5. Unused prev_device variable in original BakeLighting → removed
+6. BakeAllToDSlots left active_color on _GREENSUN → resets to _NOON after completion
+7. Bake button showed raw '_NOON' id → now shows display name 'Noon'
+8. BakeAll had no UI warning about identical lighting → added ERROR icon warning row
+
+## Next Steps
+- [ ] Test in actual Blender — install addon on feature/lighting branch
+- [ ] Verify mood dropdown correctly writes GOAL on export
+- [ ] Bake a test level with 2–3 ToD slots and confirm export includes _SUNRISE etc.
+- [ ] Test beach mood generates correct :mood-func 'update-mood-village1
+- [ ] Custom mood tables — still requires manual GOAL if needed beyond presets
 
 ## Branch: feature/lighting
 
