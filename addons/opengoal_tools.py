@@ -4688,18 +4688,20 @@ class OG_OT_NudgeFloatProp(Operator):
     bl_options  = {"REGISTER", "UNDO"}
     prop_name: bpy.props.StringProperty()
     delta:     bpy.props.FloatProperty()
+    val_min:   bpy.props.FloatProperty(default=-1e9)
+    val_max:   bpy.props.FloatProperty(default=1e9)
     def execute(self, ctx):
         o = ctx.active_object
         if o:
             current = float(o.get(self.prop_name, 0.0))
-            o[self.prop_name] = round(current + self.delta, 4)
+            o[self.prop_name] = round(max(self.val_min, min(self.val_max, current + self.delta)), 4)
         return {"FINISHED"}
 
 
 # ── Platform ──────────────────────────────────────────────────────────────────
 
 
-class OG_OT_SetPlatformDefaults(bpy.types.Operator):
+class OG_OT_SetPlatformDefaults(Operator):
     """Set default sync values on the selected platform actor"""
     bl_idname = "og.set_platform_defaults"
     bl_label  = "Reset Sync Defaults"
@@ -4764,39 +4766,39 @@ class OG_PT_Platform(Panel):
             row.label(text="Period (s):")
             period = float(sel.get("og_sync_period", 4.0))
             op_m = row.operator("og.nudge_float_prop", text="-0.5", icon="REMOVE")
-            op_m.prop_name = "og_sync_period"; op_m.delta = -0.5
+            op_m.prop_name = "og_sync_period"; op_m.delta = -0.5; op_m.val_min = 0.5
             row.label(text=f"{period:.1f}s")
             op_p = row.operator("og.nudge_float_prop", text="+0.5", icon="ADD")
-            op_p.prop_name = "og_sync_period"; op_p.delta = 0.5
+            op_p.prop_name = "og_sync_period"; op_p.delta = 0.5; op_p.val_max = 300.0
 
             # Phase
             row2 = col.row(align=True)
             row2.label(text="Phase (0–1):")
             phase = float(sel.get("og_sync_phase", 0.0))
             op_m2 = row2.operator("og.nudge_float_prop", text="-0.1", icon="REMOVE")
-            op_m2.prop_name = "og_sync_phase"; op_m2.delta = -0.1
+            op_m2.prop_name = "og_sync_phase"; op_m2.delta = -0.1; op_m2.val_min = 0.0
             row2.label(text=f"{phase:.2f}")
             op_p2 = row2.operator("og.nudge_float_prop", text="+0.1", icon="ADD")
-            op_p2.prop_name = "og_sync_phase"; op_p2.delta = 0.1
+            op_p2.prop_name = "og_sync_phase"; op_p2.delta = 0.1; op_p2.val_max = 0.9
 
             # Ease out / Ease in
             row3 = col.row(align=True)
             row3.label(text="Ease Out:")
             ease_out = float(sel.get("og_sync_ease_out", 0.15))
             op_mo = row3.operator("og.nudge_float_prop", text="-0.05", icon="REMOVE")
-            op_mo.prop_name = "og_sync_ease_out"; op_mo.delta = -0.05
+            op_mo.prop_name = "og_sync_ease_out"; op_mo.delta = -0.05; op_mo.val_min = 0.0
             row3.label(text=f"{ease_out:.2f}")
             op_po = row3.operator("og.nudge_float_prop", text="+0.05", icon="ADD")
-            op_po.prop_name = "og_sync_ease_out"; op_po.delta = 0.05
+            op_po.prop_name = "og_sync_ease_out"; op_po.delta = 0.05; op_po.val_max = 0.5
 
             row4 = col.row(align=True)
             row4.label(text="Ease In:")
             ease_in = float(sel.get("og_sync_ease_in", 0.15))
             op_mi = row4.operator("og.nudge_float_prop", text="-0.05", icon="REMOVE")
-            op_mi.prop_name = "og_sync_ease_in"; op_mi.delta = -0.05
+            op_mi.prop_name = "og_sync_ease_in"; op_mi.delta = -0.05; op_mi.val_min = 0.0
             row4.label(text=f"{ease_in:.2f}")
             op_pi = row4.operator("og.nudge_float_prop", text="+0.05", icon="ADD")
-            op_pi.prop_name = "og_sync_ease_in"; op_pi.delta = 0.05
+            op_pi.prop_name = "og_sync_ease_in"; op_pi.delta = 0.05; op_pi.val_max = 0.5
 
             # Wrap phase toggle
             wrap = bool(sel.get("og_sync_wrap", 0))
@@ -4829,21 +4831,25 @@ class OG_PT_Platform(Panel):
             box3.label(text="Eco Notice Distance", icon="RADIOBUT_ON")
             notice = float(sel.get("og_notice_dist", -1.0))
             row_n = box3.row(align=True)
+            # -5m: if currently always-active (-1), jump to 0 (disable always-active)
             op_nm = row_n.operator("og.nudge_float_prop", text="-5m", icon="REMOVE")
-            op_nm.prop_name = "og_notice_dist"; op_nm.delta = -5.0
+            op_nm.prop_name = "og_notice_dist"; op_nm.delta = -5.0; op_nm.val_min = 0.0
             if notice < 0:
-                row_n.label(text="Always active")
+                row_n.label(text="∞ (always active)")
             else:
                 row_n.label(text=f"{notice:.0f}m")
             op_np = row_n.operator("og.nudge_float_prop", text="+5m", icon="ADD")
-            op_np.prop_name = "og_notice_dist"; op_np.delta = 5.0
+            op_np.prop_name = "og_notice_dist"; op_np.delta = 5.0; op_np.val_max = 500.0
+            # Toggle always-active
+            toggle_row = box3.row()
             if notice < 0:
-                box3.label(text="Platform moves regardless of eco", icon="INFO")
+                toggle_row.label(text="Moves without eco — click +5m to set range", icon="INFO")
             else:
-                box3.label(text="Player needs blue eco within range", icon="INFO")
+                op_always = toggle_row.operator("og.nudge_float_prop", text="Set Always Active", icon="RADIOBUT_ON")
+                op_always.prop_name = "og_notice_dist"; op_always.delta = -999.0; op_always.val_min = -1.0
 
 
-class OG_OT_TogglePlatformWrap(bpy.types.Operator):
+class OG_OT_TogglePlatformWrap(Operator):
     """Toggle wrap-phase (loop vs ping-pong) on selected platform"""
     bl_idname = "og.toggle_platform_wrap"
     bl_label  = "Toggle Wrap Phase"
