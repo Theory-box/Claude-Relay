@@ -150,19 +150,22 @@ ENTITY_DEFS = {
     "eco-blue":         {"label":"Blue Eco Vent",        "cat":"Pickups",   "ag":None,                      "nav_safe":True,  "color":(0.2,0.4,1.0,1.0), "shape":"PLAIN_AXES"},
     "eco-green":        {"label":"Green Eco Vent",       "cat":"Pickups",   "ag":None,                      "nav_safe":True,  "color":(0.1,0.9,0.2,1.0), "shape":"PLAIN_AXES"},
     # ---- PLATFORMS ----
-    "plat":             {"label":"Floating Platform",    "cat":"Platforms", "ag":"plat-ag.go",              "nav_safe":True,  "color":(0.5,0.5,0.8,1.0), "shape":"CUBE"},
-    "plat-eco":         {"label":"Eco Platform",         "cat":"Platforms", "ag":"plat-eco-ag.go",          "nav_safe":True,  "color":(0.3,0.7,0.9,1.0), "shape":"CUBE"},
-    "plat-button":      {"label":"Button Platform",      "cat":"Platforms", "ag":"plat-button-ag.go",       "nav_safe":True,  "color":(0.6,0.6,0.7,1.0), "shape":"CUBE"},
-    "plat-flip":        {"label":"Flip Platform",        "cat":"Platforms", "ag":"plat-flip-ag.go",         "nav_safe":True,  "color":(0.5,0.5,0.7,1.0), "shape":"CUBE"},
-    "wall-plat":        {"label":"Wall Platform",        "cat":"Platforms", "ag":"wall-plat-ag.go",         "nav_safe":True,  "color":(0.4,0.5,0.7,1.0), "shape":"CUBE"},
-    "balance-plat":     {"label":"Balance Platform",     "cat":"Platforms", "ag":"balance-plat-ag.go",      "nav_safe":True,  "color":(0.5,0.6,0.8,1.0), "shape":"CUBE"},
-    "teetertotter":     {"label":"Teeter Totter",        "cat":"Platforms", "ag":"teetertotter-ag.go",      "nav_safe":True,  "color":(0.6,0.5,0.4,1.0), "shape":"CUBE"},
-    "side-to-side-plat":{"label":"Side-to-Side Plat",   "cat":"Platforms", "ag":"side-to-side-plat-ag.go", "nav_safe":True,  "color":(0.4,0.5,0.8,1.0), "shape":"CUBE"},
-    "wedge-plat":       {"label":"Wedge Platform",       "cat":"Platforms", "ag":"wedge-plat-ag.go",        "nav_safe":True,  "color":(0.5,0.5,0.7,1.0), "shape":"CUBE"},
-    "tar-plat":         {"label":"Tar Platform",         "cat":"Platforms", "ag":"tar-plat-ag.go",          "nav_safe":True,  "color":(0.2,0.2,0.2,1.0), "shape":"CUBE"},
-    "revcycle":         {"label":"Rotating Platform",    "cat":"Platforms", "ag":"revcycle-ag.go",          "nav_safe":True,  "color":(0.6,0.4,0.6,1.0), "shape":"CUBE"},
-    "launcher":         {"label":"Launcher",             "cat":"Platforms", "ag":"floating-launcher-ag.go", "nav_safe":True,  "color":(0.9,0.6,0.1,1.0), "shape":"CONE"},
-    "warpgate":         {"label":"Warp Gate",            "cat":"Platforms", "ag":"warpgate-ag.go",          "nav_safe":True,  "color":(0.3,0.8,0.9,1.0), "shape":"CIRCLE"},
+    # needs_sync : True = platform reads 'sync' res lump (period/phase/easing) for path movement
+    # needs_path : True = platform reads 'path' res lump (waypoints drive movement)
+    # needs_notice_dist: True = platform reads 'notice-dist' lump (plat-eco activation range)
+    "plat":             {"label":"Floating Platform",    "cat":"Platforms", "ag":"plat-ag.go",              "nav_safe":True,  "needs_path":False, "needs_sync":True,  "needs_notice_dist":False, "color":(0.5,0.5,0.8,1.0), "shape":"CUBE"},
+    "plat-eco":         {"label":"Eco Platform",         "cat":"Platforms", "ag":"plat-eco-ag.go",          "nav_safe":True,  "needs_path":False, "needs_sync":True,  "needs_notice_dist":True,  "color":(0.3,0.7,0.9,1.0), "shape":"CUBE"},
+    "plat-button":      {"label":"Button Platform",      "cat":"Platforms", "ag":"plat-button-ag.go",       "nav_safe":True,  "needs_path":True,  "needs_sync":False, "needs_notice_dist":False, "color":(0.6,0.6,0.7,1.0), "shape":"CUBE"},
+    "plat-flip":        {"label":"Flip Platform",        "cat":"Platforms", "ag":"plat-flip-ag.go",         "nav_safe":True,  "needs_path":False, "needs_sync":False, "needs_notice_dist":False, "color":(0.5,0.5,0.7,1.0), "shape":"CUBE"},
+    "wall-plat":        {"label":"Wall Platform",        "cat":"Platforms", "ag":"wall-plat-ag.go",         "nav_safe":True,  "needs_path":False, "needs_sync":False, "needs_notice_dist":False, "color":(0.4,0.5,0.7,1.0), "shape":"CUBE"},
+    "balance-plat":     {"label":"Balance Platform",     "cat":"Platforms", "ag":"balance-plat-ag.go",      "nav_safe":True,  "needs_path":False, "needs_sync":False, "needs_notice_dist":False, "color":(0.5,0.6,0.8,1.0), "shape":"CUBE"},
+    "teetertotter":     {"label":"Teeter Totter",        "cat":"Platforms", "ag":"teetertotter-ag.go",      "nav_safe":True,  "needs_path":False, "needs_sync":False, "needs_notice_dist":False, "color":(0.6,0.5,0.4,1.0), "shape":"CUBE"},
+    "side-to-side-plat":{"label":"Side-to-Side Plat",   "cat":"Platforms", "ag":"side-to-side-plat-ag.go", "nav_safe":True,  "needs_path":False, "needs_sync":True,  "needs_notice_dist":False, "color":(0.4,0.5,0.8,1.0), "shape":"CUBE"},
+    "wedge-plat":       {"label":"Wedge Platform",       "cat":"Platforms", "ag":"wedge-plat-ag.go",        "nav_safe":True,  "needs_path":False, "needs_sync":False, "needs_notice_dist":False, "color":(0.5,0.5,0.7,1.0), "shape":"CUBE"},
+    "tar-plat":         {"label":"Tar Platform",         "cat":"Platforms", "ag":"tar-plat-ag.go",          "nav_safe":True,  "needs_path":False, "needs_sync":False, "needs_notice_dist":False, "color":(0.2,0.2,0.2,1.0), "shape":"CUBE"},
+    "revcycle":         {"label":"Rotating Platform",    "cat":"Platforms", "ag":"revcycle-ag.go",          "nav_safe":True,  "needs_path":False, "needs_sync":False, "needs_notice_dist":False, "color":(0.6,0.4,0.6,1.0), "shape":"CUBE"},
+    "launcher":         {"label":"Launcher",             "cat":"Platforms", "ag":"floating-launcher-ag.go", "nav_safe":True,  "needs_path":False, "needs_sync":False, "needs_notice_dist":False, "color":(0.9,0.6,0.1,1.0), "shape":"CONE"},
+    "warpgate":         {"label":"Warp Gate",            "cat":"Platforms", "ag":"warpgate-ag.go",          "nav_safe":True,  "needs_path":False, "needs_sync":False, "needs_notice_dist":False, "color":(0.3,0.8,0.9,1.0), "shape":"CIRCLE"},
     # ---- OBJECTS / INTERACTABLES ----
     "cavecrystal":      {"label":"Cave Crystal",         "cat":"Objects",   "ag":"cavecrystal-ag.go",       "nav_safe":True,  "color":(0.7,0.4,0.9,1.0), "shape":"SPHERE"},
     "cavegem":          {"label":"Cave Gem",             "cat":"Objects",   "ag":"cavegem-ag.go",           "nav_safe":True,  "color":(0.8,0.2,0.8,1.0), "shape":"SPHERE"},
@@ -2520,6 +2523,51 @@ def collect_actors(scene):
             else:
                 log(f"  [WARNING] {o.name} (swamp-bat) needs 'pathb' waypoints (_wpb_00, _wpb_01 ...) — will error at runtime!")
 
+        # ── Platform: sync lump ───────────────────────────────────────────────
+        # plat / plat-eco / side-to-side-plat use a 'sync' res lump to control
+        # path timing.  Format: [period_s, phase, ease_out, ease_in]
+        # If the platform has waypoints (path), always write sync.
+        # If no waypoints, sync is ignored by the engine (platform stays idle).
+        if einfo.get("needs_sync"):
+            period    = float(o.get("og_sync_period",   4.0))
+            phase     = float(o.get("og_sync_phase",    0.0))
+            ease_out  = float(o.get("og_sync_ease_out", 0.15))
+            ease_in   = float(o.get("og_sync_ease_in",  0.15))
+            if path_pts:
+                # Only emit sync when there's a path to follow
+                lump["sync"] = ["float", period, phase, ease_out, ease_in]
+                wrap = bool(o.get("og_sync_wrap", False))
+                if wrap:
+                    # fact-options wrap-phase: set bit 0 on fact-options lump
+                    lump["fact-options"] = ["uint32", 1]
+                log(f"  [sync] {o.name}  period={period}s  phase={phase}  ease={ease_out}/{ease_in}  wrap={wrap}")
+            else:
+                log(f"  [sync-platform] {o.name}  no waypoints — will spawn idle (add waypoints to make it move)")
+
+        # ── Platform: path lump (plat-button uses path, not sync) ────────────
+        # plat-button follows a path when pressed. Requires ≥2 waypoints.
+        if einfo.get("needs_path") and einfo.get("cat") == "Platforms":
+            if path_pts:
+                lump["path"] = ["vector4m"] + path_pts
+                log(f"  [plat-path] {o.name}  {len(path_pts)} points")
+            else:
+                log(f"  [WARNING] {o.name} (plat-button) needs ≥2 waypoints or it will not move!")
+
+        # ── Platform: sync path (plat / plat-eco need path lump too) ─────────
+        # When a sync platform has waypoints, also emit the path lump so the
+        # engine can evaluate the curve.
+        if einfo.get("needs_sync") and path_pts and "path" not in lump:
+            lump["path"] = ["vector4m"] + path_pts
+            log(f"  [sync-path] {o.name}  {len(path_pts)} points")
+
+        # ── Platform: notice-dist (plat-eco) ─────────────────────────────────
+        # Controls how close Jak must be before the platform notices blue eco.
+        # Default -1.0 = always active (never needs eco to activate).
+        if einfo.get("needs_notice_dist"):
+            notice = float(o.get("og_notice_dist", -1.0))
+            lump["notice-dist"] = ["meters", notice]
+            log(f"  [notice-dist] {o.name}  {notice}m  ({'always active' if notice < 0 else 'eco required'})")
+
         # Bsphere radius controls vis-culling distance.  nav-enemy run-logic?
         # only processes AI/collision events when draw-status was-drawn is set,
         # which requires the bsphere to pass the renderer's cull test.
@@ -3910,9 +3958,15 @@ class OG_OT_ExportBuildPlay(Operator):
 def _actor_uses_waypoints(etype):
     """True if this entity type can use waypoints (path lump or nav patrol)."""
     info = ENTITY_DEFS.get(etype, {})
-    return (not info.get("nav_safe", True)   # nav-enemy — optional patrol path
+    return (not info.get("nav_safe", True)    # nav-enemy — optional patrol path
             or info.get("needs_path", False)  # process-drawable that requires path
-            or info.get("needs_pathb", False))
+            or info.get("needs_pathb", False)
+            or info.get("needs_sync", False))  # sync platform — path drives movement
+
+
+def _actor_is_platform(etype):
+    """True if this entity is in the Platforms category."""
+    return ENTITY_DEFS.get(etype, {}).get("cat") == "Platforms"
 
 
 def _actor_uses_navmesh(etype):
@@ -4624,6 +4678,167 @@ class OG_OT_NudgeCamFloat(Operator):
         return {"FINISHED"}
 
 
+# ── Platform ──────────────────────────────────────────────────────────────────
+
+
+class OG_OT_SetPlatformDefaults(bpy.types.Operator):
+    """Set default sync values on the selected platform actor"""
+    bl_idname = "og.set_platform_defaults"
+    bl_label  = "Reset Sync Defaults"
+
+    def execute(self, ctx):
+        o = ctx.active_object
+        if not o:
+            return {"CANCELLED"}
+        o["og_sync_period"]   = 4.0
+        o["og_sync_phase"]    = 0.0
+        o["og_sync_ease_out"] = 0.15
+        o["og_sync_ease_in"]  = 0.15
+        o["og_sync_wrap"]     = 0
+        return {"FINISHED"}
+
+
+class OG_PT_Platform(Panel):
+    bl_label       = "🟦  Platform"
+    bl_idname      = "OG_PT_platform"
+    bl_space_type  = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category    = "OpenGOAL"
+    bl_options     = {"DEFAULT_CLOSED"}
+
+    @classmethod
+    def poll(cls, ctx):
+        sel = ctx.active_object
+        if not sel or not sel.name.startswith("ACTOR_") or "_wp_" in sel.name:
+            return False
+        parts = sel.name.split("_", 2)
+        if len(parts) < 3:
+            return False
+        return _actor_is_platform(parts[1])
+
+    def draw(self, ctx):
+        layout = self.layout
+        sel    = ctx.active_object
+        etype  = sel.name.split("_", 2)[1]
+        einfo  = ENTITY_DEFS.get(etype, {})
+
+        layout.label(text=einfo.get("label", etype), icon="CUBE")
+
+        # ── Sync controls (plat, plat-eco, side-to-side-plat) ────────────────
+        if einfo.get("needs_sync"):
+            box = layout.box()
+            box.label(text="Sync (Path Timing)", icon="TIME")
+
+            # Count waypoints to show movement status
+            wp_prefix = sel.name + "_wp_"
+            wp_count = sum(1 for o in bpy.data.objects
+                           if o.name.startswith(wp_prefix) and o.type == "EMPTY")
+
+            if wp_count < 2:
+                box.label(text=f"⚠ Add ≥2 waypoints to enable movement", icon="INFO")
+            else:
+                box.label(text=f"✓ {wp_count} waypoints — platform will move", icon="CHECKMARK")
+
+            col = box.column(align=True)
+
+            # Period
+            row = col.row(align=True)
+            row.label(text="Period (s):")
+            period = float(sel.get("og_sync_period", 4.0))
+            op_m = row.operator("og.nudge_float_prop", text="-0.5", icon="REMOVE")
+            op_m.prop_name = "og_sync_period"; op_m.delta = -0.5
+            row.label(text=f"{period:.1f}s")
+            op_p = row.operator("og.nudge_float_prop", text="+0.5", icon="ADD")
+            op_p.prop_name = "og_sync_period"; op_p.delta = 0.5
+
+            # Phase
+            row2 = col.row(align=True)
+            row2.label(text="Phase (0–1):")
+            phase = float(sel.get("og_sync_phase", 0.0))
+            op_m2 = row2.operator("og.nudge_float_prop", text="-0.1", icon="REMOVE")
+            op_m2.prop_name = "og_sync_phase"; op_m2.delta = -0.1
+            row2.label(text=f"{phase:.2f}")
+            op_p2 = row2.operator("og.nudge_float_prop", text="+0.1", icon="ADD")
+            op_p2.prop_name = "og_sync_phase"; op_p2.delta = 0.1
+
+            # Ease out / Ease in
+            row3 = col.row(align=True)
+            row3.label(text="Ease Out:")
+            ease_out = float(sel.get("og_sync_ease_out", 0.15))
+            op_mo = row3.operator("og.nudge_float_prop", text="-0.05", icon="REMOVE")
+            op_mo.prop_name = "og_sync_ease_out"; op_mo.delta = -0.05
+            row3.label(text=f"{ease_out:.2f}")
+            op_po = row3.operator("og.nudge_float_prop", text="+0.05", icon="ADD")
+            op_po.prop_name = "og_sync_ease_out"; op_po.delta = 0.05
+
+            row4 = col.row(align=True)
+            row4.label(text="Ease In:")
+            ease_in = float(sel.get("og_sync_ease_in", 0.15))
+            op_mi = row4.operator("og.nudge_float_prop", text="-0.05", icon="REMOVE")
+            op_mi.prop_name = "og_sync_ease_in"; op_mi.delta = -0.05
+            row4.label(text=f"{ease_in:.2f}")
+            op_pi = row4.operator("og.nudge_float_prop", text="+0.05", icon="ADD")
+            op_pi.prop_name = "og_sync_ease_in"; op_pi.delta = 0.05
+
+            # Wrap phase toggle
+            wrap = bool(sel.get("og_sync_wrap", 0))
+            row5 = box.row()
+            icon5 = "CHECKBOX_HLT" if wrap else "CHECKBOX_DEHLT"
+            op_w = row5.operator("og.toggle_platform_wrap", text="Loop (wrap-phase)" if not wrap else "Loop (wrap-phase) ✓", icon=icon5)
+
+            box.operator("og.set_platform_defaults", text="Reset to Defaults", icon="LOOP_BACK")
+
+            # Helpful hint about phase staggering
+            if wp_count >= 2:
+                box.label(text="Tip: phase staggers multiple platforms", icon="INFO")
+
+        # ── plat-button path info ─────────────────────────────────────────────
+        if einfo.get("needs_path") and not einfo.get("needs_sync"):
+            box2 = layout.box()
+            box2.label(text="Path (Button Travel)", icon="ANIM")
+            wp_prefix2 = sel.name + "_wp_"
+            wp_count2 = sum(1 for o in bpy.data.objects
+                            if o.name.startswith(wp_prefix2) and o.type == "EMPTY")
+            if wp_count2 < 2:
+                box2.label(text="⚠ Needs ≥2 waypoints (start + end)", icon="ERROR")
+            else:
+                box2.label(text=f"✓ {wp_count2} waypoints", icon="CHECKMARK")
+            box2.label(text="Use Waypoints panel to add points ↓", icon="INFO")
+
+        # ── notice-dist (plat-eco) ────────────────────────────────────────────
+        if einfo.get("needs_notice_dist"):
+            box3 = layout.box()
+            box3.label(text="Eco Notice Distance", icon="RADIOBUT_ON")
+            notice = float(sel.get("og_notice_dist", -1.0))
+            row_n = box3.row(align=True)
+            op_nm = row_n.operator("og.nudge_float_prop", text="-5m", icon="REMOVE")
+            op_nm.prop_name = "og_notice_dist"; op_nm.delta = -5.0
+            if notice < 0:
+                row_n.label(text="Always active")
+            else:
+                row_n.label(text=f"{notice:.0f}m")
+            op_np = row_n.operator("og.nudge_float_prop", text="+5m", icon="ADD")
+            op_np.prop_name = "og_notice_dist"; op_np.delta = 5.0
+            if notice < 0:
+                box3.label(text="Platform moves regardless of eco", icon="INFO")
+            else:
+                box3.label(text="Player needs blue eco within range", icon="INFO")
+
+
+class OG_OT_TogglePlatformWrap(bpy.types.Operator):
+    """Toggle wrap-phase (loop vs ping-pong) on selected platform"""
+    bl_idname = "og.toggle_platform_wrap"
+    bl_label  = "Toggle Wrap Phase"
+
+    def execute(self, ctx):
+        o = ctx.active_object
+        if not o:
+            return {"CANCELLED"}
+        current = bool(o.get("og_sync_wrap", 0))
+        o["og_sync_wrap"] = 0 if current else 1
+        return {"FINISHED"}
+
+
 class OG_PT_NavMesh(Panel):
     bl_label       = "🕸  NavMesh"
     bl_idname      = "OG_PT_navmesh"
@@ -5188,6 +5403,9 @@ classes = (
     OG_PT_Scene,
     OG_PT_PlaceObjects,
     OG_PT_Waypoints,
+    OG_PT_Platform,
+    OG_OT_SetPlatformDefaults,
+    OG_OT_TogglePlatformWrap,
     OG_PT_Camera,
     OG_PT_NavMesh,
     OG_PT_BuildPlay,
