@@ -5237,6 +5237,13 @@ class OG_OT_BakeAllToDSlots(Operator):
             obj.select_set(True)
         ctx.view_layer.objects.active = prev_active
 
+        # Reset active_color to _NOON on each mesh so the viewport shows a
+        # sensible result and Blender <3.4 (ACTIVE-only export) uses a daylight slot.
+        for obj in targets:
+            mesh = obj.data
+            if "_NOON" in mesh.color_attributes:
+                mesh.color_attributes.active_color = mesh.color_attributes["_NOON"]
+
         if total_failed:
             self.report({"WARNING"}, f"Baked {total_baked} slot/mesh pairs, failed: {'; '.join(total_failed)}")
         else:
@@ -5291,16 +5298,20 @@ class OG_PT_LightBaking(Panel):
         col.separator(factor=0.4)
         col.prop(props, "tod_slot", text="Slot")
         col.separator(factor=0.4)
+        # Use the enum display name in the button label
+        slot_label = next((lbl for (id, lbl, *_) in props.bl_rna.properties["tod_slot"].enum_items
+                           if id == props.tod_slot), props.tod_slot)
         row = col.row(align=True)
         row.enabled = has_targets
         row.scale_y = 1.4
-        row.operator("og.bake_tod_slot", text=f"Bake  {props.tod_slot}", icon="RENDER_STILL")
+        row.operator("og.bake_tod_slot", text=f"Bake  {slot_label}", icon="RENDER_STILL")
         col.separator(factor=0.4)
         row2 = col.row()
         row2.enabled = has_targets
         row2.operator("og.bake_all_tod_slots",
                       text="Bake All 8 Slots (same lighting)", icon="RENDERLAYERS")
-        box.label(text="All 8: _SUNRISE → _GREENSUN", icon="INFO")
+        warn = box.row()
+        warn.label(text="All 8 get identical lighting — adjust per slot after", icon="ERROR")
 
         layout.separator(factor=0.6)
 
