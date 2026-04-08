@@ -3,121 +3,83 @@ Last updated: April 2026
 
 ---
 
-## Status: Research phase complete. No code written.
-
----
+## Status: SESSION 3 COMPLETE — continue-point system implemented, ready for in-game testing
 
 ## Active Branch: `feature/level-flow`
 
 ---
 
-## What Was Researched This Session
+## What's Been Built (this session)
 
-Full source crawl of the OpenGOAL jak1 codebase covering:
+### `collect_spawns` — fully upgraded
+- Reads SPAWN_ and CHECKPOINT_ empties
+- Captures facing quaternion from empty rotation (Blender→game remap: bl(x,y,z)→game(x,z,-y), conjugate applied)
+- Reads optional linked `SPAWN_<uid>_CAM` / `CHECKPOINT_<uid>_CAM` empty for camera-trans + camera-rot 3×3 matrix
+- Falls back to spawn pos + 4m up + identity rotation if no _CAM empty present
+- CHECKPOINT_ empties become zero-flag continues (eligible for auto-assignment as player walks)
 
-**Core system files read in full:**
-- `engine/game/game-info-h.gc` — all type defs
-- `engine/game/game-info.gc` — full continue-point logic
-- `engine/level/level-info.gc` — all level-load-info definitions + test-zone
-- `engine/level/level-h.gc` — level/level-group type defs
-- `engine/level/level.gc` — activate-levels!, load machine, inside detection
-- `engine/level/load-boundary-h.gc` — all boundary types
-- `engine/level/load-boundary.gc` — full execute-command implementation (all 20+ cmd types)
-- `engine/level/load-boundary-data.gc` — 170 vanilla boundaries (first 200 lines + stats)
-- `engine/target/target-death.gc` — full target-continue state
-- `engine/target/logic-target.gc` — start/stop functions
-- `engine/common-obs/basebutton.gc` — warp-gate actor
-- `levels/common/launcherdoor.gc` — full
-- `levels/jungle/jungle-elevator.gc` — full
+### `_make_continues` — upgraded
+- Writes real `:quat` from spawn facing
+- Writes real `:camera-trans` and `:camera-rot` (9 floats, 3×3 row-major)
+- Fallback default continue still generated if no spawns placed
 
----
+### `patch_level_info` — upgraded
+- `:bsphere` auto-computed from mean spawn position + 64m padding radius
+- `:bottom-height` driven by `og_props.bottom_height` (default -20m, range -500 to -1)
+- `:nickname` driven by `og_props.vis_nick_override` (blank = auto 3-letter from level name)
+- Falls back to 40km sphere if no spawns
 
-## Knowledge Base Location
+### New operators
+- `OG_OT_SpawnCheckpoint` — places CHECKPOINT_ empty (yellow single-arrow, uid=cp0/cp1...)
+- `OG_OT_SpawnCamAnchor` — places _CAM empty linked to active SPAWN_/CHECKPOINT_, pre-aimed at it
 
-`knowledge-base/opengoal/level-flow.md`
+### New OGProperties
+- `bottom_height`: FloatProperty, default -20.0, range -500..−1
+- `vis_nick_override`: StringProperty, blank = auto
 
-Contains:
-- `continue-point` type + all fields documented
-- `continue-flags` enum fully documented
-- All `display?` mode values documented (display, special, special-vis, display-self, display-no-wait)
-- `load-state` two-slot machine explained
-- Full `execute-command` language (20+ commands documented with syntax)
-- `level-load-info` all fields documented
-- `alt-load-commands` indexing explained
-- `load-boundary` structure documented
-- All 5 boundary command types (checkpt, load, display, vis, force-vis)
-- Vanilla boundary count breakdown: 71 checkpt, 97 display, 28 load, 40 vis
-- `launcherdoor` and `jungle-elevator` continue-name lump pattern
-- `warp-gate` *warp-info* array + flow
-- Full 13-step `target-continue` respawn sequence
-- Auto checkpoint assignment algorithm
-- Inside-detection (inside-boxes? / inside-sphere? / meta-inside?)
-- Custom level requirements checklist
+### OG_PT_Scene → renamed "🗺 Level Flow"
+- Lists all SPAWN_ empties with cam status
+- Lists all CHECKPOINT_ empties with cam status
+- Context-sensitive "Add Camera for SPAWN_X" button when spawn is selected and has no cam
+- Death plane + vis nick controls
+- Live bsphere radius readout (Blender-space preview)
 
 ---
 
-## Key Findings
+## Testing Checklist
 
-### The two ways to set a continue-point
-1. **Passive (automatic):** Load boundaries with `checkpt` command, OR the per-frame auto-nearest-continue loop (zero-flag continues only, while player moves around)
-2. **Active (triggered):** Actor reads `continue-name` lump → `(set-continue! *game-info* name)` → optionally `(load-commands-set! *level* ...)`. Both launcherdoor and jungle-elevator do this.
-
-### Load boundaries are globally compiled
-`load-boundary-data.gc` is a single global file for all levels. Not per-level.
-Custom level transitions need to either add to this file, or use actor-based triggers.
-
-### continue-point lev0/lev1 slots
-- Slot 0 = primary level (where the point is)
-- Slot 1 = adjacent level to also load (often the hub village)
-- At most 2 levels active at any time
-
-### warp-flag continues need special handling
-`target-continue` has hardcoded case statements for each warp gate name.
-Custom levels cannot add new warp-flag continues without adding cases to `target-death.gc`.
-Normal (zero-flag) continues work freely.
-
-### `test-zone` in level-info.gc
-OpenGOAL ships with a `test-zone` level example at the bottom of `level-info.gc`.
-Index 26, vis-nick 'tsz, has one continue at (0, 10m, 10m).
-Good template reference.
+- [ ] SPAWN_start placed — verify continue-point name is `{level}-start` in level-info.gc
+- [ ] SPAWN_start facing ≠ default — verify :quat is non-identity in level-info.gc
+- [ ] SPAWN_start_CAM placed — verify :camera-trans and :camera-rot match empty positions
+- [ ] No _CAM empty — verify camera defaults to spawn pos +4m, identity rot
+- [ ] CHECKPOINT_cp0 placed — verify it appears in :continues list as a zero-flag continue
+- [ ] Multiple spawns — bsphere centre/radius looks correct in level-info.gc
+- [ ] bottom_height = -50 → level-info.gc shows `(meters -50.0)`
+- [ ] vis_nick_override = "myv" → level-info.gc shows `'myv` for :nickname
+- [ ] Level Flow panel shows cam status correctly (📷 vs "no cam" alert)
+- [ ] Player respawns at correct position facing correct direction in game
 
 ---
 
 ## Next Steps (not started)
-- Addon UI for continue-point placement (Blender → JSONC entity? Or direct level-info.gc edit?)
-- Load boundary export from Blender (polygon drawn in 3D → XZ points + top/bot)
-- `execute-command` command builder for continue-point load-commands
-- Research how custom continues interact with save/load (game-save.gc)
+
+- Load boundary export from Blender (polygon → XZ points + top/bot → load-boundary-data.gc entry)
+  - This is a separate feature: draw a boundary polygon in Blender, pick fwd/bwd commands
+  - Needs research: how to append to load-boundary-data.gc safely
+- `continue-name` lump helper: UI for `launcherdoor`/`jungle-elevator` actor placement
+  - Add to Place Objects panel: "continue-name" property picker for relevant etypes
 
 ---
 
-## Second Research Session (April 2026)
+## Research Sessions (previous)
 
-### Additional files read:
-- `engine/game/game-save.gc` — full save/load implementation
-- `goalc/build_level/common/Entity.cpp` — full JSONC actor compiler
-- `goalc/build_level/common/ResLump.cpp` — all lump type implementations
-- `goalc/build_level/jak1/Entity.cpp` — jak1-specific add_actors_from_json
-- `common/goal_constants.h` — METER_LENGTH=4096, DEGREES_LENGTH=182.044, DEFAULT_RES_TIME=-1e9
-- `custom_assets/jak1/levels/test-zone/test-zone.jsonc` — canonical custom level example
-- `custom_assets/jak1/levels/test-zone/testzone.gd` — DGO definition format
-- `goal_src/jak1/game.gp` — build-custom-level macro, registration pattern
-- `goal_src/jak1/levels/test-zone/test-zone-obs.gc` — full custom actor example
-- `goal_src/jak1/engine/game/task/task-control-h.gc` — task-status enum, process-taskable
-- `goal_src/jak1/engine/game/task/game-task-h.gc` — full game-task enum (116 slots)
-- `goal_src/jak1/engine/target/logic-target.gc` — bottom-height death check
+### Session 1 — April 2026
+Files read: engine/game/game-info-h.gc, engine/game/game-info.gc, engine/level/level-info.gc,
+level-h.gc, level.gc, load-boundary-h.gc, load-boundary.gc, load-boundary-data.gc,
+target-death.gc, logic-target.gc, basebutton.gc, launcherdoor.gc, jungle-elevator.gc
 
-### New sections added to knowledge-base:
-- §13: Save/Load safety analysis (continue name only serialized, graceful fallback)
-- §14: Complete JSONC actor format with full lump type table
-- §15: Build system registration (game.gp + .gd format)
-- §16: Task system — what custom levels need (use game-task none, 116 fixed slots)
-- §17: Death plane (bottom-height mechanics, grace period, recommended values)
+### Session 2 — April 2026
+Files read: game-save.gc, goalc/build_level Entity.cpp, ResLump.cpp, goal_constants.h,
+test-zone.jsonc, testzone.gd, game.gp, test-zone-obs.gc, task-control-h.gc, game-task-h.gc, logic-target.gc
 
-### Key findings from second session:
-- Saves store ONLY the continue-point name string. Custom continues are save-safe.
-- `continue-name` lump must be a bare string (no `'`), becomes ResString not ResSymbol
-- All 18 JSONC lump type strings documented with exact formats
-- Custom levels need 3 things in game.gp: build-custom-level, custom-level-cgo, goal-src
-- Task system has 116 fixed slots — custom levels should use `(game-task none)` throughout
-- `bottom-height` is checked every frame against player Y with 2s grace period
+Knowledge base: `knowledge-base/opengoal/level-flow.md` (17 sections, fully complete)
