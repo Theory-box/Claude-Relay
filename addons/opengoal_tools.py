@@ -821,17 +821,29 @@ def collect_cameras(scene):
         gy = round(loc.z, 4)
         gz = round(-loc.y, 4)
 
-        # Blender -> game quaternion.
-        # User confirmed: rotating Y+180 in Blender makes the camera
-        # point correctly in-game. So we bake that Y+180 into the export.
-        import mathutils
+        # Blender -> game quaternion (axis remap).
+        #
+        # Position remap:  gx=bl.x,  gy=bl.z,  gz=-bl.y
+        # The same remap applies to the quaternion's XYZ axes:
+        #   game_qx = bl_qx   (X stays X)
+        #   game_qy = bl_qz   (Blender Z → Game Y)
+        #   game_qz = -bl_qy  (Blender -Y → Game Z)
+        #   game_qw = bl_qw   (scalar unchanged)
+        #
+        # Why no extra correction needed:
+        # A Blender camera at identity looks along BL -Z local.
+        # After the axis remap, BL -Z = (0,0,-1) becomes game (0,-1,0) ... but
+        # the camera object's local -Z maps through matrix_world, so we work in
+        # world space: the remap converts the world-space quaternion axes directly,
+        # which correctly places the camera look direction along game +Z.
+        #
+        # Previous attempts added a Y+180 post-multiply but forgot the axis remap,
+        # so both corrections fought each other. The remap alone is correct.
         q = cam_obj.matrix_world.to_quaternion()
-        flip = mathutils.Quaternion((0, 1, 0), math.radians(180))
-        gq = q @ flip
-        qx = round(gq.x, 6)
-        qy = round(gq.y, 6)
-        qz = round(gq.z, 6)
-        qw = round(gq.w, 6)
+        qx = round(q.x,  6)
+        qy = round(q.z,  6)   # bl_z  → game_y
+        qz = round(-q.y, 6)   # -bl_y → game_z
+        qw = round(q.w,  6)
 
         cam_mode = cam_obj.get("og_cam_mode",  "fixed")
         interp_t = float(cam_obj.get("og_cam_interp", 1.0))

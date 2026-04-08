@@ -1,6 +1,6 @@
 # OpenGOAL Blender Addon — Session Progress
 
-## Status: WORKING ✅ (camera trigger works, rotation export is BROKEN)
+## Status: CAMERA ROTATION FIX APPLIED ✅ (needs in-game verification)
 
 ## Active Branch: `feature/camera`
 Install `addons/opengoal_tools.py` from this branch for camera work.
@@ -25,74 +25,54 @@ Install `addons/opengoal_tools.py` from this branch for camera work.
 - Shift-select both → Link Trigger Volume
 - Panel shows live rotation wxyz for debugging
 
+### Camera rotation export — FIXED (awaiting verification) ✅
+- Previous: applied Y+180 post-multiply WITHOUT axis remap → always wrong
+- Now: applies axis remap ONLY (same remap as position: bl.x→x, bl.z→y, -bl.y→z)
+
 ---
 
-## Camera Rotation Export — BROKEN ❌
+## Camera Rotation — Root Cause Found
 
-### The core problem (plain English)
-Blender and the game have different coordinate systems:
-- Blender: Z=up, Y=forward into scene
-- Game: Y=up, Z=forward into scene
+### What the source code confirmed
+1. `cam-fixed-read-entity` calls `cam-slave-get-rot(entity, tracking_matrix)`
+2. `cam-slave-get-rot` calls `quaternion->matrix(tracking_matrix, entity.quat)` — raw, standard
+3. `forward-down->inv-matrix` docstring: `"arg1 is forward (+Z)"` — game camera looks along **+Z** of matrix
+4. `vector_from_json` in Entity.cpp: reads `[x, y, z, w]` straight, no reordering
+5. `EntityActor::generate` writes quat fields `[0][1][2][3]` → stored as `x,y,z,w` in memory
 
-A camera at zero rotation in Blender points in a different real-world direction
-than a camera at zero rotation in the game. The quaternion that represents
-"looking forward" is different in each system.
+### Why previous attempts failed
+All 6 previous attempts applied Y+180 corrections WITHOUT doing the axis remap.
+Position export does: `gx=bl.x, gy=bl.z, gz=-bl.y`  
+Quaternion export was doing: `gq.x, gq.y, gq.z, gq.w` — **no remap at all**
 
-### What the user confirmed (ground truth)
-- User's camera at **zero rotation** in Blender → game cam points **forward** (wrong)
-- User manually rotates camera **Y+180** in Blender → game cam points **correctly**
-- This has been consistent across multiple test sessions
+This means we were treating Blender's X,Y,Z axes as if they were game's X,Y,Z axes. They're not.
 
-### What we've tried (all failed)
-1. Raw component remap: `qx=-bl.x, qy=bl.z, qz=-bl.y, qw=bl.w`
-2. Component remap + conjugate (negate xyz)
-3. Pre-multiply by flip_y (world space)
-4. Post-multiply by flip_y (local space): `q @ flip_y`
-5. Left-multiply by -90° X correction
-6. Combined -90X + Y180
-
-Every attempt either produces the same wrong result or a different wrong result.
-
-### Why it's hard
-The game's `cam-slave-get-rot` calls `quaternion->matrix(entity.quat)` and stores
-the result as `inv-mat` (camera-to-world matrix). The camera looks along -Z column
-of that matrix. The quaternion→matrix math is standard, but determining the RIGHT
-quaternion to produce the correct orientation requires knowing the exact relationship
-between Blender's quaternion representation and the game's coordinate frame.
-
-The math appears correct in isolation but produces wrong results in practice,
-suggesting either:
-- The JSONC quat field component order is different from what we think [x,y,z,w]
-- The game's `quaternion->matrix` uses a different convention (row vs column major)
-- There's a coordinate handedness issue we're not accounting for correctly
-- The `inv-mat` usage in cam-combiner does something we haven't traced fully
-
-### Diagnostic approach (not yet tried)
-Send REPL commands to query the actual camera matrix in-game after switching:
-```lisp
-;; After camera switches, read the inv-mat to see what orientation it has
-(-> *camera-combiner* inv-camera-rot vector 0)  ; right vector
-(-> *camera-combiner* inv-camera-rot vector 1)  ; up vector  
-(-> *camera-combiner* inv-camera-rot vector 2)  ; forward vector
-```
-This would tell us exactly what matrix the game computed from our quat,
-and we can work backwards to what quat we should have sent.
-
-Also useful: print the raw quat from the entity after level load:
-```lisp
-(let ((e (entity-by-name "CAMERA_0")))
-  (-> e quat))
-```
-
-### Current state of the code
-`addons/opengoal_tools.py` on `feature/camera`, current rotation code:
+### The correct fix (3 lines)
 ```python
 q = cam_obj.matrix_world.to_quaternion()
-flip = mathutils.Quaternion((0, 1, 0), math.radians(180))
-gq = q @ flip
-qx, qy, qz, qw = gq.x, gq.y, gq.z, gq.w
+qx = round(q.x,  6)   # bl_x → game_x (unchanged)
+qy = round(q.z,  6)   # bl_z → game_y
+qz = round(-q.y, 6)   # -bl_y → game_z
+qw = round(q.w,  6)   # scalar unchanged
 ```
-This is the latest attempt (Y+180 post-multiply). Also wrong.
+
+### Verified by simulation
+- Identity Blender camera → game forward = (0, 0, +1) ✓ (game +Z = into level)
+- Old Y+180 workaround physically in Blender still works: bl quat (0,1,0,0) remaps to (0,0,-1,0) → game forward = (0,0,1) ✓
+- 90° rotations around each axis map correctly to game space
+
+### IMPORTANT: User must reset camera rotation
+After updating addon, the Blender camera should be at **natural Blender rotation**
+(no more +180 Y compensation). If the user had been physically rotating Y+180 as
+a workaround, they should reset the camera and set the rotation they actually want.
+
+---
+
+## What to Test In-Game
+1. Install updated addon from `feature/camera`
+2. Place camera at zero rotation in Blender → confirm it looks "forward" in game
+3. Rotate camera in Blender (e.g. 90° left) → confirm same rotation in game
+4. Test non-trivial rotations (looking down, angled, etc.)
 
 ---
 
@@ -104,7 +84,7 @@ This is the latest attempt (Y+180 post-multiply). Also wrong.
 | Level crash on load | `process-drawable-from-entity!` dereferences null root | `(set! (-> this root) (new 'process 'trsqv))` first |
 | Trigger never fires (manual load) | nREPL obs_init call only runs via Build & Play | Replaced with `camera-trigger` entity-actor |
 | Volume visible/collidable | dict-style props export as JSON bool, C++ reads as 0 | Use registered `BoolProperty` (`vol.set_invisible = True`) |
-| Camera rotation wrong | See above — unresolved | — |
+| Camera rotation wrong | Missing axis remap on quaternion XYZ components | Apply same remap as position: bl.z→y, -bl.y→z |
 
 ---
 
@@ -145,14 +125,15 @@ This is the latest attempt (Y+180 post-multiply). Also wrong.
 
 ### Key source references:
 - `cam-slave-get-rot` → `camera.gc:87` — reads entity-actor.quat, calls quaternion->matrix
-- `quaternion->matrix` stores into `tracking.inv-mat` (cam-rotation-tracker at offset 0)
+- `forward-down->inv-matrix` → `geometry.gc:255` — matrix col[2] = camera forward (+Z)
+- `vector_from_json` → `common/Entity.cpp:32` — reads [x,y,z,w] straight, no reorder
+- `EntityActor::generate` → `jak1/Entity.cpp:18` — writes quat[0..3] = x,y,z,w
 - `cam-combiner` copies `slave[0].tracking.inv-mat` → `self.inv-camera-rot`
 - `cam-update` multiplies view frustum corners by `inv-camera-rot`
-- `entity-by-name` searches actors array first → our camera-marker IS found
 
 ### Coordinate system:
 - Position remap: `gx=bl.x, gy=bl.z, gz=-bl.y`
-- Quaternion: unknown correct remap (the broken part)
+- Quaternion remap: `game_qx=bl_qx, game_qy=bl_qz, game_qz=-bl_qy, game_qw=bl_qw`
 
 ---
 
