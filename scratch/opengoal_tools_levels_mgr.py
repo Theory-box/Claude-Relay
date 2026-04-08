@@ -2928,6 +2928,21 @@ def remove_level(name):
     else:
         msgs.append(f"(not found) {goal_dir}")
 
+    # Patch level-info.gc — strip the define block and cons! entry
+    li_path = _level_info()
+    if li_path.exists():
+        txt = li_path.read_text(encoding="utf-8")
+        new_txt = re.sub(
+            rf"\n\(define {re.escape(name)}\b.*?\(cons!.*?'{re.escape(name)}\)\n",
+            "", txt, flags=re.DOTALL)
+        if new_txt != txt:
+            li_path.write_text(new_txt, encoding="utf-8")
+            msgs.append(f"Cleaned level-info.gc entry for '{name}'")
+        else:
+            msgs.append(f"level-info.gc had no entry for '{name}'")
+    else:
+        msgs.append("level-info.gc not found")
+
     # Patch game.gp — strip all entries for this level
     gp_path = _game_gp()
     if gp_path.exists():
