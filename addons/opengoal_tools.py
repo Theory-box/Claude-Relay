@@ -4408,6 +4408,614 @@ class OG_OT_AddSoundEmitter(Operator):
         return {"FINISHED"}
 
 
+class OG_OT_SpawnCamera(Operator):
+    bl_idname = "og.spawn_camera"
+    bl_label  = "Add Camera"
+    bl_description = (
+        "Place a Blender camera at the 3D cursor.\n"
+        "Named CAMERA_0, CAMERA_1 etc.\n"
+        "Look through it with Numpad-0 to preview the game view.\n"
+        "Link a trigger volume mesh with 'Link Trigger Volume'."
+    )
+    def execute(self, ctx):
+        n = len([o for o in ctx.scene.objects
+                 if o.name.startswith("CAMERA_") and o.type == "CAMERA"])
+        cam_name = f"CAMERA_{n}"
+        bpy.ops.object.camera_add(location=ctx.scene.cursor.location)
+        o = ctx.active_object
+        # Set name twice: Blender resolves duplicate data-block names after the
+        # first assignment, so the second set lands the exact name we want.
+        o.name      = cam_name
+        o.name      = cam_name
+        o.data.name = cam_name
+        o.show_name = True
+        o.color = (0.0, 0.8, 0.9, 1.0)
+        # Default custom properties
+        o["og_cam_mode"]   = "fixed"
+        o["og_cam_interp"] = 1.0
+        o["og_cam_fov"]    = 0.0
+        o["og_cam_look_at"] = ""
+        self.report({"INFO"}, f"Added {o.name}  |  Numpad-0 to look through it")
+        return {"FINISHED"}
+
+
+
+class OG_OT_SpawnVolume(Operator):
+    """Spawn a generic trigger volume (VOL_N wireframe cube).
+    If the active object is a linkable target (CAMERA_, SPAWN_, CHECKPOINT_),
+    the volume is auto-linked to it immediately on spawn."""
+    bl_idname = "og.spawn_volume"
+    bl_label  = "Add Trigger Volume"
+    bl_description = (
+        "Add a box mesh trigger volume at the 3D cursor. "
+        "If a camera, spawn, or checkpoint is selected, it auto-links."
+    )
+    def execute(self, ctx):
+        n = len([o for o in ctx.scene.objects
+                 if o.type == "MESH" and o.name.startswith("VOL_")])
+        bpy.ops.mesh.primitive_cube_add(size=4.0, location=ctx.scene.cursor.location)
+        vol = ctx.active_object
+        vol.name = f"VOL_{n}"
+        vol["og_vol_id"] = n          # remember original number for unlink rename
+        vol.show_name = True
+        vol.display_type = "WIRE"
+        vol.color = (0.0, 0.9, 0.3, 0.4)
+        vol.set_invisible = True
+        vol.set_collision = True
+        vol.ignore        = True
+
+        # Auto-link if the previously active object is a valid target
+        prev = ctx.scene.objects.get(getattr(ctx, "_prev_active_name", ""))
+        # Re-read: before empty_add the active was our target
+        # We stored it in the scene temp prop via the operator invoke
+        target_name = vol.get("_auto_link_target", "")
+        if target_name:
+            target = ctx.scene.objects.get(target_name)
+            if target and not _vol_for_target(ctx.scene, target_name):
+                vol["og_vol_link"] = target_name
+                vol.name = f"VOL_{target_name}"
+                del vol["_auto_link_target"]
+                self.report({"INFO"}, f"Added and linked {vol.name} → {target_name}")
+                return {"FINISHED"}
+
+        self.report({"INFO"}, f"Added {vol.name}  —  select volume + target → Link in Triggers panel")
+        return {"FINISHED"}
+
+    def invoke(self, ctx, event):
+        # Store active object name before adding geometry changes active
+        sel = ctx.active_object
+        if sel and _is_linkable(sel):
+            # Check not already linked
+            existing = _vol_for_target(ctx.scene, sel.name)
+            if existing:
+                self.report({"WARNING"}, f"{sel.name} already has {existing.name} linked — unlink first")
+                return {"CANCELLED"}
+            # Temporarily stamp target onto the new vol via a scene prop
+            # We use a scene-level string prop as a handoff since active changes after add
+            ctx.scene["_pending_vol_target"] = sel.name
+        else:
+            ctx.scene["_pending_vol_target"] = ""
+        return self.execute(ctx)
+
+
+def _is_linkable(obj):
+    """True if this object type can accept a trigger volume."""
+    return (obj.type == "CAMERA" and obj.name.startswith("CAMERA_")) or            (obj.type == "EMPTY"  and (obj.name.startswith("SPAWN_") or obj.name.startswith("CHECKPOINT_")) and not obj.name.endswith("_CAM"))
+
+
+def _vol_for_target(scene, target_name):
+    """Return the VOL_ mesh linked to target_name, or None."""
+    for o in scene.objects:
+        if o.type == "MESH" and o.name.startswith("VOL_") and o.get("og_vol_link") == target_name:
+            return o
+    return None
+
+
+def _clean_orphaned_vol_links(scene):
+    """Remove og_vol_link from any VOL_ mesh whose target no longer exists.
+    Called at export time and available as a panel button.
+    Returns list of volume names that were cleaned."""
+    cleaned = []
+    for o in scene.objects:
+        if o.type == "MESH" and o.name.startswith("VOL_"):
+            link = o.get("og_vol_link", "")
+            if link and not scene.objects.get(link):
+                orig_id = o.get("og_vol_id", 0)
+                del o["og_vol_link"]
+                o.name = f"VOL_{orig_id}"
+                cleaned.append(link)
+                log(f"  [vol] cleaned orphaned link → '{link}' (target deleted)")
+    return cleaned
+
+
+class OG_OT_SpawnVolumeAutoLink(Operator):
+    """Internal: spawn a volume and auto-link to the given target."""
+    bl_idname = "og.spawn_volume_autolink"
+    bl_label  = "Add & Link Trigger Volume"
+    bl_description = "Spawn a trigger volume and immediately link it to the active object"
+
+    target_name: bpy.props.StringProperty()
+
+    def execute(self, ctx):
+        target = ctx.scene.objects.get(self.target_name)
+        if not target:
+            self.report({"ERROR"}, f"Target {self.target_name} not found")
+            return {"CANCELLED"}
+        existing = _vol_for_target(ctx.scene, self.target_name)
+        if existing:
+            self.report({"WARNING"}, f"{self.target_name} already linked to {existing.name} — unlink first")
+            return {"CANCELLED"}
+        n = len([o for o in ctx.scene.objects if o.type == "MESH" and o.name.startswith("VOL_")])
+        # Place at target location
+        bpy.ops.mesh.primitive_cube_add(size=4.0, location=target.location)
+        vol = ctx.active_object
+        vol["og_vol_id"] = n
+        vol.show_name = True
+        vol.display_type = "WIRE"
+        vol.set_invisible = True
+        vol.set_collision = True
+        vol.ignore        = True
+        if target.type == "CAMERA":
+            vol.color = (0.0, 0.9, 0.3, 0.4)
+        else:
+            vol.color = (1.0, 0.85, 0.0, 0.4)
+        vol["og_vol_link"] = self.target_name
+        vol.name = f"VOL_{self.target_name}"
+        self.report({"INFO"}, f"Added {vol.name} → {self.target_name}")
+        return {"FINISHED"}
+
+
+class OG_OT_LinkVolume(Operator):
+    """Link a VOL_ mesh to a camera, spawn, or checkpoint.
+    Select the VOL_ mesh first, then shift-click the target, then click Link."""
+    bl_idname   = "og.link_volume"
+    bl_label    = "Link Volume"
+    bl_description = "Select VOL_ mesh first, then shift-click the target (camera/spawn/checkpoint), then click"
+
+    def execute(self, ctx):
+        selected = ctx.selected_objects
+        vols    = [o for o in selected if o.type == "MESH" and o.name.startswith("VOL_")]
+        targets = [o for o in selected if _is_linkable(o)]
+
+        if not vols:
+            self.report({"ERROR"}, "No VOL_ mesh in selection")
+            return {"CANCELLED"}
+        if len(vols) > 1:
+            self.report({"ERROR"}, "Multiple volumes selected — select exactly one")
+            return {"CANCELLED"}
+        if not targets:
+            self.report({"ERROR"}, "No linkable target (CAMERA_/SPAWN_/CHECKPOINT_) in selection")
+            return {"CANCELLED"}
+        if len(targets) > 1:
+            self.report({"ERROR"}, "Multiple targets selected — select exactly one")
+            return {"CANCELLED"}
+
+        vol    = vols[0]
+        target = targets[0]
+
+        # Check vol not already linked
+        existing_link = vol.get("og_vol_link", "")
+        if existing_link:
+            if existing_link == target.name:
+                self.report({"WARNING"}, f"{vol.name} is already linked to {target.name}")
+            else:
+                self.report({"WARNING"}, f"{vol.name} is already linked to {existing_link} — unlink first")
+            return {"CANCELLED"}
+
+        # Check target not already has a vol
+        existing_vol = _vol_for_target(ctx.scene, target.name)
+        if existing_vol:
+            self.report({"WARNING"}, f"{target.name} already has {existing_vol.name} linked — unlink first")
+            return {"CANCELLED"}
+
+        vol["og_vol_link"] = target.name
+        if "og_vol_id" not in vol:
+            vol["og_vol_id"] = int(vol.name.replace("VOL_", "") if vol.name[4:].isdigit() else 0)
+        vol.name = f"VOL_{target.name}"
+        self.report({"INFO"}, f"Linked {vol.name} → {target.name}")
+        return {"FINISHED"}
+
+
+class OG_OT_UnlinkVolume(Operator):
+    """Unlink a VOL_ mesh from its target. Works on selected VOL_ meshes."""
+    bl_idname   = "og.unlink_volume"
+    bl_label    = "Unlink Volume"
+    bl_description = "Remove the link from the selected VOL_ mesh and restore its generic name"
+
+    def execute(self, ctx):
+        count = 0
+        for o in ctx.selected_objects:
+            if o.type == "MESH" and o.name.startswith("VOL_") and "og_vol_link" in o:
+                orig_id = o.get("og_vol_id", 0)
+                del o["og_vol_link"]
+                o.name = f"VOL_{orig_id}"
+                count += 1
+        if count:
+            self.report({"INFO"}, f"Unlinked {count} volume(s)")
+        else:
+            self.report({"WARNING"}, "No linked VOL_ meshes in selection")
+        return {"FINISHED"}
+
+
+class OG_OT_SelectAndFrame(Operator):
+    """Make an object active, select it, and frame it in the viewport."""
+    bl_idname = "og.select_and_frame"
+    bl_label  = "View"
+    bl_description = "Select this object and frame it in the viewport"
+
+    obj_name: bpy.props.StringProperty()
+
+    def execute(self, ctx):
+        obj = ctx.scene.objects.get(self.obj_name)
+        if not obj:
+            self.report({"ERROR"}, f"Object '{self.obj_name}' not found")
+            return {"CANCELLED"}
+        # Deselect all, select and make active
+        bpy.ops.object.select_all(action="DESELECT")
+        obj.select_set(True)
+        ctx.view_layer.objects.active = obj
+        # Frame in viewport
+        bpy.ops.view3d.view_selected()
+        return {"FINISHED"}
+
+
+class OG_OT_DeleteObject(Operator):
+    """Delete an object by name, also cleaning up any linked volumes."""
+    bl_idname = "og.delete_object"
+    bl_label  = "Delete"
+    bl_description = "Delete this object (volumes linked to it will be unlinked)"
+
+    obj_name: bpy.props.StringProperty()
+
+    def execute(self, ctx):
+        obj = ctx.scene.objects.get(self.obj_name)
+        if not obj:
+            self.report({"ERROR"}, f"Object '{self.obj_name}' not found")
+            return {"CANCELLED"}
+        # Clean any volumes linked to this object before deleting
+        for o in ctx.scene.objects:
+            if o.type == "MESH" and o.name.startswith("VOL_"):
+                if o.get("og_vol_link") == self.obj_name:
+                    orig_id = o.get("og_vol_id", 0)
+                    del o["og_vol_link"]
+                    o.name = f"VOL_{orig_id}"
+        # Also delete associated _CAM, _ALIGN, _PIVOT, _LOOK_AT empties for cameras
+        suffixes = ["_CAM", "_ALIGN", "_PIVOT", "_LOOK_AT"]
+        for suf in suffixes:
+            associated = ctx.scene.objects.get(self.obj_name + suf)
+            if associated:
+                bpy.data.objects.remove(associated, do_unlink=True)
+        # Delete the object itself
+        bpy.data.objects.remove(obj, do_unlink=True)
+        self.report({"INFO"}, f"Deleted '{self.obj_name}'")
+        return {"FINISHED"}
+
+
+class OG_OT_CleanOrphanedLinks(Operator):
+    """Remove og_vol_link from any VOL_ whose target object has been deleted."""
+    bl_idname   = "og.clean_orphaned_links"
+    bl_label    = "Clean Orphaned Links"
+    bl_description = "Remove links from volumes whose target (camera/spawn/checkpoint) has been deleted"
+
+    def execute(self, ctx):
+        cleaned = _clean_orphaned_vol_links(ctx.scene)
+        if cleaned:
+            self.report({"INFO"}, f"Cleaned {len(cleaned)} orphaned link(s): {', '.join(cleaned)}")
+        else:
+            self.report({"INFO"}, "No orphaned links found")
+        return {"FINISHED"}
+
+
+# ── Entity placement ──────────────────────────────────────────────────────────
+
+
+
+
+class OG_OT_SpawnCamAlign(Operator):
+    bl_idname = "og.spawn_cam_align"
+    bl_label  = "Add Player Anchor"
+    bl_description = (
+        "Add a CAMERA_N_ALIGN empty for standoff (side-scroller) mode.\n"
+        "Place this at the player position the camera tracks.\n"
+        "The camera stays at a fixed offset from this anchor."
+    )
+    def execute(self, ctx):
+        sel = ctx.active_object
+        if not sel or not sel.name.startswith("CAMERA_") or sel.type != "CAMERA":
+            self.report({"ERROR"}, "Select a CAMERA_N camera first")
+            return {"CANCELLED"}
+        align_name = sel.name + "_ALIGN"
+        if ctx.scene.objects.get(align_name):
+            self.report({"WARNING"}, f"{align_name} already exists")
+            return {"CANCELLED"}
+        bpy.ops.object.empty_add(type="PLAIN_AXES", location=ctx.scene.cursor.location)
+        o = ctx.active_object
+        o.name = align_name
+        o.show_name = True
+        o.empty_display_size = 0.5
+        o.color = (1.0, 0.6, 0.0, 1.0)
+        self.report({"INFO"}, f"Added {align_name}  —  place at player anchor position")
+        return {"FINISHED"}
+
+
+class OG_OT_SpawnCamPivot(Operator):
+    bl_idname = "og.spawn_cam_pivot"
+    bl_label  = "Add Orbit Pivot"
+    bl_description = (
+        "Add a CAMERA_N_PIVOT empty for orbit mode.\n"
+        "The camera orbits around this world position following the player angle."
+    )
+    def execute(self, ctx):
+        sel = ctx.active_object
+        if not sel or not sel.name.startswith("CAMERA_") or sel.type != "CAMERA":
+            self.report({"ERROR"}, "Select a CAMERA_N camera first")
+            return {"CANCELLED"}
+        pivot_name = sel.name + "_PIVOT"
+        if ctx.scene.objects.get(pivot_name):
+            self.report({"WARNING"}, f"{pivot_name} already exists")
+            return {"CANCELLED"}
+        bpy.ops.object.empty_add(type="SPHERE", location=ctx.scene.cursor.location)
+        o = ctx.active_object
+        o.name = pivot_name
+        o.show_name = True
+        o.empty_display_size = 0.5
+        o.color = (1.0, 0.2, 0.8, 1.0)
+        self.report({"INFO"}, f"Added {pivot_name}  —  place at orbit center point")
+        return {"FINISHED"}
+
+
+
+
+class OG_OT_SpawnCamLookAt(Operator):
+    bl_idname = "og.spawn_cam_look_at"
+    bl_label  = "Add Look-At Target"
+    bl_description = (
+        "Add an empty that the camera will always face.\n"
+        "Bypasses quaternion export — just point the camera at a world position.\n"
+        "Place the empty on the object / area you want the camera to look at."
+    )
+    def execute(self, ctx):
+        sel = ctx.active_object
+        if not sel or not sel.name.startswith("CAMERA_") or sel.type != "CAMERA":
+            self.report({"ERROR"}, "Select a CAMERA_N camera first")
+            return {"CANCELLED"}
+        look_name = sel.name + "_LOOKAT"
+        bpy.ops.object.empty_add(type="ARROWS", location=ctx.scene.cursor.location)
+        o = ctx.active_object
+        o.name = look_name
+        o.show_name = True
+        o.empty_display_size = 0.4
+        o.color = (1.0, 0.8, 0.0, 1.0)
+        sel["og_cam_look_at"] = look_name
+        self.report({"INFO"}, f"Added {look_name}  —  move it to where the camera should look")
+        return {"FINISHED"}
+
+
+class OG_OT_SetCamProp(Operator):
+    """Set a string custom property on a CAMERA_ object."""
+    bl_idname   = "og.set_cam_prop"
+    bl_label    = "Set Camera Property"
+    bl_options  = {"REGISTER", "UNDO"}
+    cam_name:  bpy.props.StringProperty()
+    prop_name: bpy.props.StringProperty()
+    str_val:   bpy.props.StringProperty()
+    def execute(self, ctx):
+        o = ctx.scene.objects.get(self.cam_name)
+        if o:
+            o[self.prop_name] = self.str_val
+        return {"FINISHED"}
+
+
+class OG_OT_NudgeCamFloat(Operator):
+    """Nudge a float custom property on a CAMERA_ object."""
+    bl_idname   = "og.nudge_cam_float"
+    bl_label    = "Nudge Camera Float"
+    bl_options  = {"REGISTER", "UNDO"}
+    cam_name:  bpy.props.StringProperty()
+    prop_name: bpy.props.StringProperty()
+    delta:     bpy.props.FloatProperty()
+    def execute(self, ctx):
+        o = ctx.scene.objects.get(self.cam_name)
+        if o:
+            current = float(o.get(self.prop_name, 0.0))
+            o[self.prop_name] = round(max(0.0, current + self.delta), 2)
+        return {"FINISHED"}
+
+
+
+
+# ── Platform ──────────────────────────────────────────────────────────────────
+
+
+class OG_OT_NudgeFloatProp(Operator):
+    """Nudge a float custom property on the active object by a fixed delta."""
+    bl_idname  = "og.nudge_float_prop"
+    bl_label   = "Nudge Float Property"
+    bl_options = {"REGISTER", "UNDO"}
+
+    prop_name: bpy.props.StringProperty()
+    delta:     bpy.props.FloatProperty()
+    val_min:   bpy.props.FloatProperty(default=-1e9)
+    val_max:   bpy.props.FloatProperty(default=1e9)
+
+    def execute(self, ctx):
+        o = ctx.active_object
+        if o:
+            current = float(o.get(self.prop_name, 0.0))
+            o[self.prop_name] = round(max(self.val_min, min(self.val_max, current + self.delta)), 4)
+        return {"FINISHED"}
+
+
+class OG_OT_TogglePlatformWrap(Operator):
+    """Toggle wrap-phase (one-way loop vs ping-pong) on the selected platform."""
+    bl_idname = "og.toggle_platform_wrap"
+    bl_label  = "Toggle Wrap Phase"
+
+    def execute(self, ctx):
+        o = ctx.active_object
+        if not o:
+            return {"CANCELLED"}
+        o["og_sync_wrap"] = 0 if bool(o.get("og_sync_wrap", 0)) else 1
+        return {"FINISHED"}
+
+
+class OG_OT_SetPlatformDefaults(Operator):
+    """Reset sync values on the selected platform actor to defaults."""
+    bl_idname = "og.set_platform_defaults"
+    bl_label  = "Reset Sync Defaults"
+
+    def execute(self, ctx):
+        o = ctx.active_object
+        if not o:
+            return {"CANCELLED"}
+        o["og_sync_period"]   = 4.0
+        o["og_sync_phase"]    = 0.0
+        o["og_sync_ease_out"] = 0.15
+        o["og_sync_ease_in"]  = 0.15
+        o["og_sync_wrap"]     = 0
+        return {"FINISHED"}
+
+
+class OG_OT_SpawnPlatform(Operator):
+    """Place a platform actor empty at the 3D cursor."""
+    bl_idname     = "og.spawn_platform"
+    bl_label      = "Add Platform"
+    bl_description = "Place a platform actor at the 3D cursor"
+
+    def execute(self, ctx):
+        etype = ctx.scene.og_props.platform_type
+        einfo = ENTITY_DEFS.get(etype, {})
+
+        # Use count of existing same-type actors as uid, matching OG_OT_SpawnEntity pattern
+        n   = len([o for o in ctx.scene.objects if o.name.startswith(f"ACTOR_{etype}_")])
+        uid = f"{n:04d}"
+
+        bpy.ops.object.empty_add(type=einfo.get("shape", "CUBE"),
+                                 location=ctx.scene.cursor.location)
+        o = ctx.active_object
+        o.name               = f"ACTOR_{etype}_{uid}"
+        o.show_name          = True
+        o.empty_display_size = 0.5
+        o.color              = einfo.get("color", (0.5, 0.5, 0.8, 1.0))
+        if hasattr(o, "show_in_front"):
+            o.show_in_front = True
+        self.report({"INFO"}, f"Added {o.name}")
+        return {"FINISHED"}
+
+
+# ── Platforms panel ───────────────────────────────────────────────────────────
+
+
+def _draw_platform_settings(layout, sel, scene):
+    """Draw per-platform settings for the active platform actor."""
+    etype = sel.name.split("_", 2)[1]
+    einfo = ENTITY_DEFS.get(etype, {})
+
+    layout.label(text=einfo.get("label", etype), icon="CUBE")
+
+    # ── Sync controls (plat, plat-eco, side-to-side-plat) ────────────────────
+    if einfo.get("needs_sync"):
+        box = layout.box()
+        box.label(text="Sync (Path Timing)", icon="TIME")
+
+        wp_prefix = sel.name + "_wp_"
+        wp_count  = sum(1 for o in scene.objects
+                        if o.name.startswith(wp_prefix) and o.type == "EMPTY")
+
+        if wp_count < 2:
+            box.label(text="⚠ Add ≥2 waypoints to enable movement", icon="INFO")
+        else:
+            box.label(text=f"✓ {wp_count} waypoints — platform will move", icon="CHECKMARK")
+
+        col = box.column(align=True)
+
+        # Period
+        row = col.row(align=True)
+        row.label(text="Period (s):")
+        period = float(sel.get("og_sync_period", 4.0))
+        op = row.operator("og.nudge_float_prop", text="-0.5", icon="REMOVE")
+        op.prop_name = "og_sync_period"; op.delta = -0.5; op.val_min = 0.5
+        row.label(text=f"{period:.1f}s")
+        op = row.operator("og.nudge_float_prop", text="+0.5", icon="ADD")
+        op.prop_name = "og_sync_period"; op.delta = 0.5; op.val_max = 300.0
+
+        # Phase
+        row = col.row(align=True)
+        row.label(text="Phase (0–1):")
+        phase = float(sel.get("og_sync_phase", 0.0))
+        op = row.operator("og.nudge_float_prop", text="-0.1", icon="REMOVE")
+        op.prop_name = "og_sync_phase"; op.delta = -0.1; op.val_min = 0.0
+        row.label(text=f"{phase:.2f}")
+        op = row.operator("og.nudge_float_prop", text="+0.1", icon="ADD")
+        op.prop_name = "og_sync_phase"; op.delta = 0.1; op.val_max = 0.9
+
+        # Ease out
+        row = col.row(align=True)
+        row.label(text="Ease Out:")
+        ease_out = float(sel.get("og_sync_ease_out", 0.15))
+        op = row.operator("og.nudge_float_prop", text="-0.05", icon="REMOVE")
+        op.prop_name = "og_sync_ease_out"; op.delta = -0.05; op.val_min = 0.0
+        row.label(text=f"{ease_out:.2f}")
+        op = row.operator("og.nudge_float_prop", text="+0.05", icon="ADD")
+        op.prop_name = "og_sync_ease_out"; op.delta = 0.05; op.val_max = 0.5
+
+        # Ease in
+        row = col.row(align=True)
+        row.label(text="Ease In:")
+        ease_in = float(sel.get("og_sync_ease_in", 0.15))
+        op = row.operator("og.nudge_float_prop", text="-0.05", icon="REMOVE")
+        op.prop_name = "og_sync_ease_in"; op.delta = -0.05; op.val_min = 0.0
+        row.label(text=f"{ease_in:.2f}")
+        op = row.operator("og.nudge_float_prop", text="+0.05", icon="ADD")
+        op.prop_name = "og_sync_ease_in"; op.delta = 0.05; op.val_max = 0.5
+
+        # Wrap phase toggle
+        wrap = bool(sel.get("og_sync_wrap", 0))
+        row = box.row()
+        icon = "CHECKBOX_HLT" if wrap else "CHECKBOX_DEHLT"
+        label = "Loop (wrap-phase) ✓" if wrap else "Loop (wrap-phase)"
+        row.operator("og.toggle_platform_wrap", text=label, icon=icon)
+
+        box.operator("og.set_platform_defaults", text="Reset to Defaults", icon="LOOP_BACK")
+
+        if wp_count >= 2:
+            box.label(text="Tip: phase staggers multiple platforms", icon="INFO")
+
+    # ── plat-button path info ─────────────────────────────────────────────────
+    if einfo.get("needs_path") and not einfo.get("needs_sync"):
+        box = layout.box()
+        box.label(text="Path (Button Travel)", icon="ANIM")
+        wp_prefix = sel.name + "_wp_"
+        wp_count  = sum(1 for o in scene.objects
+                        if o.name.startswith(wp_prefix) and o.type == "EMPTY")
+        if wp_count < 2:
+            box.label(text="⚠ Needs ≥2 waypoints (start + end)", icon="ERROR")
+        else:
+            box.label(text=f"✓ {wp_count} waypoints", icon="CHECKMARK")
+        box.label(text="Use Waypoints panel to add points ↓", icon="INFO")
+
+    # ── notice-dist (plat-eco) ────────────────────────────────────────────────
+    if einfo.get("needs_notice_dist"):
+        box = layout.box()
+        box.label(text="Eco Notice Distance", icon="RADIOBUT_ON")
+        notice = float(sel.get("og_notice_dist", -1.0))
+        row = box.row(align=True)
+        op = row.operator("og.nudge_float_prop", text="-5m", icon="REMOVE")
+        op.prop_name = "og_notice_dist"; op.delta = -5.0; op.val_min = 0.0
+        if notice < 0:
+            row.label(text="∞ (always active)")
+        else:
+            row.label(text=f"{notice:.0f}m")
+        op = row.operator("og.nudge_float_prop", text="+5m", icon="ADD")
+        op.prop_name = "og_notice_dist"; op.delta = 5.0; op.val_max = 500.0
+        toggle_row = box.row()
+        if notice < 0:
+            toggle_row.label(text="Moves without eco — click +5m to set range", icon="INFO")
+        else:
+            op = toggle_row.operator("og.nudge_float_prop", text="Set Always Active", icon="RADIOBUT_ON")
+            op.prop_name = "og_notice_dist"; op.delta = -999.0; op.val_min = -1.0
+
+
 # ===========================================================================
 # PANELS — Restructured UI
 # ---------------------------------------------------------------------------
@@ -4492,14 +5100,18 @@ def _draw_entity_sub(layout, ctx, cats, nav_inline=False):
         box.prop(props, "nav_radius", text="Sphere Radius (m)")
 
         # ── Inline navmesh link status ───────────────────────────────────
+        # Shows when ANY nav-enemy actor is selected — uses actor's actual type,
+        # not the dropdown (so selecting a babak actor always shows its navmesh
+        # status regardless of what the entity picker currently shows).
         sel = ctx.active_object
         if sel and sel.name.startswith("ACTOR_") and "_wp_" not in sel.name:
             parts = sel.name.split("_", 2)
-            if len(parts) >= 3 and parts[1] == etype:
+            if len(parts) >= 3 and _actor_uses_navmesh(parts[1]):
+                actor_etype = parts[1]
                 nm_name = sel.get("og_navmesh_link", "")
                 nm_obj  = bpy.data.objects.get(nm_name) if nm_name else None
                 layout.separator(factor=0.3)
-                layout.label(text="NavMesh", icon="MOD_MESHDEFORM")
+                layout.label(text=f"NavMesh — {sel.name}", icon="MOD_MESHDEFORM")
                 row = layout.row(align=True)
                 if nm_obj:
                     row.label(text=f"✓ {nm_obj.name}", icon="CHECKMARK")
@@ -4693,7 +5305,7 @@ class OG_PT_LevelFlow(Panel):
 
 class OG_PT_LevelManagerSub(Panel):
     bl_label       = "🗂  Level Manager"
-    bl_idname      = "OG_PT_level_manager_sub"
+    bl_idname      = "OG_PT_level_manager"
     bl_space_type  = "VIEW_3D"
     bl_region_type = "UI"
     bl_category    = "OpenGOAL"
@@ -4749,7 +5361,7 @@ class OG_PT_LevelManagerSub(Panel):
 
 class OG_PT_LightBakingSub(Panel):
     bl_label       = "💡  Light Baking"
-    bl_idname      = "OG_PT_lightbaking_sub"
+    bl_idname      = "OG_PT_lightbaking"
     bl_space_type  = "VIEW_3D"
     bl_region_type = "UI"
     bl_category    = "OpenGOAL"
@@ -5733,6 +6345,10 @@ class OG_OT_BakeLighting(Operator):
 
         return {"FINISHED"}
 
+
+# ---------------------------------------------------------------------------
+# PANEL — Light Baking
+# ---------------------------------------------------------------------------
 
 class OG_OT_RemoveLevel(Operator):
     """Remove a custom level and all its files from the project."""
