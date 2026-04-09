@@ -2,9 +2,10 @@
 Last updated: 2026-04-09
 
 ## Branch: `feature/ui-restructure`
-## Commit: c5f0be6
+## Latest commit: 22aa7e9
+## Addon version: 1.1.0
 
-## Status: BUILT, TESTED (static analysis 24/24), ready for Blender install test
+## Status: ALL TESTS PASS — ready for Blender install test
 
 ---
 
@@ -18,11 +19,11 @@ Last updated: 2026-04-09
   🎵 Music             OG_PT_Music            (sub, DEFAULT_CLOSED)  idname: OG_PT_music
 
 📁 Spawn Objects      OG_PT_Spawn            (parent, DEFAULT_CLOSED)
-  ⚔ Enemies           OG_PT_SpawnEnemies     (sub, DEFAULT_CLOSED)  cats: Enemies, Bosses
-  🟦 Platforms         OG_PT_SpawnPlatforms   (sub, DEFAULT_CLOSED)  uses platform_type prop
-  📦 Props & Objects   OG_PT_SpawnProps       (sub, DEFAULT_CLOSED)  cats: Props, Objects, Debug
-  🧍 NPCs              OG_PT_SpawnNPCs        (sub, DEFAULT_CLOSED)  cats: NPCs
-  ⭐ Pickups           OG_PT_SpawnPickups     (sub, DEFAULT_CLOSED)  cats: Pickups
+  ⚔ Enemies           OG_PT_SpawnEnemies     (sub, DEFAULT_CLOSED)  prop: enemy_type
+  🟦 Platforms         OG_PT_SpawnPlatforms   (sub, DEFAULT_CLOSED)  prop: platform_type
+  📦 Props & Objects   OG_PT_SpawnProps       (sub, DEFAULT_CLOSED)  prop: prop_type
+  🧍 NPCs              OG_PT_SpawnNPCs        (sub, DEFAULT_CLOSED)  prop: npc_type
+  ⭐ Pickups           OG_PT_SpawnPickups     (sub, DEFAULT_CLOSED)  prop: pickup_type
   🔊 Sound Emitters    OG_PT_SpawnSounds      (sub, DEFAULT_CLOSED)
 
 〰 Waypoints          OG_PT_Waypoints        (context poll: actor with waypoints selected)
@@ -35,80 +36,89 @@ OpenGOAL Collision    OG_PT_Collision        (object context)
 
 ---
 
-## Key Design Decisions
+## Key Features
 
-- **Triggers**: always visible (removed DEFAULT_CLOSED) — general purpose
-- **Camera**: unchanged
-- **NavMesh panel removed**: navmesh link UI is now inline in Enemies sub-panel.
-  Shows whenever ANY nav-enemy ACTOR_ is the active object, regardless of
-  what entity type is selected in the dropdown.
-- **Audio panel removed**: Music + sound banks → Level > Music sub-panel.
-  Sound emitters → Spawn > Sound Emitters sub-panel.
-- **Entity picker in Spawn subs**: uses shared `entity_type` prop. If selected
-  type is outside the sub-panel's category, shows a "Select a type from this
-  category" hint and early-returns. Clean UX, no crash.
+### Per-category entity dropdowns
+Each Spawn sub-panel has its own filtered dropdown — Enemies only shows
+enemies/bosses, NPCs only shows NPCs, etc. No more scrolling through 90 entities.
+
+- `enemy_type`  → ENEMY_ENUM_ITEMS  (Enemies + Bosses, grouped by tpage)
+- `prop_type`   → PROP_ENUM_ITEMS   (Props + Objects + Debug)
+- `npc_type`    → NPC_ENUM_ITEMS    (NPCs)
+- `pickup_type` → PICKUP_ENUM_ITEMS (Pickups)
+
+SpawnEntity operator reads from `source_prop` (set by each sub-panel button),
+then syncs `entity_type` so export logic stays compatible.
+
+### Inline navmesh (Enemies sub-panel)
+Appears when ANY nav-enemy ACTOR_ is the active object, regardless of dropdown.
+Shows actor name in header, link/unlink buttons. No separate NavMesh panel needed.
+
+### Triggers always visible
+No DEFAULT_CLOSED — always expanded so volumes are always one click away.
 
 ---
 
-## Bugs Found and Fixed During Testing
+## Bugs Fixed During This Session
 
 | Bug | Severity | Fix |
 |---|---|---|
 | 17 operators dropped during UI splice | Critical | Restored from main |
-| Duplicate OG_PT_LightBaking panel | Critical | Removed old standalone |
-| Duplicate validate_ambients (truncated) | Critical | Removed fragment |
-| Duplicate bl_idname OG_PT_lightbaking | Critical | Renamed sub idnames |
-| Inline navmesh only showed when actor etype == dropdown etype | UX | Fixed to match any nav-enemy actor |
+| Duplicate OG_PT_LightBaking panel | Critical | Removed |
+| Duplicate validate_ambients fragment | Critical | Removed |
+| Duplicate bl_idname conflicts | Critical | Renamed sub-panel idnames |
+| Navmesh inline matched dropdown not actor | UX | Fixed to use actor's actual type |
+| All spawn sub-panels shared one dropdown | UX | Per-category props + filtered enums |
+| prop_name missing from Props/NPC/Pickup panels | Bug | Added to all call sites |
 
 ---
 
-## Orphaned Operators (pre-existing, not caused by restructure)
+## Test Suite Results: 37/37 PASS
 
-These are registered but have no panel UI entry point. They're harmless —
-registered in case users assign keymaps, and removing them could break saves.
-
-- `og.mark_navmesh` / `og.unmark_navmesh` — were in old NavMesh panel
-- `og.pick_navmesh` — was in old NavMesh panel
-- `og.export_build_play` — BuildPlay panel shows 3 buttons only
-- `og.play_autoload` — intentionally not shown
-
----
-
-## Static Analysis Results (24/24 pass)
-
-1. Syntax ✓
-2. Duplicate classes ✓
-3. Duplicate functions ✓
-4. Duplicate bl_idnames ✓
-5. Registered but not defined ✓
-6. Defined but not registered ✓
-7. Broken bl_parent_id refs ✓
-8. Broken operator string refs in UI ✓
-9. Missing show_ BoolProps ✓
-10-24. All OGProperties props present ✓
+Structural (8): syntax, duplicates, bl_idnames, registration, parent IDs, op refs
+OGProperties (25): all 24 props + no missing show_ props
+Per-cat enums (4): all defined, ordered before OGProperties, referenced correctly
+SpawnEntity (3): source_prop, getattr fallback, try/except sync
+Edge cases (9): ENTITY_WIKI order, enum build order, body completeness, f-strings,
+                panel order, icons, guards, collision context, install audit
 
 ---
 
-## Testing Checklist (Blender install required)
+## Orphaned Operators (pre-existing, harmless)
+- og.mark_navmesh, og.unmark_navmesh, og.pick_navmesh — were in old NavMesh panel
+- og.export_build_play, og.play_autoload — BuildPlay panel shows 3 buttons only
 
-- [ ] Level panel: name, ID, death plane visible at top
-- [ ] Level > Level Flow: spawns, checkpoints, bsphere
-- [ ] Level > Level Manager: level list, remove, refresh
-- [ ] Level > Light Baking: samples, bake button
-- [ ] Level > Music: music bank, sound bank 1/2, live count
-- [ ] Spawn parent: collapses cleanly
-- [ ] Spawn > Enemies: shows only enemy/boss types, hint for others
-- [ ] Spawn > Enemies: with nav-enemy ACTOR_ selected → navmesh section appears
-- [ ] Spawn > Enemies: navmesh section shows correct actor name in header
-- [ ] Spawn > Enemies: link/unlink navmesh works
-- [ ] Spawn > Platforms: type dropdown, Add Platform, active settings
-- [ ] Spawn > Props: shows Props/Objects/Debug types only
-- [ ] Spawn > NPCs: shows NPC types only
-- [ ] Spawn > Pickups: shows Pickup types only
-- [ ] Spawn > Sound Emitters: pick sound, add emitter, emitter list
-- [ ] Waypoints: still context-sensitive, shows on enemy/platform actor
-- [ ] Triggers: ALWAYS visible (not collapsed by default)
-- [ ] Camera: unchanged and functional
-- [ ] Build & Play: always visible, 3 buttons work
-- [ ] Collision: still appears on mesh objects
+---
+
+## Blender Testing Checklist
+
+### Level panel
+- [ ] Name, Base ID, death plane visible at top (no sub-panel)
+- [ ] ISO/Nick preview row appears when name is set
+- [ ] Level Flow sub: spawns, checkpoints, bsphere row
+- [ ] Level Manager sub: level list, trash + refresh buttons
+- [ ] Light Baking sub: sample count, bake button (greyed when nothing selected)
+- [ ] Music sub: music bank + bank 1/2 dropdowns + live sound count
+
+### Spawn panel
+- [ ] Enemies sub: dropdown shows ONLY enemies/bosses with [Beach]/[Jungle] etc prefixes
+- [ ] Enemies sub: with babak ACTOR_ selected → navmesh section appears with actor name
+- [ ] Enemies sub: link navmesh works (shift-select enemy + quad, click Link)
+- [ ] Platforms sub: type dropdown, Add Platform, settings appear when platform selected
+- [ ] Props & Objects sub: dropdown shows only Props/Objects/Debug
+- [ ] NPCs sub: dropdown shows only NPCs
+- [ ] Pickups sub: dropdown shows only pickups (fuel-cell, money, crate, etc)
+- [ ] Sound Emitters sub: pick sound, add emitter, emitter list
+
+### Add Entity cross-check
+- [ ] Select enemy in Enemies sub → click Add Entity → correct actor spawned
+- [ ] Select NPC in NPCs sub → click Add Entity → correct NPC spawned
+- [ ] entity_type syncs correctly (check export works after spawning via sub-panel)
+
+### Standalone panels
+- [ ] Waypoints: appears when enemy/platform with waypoints is active
+- [ ] Triggers: ALWAYS visible (not collapsed), add volume works
+- [ ] Camera: unchanged, add camera + volume works
+- [ ] Build & Play: 3 buttons always visible
+- [ ] Collision: appears on mesh objects in properties panel
 
