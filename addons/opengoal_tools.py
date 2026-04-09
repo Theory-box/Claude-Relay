@@ -1,7 +1,7 @@
 bl_info = {
     "name": "OpenGOAL Level Tools",
     "author": "water111 / JohnCheathem",
-    "version": (1, 0, 0),
+    "version": (1, 1, 0),
     "blender": (4, 4, 0),
     "location": "View3D > N-Panel > OpenGOAL",
     "description": "Jak 1 level export, actor placement, build and launch tools",
@@ -350,6 +350,33 @@ def _build_entity_enum():
     return items
 
 ENTITY_ENUM_ITEMS = _build_entity_enum()
+
+# ---------------------------------------------------------------------------
+# Per-category enums — used by Spawn sub-panels so each dropdown only shows
+# types relevant to that sub-panel.
+# ---------------------------------------------------------------------------
+def _build_cat_enum(cats):
+    """Return sorted enum items for the given category set."""
+    items = []
+    for i, (etype, info) in enumerate(
+        sorted(
+            [(e, inf) for e, inf in ENTITY_DEFS.items() if inf.get("cat") in cats],
+            key=lambda x: (x[1].get("tpage_group", ""), x[1]["label"])
+        )
+    ):
+        warn = ""
+        if not info.get("nav_safe", True): warn += " [nav]"
+        if info.get("needs_path"):         warn += " [path]"
+        group = info.get("tpage_group", "")
+        prefix = f"[{group}] " if group else f"[{info.get('cat','')}] "
+        tip = ENTITY_WIKI.get(etype, {}).get("desc", "") or etype
+        items.append((etype, f"{prefix}{info['label']}{warn}", tip, i))
+    return items
+
+ENEMY_ENUM_ITEMS  = _build_cat_enum({"Enemies", "Bosses"})
+PROP_ENUM_ITEMS   = _build_cat_enum({"Props", "Objects", "Debug"})
+NPC_ENUM_ITEMS    = _build_cat_enum({"NPCs"})
+PICKUP_ENUM_ITEMS = _build_cat_enum({"Pickups"})
 
 # Platform-only enum for the Platforms panel spawn dropdown
 PLATFORM_ENUM_ITEMS = [
@@ -2313,6 +2340,16 @@ class OGProperties(PropertyGroup):
     entity_type:    EnumProperty(name="Entity Type",    items=ENTITY_ENUM_ITEMS)
     platform_type:  EnumProperty(name="Platform Type",  items=PLATFORM_ENUM_ITEMS)
     crate_type:  EnumProperty(name="Crate Type",  items=CRATE_ITEMS)
+    # Per-category entity pickers — each Spawn sub-panel uses its own prop
+    # so the dropdown only shows types relevant to that sub-panel.
+    enemy_type:     EnumProperty(name="Enemy Type",   items=ENEMY_ENUM_ITEMS,
+                                 description="Select an enemy or boss to place")
+    prop_type:      EnumProperty(name="Prop Type",    items=PROP_ENUM_ITEMS,
+                                 description="Select a prop or object to place")
+    npc_type:       EnumProperty(name="NPC Type",     items=NPC_ENUM_ITEMS,
+                                 description="Select an NPC to place")
+    pickup_type:    EnumProperty(name="Pickup Type",  items=PICKUP_ENUM_ITEMS,
+                                 description="Select a pickup to place")
     nav_radius:  FloatProperty(name="Nav Sphere Radius (m)", default=6.0, min=0.5, max=50.0,
                                description="Fallback navmesh sphere radius for nav-unsafe enemies")
     base_id:     IntProperty(name="Base Actor ID", default=10000, min=1000, max=60000,
@@ -3466,8 +3503,18 @@ class OG_OT_SpawnEntity(Operator):
     bl_idname = "og.spawn_entity"
     bl_label  = "Add Entity"
     bl_description = "Place selected entity at the 3D cursor"
+    # Which OGProperties prop holds the selected type. Sub-panels set this
+    # so the operator reads from the correct per-category dropdown.
+    source_prop: bpy.props.StringProperty(default="entity_type")
+
     def execute(self, ctx):
-        etype = ctx.scene.og_props.entity_type
+        props = ctx.scene.og_props
+        # Read from the per-category prop if specified, else fall back to entity_type
+        etype = getattr(props, self.source_prop, None) or props.entity_type
+        # Keep entity_type in sync so export / wiki preview stay consistent
+        if hasattr(props, "entity_type"):
+            try: props.entity_type = etype
+            except Exception: pass
         info  = ENTITY_DEFS.get(etype, {})
         shape = info.get("shape", "SPHERE")
         color = info.get("color", (1.0,0.5,0.1,1.0))
@@ -5064,25 +5111,18 @@ def _entity_enum_for_cats(cats):
         )
     ]
 
-def _draw_entity_sub(layout, ctx, cats, nav_inline=False):
+def _draw_entity_sub(layout, ctx, cats, nav_inline=False, prop_name="entity_type"):
     """Shared draw logic for entity sub-panels.
-    cats: set of category strings to include.
-    nav_inline: if True, show navmesh status/link inline when the selected entity needs it.
+    cats:       set of category strings to include.
+    nav_inline: if True, show navmesh status/link inline when a nav-enemy actor is selected.
+    prop_name:  OGProperties prop holding this sub-panel's selected type.
     """
     props = ctx.scene.og_props
-    etype = props.entity_type
+    etype = getattr(props, prop_name, props.entity_type)
     einfo = ENTITY_DEFS.get(etype, {})
-    ecat  = einfo.get("cat", "")
 
-    # Entity picker — only show types relevant to this sub-panel
-    valid_types = [k for k, v in ENTITY_DEFS.items() if v.get("cat") in cats]
-
-    layout.prop(props, "entity_type", text="")
-
-    # If selected type is outside this sub-panel's scope, show a hint
-    if etype not in valid_types:
-        layout.label(text="Select a type from this category", icon="INFO")
-        return
+    # Filtered dropdown — only shows types for this sub-panel's categories
+    layout.prop(props, prop_name, text="")
 
     if etype == "crate":
         layout.prop(props, "crate_type", text="Crate Type")
@@ -5107,7 +5147,6 @@ def _draw_entity_sub(layout, ctx, cats, nav_inline=False):
         if sel and sel.name.startswith("ACTOR_") and "_wp_" not in sel.name:
             parts = sel.name.split("_", 2)
             if len(parts) >= 3 and _actor_uses_navmesh(parts[1]):
-                actor_etype = parts[1]
                 nm_name = sel.get("og_navmesh_link", "")
                 nm_obj  = bpy.data.objects.get(nm_name) if nm_name else None
                 layout.separator(factor=0.3)
@@ -5131,7 +5170,8 @@ def _draw_entity_sub(layout, ctx, cats, nav_inline=False):
         box.label(text="Needs waypoints to patrol", icon="INFO")
 
     layout.separator(factor=0.3)
-    layout.operator("og.spawn_entity", text="Add Entity", icon="ADD")
+    op = layout.operator("og.spawn_entity", text="Add Entity", icon="ADD")
+    op.source_prop = prop_name
 
 
 # ===========================================================================
@@ -5464,7 +5504,7 @@ class OG_PT_SpawnEnemies(Panel):
     bl_options     = {"DEFAULT_CLOSED"}
 
     def draw(self, ctx):
-        _draw_entity_sub(self.layout, ctx, _ENEMY_CATS, nav_inline=True)
+        _draw_entity_sub(self.layout, ctx, _ENEMY_CATS, nav_inline=True, prop_name="enemy_type")
 
 
 # ---------------------------------------------------------------------------
@@ -5560,7 +5600,7 @@ class OG_PT_SpawnProps(Panel):
     bl_options     = {"DEFAULT_CLOSED"}
 
     def draw(self, ctx):
-        _draw_entity_sub(self.layout, ctx, _PROP_CATS)
+        _draw_entity_sub(self.layout, ctx, _PROP_CATS, prop_name="prop_type")
 
 
 # ---------------------------------------------------------------------------
@@ -5577,7 +5617,7 @@ class OG_PT_SpawnNPCs(Panel):
     bl_options     = {"DEFAULT_CLOSED"}
 
     def draw(self, ctx):
-        _draw_entity_sub(self.layout, ctx, _NPC_CATS)
+        _draw_entity_sub(self.layout, ctx, _NPC_CATS, prop_name="npc_type")
 
 
 # ---------------------------------------------------------------------------
@@ -5594,7 +5634,7 @@ class OG_PT_SpawnPickups(Panel):
     bl_options     = {"DEFAULT_CLOSED"}
 
     def draw(self, ctx):
-        _draw_entity_sub(self.layout, ctx, _PICKUP_CATS)
+        _draw_entity_sub(self.layout, ctx, _PICKUP_CATS, prop_name="pickup_type")
 
 
 # ---------------------------------------------------------------------------
