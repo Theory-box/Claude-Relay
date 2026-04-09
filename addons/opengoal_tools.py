@@ -5733,6 +5733,7 @@ def _draw_platform_settings(layout, sel, scene):
 #    🗺 Level Flow        OG_PT_LevelFlow      (sub, DEFAULT_CLOSED)
 #    🗂 Level Manager     OG_PT_LevelManagerSub (sub, DEFAULT_CLOSED)
 #    📂 Collection Props  OG_PT_CollectionProperties (sub, DEFAULT_CLOSED, poll-gated)
+#      Disable Export    OG_PT_DisableExport     (sub-sub, DEFAULT_CLOSED)
 #    💡 Light Baking      OG_PT_LightBakingSub  (sub, DEFAULT_CLOSED)
 #    🎵 Music             OG_PT_Music           (sub, DEFAULT_CLOSED)
 #
@@ -6115,6 +6116,23 @@ class OG_PT_CollectionProperties(Panel):
         return _active_level_col(ctx.scene) is not None
 
     def draw(self, ctx):
+        pass  # sub-panels draw the content
+
+
+class OG_PT_DisableExport(Panel):
+    bl_label       = "Disable Export"
+    bl_idname      = "OG_PT_disable_export"
+    bl_space_type  = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category    = "OpenGOAL"
+    bl_parent_id   = "OG_PT_collection_props"
+    bl_options     = {"DEFAULT_CLOSED"}
+
+    @classmethod
+    def poll(cls, ctx):
+        return _active_level_col(ctx.scene) is not None
+
+    def draw(self, ctx):
         layout = self.layout
         level_col = _active_level_col(ctx.scene)
         if level_col is None:
@@ -6126,8 +6144,7 @@ class OG_PT_CollectionProperties(Panel):
             layout.label(text="No sub-collections")
         else:
             for col in children:
-                row = layout.row()
-                row.prop(col, "og_no_export", text=col.name)
+                layout.prop(col, "og_no_export", text=col.name)
 
 
 # ---------------------------------------------------------------------------
@@ -7707,6 +7724,7 @@ classes = (
     OG_PT_LevelFlow,
     OG_PT_LevelManagerSub,
     OG_PT_CollectionProperties,
+    OG_PT_DisableExport,
     OG_PT_LightBakingSub,
     OG_PT_Music,
     # Spawn group
