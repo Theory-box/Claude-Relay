@@ -5696,7 +5696,7 @@ class OG_PT_SpawnSounds(Panel):
 # spawns, checkpoints, trigger volumes, camera anchors, navmesh meshes.
 
 def _og_managed_object(obj):
-    """Return True if obj is any OpenGOAL-managed object."""
+    """Return True if obj is any OpenGOAL-managed object or any mesh (for collision/bake)."""
     if obj is None:
         return False
     n = obj.name
@@ -5706,8 +5706,8 @@ def _og_managed_object(obj):
         return True
     if n.endswith("_CAM"):
         return True
-    # Navmesh mesh — tagged directly, no scan needed
-    if obj.type == "MESH" and obj.get("og_navmesh"):
+    # Any mesh object gets collision/lightbake controls
+    if obj.type == "MESH":
         return True
     return False
 
@@ -6076,6 +6076,62 @@ def _draw_selected_navmesh(layout, sel):
         pass
 
 
+def _draw_selected_mesh_collision(layout, obj):
+    """Draw collision properties for any mesh object."""
+    box = layout.box()
+    box.label(text="Collision", icon="MOD_PHYSICS")
+
+    box.prop(obj, "set_collision")
+    if obj.set_collision:
+        col = box.column(align=True)
+        col.prop(obj, "ignore")
+        col.prop(obj, "collide_mode")
+        col.prop(obj, "collide_material")
+        col.prop(obj, "collide_event")
+        r = col.row(align=True)
+        r.prop(obj, "noedge");  r.prop(obj, "noentity")
+        r2 = col.row(align=True)
+        r2.prop(obj, "nolineofsight"); r2.prop(obj, "nocamera")
+
+
+def _draw_selected_mesh_visibility(layout, obj):
+    """Draw visibility and weight properties for any mesh object."""
+    box = layout.box()
+    box.label(text="Visibility & Weights", icon="HIDE_OFF")
+    box.prop(obj, "set_invisible")
+    box.prop(obj, "enable_custom_weights")
+    box.prop(obj, "copy_eye_draws")
+    box.prop(obj, "copy_mod_draws")
+
+
+def _draw_selected_mesh_lightbake(layout, ctx):
+    """Draw light bake controls for selected mesh(es)."""
+    props = ctx.scene.og_props
+    targets = [o for o in ctx.selected_objects if o.type == "MESH"]
+    if not targets:
+        return
+
+    box = layout.box()
+    box.label(text="Light Baking", icon="LIGHT")
+    box.prop(props, "lightbake_samples")
+    row = box.row()
+    row.scale_y = 1.4
+    row.operator("og.bake_lighting", text=f"Bake {len(targets)} mesh(es)", icon="RENDER_STILL")
+
+
+def _draw_selected_mesh_navtag(layout, obj):
+    """Draw navmesh mark/unmark controls for mesh objects."""
+    is_tagged = obj.get("og_navmesh", False)
+    box = layout.box()
+    box.label(text="NavMesh Tag", icon="MOD_MESHDEFORM")
+    if is_tagged:
+        box.label(text="✓ Tagged as navmesh geometry", icon="CHECKMARK")
+        box.operator("og.unmark_navmesh", text="Unmark as NavMesh", icon="X")
+    else:
+        box.label(text="Not tagged as navmesh", icon="DOT")
+        box.operator("og.mark_navmesh", text="Mark as NavMesh", icon="CHECKMARK")
+
+
 class OG_PT_SelectedObject(Panel):
     bl_label       = "🔍  Selected Object"
     bl_idname      = "OG_PT_selected_object"
@@ -6116,11 +6172,18 @@ class OG_PT_SelectedObject(Panel):
             _draw_selected_cam_anchor(layout, sel, scene)
 
         elif sel.type == "MESH":
-            # poll() ensures this is an og_navmesh-tagged mesh or NAVMESH_ prefixed
+            # Navmesh mesh header if applicable
             if sel.get("og_navmesh") or sel.name.startswith("NAVMESH_"):
                 _draw_selected_navmesh(layout, sel)
             else:
-                layout.label(text=sel.name, icon="OBJECT_DATA")
+                layout.label(text=sel.name, icon="MESH_DATA")
+
+            # Mesh tools — collision, visibility, lightbake, navmesh tagging
+            layout.separator(factor=0.3)
+            _draw_selected_mesh_visibility(layout, sel)
+            _draw_selected_mesh_collision(layout, sel)
+            _draw_selected_mesh_lightbake(layout, ctx)
+            _draw_selected_mesh_navtag(layout, sel)
 
         else:
             layout.label(text=sel.name, icon="OBJECT_DATA")
