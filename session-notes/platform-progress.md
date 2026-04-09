@@ -88,3 +88,24 @@
 - og_notice_dist clamping: -5m button can't accidentally reach -1 (always-active requires explicit button) ✓
 - platforms flow through _canonical_actor_objects correctly ✓
 - No cross-panel regressions in Waypoints, Place Objects, or NavMesh panels ✓
+
+---
+
+## In-Game Test Results (2026-04-09)
+
+### Working ✓
+- `plat` — moves, collision correct
+- `plat-eco` — eco activation works, notice-dist works
+- `plat-button` — moves when Jak stands on it
+
+### Broken standalone ✗ (game-side, not addon bugs)
+- `balance-plat` — hit-by-others collision list, needs actor-link chain to receive 'grow, Jak passes through
+- `wall-plat` — spawns retracted with collision cleared, needs 'trigger message from external entity
+- `teetertotter` — Misty-specific scripted sequence, animated joints start in non-collidable position
+- `plat-flip` — JungleB-specific, collision at animated transform-index, not suitable for general use
+
+### Not yet tested
+- side-to-side-plat, revcycle, wedge-plat, launcher, warpgate
+- wrap-phase, phase staggering, plat-button bidirectional
+
+### Future work logged in knowledge-base/opengoal/platform-system.md §13

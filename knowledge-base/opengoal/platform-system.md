@@ -594,3 +594,61 @@ Custom properties: same as plat + `og_notice_dist` (-1.0 = always active, >0 = n
 ```
 Needs ≥2 waypoints (start position, end position). No sync needed — movement triggered by player contact.
 
+
+---
+
+## 13. In-Game Test Results (2026-04-09)
+
+Tested in a custom level with one of each platform type spawned standalone.
+
+### Working ✓
+- **`plat`** — moves along path with sync, collision correct
+- **`plat-eco`** — idles until blue eco, then activates and moves. notice-dist works.
+- **`plat-button`** — moves when Jak stands on top
+
+### Broken / Unusable Standalone ✗
+
+**`balance-plat`** (swamp-obs.gc)
+- Uses `hit-by-others` collision list instead of `hit-by-player` — Jak passes through it
+- Driven by `send-to-all-after/before 'grow` messages via `actor-link-info` chain
+- Designed as a linked chain of platforms that communicate — standalone one never receives `'grow`
+- Physics exist in code but require a chain partner to function
+- **Not fixable from addon side — game design limitation**
+
+**`wall-plat`** (sunken/wall-plat.gc)
+- Spawns in `wall-plat-retracted` state, which calls `clear-collide-with-as` at startup
+- Collision intentionally disabled until a `'trigger` message extends it
+- Requires a separate triggering entity to send `'trigger` — no trigger = stays retracted and passthrough
+- **Not fixable from addon side — needs a trigger sender entity**
+
+**`teetertotter`** (misty/misty-teetertotter.gc)
+- Has collision (prim-group with sphere + mesh at transform-index 5 and 7)
+- Only activates when `target-on-end-of-teetertotter?` passes — checks Jak's position vs animated joints
+- Misty-specific, designed for a scripted sequence with specific level geometry
+- No-collision in practice because animated joints start in non-collidable positions
+- **Level-specific, not suitable for general standalone use**
+
+**`plat-flip`** (jungleb/plat-flip.gc)
+- Collision exists (prim-mesh at transform-index 3, solid rider-plat-sticky)
+- Spawns in `plat-flip-idle` and reads `'delay` res lump for timing (defaults: 2s down, 0.2s up)
+- The "flipping up and down" behaviour IS correct — that is its idle state
+- No-collision observation likely because collision mesh starts at an animated position
+- JungleB-specific, designed for a timed platforming challenge with specific geometry
+- **Works as designed, but not suitable for general platforming**
+
+### Not Yet Tested
+- `side-to-side-plat` — sunken level specific, sync-based
+- `revcycle` — rotating platform
+- `wedge-plat` — sunken level, managed by wedge-plat-master
+- `launcher` — floating launcher
+- `warpgate` — warp gate
+- `plat-button` path travel distance / bidirectional behaviour
+- wrap-phase (one-way loop) vs ping-pong on `plat`
+- phase staggering across multiple `plat` instances
+
+### Action Items (future)
+- Consider adding `standalone_ok: False` flag to ENTITY_DEFS for the broken types
+- Add warning info box in Platform panel when a non-standalone-safe type is selected
+- Possibly remove broken types from spawn dropdown (or keep with warning)
+- `balance-plat` could theoretically work if two are actor-linked — worth testing
+- `wall-plat` could work if a trigger volume or script sends `'trigger` — future trigger integration
