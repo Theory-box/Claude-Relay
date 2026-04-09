@@ -2671,7 +2671,8 @@ def collect_actors(scene):
         # Waypoints tagged _wp_00, _wp_01 ... drive this lump.
         # For needs_path enemies with no waypoints we log a warning — the level
         # will likely crash or error at runtime without at least 1 waypoint.
-        if einfo.get("needs_path") or (etype in NAV_UNSAFE_TYPES and path_pts):
+        # Platforms handle their own path lump below — skip them here to avoid double-emit
+        if (einfo.get("needs_path") or (etype in NAV_UNSAFE_TYPES and path_pts)) and einfo.get("cat") != "Platforms":
             if path_pts:
                 lump["path"] = ["vector4m"] + path_pts
                 log(f"  [path] {o.name}  {len(path_pts)} points")
@@ -5733,28 +5734,28 @@ class OG_OT_SpawnPlatform(Operator):
     def execute(self, ctx):
         etype = ctx.scene.og_props.platform_type
         einfo = ENTITY_DEFS.get(etype, {})
-        base_id = ctx.scene.og_props.base_id
 
-        uid = f"{base_id:04d}"
-        ctx.scene.og_props.base_id += 1
+        # Use count of existing same-type actors as uid, matching OG_OT_SpawnEntity pattern
+        n   = len([o for o in ctx.scene.objects if o.name.startswith(f"ACTOR_{etype}_")])
+        uid = f"{n:04d}"
 
         bpy.ops.object.empty_add(type=einfo.get("shape", "CUBE"),
                                  location=ctx.scene.cursor.location)
         o = ctx.active_object
-        o.name        = f"ACTOR_{etype}_{uid}"
-        o.show_name   = True
+        o.name               = f"ACTOR_{etype}_{uid}"
+        o.show_name          = True
         o.empty_display_size = 0.5
-        color = einfo.get("color", (0.5, 0.5, 0.8, 1.0))
-        o.color = color
+        o.color              = einfo.get("color", (0.5, 0.5, 0.8, 1.0))
         if hasattr(o, "show_in_front"):
             o.show_in_front = True
+        self.report({"INFO"}, f"Added {o.name}")
         return {"FINISHED"}
 
 
 # ── Platforms panel ───────────────────────────────────────────────────────────
 
 
-def _draw_platform_settings(layout, sel):
+def _draw_platform_settings(layout, sel, scene):
     """Draw per-platform settings for the active platform actor."""
     etype = sel.name.split("_", 2)[1]
     einfo = ENTITY_DEFS.get(etype, {})
@@ -5767,7 +5768,7 @@ def _draw_platform_settings(layout, sel):
         box.label(text="Sync (Path Timing)", icon="TIME")
 
         wp_prefix = sel.name + "_wp_"
-        wp_count  = sum(1 for o in bpy.data.objects
+        wp_count  = sum(1 for o in scene.objects
                         if o.name.startswith(wp_prefix) and o.type == "EMPTY")
 
         if wp_count < 2:
@@ -5834,7 +5835,7 @@ def _draw_platform_settings(layout, sel):
         box = layout.box()
         box.label(text="Path (Button Travel)", icon="ANIM")
         wp_prefix = sel.name + "_wp_"
-        wp_count  = sum(1 for o in bpy.data.objects
+        wp_count  = sum(1 for o in scene.objects
                         if o.name.startswith(wp_prefix) and o.type == "EMPTY")
         if wp_count < 2:
             box.label(text="⚠ Needs ≥2 waypoints (start + end)", icon="ERROR")
@@ -5897,7 +5898,7 @@ class OG_PT_Platforms(Panel):
         if is_platform_selected:
             layout.separator(factor=0.2)
             layout.label(text="Selected Platform Settings", icon="SETTINGS")
-            _draw_platform_settings(layout, sel)
+            _draw_platform_settings(layout, sel, scene)
             layout.separator(factor=0.5)
 
         # ── Scene platform list (collapsible) ────────────────────────────────
