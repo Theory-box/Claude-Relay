@@ -1,85 +1,79 @@
 # UI Restructure — Session Notes
-Last updated: 2026-04-09 (Opus 4.6 — built Selected Object panel)
+Last updated: 2026-04-09 (Opus 4.6 — full Selected Object panel)
 
 ## Branch: `feature/ui-restructure`
-## Latest commit: 66fcf4f (Selected Object panel)
+## Latest commit: 1f53ba2
 
 ## Status: READY FOR BLENDER TEST
 
 ---
 
-## What Changed This Session
+## Selected Object Panel — Complete Feature Map
 
-Added `OG_PT_SelectedObject` — a standalone, poll-gated panel that shows
-context-sensitive settings for whatever OG-managed object is selected.
+The panel now mirrors or exceeds every context-sensitive feature from
+all other panels. Select any object → see everything you can do with it.
 
-### New code added:
-- `_og_managed_object(obj)` — returns True for any OG-managed object
-- `_draw_selected_actor(layout, sel, scene)` — enemies, platforms, props, NPCs, pickups
-- `_draw_selected_spawn(layout, sel, scene)` — camera status + add
-- `_draw_selected_checkpoint(layout, sel, scene)` — camera + volume link
-- `_draw_selected_emitter(layout, sel)` — sound name, mode, radius
-- `_draw_selected_volume(layout, sel, scene)` — linked target display
-- `_draw_selected_cam_anchor(layout, sel, scene)` — parent link
-- `_draw_selected_navmesh(layout, sel)` — reverse actor lookup, triangle count
-- `OG_PT_SelectedObject` — panel class with poll() and dispatch draw()
+### ACTOR_ (enemies, NPCs, props, pickups, platforms)
+- Entity label + category tag
+- NavMesh: link/unlink, triangle count, fallback sphere radius
+- Platform settings: sync period/phase/ease/wrap, path info, notice-dist
+- Prop info: idle-only notice
+- Path warnings: needs_path, needs_pathb
+- Crate type display
+- Full waypoint list: select/delete each, add at cursor
+- Path B support (swamp-bat): separate list + add
 
-### Registration order:
-SpawnSounds → **SelectedObject** → Waypoints
+### CAMERA_ (game cameras)
+- Mode selector: Fixed / Side-Scroll / Orbit (toggle buttons)
+- Blend time: +/- 0.5s nudge
+- FOV: +/- 5° nudge (shows "default" when 0)
+- Standoff: anchor status + add/select
+- Orbit: pivot status + add/select
+- Look-At target: add/clear/select
+- Rotation quaternion + no-rotation warning
+- Linked trigger volumes list + add volume
 
-### What it shows per object type:
-- **Nav-enemy actor**: label, navmesh link/unlink, triangle count, fallback radius
-- **Platform actor**: delegates to _draw_platform_settings (full sync/path/notice UI)
-- **Prop actor**: "idle animation only" info
-- **Path enemies**: path requirement warnings
-- **Crate actors**: crate type display
-- **All actors**: waypoint count, frame/delete buttons
-- **Spawn points**: camera status + add button
-- **Checkpoints**: camera status + volume link/unlink
-- **Sound emitters**: sound name, mode, radius
-- **Trigger volumes**: linked target + unlink
-- **Camera anchors**: parent object link
-- **Navmesh meshes**: which actors reference it, triangle count
+### VOL_ (trigger volumes)
+- Linked target display + jump-to
+- Unlink button
+- Context-aware link: if a linkable target is also selected, shows Link button
 
----
+### SPAWN_ (player spawn points)
+- Camera anchor status + add/select
 
-## Panel Hierarchy (current)
+### CHECKPOINT_ (checkpoint empties)
+- Camera anchor status + add/select
+- Volume link status + add/unlink
 
-```
-📁 Level              OG_PT_Level            (parent, always open)
-  🗺 Level Flow        OG_PT_LevelFlow        (sub, DEFAULT_CLOSED)
-  🗂 Level Manager     OG_PT_LevelManagerSub  (sub, DEFAULT_CLOSED)
-  💡 Light Baking      OG_PT_LightBakingSub   (sub, DEFAULT_CLOSED)
-  🎵 Music             OG_PT_Music            (sub, DEFAULT_CLOSED)
+### AMBIENT_ (sound emitters)
+- Sound name, mode, radius (read-only display)
 
-📁 Spawn Objects      OG_PT_Spawn            (parent, DEFAULT_CLOSED)
-  ⚔ Enemies           OG_PT_SpawnEnemies     (sub, DEFAULT_CLOSED)
-  🟦 Platforms         OG_PT_SpawnPlatforms   (sub, DEFAULT_CLOSED)
-  📦 Props & Objects   OG_PT_SpawnProps       (sub, DEFAULT_CLOSED)
-  🧍 NPCs              OG_PT_SpawnNPCs        (sub, DEFAULT_CLOSED)
-  ⭐ Pickups           OG_PT_SpawnPickups     (sub, DEFAULT_CLOSED)
-  🔊 Sound Emitters    OG_PT_SpawnSounds      (sub, DEFAULT_CLOSED)
+### *_CAM (camera anchors)
+- Parent object link + jump-to
 
-🔍 Selected Object    OG_PT_SelectedObject   (standalone, poll-gated, always open when visible)
-〰 Waypoints          OG_PT_Waypoints        (context poll: actor with waypoints selected)
-🔗 Triggers           OG_PT_Triggers         (always visible)
-📷 Camera             OG_PT_Camera           (DEFAULT_CLOSED)
-▶ Build & Play        OG_PT_BuildPlay        (always visible)
-🔧 Developer Tools    OG_PT_DevTools         (DEFAULT_CLOSED)
-OpenGOAL Collision    OG_PT_Collision        (object context)
-```
+### NAVMESH_ / og_navmesh meshes
+- Reverse actor lookup: which actors reference this mesh + jump-to each
+- Triangle count
+
+### ANY MESH (including VOL_, NAVMESH_, and plain geometry)
+- Visibility: set_invisible, enable_custom_weights, copy_eye_draws, copy_mod_draws
+- Collision: set_collision toggle → material, event, mode, edge/entity/LOS/camera flags
+- Light Baking: samples prop + bake button (shows selected mesh count)
+- NavMesh Tag: mark/unmark as navmesh geometry
+
+### Universal (all objects)
+- Frame in viewport button
+- Delete button
 
 ---
 
-## Known: NavMesh UI duplication
+## Operators Now Surfaced in Selected Object Panel
 
-The inline navmesh section still exists in _draw_entity_sub (Enemies sub-panel).
-The Selected Object panel now also shows navmesh management.
-This is intentional duplication for now — both paths work.
-
-Future cleanup (next session): consider removing the inline navmesh from
-_draw_entity_sub since Selected Object now handles it. This would make
-Enemies sub-panel purely about spawning.
+og.link_navmesh, og.unlink_navmesh, og.mark_navmesh, og.unmark_navmesh,
+og.set_cam_prop, og.nudge_cam_float, og.spawn_cam_align, og.spawn_cam_pivot,
+og.spawn_cam_look_at, og.spawn_cam_anchor, og.spawn_volume_autolink,
+og.link_volume, og.unlink_volume, og.add_waypoint, og.delete_waypoint,
+og.bake_lighting, og.select_and_frame, og.delete_object
 
 ---
 
@@ -91,25 +85,27 @@ Enemies sub-panel purely about spawning.
 
 ## Blender Testing Checklist
 
-### Selected Object panel (NEW)
-- [ ] Panel hidden when nothing or non-OG object selected
-- [ ] Select ACTOR_babak_0 → shows "Babak (Lurker)", NavMesh section, waypoint count
-- [ ] NavMesh section: link/unlink works from this panel
-- [ ] Select ACTOR_plat_0 → shows platform settings (sync, period, phase, etc.)
-- [ ] Select ACTOR_crate_0 → shows crate type
-- [ ] Select SPAWN_xxx → shows camera status, add camera button
-- [ ] Select CHECKPOINT_xxx → shows camera + volume link status
-- [ ] Select AMBIENT_xxx → shows sound name, mode, radius
-- [ ] Select VOL_xxx → shows linked target
-- [ ] Select *_CAM object → shows parent link
-- [ ] Select navmesh mesh → shows linked actors, triangle count
-- [ ] Frame and Delete buttons work on all types
+### Selected Object panel
+- [ ] Hidden when nothing selected
+- [ ] Select any mesh → shows Visibility, Collision, Light Bake, NavMesh Tag
+- [ ] Select ACTOR_babak → NavMesh section + waypoints + warnings
+- [ ] Select ACTOR_plat → full platform settings (sync, period, phase)
+- [ ] Select ACTOR_swamp-bat → Path A and Path B sections
+- [ ] Select CAMERA_ → mode buttons, blend, FOV, anchor/pivot, look-at, volumes
+- [ ] Select VOL_ → link display, unlink, context-aware link
+- [ ] Select SPAWN_ → camera status + add
+- [ ] Select CHECKPOINT_ → camera + volume status
+- [ ] Select AMBIENT_ → sound info
+- [ ] Select *_CAM → parent link
+- [ ] Select NAVMESH_ mesh → actor reverse lookup + triangle count
+- [ ] Collision toggle: expanding shows material/event/mode/flags
+- [ ] Light bake: samples + bake button works
+- [ ] Mark/Unmark navmesh works
+- [ ] Frame and Delete buttons work everywhere
 
 ### Existing panels (regression check)
-- [ ] Level panel and all sub-panels still work
-- [ ] Spawn sub-panels still work for placing entities
-- [ ] Waypoints still context-sensitive
-- [ ] Triggers always visible
-- [ ] Camera unchanged
-- [ ] Build & Play works
-- [ ] Export produces correct .jsonc
+- [ ] All spawn sub-panels still work for placing
+- [ ] Camera panel list view still works
+- [ ] Triggers panel list view still works
+- [ ] Waypoints panel still appears (though now redundant with Selected Object)
+- [ ] Export produces correct output
