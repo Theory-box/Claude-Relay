@@ -11,9 +11,8 @@ bl_info = {
 import bpy, os, re, json, socket, subprocess, threading, time, math, mathutils
 from pathlib import Path
 from bpy.props import (StringProperty, BoolProperty, IntProperty,
-                       EnumProperty, PointerProperty, FloatProperty,
-                       CollectionProperty)
-from bpy.types import Panel, Operator, PropertyGroup, AddonPreferences, UIList
+                       EnumProperty, PointerProperty, FloatProperty)
+from bpy.types import Panel, Operator, PropertyGroup, AddonPreferences
 
 # ---------------------------------------------------------------------------
 # PAT ENUMS
@@ -2600,27 +2599,6 @@ ALL_SFX_ITEMS = [
 # SCENE PROPERTIES
 # ---------------------------------------------------------------------------
 
-class OGCollectionItem(PropertyGroup):
-    """Single item in the Collection Properties UIList."""
-    name: StringProperty(name="Name")
-
-
-class OG_UL_CollectionList(UIList):
-    """Native Blender UIList for displaying level sub-collections."""
-    bl_idname = "OG_UL_collection_list"
-
-    def draw_item(self, context, layout, data, item, icon, active_data, active_property, index):
-        col = bpy.data.collections.get(item.name)
-        if col is None:
-            layout.label(text=item.name, icon="ERROR")
-            return
-        is_excluded = _col_is_no_export(col)
-        if is_excluded:
-            layout.label(text=item.name, icon="CANCEL")
-        else:
-            layout.label(text=item.name, icon="OUTLINER_COLLECTION")
-
-
 class OGProperties(PropertyGroup):
     # Collection-based level selection
     active_level:   EnumProperty(name="Active Level", items=_active_level_items,
@@ -2668,9 +2646,7 @@ class OGProperties(PropertyGroup):
     show_spawn_list:        BoolProperty(name="Show Spawn List",        default=True)
     show_checkpoint_list:   BoolProperty(name="Show Checkpoint List",   default=True)
     show_platform_list:     BoolProperty(name="Show Platform List",     default=True)
-    # Collection Properties UIList
-    col_list:               CollectionProperty(type=OGCollectionItem)
-    col_list_index:         IntProperty(name="Active Collection Index", default=0)
+    # Collection Properties panel
     selected_collection:    StringProperty(name="Selected Collection", default="")
 
 # ---------------------------------------------------------------------------
@@ -6125,47 +6101,6 @@ class OG_PT_LevelManagerSub(Panel):
         row.operator("og.assign_collection_as_level", text="Assign Existing", icon="OUTLINER_COLLECTION")
 
 
-def _sync_col_list(props, level_col):
-    """Sync the UIList CollectionProperty with the level's actual children.
-    Must NOT be called from draw() — Blender forbids writes there.
-    Called from depsgraph_update_post handler and from operators.
-    """
-    children = sorted(level_col.children, key=lambda c: c.name)
-    child_names = [c.name for c in children]
-
-    # Remove items not in children
-    for i in range(len(props.col_list) - 1, -1, -1):
-        if props.col_list[i].name not in child_names:
-            props.col_list.remove(i)
-
-    # Add missing children
-    existing = {item.name for item in props.col_list}
-    for name in child_names:
-        if name not in existing:
-            item = props.col_list.add()
-            item.name = name
-
-    # Clamp index
-    if props.col_list_index >= len(props.col_list):
-        props.col_list_index = max(0, len(props.col_list) - 1)
-
-
-def _on_depsgraph_update(scene, depsgraph):
-    """Depsgraph handler: sync collection list when scene structure changes."""
-    if not hasattr(scene, "og_props"):
-        return
-    props = scene.og_props
-    level_col = _active_level_col(scene)
-    if level_col is None:
-        return
-    # Only sync if the list is actually stale (cheap check)
-    children = sorted(level_col.children, key=lambda c: c.name)
-    child_names = [c.name for c in children]
-    list_names = [item.name for item in props.col_list]
-    if child_names != list_names:
-        _sync_col_list(props, level_col)
-
-
 class OG_PT_CollectionProperties(Panel):
     bl_label       = "📂  Collection Properties"
     bl_idname      = "OG_PT_collection_props"
@@ -6181,28 +6116,18 @@ class OG_PT_CollectionProperties(Panel):
 
     def draw(self, ctx):
         layout = self.layout
-        scene  = ctx.scene
-        props  = scene.og_props
-        level_col = _active_level_col(scene)
+        level_col = _active_level_col(ctx.scene)
         if level_col is None:
             return
 
-        # ── Native UIList ────────────────────────────────────────────────
-        row = layout.row()
-        row.template_list("OG_UL_collection_list", "", props, "col_list",
-                          props, "col_list_index", rows=3)
+        children = sorted(level_col.children, key=lambda c: c.name)
 
-        # ── Add / Remove buttons ─────────────────────────────────────────
-        col = row.column(align=True)
-        col.operator("og.add_collection_to_level", text="", icon="ADD")
-        col.operator("og.remove_collection_from_level_active", text="", icon="REMOVE")
-
-        # ── Settings for selected item ───────────────────────────────────
-        if props.col_list and 0 <= props.col_list_index < len(props.col_list):
-            sel_name = props.col_list[props.col_list_index].name
-            sel_col = bpy.data.collections.get(sel_name)
-            if sel_col:
-                layout.prop(sel_col, "og_no_export")
+        if not children:
+            layout.label(text="No sub-collections")
+        else:
+            for col in children:
+                row = layout.row()
+                row.prop(col, "og_no_export", text=col.name)
 
 
 # ---------------------------------------------------------------------------
@@ -7745,8 +7670,7 @@ class OG_OT_RefreshLevels(Operator):
 # ---------------------------------------------------------------------------
 
 classes = (
-    OGPreferences, OGCollectionItem, OGProperties,
-    OG_UL_CollectionList,
+    OGPreferences, OGProperties,
     OG_OT_ReloadAddon, OG_OT_CleanLevelFiles,
     OG_OT_SpawnPlayer, OG_OT_SpawnCheckpoint, OG_OT_SpawnCamAnchor,
     OG_OT_SpawnVolume, OG_OT_SpawnVolumeAutoLink, OG_OT_LinkVolume, OG_OT_UnlinkVolume, OG_OT_CleanOrphanedLinks,
@@ -7840,14 +7764,8 @@ def register():
         description="When enabled, this collection and its contents are excluded from level export",
         default=False)
 
-    # Depsgraph handler for collection list sync
-    bpy.app.handlers.depsgraph_update_post.append(_on_depsgraph_update)
-
 def unregister():
     _unload_previews()
-    # Remove depsgraph handler
-    if _on_depsgraph_update in bpy.app.handlers.depsgraph_update_post:
-        bpy.app.handlers.depsgraph_update_post.remove(_on_depsgraph_update)
     bpy.types.MATERIAL_PT_custom_props.remove(_draw_mat)
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)
