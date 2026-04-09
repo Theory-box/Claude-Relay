@@ -259,3 +259,17 @@ assert not missing, f'UNDEFINED IN TUPLE: {missing}'
 assert not nested, f'NESTED CLASSES: {nested}'
 print(f'OK — {len(top)} classes')
 ```
+
+---
+
+## Future Work
+
+### CP sphere radius UI
+Currently `og_checkpoint_radius` is stamped as a custom prop (default 3.0m) when a
+CHECKPOINT_ empty is placed, but there's no way to edit it from the panel — you have
+to manually edit the custom prop in Blender's object properties sidebar.
+
+When we get around to it: add a per-object float field in the Level Flow panel that
+reads/writes `o["og_checkpoint_radius"]` for the selected CHECKPOINT_ empty, similar
+to how the Platform panel exposes per-actor sync props. Only show it when no CPVOL_
+is linked (since AABB mode ignores the radius anyway).
