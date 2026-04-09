@@ -5304,7 +5304,40 @@ class OG_PT_BuildPlay(Panel):
 
 # ── Developer Tools ───────────────────────────────────────────────────────────
 
-class OG_PT_DevTools(Panel):
+class OG_OT_ReloadAddon(bpy.types.Operator):
+    """Hot-reload the OpenGOAL addon from disk — clears all Python module caches.
+    Use this after updating the .py file instead of restarting Blender."""
+    bl_idname = "og.reload_addon"
+    bl_label  = "Reload Addon"
+    bl_description = "Reload the OpenGOAL addon from disk without restarting Blender"
+
+    def execute(self, ctx):
+        import importlib, sys
+        # Find our module name in sys.modules
+        mod_name = None
+        for name, mod in list(sys.modules.items()):
+            if hasattr(mod, "__file__") and mod.__file__ and "opengoal_tools" in mod.__file__:
+                mod_name = name
+                break
+        if mod_name is None:
+            self.report({"ERROR"}, "Could not find opengoal_tools in sys.modules")
+            return {"CANCELLED"}
+        try:
+            # Unregister current version
+            unregister()
+            # Force reload from disk — bypasses all caches
+            mod = sys.modules[mod_name]
+            importlib.reload(mod)
+            # Re-register the freshly loaded version
+            mod.register()
+            self.report({"INFO"}, f"Reloaded {mod_name} from disk ✓")
+        except Exception as e:
+            self.report({"ERROR"}, f"Reload failed: {e}")
+            return {"CANCELLED"}
+        return {"FINISHED"}
+
+
+
     bl_label       = "🔧  Developer Tools"
     bl_idname      = "OG_PT_dev_tools"
     bl_space_type  = "VIEW_3D"
@@ -5314,6 +5347,12 @@ class OG_PT_DevTools(Panel):
 
     def draw(self, ctx):
         layout = self.layout
+
+        # ── Reload ───────────────────────────────────────────────────────────
+        row = layout.row()
+        row.scale_y = 1.4
+        row.operator("og.reload_addon", text="🔄  Reload Addon from Disk", icon="FILE_REFRESH")
+        layout.separator(factor=0.5)
 
         # Paths
         layout.label(text="Paths", icon="PREFERENCES")
@@ -5696,6 +5735,7 @@ class OG_PT_LevelManager(Panel):
 
 classes = (
     OGPreferences, OGProperties,
+    OG_OT_ReloadAddon,
     OG_OT_SpawnPlayer, OG_OT_SpawnCheckpoint, OG_OT_SpawnCamAnchor,
     OG_OT_SpawnCpVolume, OG_OT_LinkCpVolume, OG_OT_UnlinkCpVolume,
     OG_OT_SpawnEntity,
