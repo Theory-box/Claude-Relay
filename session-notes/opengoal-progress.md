@@ -89,6 +89,9 @@ qx, qy, qz, qw = -gq.x, -gq.y, -gq.z, gq.w  # conjugate
 - `entity_type` kept in sync for export compatibility when sub-panel spawns entities
 - source_prop on SpawnEntity operator routes to correct per-category prop
 
+### Future features (wanted)
+- **Load boundaries** — add support for `load-boundary` entries (modifying `load-boundary-data.gc`). Base game uses these for checkpoints (71 of 170 boundaries use `cmd = checkpt`). Has `fwd`/`bwd` directional crossing support unlike the current actor-based checkpoint-trigger. Requires engine-side edits, not just JSONC — addon could export boundary code snippets.
+
 ### Optimization ideas (not urgent)
 - Tfrag chunking system (see opengoal-progress.md §Future Branch Ideas)
 - Music ambient zones (type='music ambient)
