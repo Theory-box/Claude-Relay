@@ -3457,8 +3457,9 @@ class OG_OT_UnlinkCpVolume(Operator):
                 count += 1
         self.report({"INFO"}, f"Unlinked {count} volume(s)")
         return {"FINISHED"}
-
-
+class OG_OT_SpawnEntity(Operator):
+    bl_idname = "og.spawn_entity"
+    bl_label  = "Add Entity"
     bl_description = "Place selected entity at the 3D cursor"
     def execute(self, ctx):
         etype = ctx.scene.og_props.entity_type
