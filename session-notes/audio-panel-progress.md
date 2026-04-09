@@ -303,3 +303,16 @@ Commit: `8e2eb13` on main
 All sounds work as looping emitters regardless of whether they were "one-shot"
 in the original game. Short sounds (explosions, jumps etc.) just loop continuously.
 This is fine — use with appropriate radius so it doesn't sound ridiculous.
+
+---
+
+## Final Status (2026-04-09)
+
+**Merged to main via feature/ui-restructure.**
+
+Audio panel has been split across the new UI structure:
+- **Level > Music sub-panel**: music bank + sound bank 1/2 selectors + live sound count
+- **Spawn > Sound Emitters sub-panel**: pick sound, add emitter, emitter list
+
+The standalone `OG_PT_Audio` panel is removed. All functionality preserved.
+Confirmed working in Blender 4.4 as part of v1.1.0.

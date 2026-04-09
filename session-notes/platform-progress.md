@@ -109,3 +109,16 @@
 - wrap-phase, phase staggering, plat-button bidirectional
 
 ### Future work logged in knowledge-base/opengoal/platform-system.md §13
+
+---
+
+## Final Status (2026-04-09)
+
+**Merged to main via feature/ui-restructure.**
+
+Platform panel now lives as **Spawn > Platforms sub-panel** inside the Spawn group.
+All platform functionality preserved: type picker, Add Platform, active settings,
+sync/phase/wrap controls, platform list. Confirmed working in Blender 4.4.
+
+Platforms still untested: side-to-side-plat, revcycle, wedge-plat, launcher, warpgate.
+Broken standalone (game-side): balance-plat, wall-plat, teetertotter, plat-flip.
