@@ -2321,8 +2321,10 @@ class OGProperties(PropertyGroup):
     vis_nick_override: StringProperty(name="Vis Nick Override", default="",
                                       description="Override the auto-generated 3-letter vis nickname (leave blank to use auto)")
     # UI collapse state
-    show_camera_list:  BoolProperty(name="Show Camera List",  default=True)
-    show_volume_list:  BoolProperty(name="Show Volume List",  default=True)
+    show_camera_list:       BoolProperty(name="Show Camera List",       default=True)
+    show_volume_list:       BoolProperty(name="Show Volume List",       default=True)
+    show_spawn_list:        BoolProperty(name="Show Spawn List",        default=True)
+    show_checkpoint_list:   BoolProperty(name="Show Checkpoint List",   default=True)
 
 # ---------------------------------------------------------------------------
 # PROCESS MANAGEMENT
@@ -4494,45 +4496,63 @@ class OG_PT_Scene(Panel):
 
         if spawns or checkpoints:
             layout.separator(factor=0.4)
-            box = layout.box()
 
             if spawns:
-                box.label(text=f"Player Spawns ({len(spawns)})", icon="ARMATURE_DATA")
-                for o in sorted(spawns, key=lambda x: x.name):
-                    row = box.row(align=True)
-                    row.label(text=o.name, icon="EMPTY_ARROWS")
-                    cam_obj = scene.objects.get(o.name + "_CAM")
-                    if cam_obj:
-                        row.label(text="📷", icon="NONE")
-                    else:
-                        sub = row.row()
-                        sub.alert = True
-                        sub.label(text="no cam", icon="NONE")
+                # Collapsible spawns
+                row = layout.row()
+                icon = "TRIA_DOWN" if props.show_spawn_list else "TRIA_RIGHT"
+                row.prop(props, "show_spawn_list",
+                         text=f"Player Spawns ({len(spawns)})", icon=icon, emboss=False)
+                if props.show_spawn_list:
+                    box = layout.box()
+                    for o in sorted(spawns, key=lambda x: x.name):
+                        row = box.row(align=True)
+                        row.label(text=o.name, icon="EMPTY_ARROWS")
+                        cam_obj = scene.objects.get(o.name + "_CAM")
+                        if cam_obj:
+                            row.label(text="📷", icon="NONE")
+                        else:
+                            sub = row.row()
+                            sub.alert = True
+                            sub.label(text="no cam", icon="NONE")
+                        op = row.operator("og.select_and_frame", text="", icon="VIEWZOOM")
+                        op.obj_name = o.name
+                        op = row.operator("og.delete_object", text="", icon="TRASH")
+                        op.obj_name = o.name
 
             if checkpoints:
-                box.separator(factor=0.3)
-                box.label(text=f"Checkpoints ({len(checkpoints)})", icon="KEYFRAME_HLT")
-                # Build vol_by_cp map for display
-                vol_by_cp_panel = {}
-                for o in scene.objects:
-                    if o.type == "MESH" and o.name.startswith("VOL_"):
-                        link = o.get("og_vol_link", "")
-                        if link and link.startswith("CHECKPOINT_"):
-                            vol_by_cp_panel[link] = o
-                for o in sorted(checkpoints, key=lambda x: x.name):
-                    row = box.row(align=True)
-                    row.label(text=o.name, icon="EMPTY_SINGLE_ARROW")
-                    vol = vol_by_cp_panel.get(o.name)
-                    if vol:
-                        row.label(text=f"📦 {vol.name}")
-                    else:
-                        r = float(o.get("og_checkpoint_radius", 3.0))
-                        sub = row.row()
-                        sub.alert = True
-                        sub.label(text=f"r={r:.1f}m")
-                    cam_obj = scene.objects.get(o.name + "_CAM")
-                    if cam_obj:
-                        row.label(text="📷", icon="NONE")
+                # Collapsible checkpoints
+                row = layout.row()
+                icon = "TRIA_DOWN" if props.show_checkpoint_list else "TRIA_RIGHT"
+                row.prop(props, "show_checkpoint_list",
+                         text=f"Checkpoints ({len(checkpoints)})", icon=icon, emboss=False)
+                if props.show_checkpoint_list:
+                    # Build vol_by_cp map for display
+                    vol_by_cp_panel = {}
+                    for o in scene.objects:
+                        if o.type == "MESH" and o.name.startswith("VOL_"):
+                            link = o.get("og_vol_link", "")
+                            if link and link.startswith("CHECKPOINT_"):
+                                vol_by_cp_panel[link] = o
+                    box = layout.box()
+                    for o in sorted(checkpoints, key=lambda x: x.name):
+                        row = box.row(align=True)
+                        row.label(text=o.name, icon="EMPTY_SINGLE_ARROW")
+                        vol = vol_by_cp_panel.get(o.name)
+                        if vol:
+                            row.label(text=f"📦 {vol.name}")
+                        else:
+                            r = float(o.get("og_checkpoint_radius", 3.0))
+                            sub = row.row()
+                            sub.alert = True
+                            sub.label(text=f"r={r:.1f}m")
+                        cam_obj = scene.objects.get(o.name + "_CAM")
+                        if cam_obj:
+                            row.label(text="📷", icon="NONE")
+                        op = row.operator("og.select_and_frame", text="", icon="VIEWZOOM")
+                        op.obj_name = o.name
+                        op = row.operator("og.delete_object", text="", icon="TRASH")
+                        op.obj_name = o.name
 
             # ── Camera anchor + volume helpers (context-sensitive) ────────────
             sel = ctx.active_object
@@ -4942,6 +4962,60 @@ class OG_OT_UnlinkVolume(Operator):
         return {"FINISHED"}
 
 
+class OG_OT_SelectAndFrame(Operator):
+    """Make an object active, select it, and frame it in the viewport."""
+    bl_idname = "og.select_and_frame"
+    bl_label  = "View"
+    bl_description = "Select this object and frame it in the viewport"
+
+    obj_name: bpy.props.StringProperty()
+
+    def execute(self, ctx):
+        obj = ctx.scene.objects.get(self.obj_name)
+        if not obj:
+            self.report({"ERROR"}, f"Object '{self.obj_name}' not found")
+            return {"CANCELLED"}
+        # Deselect all, select and make active
+        bpy.ops.object.select_all(action="DESELECT")
+        obj.select_set(True)
+        ctx.view_layer.objects.active = obj
+        # Frame in viewport
+        bpy.ops.view3d.view_selected()
+        return {"FINISHED"}
+
+
+class OG_OT_DeleteObject(Operator):
+    """Delete an object by name, also cleaning up any linked volumes."""
+    bl_idname = "og.delete_object"
+    bl_label  = "Delete"
+    bl_description = "Delete this object (volumes linked to it will be unlinked)"
+
+    obj_name: bpy.props.StringProperty()
+
+    def execute(self, ctx):
+        obj = ctx.scene.objects.get(self.obj_name)
+        if not obj:
+            self.report({"ERROR"}, f"Object '{self.obj_name}' not found")
+            return {"CANCELLED"}
+        # Clean any volumes linked to this object before deleting
+        for o in ctx.scene.objects:
+            if o.type == "MESH" and o.name.startswith("VOL_"):
+                if o.get("og_vol_link") == self.obj_name:
+                    orig_id = o.get("og_vol_id", 0)
+                    del o["og_vol_link"]
+                    o.name = f"VOL_{orig_id}"
+        # Also delete associated _CAM, _ALIGN, _PIVOT, _LOOK_AT empties for cameras
+        suffixes = ["_CAM", "_ALIGN", "_PIVOT", "_LOOK_AT"]
+        for suf in suffixes:
+            associated = ctx.scene.objects.get(self.obj_name + suf)
+            if associated:
+                bpy.data.objects.remove(associated, do_unlink=True)
+        # Delete the object itself
+        bpy.data.objects.remove(obj, do_unlink=True)
+        self.report({"INFO"}, f"Deleted '{self.obj_name}'")
+        return {"FINISHED"}
+
+
 class OG_OT_CleanOrphanedLinks(Operator):
     """Remove og_vol_link from any VOL_ whose target object has been deleted."""
     bl_idname   = "og.clean_orphaned_links"
@@ -4959,67 +5033,8 @@ class OG_OT_CleanOrphanedLinks(Operator):
 
 # ── Entity placement ──────────────────────────────────────────────────────────
 
-class OG_OT_SpawnEntity(Operator):
-    bl_idname = "og.spawn_entity"
-    bl_label  = "Add Entity"
-    bl_description = "Place selected entity at the 3D cursor"
-    def execute(self, ctx):
-        etype = ctx.scene.og_props.entity_type
-        info  = ENTITY_DEFS.get(etype, {})
-        shape = info.get("shape", "SPHERE")
-        color = info.get("color", (1.0,0.5,0.1,1.0))
-        n     = len([o for o in ctx.scene.objects if o.name.startswith(f"ACTOR_{etype}_")])
-        bpy.ops.object.empty_add(type=shape, location=ctx.scene.cursor.location)
-        o = ctx.active_object
-        o.name = f"ACTOR_{etype}_{n}"
-        o.show_name = True
-        o.empty_display_size = 0.6
-        o.color = color
-        if etype == "crate":
-            o["og_crate_type"] = ctx.scene.og_props.crate_type
-        if etype in NAV_UNSAFE_TYPES:
-            o["og_nav_radius"] = ctx.scene.og_props.nav_radius
-            self.report({"WARNING"},
-                f"Added {o.name}  —  nav-mesh workaround will be applied on export. "
-                f"Enemy will idle/notice but won't pathfind without a real navmesh.")
-        elif etype in NEEDS_PATHB_TYPES:
-            self.report({"WARNING"},
-                f"Added {o.name}  —  swamp-bat needs TWO path sets: "
-                f"waypoints named _wp_00/_wp_01... AND _wpb_00/_wpb_01... (second patrol route).")
-        elif etype in NEEDS_PATH_TYPES:
-            self.report({"WARNING"},
-                f"Added {o.name}  —  this entity requires at least 1 waypoint (_wp_00). "
-                f"It will crash or error at runtime without a path.")
-        elif etype in IS_PROP_TYPES:
-            self.report({"INFO"}, f"Added {o.name}  (prop — idle animation only, no AI/combat)")
-        else:
-            self.report({"INFO"}, f"Added {o.name}")
-        return {"FINISHED"}
 
-class OG_OT_MarkNavMesh(Operator):
-    bl_idname = "og.mark_navmesh"
-    bl_label  = "Mark as NavMesh"
-    bl_description = "Tag selected mesh objects for future auto-navmesh generation"
-    def execute(self, ctx):
-        count = 0
-        for o in ctx.selected_objects:
-            if o.type == "MESH":
-                o["og_navmesh"] = True
-                count += 1
-        self.report({"INFO"}, f"Tagged {count} object(s) as navmesh geometry")
-        return {"FINISHED"}
 
-class OG_OT_UnmarkNavMesh(Operator):
-    bl_idname = "og.unmark_navmesh"
-    bl_label  = "Unmark NavMesh"
-    bl_description = "Remove navmesh tag from selected objects"
-    def execute(self, ctx):
-        count = 0
-        for o in ctx.selected_objects:
-            if "og_navmesh" in o:
-                del o["og_navmesh"]; count += 1
-        self.report({"INFO"}, f"Untagged {count} object(s)")
-        return {"FINISHED"}
 
 def validate_ambients(ambients):
     errors = []
@@ -5040,60 +5055,8 @@ def validate_ambients(ambients):
 # OPERATORS — NavMesh linking
 # ---------------------------------------------------------------------------
 
-class OG_OT_LinkNavMesh(Operator):
-    """Link selected enemy actor(s) to the selected navmesh mesh.
-    Select any combination of enemy empties + one mesh — order doesn't matter."""
-    bl_idname = "og.link_navmesh"
-    bl_label  = "Link to NavMesh"
-    bl_description = "Select enemy actor(s) + navmesh mesh (any order), then click"
-
-    def execute(self, ctx):
-        selected = ctx.selected_objects
-
-        # Find the mesh and the enemy empties from the full selection — order irrelevant
-        meshes  = [o for o in selected if o.type == "MESH"]
-        enemies = [o for o in selected if o.type == "EMPTY"
-                   and o.name.startswith("ACTOR_") and "_wp_" not in o.name
-                   and "_wpb_" not in o.name]
-
-        if not meshes:
-            self.report({"ERROR"}, "No mesh in selection — select a navmesh quad too")
-            return {"CANCELLED"}
-        if len(meshes) > 1:
-            self.report({"ERROR"}, "Multiple meshes selected — select only one navmesh quad")
-            return {"CANCELLED"}
-        if not enemies:
-            self.report({"ERROR"}, "No enemy actor in selection — select the enemy empty too")
-            return {"CANCELLED"}
-
-        nm = meshes[0]
-
-        # Tag mesh as navmesh and prefix name if needed
-        nm["og_navmesh"] = True
-        if not nm.name.startswith("NAVMESH_"):
-            nm.name = "NAVMESH_" + nm.name
-
-        for enemy in enemies:
-            enemy["og_navmesh_link"] = nm.name
-
-        self.report({"INFO"}, f"Linked {len(enemies)} actor(s) to {nm.name}")
-        return {"FINISHED"}
 
 
-class OG_OT_UnlinkNavMesh(Operator):
-    """Remove navmesh link from selected enemy actors."""
-    bl_idname = "og.unlink_navmesh"
-    bl_label  = "Unlink NavMesh"
-    bl_description = "Remove navmesh link from selected enemy actor(s)"
-
-    def execute(self, ctx):
-        count = 0
-        for o in ctx.selected_objects:
-            if "og_navmesh_link" in o:
-                del o["og_navmesh_link"]
-                count += 1
-        self.report({"INFO"}, f"Unlinked {count} actor(s)")
-        return {"FINISHED"}
 
 # ---------------------------------------------------------------------------
 # OPERATOR — Export & Build
@@ -5193,47 +5156,6 @@ def patch_entity_gc(navmesh_actors):
 
 
 
-class OG_OT_ExportBuildPlay(Operator):
-    bl_idname      = "og.export_build_play"
-    bl_label       = "Export, Build & Play"
-    bl_description = "Export GLB, write level files, compile with GOALC, then launch the game"
-    _timer = None
-
-    def execute(self, ctx):
-        name = _lname(ctx)
-        if not name:
-            self.report({"ERROR"}, "Enter a level name first")
-            return {"CANCELLED"}
-        try:
-            export_glb(ctx, name)
-        except Exception as e:
-            self.report({"ERROR"}, f"GLB export failed: {e}")
-            return {"CANCELLED"}
-
-        _BUILD_PLAY_STATE.clear()
-        _BUILD_PLAY_STATE.update({"done": False, "status": "Starting...", "error": None, "ok": False})
-        threading.Thread(target=_bg_build_and_play, args=(name, ctx.scene), daemon=True).start()
-        wm = ctx.window_manager
-        self._timer = wm.event_timer_add(0.5, window=ctx.window)
-        wm.modal_handler_add(self)
-        return {"RUNNING_MODAL"}
-
-    def modal(self, ctx, event):
-        if event.type == "TIMER":
-            ctx.workspace.status_text_set("OpenGOAL: " + _BUILD_PLAY_STATE.get("status", "Working..."))
-            if _BUILD_PLAY_STATE.get("done"):
-                ctx.window_manager.event_timer_remove(self._timer)
-                ctx.workspace.status_text_set(None)
-                if _BUILD_PLAY_STATE.get("error"):
-                    self.report({"ERROR"}, _BUILD_PLAY_STATE["error"])
-                    return {"CANCELLED"}
-                self.report({"INFO"}, "Build & launch complete!")
-                return {"FINISHED"}
-        return {"PASS_THROUGH"}
-
-    def cancel(self, ctx):
-        ctx.window_manager.event_timer_remove(self._timer)
-        ctx.workspace.status_text_set(None)
 
 
 
@@ -5262,130 +5184,9 @@ def _actor_uses_navmesh(etype):
 # ---------------------------------------------------------------------------
 
 
-class OG_OT_PickSound(Operator):
-    """Open sound picker — choose a sound then click OK to place an emitter"""
-    bl_idname   = "og.pick_sound"
-    bl_label    = "Pick Sound"
-    bl_property = "sfx_sound"
-
-    sfx_sound: bpy.props.EnumProperty(
-        name="Sound",
-        description="Select a sound to place",
-        items=ALL_SFX_ITEMS,
-    )
-
-    def execute(self, ctx):
-        # Just store the selected sound — emitter is placed separately via Add Emitter
-        ctx.scene.og_props.sfx_sound = self.sfx_sound
-        snd = self.sfx_sound.split("__")[0] if "__" in self.sfx_sound else self.sfx_sound
-        self.report({"INFO"}, f"Sound selected: {snd}")
-        return {"FINISHED"}
-
-    def invoke(self, ctx, event):
-        self.sfx_sound = ctx.scene.og_props.sfx_sound
-        ctx.window_manager.invoke_search_popup(self)
-        return {"RUNNING_MODAL"}
-
-class OG_OT_AddSoundEmitter(Operator):
-    """Add a sound emitter empty at the 3D cursor"""
-    bl_idname  = "og.add_sound_emitter"
-    bl_label   = "Add Sound Emitter"
-    bl_options = {"REGISTER", "UNDO"}
-
-    def execute(self, ctx):
-        props = ctx.scene.og_props
-        snd   = props.sfx_sound.split("__")[0] if "__" in props.sfx_sound else props.sfx_sound
-        if not snd:
-            snd = "waterfall"
-        existing = [o for o in ctx.scene.objects if o.name.startswith("AMBIENT_snd")]
-        idx  = len(existing) + 1
-        name = f"AMBIENT_snd{idx:03d}"
-
-        bpy.ops.object.empty_add(type="SPHERE", location=ctx.scene.cursor.location)
-        o = ctx.active_object
-        o.name = name
-        o.show_name = True
-        o.empty_display_size = max(0.3, props.ambient_default_radius * 0.05)
-        o.color = (0.2, 0.8, 1.0, 1.0)
-
-        # Stamp editable custom props
-        o["og_sound_name"]   = snd
-        o["og_sound_radius"] = props.ambient_default_radius
-        o["og_sound_mode"]   = "loop"
-
-        self.report({"INFO"}, f"Added '{name}' → {snd}")
-        return {"FINISHED"}
 
 
-class OG_PT_Audio(Panel):
-    bl_label       = "🔊  Audio / Ambience"
-    bl_idname      = "OG_PT_audio"
-    bl_space_type  = "VIEW_3D"
-    bl_region_type = "UI"
-    bl_category    = "OpenGOAL"
-    bl_options     = {"DEFAULT_CLOSED"}
 
-    def draw(self, ctx):
-        layout = self.layout
-        props  = ctx.scene.og_props
-        b1     = props.sound_bank_1
-        b2     = props.sound_bank_2
-
-        # ── Level Music ──────────────────────────────────────────────────
-        box = layout.box()
-        box.label(text="Level Music", icon="PLAY")
-        box.prop(props, "music_bank", text="Music Bank")
-
-        # ── Sound Banks ──────────────────────────────────────────────────
-        box2 = layout.box()
-        box2.label(text="Sound Banks  (max 2)", icon="SPEAKER")
-        col2 = box2.column(align=True)
-        col2.prop(props, "sound_bank_1", text="Bank 1")
-        col2.prop(props, "sound_bank_2", text="Bank 2")
-        if b1 != "none" and b1 == b2:
-            box2.label(text="⚠ Bank 1 and Bank 2 are the same", icon="ERROR")
-        n_common = len(SBK_SOUNDS.get("common", []))
-        n_level  = len(set(SBK_SOUNDS.get(b1, [])) | set(SBK_SOUNDS.get(b2, [])))
-        box2.label(text=f"{n_common} common  +  {n_level} level  =  {n_common + n_level} available", icon="INFO")
-
-        layout.separator(factor=0.4)
-
-        # ── Sound Emitters ───────────────────────────────────────────────
-        box3 = layout.box()
-        box3.label(text="Sound Emitters", icon="OUTLINER_OB_SPEAKER")
-        col3 = box3.column(align=True)
-        col3.prop(props, "ambient_default_radius", text="Default Radius (m)")
-        col3.separator(factor=0.4)
-
-        # Sound picker — full width button, shows selected sound name
-        snd_display = props.sfx_sound.split("__")[0] if "__" in props.sfx_sound else props.sfx_sound
-        pick_row = col3.row(align=True)
-        pick_row.scale_y = 1.2
-        pick_row.operator("og.pick_sound", text=f"🔊  {snd_display}", icon="VIEWZOOM")
-
-        col3.separator(factor=0.4)
-        row2 = col3.row()
-        row2.scale_y = 1.4
-        row2.operator("og.add_sound_emitter", text="Add Emitter at Cursor", icon="ADD")
-
-        # List existing emitters
-        emitters = [o for o in ctx.scene.objects
-                    if o.name.startswith("AMBIENT_") and o.type == "EMPTY"
-                    and o.get("og_sound_name")]
-        if emitters:
-            layout.separator(factor=0.3)
-            sub = layout.box()
-            sub.label(text=f"{len(emitters)} emitter(s) in scene:", icon="OUTLINER_OB_EMPTY")
-            for o in emitters[:8]:
-                row = sub.row(align=True)
-                snd  = o.get("og_sound_name", "?")
-                mode = o.get("og_sound_mode", "loop")
-                icon = "PREVIEW_RANGE" if mode == "loop" else "PLAYER"
-                row.label(text=f"{o.name}  →  {snd}  [{mode}]", icon=icon)
-            if len(emitters) > 8:
-                sub.label(text=f"… and {len(emitters) - 8} more")
-        else:
-            layout.label(text="No emitters placed yet", icon="INFO")
 
 
 # ---------------------------------------------------------------------------
@@ -5411,307 +5212,23 @@ def _header_sep(layout):
 
 # ── Level Settings ───────────────────────────────────────────────────────────
 
-class OG_PT_LevelSettings(Panel):
-    bl_label       = "⚙  Level Settings"
-    bl_idname      = "OG_PT_level_settings"
-    bl_space_type  = "VIEW_3D"
-    bl_region_type = "UI"
-    bl_category    = "OpenGOAL"
-
-    def draw(self, ctx):
-        layout = self.layout
-        props  = ctx.scene.og_props
-        name   = props.level_name.strip()
-
-        col = layout.column(align=True)
-        col.prop(props, "level_name", text="Name")
-        col.prop(props, "base_id",    text="Base Actor ID")
-
-        if name:
-            name_clean = name.lower().replace(" ", "-")
-            if len(name_clean) > 10:
-                warn = layout.row()
-                warn.alert = True
-                warn.label(text=f"Name too long ({len(name_clean)} chars, max 10)!", icon="ERROR")
-            else:
-                row = layout.row()
-                row.enabled = False
-                row.label(text=f"ISO: {_iso(name)}   Nick: {_nick(name)}", icon="INFO")
-
-        layout.separator(factor=0.4)
-        col2 = layout.column(align=True)
-        col2.prop(props, "bottom_height",    text="Death Plane (m)")
-        col2.prop(props, "vis_nick_override", text="Vis Nick Override")
 
 
 # ── Scene Setup / Level Flow ──────────────────────────────────────────────────
 
-class OG_PT_Scene(Panel):
-    bl_label       = "🗺  Level Flow"
-    bl_idname      = "OG_PT_scene"
-    bl_space_type  = "VIEW_3D"
-    bl_region_type = "UI"
-    bl_category    = "OpenGOAL"
-    bl_options     = {"DEFAULT_CLOSED"}
-
-    def draw(self, ctx):
-        layout = self.layout
-        props  = ctx.scene.og_props
-        scene  = ctx.scene
-
-        # ── Spawn points ──────────────────────────────────────────────────────
-        layout.label(text="Spawn Points", icon="ARMATURE_DATA")
-        col = layout.column(align=True)
-        col.operator("og.spawn_player",     text="Add Player Spawn",  icon="ADD")
-        col.operator("og.spawn_checkpoint", text="Add Checkpoint",    icon="KEYFRAME")
-
-        spawns      = [o for o in scene.objects if o.name.startswith("SPAWN_")      and o.type == "EMPTY" and not o.name.endswith("_CAM")]
-        checkpoints = [o for o in scene.objects if o.name.startswith("CHECKPOINT_") and o.type == "EMPTY" and not o.name.endswith("_CAM")]
-
-        if spawns or checkpoints:
-            layout.separator(factor=0.4)
-            box = layout.box()
-
-            if spawns:
-                box.label(text=f"Player Spawns ({len(spawns)})", icon="ARMATURE_DATA")
-                for o in sorted(spawns, key=lambda x: x.name):
-                    row = box.row(align=True)
-                    row.label(text=o.name, icon="EMPTY_ARROWS")
-                    cam_obj = scene.objects.get(o.name + "_CAM")
-                    if cam_obj:
-                        row.label(text="📷", icon="NONE")
-                    else:
-                        sub = row.row()
-                        sub.alert = True
-                        sub.label(text="no cam", icon="NONE")
-
-            if checkpoints:
-                box.separator(factor=0.3)
-                box.label(text=f"Checkpoints ({len(checkpoints)})", icon="KEYFRAME_HLT")
-                # Build vol_by_cp map for display
-                vol_by_cp_panel = {}
-                for o in scene.objects:
-                    if o.type == "MESH" and o.name.startswith("VOL_"):
-                        link = o.get("og_vol_link", "")
-                        if link and link.startswith("CHECKPOINT_"):
-                            vol_by_cp_panel[link] = o
-                for o in sorted(checkpoints, key=lambda x: x.name):
-                    row = box.row(align=True)
-                    row.label(text=o.name, icon="EMPTY_SINGLE_ARROW")
-                    vol = vol_by_cp_panel.get(o.name)
-                    if vol:
-                        row.label(text=f"📦 {vol.name}")
-                    else:
-                        r = float(o.get("og_checkpoint_radius", 3.0))
-                        sub = row.row()
-                        sub.alert = True
-                        sub.label(text=f"r={r:.1f}m")
-                    cam_obj = scene.objects.get(o.name + "_CAM")
-                    if cam_obj:
-                        row.label(text="📷", icon="NONE")
-
-            # ── Camera anchor + volume helpers (context-sensitive) ────────────
-            sel = ctx.active_object
-            if sel and sel.type == "EMPTY" and (sel.name.startswith("SPAWN_") or sel.name.startswith("CHECKPOINT_")) and not sel.name.endswith("_CAM"):
-                is_cp = sel.name.startswith("CHECKPOINT_")
-                layout.separator(factor=0.3)
-                sub = layout.column(align=True)
-
-                # Camera anchor
-                cam_exists = bool(scene.objects.get(sel.name + "_CAM"))
-                if not cam_exists:
-                    sub.operator("og.spawn_cam_anchor", text=f"Add Camera for {sel.name}", icon="CAMERA_DATA")
-                else:
-                    row = sub.row()
-                    row.enabled = False
-                    row.label(text=f"{sel.name}_CAM exists ✓", icon="CHECKMARK")
-
-                # Volume (checkpoints only)
-                if is_cp:
-                    vol_linked = _vol_for_target(scene, sel.name)
-                    if vol_linked:
-                        row = sub.row()
-                        row.enabled = False
-                        row.label(text=f"{vol_linked.name} linked ✓", icon="MESH_CUBE")
-                        sub.operator("og.unlink_volume", text="Unlink Volume", icon="X")
-                    else:
-                        op = sub.operator("og.spawn_volume_autolink", text="Add Trigger Volume", icon="MESH_CUBE")
-                        op.target_name = sel.name
-                        sub.label(text="Or use Triggers panel to link existing", icon="INFO")
-
-        # Bsphere preview
-        if spawns or checkpoints:
-            all_pts = spawns + checkpoints
-            xs = [o.location.x for o in all_pts]
-            ys = [o.location.z for o in all_pts]
-            zs = [-o.location.y for o in all_pts]
-            cx = sum(xs)/len(xs); cy = sum(ys)/len(ys); cz = sum(zs)/len(zs)
-            r  = max(
-                math.sqrt((o.location.x-cx)**2 + (o.location.z-cy)**2 + (-o.location.y-cz)**2)
-                for o in all_pts
-            ) + 64.0
-            info_row = layout.row()
-            info_row.enabled = False
-            info_row.label(text=f"Bsphere: r≈{r:.0f}m  centre ({cx:.1f}, {cy:.1f}, {cz:.1f})", icon="SPHERE")
 
 
 # ── Place Objects ─────────────────────────────────────────────────────────────
 
-class OG_PT_PlaceObjects(Panel):
-    bl_label       = "➕  Place Objects"
-    bl_idname      = "OG_PT_place_objects"
-    bl_space_type  = "VIEW_3D"
-    bl_region_type = "UI"
-    bl_category    = "OpenGOAL"
-    bl_options     = {"DEFAULT_CLOSED"}
-
-    def draw(self, ctx):
-        layout = self.layout
-        props  = ctx.scene.og_props
-        etype  = props.entity_type
-        einfo  = ENTITY_DEFS.get(etype, {})
-
-        layout.prop(props, "entity_type", text="")
-
-        if etype == "crate":
-            layout.prop(props, "crate_type", text="Crate Type")
-
-        # ── Wiki image + description preview ──────────────────────────────
-        _draw_wiki_preview(layout, etype, ctx)
-
-        # ── Spawn requirements info box ───────────────────────────────────
-        if einfo.get("is_prop"):
-            box = layout.box()
-            box.label(text="Prop — idle animation only", icon="INFO")
-            box.label(text="No AI or combat")
-        elif etype in NAV_UNSAFE_TYPES:
-            box = layout.box()
-            box.label(text="Nav-enemy — needs navmesh", icon="ERROR")
-            box.prop(props, "nav_radius", text="Sphere Radius (m)")
-        elif einfo.get("needs_pathb"):
-            box = layout.box()
-            box.label(text="Needs 2 path sets", icon="INFO")
-            box.label(text="Waypoints: _wp_00... and _wpb_00...")
-        elif einfo.get("needs_path"):
-            box = layout.box()
-            box.label(text="Needs waypoints to patrol", icon="INFO")
-
-        layout.separator(factor=0.3)
-        layout.operator("og.spawn_entity", text="Add Entity", icon="ADD")
 
 
 # ── Waypoints ─────────────────────────────────────────────────────────────────
 
-class OG_PT_Waypoints(Panel):
-    bl_label       = "〰  Waypoints"
-    bl_idname      = "OG_PT_waypoints"
-    bl_space_type  = "VIEW_3D"
-    bl_region_type = "UI"
-    bl_category    = "OpenGOAL"
-    bl_options     = {"DEFAULT_CLOSED"}
-
-    @classmethod
-    def poll(cls, ctx):
-        """Only show panel when an actor that can use waypoints is selected."""
-        sel = ctx.active_object
-        if not sel or not sel.name.startswith("ACTOR_") or "_wp_" in sel.name:
-            return False
-        parts = sel.name.split("_", 2)
-        if len(parts) < 3:
-            return False
-        return _actor_uses_waypoints(parts[1])
-
-    def draw(self, ctx):
-        layout = self.layout
-        sel    = ctx.active_object
-        etype  = sel.name.split("_", 2)[1]
-        einfo  = ENTITY_DEFS.get(etype, {})
-
-        # ── Primary path ─────────────────────────────────────────────────────
-        prefix = sel.name + "_wp_"
-        wps = sorted(
-            [o for o in bpy.data.objects if o.name.startswith(prefix) and o.type == "EMPTY"],
-            key=lambda o: o.name
-        )
-
-        layout.label(text=f"Path  ({len(wps)} point{'s' if len(wps) != 1 else ''})", icon="ANIM")
-
-        if wps:
-            col = layout.column(align=True)
-            for wp in wps:
-                row = col.row(align=True)
-                row.label(text=wp.name, icon="EMPTY_AXIS")
-                op = row.operator("og.delete_waypoint", text="", icon="X")
-                op.wp_name = wp.name
-        else:
-            layout.label(text="No waypoints yet", icon="INFO")
-
-        op = layout.operator("og.add_waypoint", text="Add Waypoint at Cursor", icon="PLUS")
-        op.enemy_name = sel.name
-        op.pathb_mode = False
-
-        if einfo.get("needs_path") and len(wps) < 1:
-            layout.label(text="⚠ Needs ≥ 1 waypoint or will crash", icon="ERROR")
-
-        # ── Secondary path (swamp-bat only) ──────────────────────────────────
-        if einfo.get("needs_pathb"):
-            _header_sep(layout)
-            prefixb = sel.name + "_wpb_"
-            wpsb = sorted(
-                [o for o in bpy.data.objects if o.name.startswith(prefixb) and o.type == "EMPTY"],
-                key=lambda o: o.name
-            )
-            layout.label(text=f"Path B — slave bats  ({len(wpsb)} points)", icon="ANIM")
-            if wpsb:
-                col2 = layout.column(align=True)
-                for wp in wpsb:
-                    row = col2.row(align=True)
-                    row.label(text=wp.name, icon="EMPTY_AXIS")
-                    op2 = row.operator("og.delete_waypoint", text="", icon="X")
-                    op2.wp_name = wp.name
-            else:
-                layout.label(text="No Path B waypoints yet", icon="INFO")
-
-            op3 = layout.operator("og.add_waypoint", text="Add Path B Waypoint at Cursor", icon="PLUS")
-            op3.enemy_name = sel.name
-            op3.pathb_mode = True
-
-            if len(wpsb) < 1:
-                layout.label(text="⚠ swamp-bat crashes without Path B", icon="ERROR")
 
 
 # ── NavMesh ───────────────────────────────────────────────────────────────────
 
 
-class OG_OT_SpawnCamera(Operator):
-    bl_idname = "og.spawn_camera"
-    bl_label  = "Add Camera"
-    bl_description = (
-        "Place a Blender camera at the 3D cursor.\n"
-        "Named CAMERA_0, CAMERA_1 etc.\n"
-        "Look through it with Numpad-0 to preview the game view.\n"
-        "Link a trigger volume mesh with 'Link Trigger Volume'."
-    )
-    def execute(self, ctx):
-        n = len([o for o in ctx.scene.objects
-                 if o.name.startswith("CAMERA_") and o.type == "CAMERA"])
-        cam_name = f"CAMERA_{n}"
-        bpy.ops.object.camera_add(location=ctx.scene.cursor.location)
-        o = ctx.active_object
-        # Set name twice: Blender resolves duplicate data-block names after the
-        # first assignment, so the second set lands the exact name we want.
-        o.name      = cam_name
-        o.name      = cam_name
-        o.data.name = cam_name
-        o.show_name = True
-        o.color = (0.0, 0.8, 0.9, 1.0)
-        # Default custom properties
-        o["og_cam_mode"]   = "fixed"
-        o["og_cam_interp"] = 1.0
-        o["og_cam_fov"]    = 0.0
-        o["og_cam_look_at"] = ""
-        self.report({"INFO"}, f"Added {o.name}  |  Numpad-0 to look through it")
-        return {"FINISHED"}
 
 
 
@@ -5876,7 +5393,6 @@ class OG_PT_Triggers(Panel):
             row = box.row(align=True)
             link = v.get("og_vol_link", "")
             if link:
-                # Check if target still exists
                 target_exists = bool(scene.objects.get(link))
                 if target_exists:
                     row.label(text=v.name, icon="CHECKMARK")
@@ -5889,6 +5405,10 @@ class OG_PT_Triggers(Panel):
                 row.alert = True
                 row.label(text=v.name, icon="MESH_CUBE")
                 row.label(text="unlinked")
+            op = row.operator("og.select_and_frame", text="", icon="VIEWZOOM")
+            op.obj_name = v.name
+            op = row.operator("og.delete_object", text="", icon="TRASH")
+            op.obj_name = v.name
 
         # Orphan cleanup button — only show if any orphans exist
         orphans = [o for o in vols if o.get("og_vol_link") and not scene.objects.get(o.get("og_vol_link", ""))]
@@ -5965,9 +5485,12 @@ class OG_PT_Camera(Panel):
 
         for cam_obj in cam_objects:
             box = layout.box()
-            row = box.row()
-            icon = "CAMERA_DATA"
-            row.label(text=cam_obj.name, icon=icon)
+            row = box.row(align=True)
+            row.label(text=cam_obj.name, icon="CAMERA_DATA")
+            op = row.operator("og.select_and_frame", text="", icon="VIEWZOOM")
+            op.obj_name = cam_obj.name
+            op = row.operator("og.delete_object", text="", icon="TRASH")
+            op.obj_name = cam_obj.name
 
             mode   = cam_obj.get("og_cam_mode",   "fixed")
             interp = float(cam_obj.get("og_cam_interp", 1.0))
@@ -6729,6 +6252,7 @@ classes = (
     OG_OT_ReloadAddon, OG_OT_CleanLevelFiles,
     OG_OT_SpawnPlayer, OG_OT_SpawnCheckpoint, OG_OT_SpawnCamAnchor,
     OG_OT_SpawnVolume, OG_OT_SpawnVolumeAutoLink, OG_OT_LinkVolume, OG_OT_UnlinkVolume, OG_OT_CleanOrphanedLinks,
+    OG_OT_SelectAndFrame, OG_OT_DeleteObject,
     OG_OT_SpawnEntity,
     OG_OT_SpawnCamera, OG_OT_SpawnCamAlign, OG_OT_SpawnCamPivot,
     OG_OT_SpawnCamLookAt,
