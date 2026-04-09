@@ -5701,16 +5701,14 @@ def _og_managed_object(obj):
         return False
     n = obj.name
     if any(n.startswith(p) for p in ("ACTOR_", "SPAWN_", "CHECKPOINT_",
-                                      "AMBIENT_", "VOL_", "CAMERA_")):
+                                      "AMBIENT_", "VOL_", "CAMERA_",
+                                      "NAVMESH_")):
         return True
     if n.endswith("_CAM"):
         return True
-    # Navmesh mesh — any mesh that an actor references
+    # Navmesh mesh — tagged directly, no scan needed
     if obj.type == "MESH" and obj.get("og_navmesh"):
         return True
-    for o in bpy.data.objects:
-        if o.get("og_navmesh_link") == obj.name:
-            return True
     return False
 
 
@@ -5958,14 +5956,8 @@ class OG_PT_SelectedObject(Panel):
             _draw_selected_cam_anchor(layout, sel, scene)
 
         elif sel.type == "MESH":
-            # Check if it's a navmesh
-            is_nm = sel.get("og_navmesh")
-            if not is_nm:
-                for o in bpy.data.objects:
-                    if o.get("og_navmesh_link") == sel.name:
-                        is_nm = True
-                        break
-            if is_nm:
+            # poll() ensures this is an og_navmesh-tagged mesh or NAVMESH_ prefixed
+            if sel.get("og_navmesh") or sel.name.startswith("NAVMESH_"):
                 _draw_selected_navmesh(layout, sel)
             else:
                 layout.label(text=sel.name, icon="OBJECT_DATA")
