@@ -1030,7 +1030,7 @@ def write_gc(name, has_triggers=False, has_checkpoints=False):
             "  ((cp-name   string  :offset-assert 176)",
             "   (radius    float   :offset-assert 180)",
             "   (triggered symbol  :offset-assert 184))",
-            "  :heap-base #x40",
+            "  :heap-base #x50",
             "  :size-assert #xbc",
             "  (:states checkpoint-trigger-active))",
             "",
