@@ -2320,6 +2320,9 @@ class OGProperties(PropertyGroup):
                                      description="Y height below which the player gets an endlessfall death (negative = below level floor)")
     vis_nick_override: StringProperty(name="Vis Nick Override", default="",
                                       description="Override the auto-generated 3-letter vis nickname (leave blank to use auto)")
+    # UI collapse state
+    show_camera_list:  BoolProperty(name="Show Camera List",  default=True)
+    show_volume_list:  BoolProperty(name="Show Volume List",  default=True)
 
 # ---------------------------------------------------------------------------
 # PROCESS MANAGEMENT
@@ -5860,8 +5863,15 @@ class OG_PT_Triggers(Panel):
             box.label(text="No trigger volumes in scene", icon="INFO")
             return
 
+        # Collapsible header
+        row = layout.row()
+        icon = "TRIA_DOWN" if ctx.scene.og_props.show_volume_list else "TRIA_RIGHT"
+        row.prop(ctx.scene.og_props, "show_volume_list",
+                 text=f"Volumes ({len(vols)})", icon=icon, emboss=False)
+        if not ctx.scene.og_props.show_volume_list:
+            return
+
         box = layout.box()
-        box.label(text=f"Volumes ({len(vols)})", icon="MESH_CUBE")
         for v in vols:
             row = box.row(align=True)
             link = v.get("og_vol_link", "")
@@ -5935,6 +5945,14 @@ class OG_PT_Camera(Panel):
         if not cam_objects:
             box = layout.box()
             box.label(text="No cameras placed yet", icon="INFO")
+            return
+
+        # Collapsible header
+        row = layout.row()
+        icon = "TRIA_DOWN" if ctx.scene.og_props.show_camera_list else "TRIA_RIGHT"
+        row.prop(ctx.scene.og_props, "show_camera_list",
+                 text=f"Cameras ({len(cam_objects)})", icon=icon, emboss=False)
+        if not ctx.scene.og_props.show_camera_list:
             return
 
         # Build reverse map: cam_name -> list of linked vol names
