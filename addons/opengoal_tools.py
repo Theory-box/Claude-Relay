@@ -3902,19 +3902,25 @@ class OG_OT_DeleteLevel(Operator):
 
 
 class OG_OT_AddCollectionToLevel(Operator):
-    """Add an existing Blender collection to the active level."""
+    """Search for and add a collection from inside the level to the managed list."""
     bl_idname   = "og.add_collection_to_level"
     bl_label    = "Add Collection"
     bl_options  = {"REGISTER", "UNDO"}
 
     col_name: StringProperty(name="Collection",
-                             description="Name of the collection to add to the level")
+                             description="Name of the collection to add")
 
     def invoke(self, ctx, event):
+        self.col_name = ""
         return ctx.window_manager.invoke_props_dialog(self)
 
     def draw(self, ctx):
-        self.layout.prop_search(self, "col_name", bpy.data, "collections", text="Collection")
+        level_col = _active_level_col(ctx.scene)
+        if level_col is not None:
+            self.layout.prop_search(self, "col_name", level_col, "children",
+                                    text="Collection")
+        else:
+            self.layout.label(text="No active level", icon="ERROR")
 
     def execute(self, ctx):
         level_col = _active_level_col(ctx.scene)
@@ -3922,19 +3928,17 @@ class OG_OT_AddCollectionToLevel(Operator):
             self.report({"ERROR"}, "No active level"); return {"CANCELLED"}
         if not self.col_name:
             self.report({"ERROR"}, "No collection selected"); return {"CANCELLED"}
-        col = bpy.data.collections.get(self.col_name)
-        if col is None:
-            self.report({"ERROR"}, f"Collection '{self.col_name}' not found"); return {"CANCELLED"}
-        if col == level_col:
-            self.report({"ERROR"}, "Cannot add a level collection to itself"); return {"CANCELLED"}
-        # Check if already a child
-        if col.name in [c.name for c in level_col.children]:
-            self.report({"WARNING"}, f"'{self.col_name}' is already in this level"); return {"CANCELLED"}
-        # Unlink from scene root if it's there (move it under the level)
-        if col.name in [c.name for c in ctx.scene.collection.children]:
-            ctx.scene.collection.children.unlink(col)
-        level_col.children.link(col)
-        self.report({"INFO"}, f"Added '{self.col_name}' to level")
+        # Verify the collection is actually a child of the level
+        found = False
+        for c in level_col.children:
+            if c.name == self.col_name:
+                found = True
+                break
+        if not found:
+            self.report({"ERROR"}, f"'{self.col_name}' is not inside this level"); return {"CANCELLED"}
+        # Select it in the panel
+        ctx.scene.og_props.selected_collection = self.col_name
+        self.report({"INFO"}, f"Selected '{self.col_name}'")
         return {"FINISHED"}
 
 
@@ -6089,37 +6093,51 @@ class OG_PT_CollectionProperties(Panel):
         if level_col is None:
             return
 
-        # ── Inline search to add a child collection ──────────────────────
-        # prop_search against the level collection's children
-        row = layout.row(align=True)
-        row.prop_search(props, "collection_search", level_col, "children",
-                        text="", icon="OUTLINER_COLLECTION")
-
-        # ── List child collections ───────────────────────────────────────
         children = sorted(level_col.children, key=lambda c: c.name)
+        sel_name = props.selected_collection
+
+        # ── List box ─────────────────────────────────────────────────────
+        box = layout.box()
         if not children:
-            layout.label(text="No sub-collections", icon="INFO")
-            return
+            box.label(text="No collections", icon="INFO")
+        else:
+            for col in children:
+                is_selected = (col.name == sel_name)
+                is_excluded = _col_is_no_export(col)
 
-        for col in children:
-            is_no_export = _col_is_no_export(col)
+                row = box.row(align=True)
+                row.active = is_selected
 
-            row = layout.row(align=True)
-            # Collection name
-            if is_no_export:
-                row.label(text=col.name, icon="CANCEL")
-            else:
-                row.label(text=col.name, icon="OUTLINER_COLLECTION")
+                # Clicking selects this item
+                icon = "OUTLINER_COLLECTION" if not is_excluded else "CANCEL"
+                op = row.operator("og.select_level_collection", text=col.name,
+                                  icon=icon, depress=is_selected)
+                op.col_name = col.name
 
-            # Exclude toggle — simple bool
-            op = row.operator("og.toggle_collection_no_export", text="",
-                              icon="CHECKBOX_HLT" if is_no_export else "CHECKBOX_DEHLT",
-                              depress=is_no_export)
-            op.col_name = col.name
+                # Remove button
+                op = row.operator("og.remove_collection_from_level", text="", icon="X")
+                op.col_name = col.name
 
-            # Remove from level
-            op = row.operator("og.remove_collection_from_level", text="", icon="X")
-            op.col_name = col.name
+        # ── Add Collection button (search scoped to level children) ──────
+        layout.operator("og.add_collection_to_level", text="Add Collection", icon="ADD")
+
+        # ── Settings for selected collection ─────────────────────────────
+        if sel_name:
+            sel_col = None
+            for c in children:
+                if c.name == sel_name:
+                    sel_col = c
+                    break
+            if sel_col:
+                layout.separator(factor=0.4)
+                settings_box = layout.box()
+                settings_box.label(text=sel_col.name, icon="OUTLINER_COLLECTION")
+                is_excluded = _col_is_no_export(sel_col)
+                row = settings_box.row()
+                op = row.operator("og.toggle_collection_no_export", text="Exclude from Export",
+                                  icon="CHECKBOX_HLT" if is_excluded else "CHECKBOX_DEHLT",
+                                  depress=is_excluded)
+                op.col_name = sel_col.name
 
 
 # ---------------------------------------------------------------------------
