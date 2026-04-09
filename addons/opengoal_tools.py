@@ -5082,6 +5082,7 @@ def _draw_platform_settings(layout, sel, scene):
 #    ⭐ Pickups           OG_PT_SpawnPickups   (sub, DEFAULT_CLOSED)
 #    🔊 Sound Emitters    OG_PT_SpawnSounds    (sub, DEFAULT_CLOSED)
 #
+#  🔍 Selected Object   OG_PT_SelectedObject (standalone, poll-gated)
 #  〰 Waypoints          OG_PT_Waypoints      (context, poll-gated)
 #  🔗 Triggers           OG_PT_Triggers       (always visible)
 #  📷 Camera             OG_PT_Camera         (DEFAULT_CLOSED)
@@ -5685,6 +5686,300 @@ class OG_PT_SpawnSounds(Panel):
                 sub.label(text=f"… and {len(emitters) - 8} more")
         else:
             layout.label(text="No emitters placed yet", icon="INFO")
+
+
+# ===========================================================================
+# SELECTED OBJECT  (standalone, poll-gated)
+# ===========================================================================
+# Shows context-sensitive settings for whatever OG-managed object is selected.
+# Covers: actors (enemies, platforms, props, NPCs, pickups), sound emitters,
+# spawns, checkpoints, trigger volumes, camera anchors, navmesh meshes.
+
+def _og_managed_object(obj):
+    """Return True if obj is any OpenGOAL-managed object."""
+    if obj is None:
+        return False
+    n = obj.name
+    if any(n.startswith(p) for p in ("ACTOR_", "SPAWN_", "CHECKPOINT_",
+                                      "AMBIENT_", "VOL_", "CAMERA_")):
+        return True
+    if n.endswith("_CAM"):
+        return True
+    # Navmesh mesh — any mesh that an actor references
+    if obj.type == "MESH" and obj.get("og_navmesh"):
+        return True
+    for o in bpy.data.objects:
+        if o.get("og_navmesh_link") == obj.name:
+            return True
+    return False
+
+
+def _draw_selected_actor(layout, sel, scene):
+    """Draw settings for a selected ACTOR_ object."""
+    parts = sel.name.split("_", 2)
+    if len(parts) < 3:
+        layout.label(text=sel.name, icon="OBJECT_DATA")
+        return
+    etype = parts[1]
+    einfo = ENTITY_DEFS.get(etype, {})
+    label = einfo.get("label", etype)
+    cat   = einfo.get("cat", "")
+
+    # Header
+    row = layout.row()
+    row.label(text=label, icon="OBJECT_DATA")
+    sub = row.row()
+    sub.enabled = False
+    sub.label(text=f"[{cat}]")
+
+    # ── Nav-enemy: navmesh management ────────────────────────────────────
+    if _actor_uses_navmesh(etype):
+        box = layout.box()
+        box.label(text="NavMesh", icon="MOD_MESHDEFORM")
+
+        nm_name = sel.get("og_navmesh_link", "")
+        nm_obj  = bpy.data.objects.get(nm_name) if nm_name else None
+
+        if nm_obj:
+            row = box.row(align=True)
+            row.label(text=f"✓ {nm_obj.name}", icon="CHECKMARK")
+            row.operator("og.unlink_navmesh", text="", icon="X")
+            try:
+                nm_obj.data.calc_loop_triangles()
+                tc = len(nm_obj.data.loop_triangles)
+                box.label(text=f"{tc} triangles", icon="MESH_DATA")
+            except Exception:
+                pass
+        else:
+            box.label(text="No mesh linked", icon="ERROR")
+            box.label(text="Shift-select enemy + navmesh quad,", icon="INFO")
+            box.label(text="then click Link below.")
+            box.operator("og.link_navmesh", text="Link NavMesh", icon="LINKED")
+
+        nav_r = float(sel.get("og_nav_radius", 6.0))
+        box.label(text=f"Fallback sphere radius: {nav_r:.1f}m", icon="SPHERE")
+
+    # ── Platform: sync, path, notice-dist ────────────────────────────────
+    elif _actor_is_platform(etype):
+        _draw_platform_settings(layout, sel, scene)
+
+    # ── Prop ─────────────────────────────────────────────────────────────
+    elif einfo.get("is_prop"):
+        box = layout.box()
+        box.label(text="Prop — idle animation only", icon="INFO")
+        box.label(text="No AI or combat")
+
+    # ── Path requirements ────────────────────────────────────────────────
+    else:
+        if einfo.get("needs_pathb"):
+            box = layout.box()
+            box.label(text="Needs 2 path sets", icon="INFO")
+            box.label(text="Waypoints: _wp_00... and _wpb_00...")
+        elif einfo.get("needs_path"):
+            box = layout.box()
+            box.label(text="Needs waypoints to patrol", icon="INFO")
+
+    # ── Crate type ───────────────────────────────────────────────────────
+    if etype == "crate":
+        ct = sel.get("og_crate_type", "steel")
+        box = layout.box()
+        box.label(text=f"Crate Type: {ct}", icon="PACKAGE")
+
+    # ── Waypoint count ───────────────────────────────────────────────────
+    wp_prefix = sel.name + "_wp_"
+    wp_count = sum(1 for o in scene.objects
+                   if o.name.startswith(wp_prefix) and o.type == "EMPTY")
+    if wp_count > 0:
+        layout.label(text=f"{wp_count} waypoint(s)", icon="CURVE_PATH")
+    elif einfo.get("needs_path") and not _actor_is_platform(etype):
+        layout.label(text="⚠ No waypoints — entity needs path", icon="ERROR")
+
+
+def _draw_selected_spawn(layout, sel, scene):
+    """Draw settings for a SPAWN_ object."""
+    layout.label(text=sel.name, icon="EMPTY_ARROWS")
+    cam_obj = scene.objects.get(sel.name + "_CAM")
+    if cam_obj:
+        row = layout.row()
+        row.label(text=f"✓ {cam_obj.name}", icon="CAMERA_DATA")
+        op = row.operator("og.select_and_frame", text="", icon="VIEWZOOM")
+        op.obj_name = cam_obj.name
+    else:
+        layout.label(text="⚠ No camera anchor", icon="ERROR")
+        layout.operator("og.spawn_cam_anchor", text="Add Camera", icon="CAMERA_DATA")
+
+
+def _draw_selected_checkpoint(layout, sel, scene):
+    """Draw settings for a CHECKPOINT_ object."""
+    layout.label(text=sel.name, icon="EMPTY_SINGLE_ARROW")
+
+    # Camera
+    cam_obj = scene.objects.get(sel.name + "_CAM")
+    if cam_obj:
+        row = layout.row()
+        row.label(text=f"✓ {cam_obj.name}", icon="CAMERA_DATA")
+        op = row.operator("og.select_and_frame", text="", icon="VIEWZOOM")
+        op.obj_name = cam_obj.name
+    else:
+        layout.label(text="⚠ No camera anchor", icon="ERROR")
+        layout.operator("og.spawn_cam_anchor", text="Add Camera", icon="CAMERA_DATA")
+
+    # Volume link
+    layout.separator(factor=0.3)
+    vol_linked = None
+    for o in scene.objects:
+        if o.type == "MESH" and o.name.startswith("VOL_"):
+            if o.get("og_vol_link") == sel.name:
+                vol_linked = o
+                break
+
+    if vol_linked:
+        row = layout.row(align=True)
+        row.label(text=f"✓ {vol_linked.name}", icon="MESH_CUBE")
+        row.operator("og.unlink_volume", text="", icon="X")
+    else:
+        r = float(sel.get("og_checkpoint_radius", 3.0))
+        layout.label(text=f"⚠ No trigger volume (fallback r={r:.1f}m)", icon="ERROR")
+        op = layout.operator("og.spawn_volume_autolink", text="Add Trigger Volume", icon="MESH_CUBE")
+        op.target_name = sel.name
+
+
+def _draw_selected_emitter(layout, sel):
+    """Draw settings for an AMBIENT_ sound emitter."""
+    snd  = sel.get("og_sound_name", "?")
+    mode = sel.get("og_sound_mode", "loop")
+    radius = float(sel.get("og_sound_radius", 15.0))
+
+    layout.label(text=sel.name, icon="SPEAKER")
+
+    box = layout.box()
+    box.label(text=f"Sound: {snd}", icon="PLAY")
+    box.label(text=f"Mode: {mode}", icon="PREVIEW_RANGE" if mode == "loop" else "PLAYER")
+    box.label(text=f"Radius: {radius:.1f}m", icon="SPHERE")
+
+
+def _draw_selected_volume(layout, sel, scene):
+    """Draw settings for a VOL_ trigger volume."""
+    layout.label(text=sel.name, icon="MESH_CUBE")
+
+    link = sel.get("og_vol_link", "")
+    if link:
+        target = scene.objects.get(link)
+        row = layout.row(align=True)
+        if target:
+            row.label(text=f"Linked to: {link}", icon="LINKED")
+            op = row.operator("og.select_and_frame", text="", icon="VIEWZOOM")
+            op.obj_name = link
+        else:
+            row.alert = True
+            row.label(text=f"⚠ Target missing: {link}", icon="ERROR")
+        layout.operator("og.unlink_volume", text="Unlink", icon="X")
+    else:
+        layout.label(text="Not linked to anything", icon="INFO")
+
+
+def _draw_selected_cam_anchor(layout, sel, scene):
+    """Draw settings for a camera anchor (*_CAM)."""
+    layout.label(text=sel.name, icon="CAMERA_DATA")
+    # Find parent
+    parent_name = sel.name[:-4]  # strip _CAM
+    parent = scene.objects.get(parent_name)
+    if parent:
+        row = layout.row(align=True)
+        row.label(text=f"Anchored to: {parent_name}", icon="LINKED")
+        op = row.operator("og.select_and_frame", text="", icon="VIEWZOOM")
+        op.obj_name = parent_name
+    else:
+        layout.label(text=f"⚠ Parent '{parent_name}' not found", icon="ERROR")
+
+
+def _draw_selected_navmesh(layout, sel):
+    """Draw info for a mesh that is linked as navmesh."""
+    layout.label(text=sel.name, icon="MOD_MESHDEFORM")
+
+    # Find which actors reference this mesh
+    linked_actors = []
+    for o in bpy.data.objects:
+        if o.get("og_navmesh_link") == sel.name:
+            linked_actors.append(o.name)
+
+    if linked_actors:
+        box = layout.box()
+        box.label(text=f"Used by {len(linked_actors)} actor(s):", icon="LINKED")
+        for name in linked_actors[:6]:
+            box.label(text=f"  {name}")
+        if len(linked_actors) > 6:
+            box.label(text=f"  … and {len(linked_actors) - 6} more")
+    else:
+        layout.label(text="Not linked to any actor", icon="INFO")
+
+    try:
+        sel.data.calc_loop_triangles()
+        tc = len(sel.data.loop_triangles)
+        layout.label(text=f"{tc} triangles", icon="MESH_DATA")
+    except Exception:
+        pass
+
+
+class OG_PT_SelectedObject(Panel):
+    bl_label       = "🔍  Selected Object"
+    bl_idname      = "OG_PT_selected_object"
+    bl_space_type  = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category    = "OpenGOAL"
+
+    @classmethod
+    def poll(cls, ctx):
+        return _og_managed_object(ctx.active_object)
+
+    def draw(self, ctx):
+        layout = self.layout
+        sel    = ctx.active_object
+        scene  = ctx.scene
+        name   = sel.name
+
+        # Dispatch based on object type
+        if name.startswith("ACTOR_") and "_wp_" not in name:
+            _draw_selected_actor(layout, sel, scene)
+
+        elif name.startswith("SPAWN_") and not name.endswith("_CAM"):
+            _draw_selected_spawn(layout, sel, scene)
+
+        elif name.startswith("CHECKPOINT_") and not name.endswith("_CAM"):
+            _draw_selected_checkpoint(layout, sel, scene)
+
+        elif name.startswith("AMBIENT_"):
+            _draw_selected_emitter(layout, sel)
+
+        elif name.startswith("VOL_"):
+            _draw_selected_volume(layout, sel, scene)
+
+        elif name.endswith("_CAM"):
+            _draw_selected_cam_anchor(layout, sel, scene)
+
+        elif sel.type == "MESH":
+            # Check if it's a navmesh
+            is_nm = sel.get("og_navmesh")
+            if not is_nm:
+                for o in bpy.data.objects:
+                    if o.get("og_navmesh_link") == sel.name:
+                        is_nm = True
+                        break
+            if is_nm:
+                _draw_selected_navmesh(layout, sel)
+            else:
+                layout.label(text=sel.name, icon="OBJECT_DATA")
+
+        else:
+            layout.label(text=sel.name, icon="OBJECT_DATA")
+
+        # Universal actions
+        layout.separator(factor=0.3)
+        row = layout.row(align=True)
+        op = row.operator("og.select_and_frame", text="Frame", icon="VIEWZOOM")
+        op.obj_name = name
+        op = row.operator("og.delete_object", text="Delete", icon="TRASH")
+        op.obj_name = name
 
 
 # ===========================================================================
@@ -6465,6 +6760,7 @@ classes = (
     OG_PT_SpawnPickups,
     OG_PT_SpawnSounds,
     # Standalone panels
+    OG_PT_SelectedObject,
     OG_PT_Waypoints,
     OG_PT_Triggers,
     OG_PT_Camera,
