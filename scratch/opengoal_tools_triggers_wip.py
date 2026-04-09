@@ -3628,6 +3628,7 @@ def _bg_build(name, scene):
     state = _BUILD_STATE
     try:
         state["status"] = "Collecting scene..."
+        _clean_orphaned_vol_links(scene)
         actors    = collect_actors(scene)
         ambients  = collect_ambients(scene)
         spawns    = collect_spawns(scene)
@@ -4006,6 +4007,7 @@ def _bg_geo_rebuild(name, scene):
     state = _GEO_REBUILD_STATE
     try:
         state["status"] = "Collecting scene..."
+        _clean_orphaned_vol_links(scene)
         actors   = collect_actors(scene)
         ambients = collect_ambients(scene)
         spawns   = collect_spawns(scene)
@@ -4123,6 +4125,7 @@ def _bg_build_and_play(name, scene):
     try:
         # ── Phase 1: Build ────────────────────────────────────────────────────
         state["status"] = "Collecting scene..."
+        _clean_orphaned_vol_links(scene)
         actors    = collect_actors(scene)
         ambients  = collect_ambients(scene)
         spawns    = collect_spawns(scene)
@@ -4810,6 +4813,23 @@ def _vol_for_target(scene, target_name):
     return None
 
 
+def _clean_orphaned_vol_links(scene):
+    """Remove og_vol_link from any VOL_ mesh whose target no longer exists.
+    Called at export time and available as a panel button.
+    Returns list of volume names that were cleaned."""
+    cleaned = []
+    for o in scene.objects:
+        if o.type == "MESH" and o.name.startswith("VOL_"):
+            link = o.get("og_vol_link", "")
+            if link and not scene.objects.get(link):
+                orig_id = o.get("og_vol_id", 0)
+                del o["og_vol_link"]
+                o.name = f"VOL_{orig_id}"
+                cleaned.append(link)
+                log(f"  [vol] cleaned orphaned link → '{link}' (target deleted)")
+    return cleaned
+
+
 class OG_OT_SpawnVolumeAutoLink(Operator):
     """Internal: spawn a volume and auto-link to the given target."""
     bl_idname = "og.spawn_volume_autolink"
@@ -4918,6 +4938,20 @@ class OG_OT_UnlinkVolume(Operator):
             self.report({"WARNING"}, "No linked VOL_ meshes in selection")
         return {"FINISHED"}
 
+
+class OG_OT_CleanOrphanedLinks(Operator):
+    """Remove og_vol_link from any VOL_ whose target object has been deleted."""
+    bl_idname   = "og.clean_orphaned_links"
+    bl_label    = "Clean Orphaned Links"
+    bl_description = "Remove links from volumes whose target (camera/spawn/checkpoint) has been deleted"
+
+    def execute(self, ctx):
+        cleaned = _clean_orphaned_vol_links(ctx.scene)
+        if cleaned:
+            self.report({"INFO"}, f"Cleaned {len(cleaned)} orphaned link(s): {', '.join(cleaned)}")
+        else:
+            self.report({"INFO"}, "No orphaned links found")
+        return {"FINISHED"}
 
 
 # ── Entity placement ──────────────────────────────────────────────────────────
@@ -5832,13 +5866,27 @@ class OG_PT_Triggers(Panel):
             row = box.row(align=True)
             link = v.get("og_vol_link", "")
             if link:
-                row.label(text=v.name, icon="CHECKMARK")
-                row.label(text=f"→ {link}")
+                # Check if target still exists
+                target_exists = bool(scene.objects.get(link))
+                if target_exists:
+                    row.label(text=v.name, icon="CHECKMARK")
+                    row.label(text=f"→ {link}")
+                else:
+                    row.alert = True
+                    row.label(text=v.name, icon="ERROR")
+                    row.label(text=f"→ {link} (DELETED)")
             else:
-                row = box.row(align=True)
                 row.alert = True
                 row.label(text=v.name, icon="MESH_CUBE")
                 row.label(text="unlinked")
+
+        # Orphan cleanup button — only show if any orphans exist
+        orphans = [o for o in vols if o.get("og_vol_link") and not scene.objects.get(o.get("og_vol_link", ""))]
+        if orphans:
+            layout.separator(factor=0.3)
+            row = layout.row()
+            row.alert = True
+            row.operator("og.clean_orphaned_links", text=f"Clean {len(orphans)} Orphaned Link(s)", icon="ERROR")
 
 
 class OG_PT_Camera(Panel):
@@ -5859,8 +5907,13 @@ class OG_PT_Camera(Panel):
 
         # ── Top-level add buttons ─────────────────────────────────────────
         row = layout.row(align=True)
-        row.operator("og.spawn_camera",     text="Add Camera",  icon="CAMERA_DATA")
-        row.operator("og.spawn_volume",     text="Add Volume",  icon="CUBE")
+        row.operator("og.spawn_camera", text="Add Camera", icon="CAMERA_DATA")
+        # If a camera is active, auto-link the new volume to it
+        if sel and sel.type == "CAMERA" and sel.name.startswith("CAMERA_"):
+            op = row.operator("og.spawn_volume_autolink", text="Add Volume", icon="CUBE")
+            op.target_name = sel.name
+        else:
+            row.operator("og.spawn_volume", text="Add Volume", icon="CUBE")
 
         layout.separator()
 
@@ -6657,7 +6710,7 @@ classes = (
     OGPreferences, OGProperties,
     OG_OT_ReloadAddon, OG_OT_CleanLevelFiles,
     OG_OT_SpawnPlayer, OG_OT_SpawnCheckpoint, OG_OT_SpawnCamAnchor,
-    OG_OT_SpawnVolume, OG_OT_SpawnVolumeAutoLink, OG_OT_LinkVolume, OG_OT_UnlinkVolume,
+    OG_OT_SpawnVolume, OG_OT_SpawnVolumeAutoLink, OG_OT_LinkVolume, OG_OT_UnlinkVolume, OG_OT_CleanOrphanedLinks,
     OG_OT_SpawnEntity,
     OG_OT_SpawnCamera, OG_OT_SpawnCamAlign, OG_OT_SpawnCamPivot,
     OG_OT_SpawnCamLookAt,
