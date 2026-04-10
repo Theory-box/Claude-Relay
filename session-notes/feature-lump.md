@@ -102,3 +102,38 @@ Contains:
 - `knowledge-base/opengoal/lump-system.md` — full lump reference (DO NOT overwrite without approval)
 - `addons/opengoal_tools.py` — working addon on this branch
 - `scratch/lump-design-discussion.md` — design notes (to be created)
+
+
+---
+
+## Design Direction (settled)
+
+### Lump panel purpose
+- Custom Lumps panel = power user escape hatch + learning tool for how lumps work
+- Not the primary way to configure actors — that's the dedicated per-type UI
+- Long term: every lump an actor reads gets its own proper context-aware field/panel/tool in the addon
+- Lump panel stays for: custom/exotic lumps, overrides, experimentation
+
+### Long term goal
+Eventually every meaningful lump for every actor type becomes a proper UI element
+(like idle-distance, sync, notice-dist already are). Lump panel is the fallback
+for anything not yet promoted to first-class UI.
+
+---
+
+## TODO: Unsupported Actors
+
+Need to audit ALL actor types in the OpenGOAL source and find everything
+not currently in ENTITY_DEFS. Document them with:
+- etype name
+- source file
+- what lumps they read
+- complexity to add
+
+Known missing so far:
+- keg / keg-conveyor  (misty-conveyor.gc) — uses path-k spline, complex
+- barrel              (beach level — need to verify etype name)
+- Many others likely missing — full audit needed
+
+Suggested location for the full list: knowledge-base/opengoal/unsupported-actors.md
+(propose content in chat before writing, per kb rules)
