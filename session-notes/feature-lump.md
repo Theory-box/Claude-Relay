@@ -162,3 +162,35 @@ Research complete. Ready to implement in order:
 5. Then springbox, swingpole, oracle (1 lump each)
 6. Then sharkey, sunkenfisha, water-vol (multi-lump water actors)
 7. Then platforms (orbit-plat, square-platform, caveflamepots, etc.)
+
+---
+
+## Implementation Session — April 2026
+
+Added 59 new actor types across all four data structures.
+
+Commit: f5544dd
+
+### What was added
+- **ENTITY_DEFS**: all 59 actors with correct cat, tpage_group, ag, nav_safe, needs_path, color, shape
+- **ACTOR_OBJECTS**: .o injection entries (o_only=True) for all 59
+- **ETYPE_TPAGES**: 7 new tpage group constants + 59 etype→tpages mappings
+- **LUMP_REFERENCE**: per-etype lump hint entries with type strings and descriptions
+
+### New tpage constants
+LAVATUBE_TPAGES, FIRECANYON_TPAGES, VILLAGE1_TPAGES, VILLAGE2_TPAGES, VILLAGE3_TPAGES, ROLLING_TPAGES, TRAINING_TPAGES
+
+### Known gaps (not implemented this session)
+- Prop batch (~30 Tier 1 pure props) — deferred per user request
+- babak-with-cannon — needs research
+- lavashortcut — not implemented yet
+- snow-ball, snow-log, snow-log-button, snow-switch, snow-button, snow-bumper — not implemented (need snow-log-master which isn't supported yet)
+- sun-iris-door, helix-button, helix-slide-door, helix-water — not implemented (Tier 3 puzzle systems)
+- citb-drop-plat, qbert-plat-master — Tier 3, deferred
+- Tier 3 complex systems (battlecontroller, mistycannon, racer, race-ring, keg-conveyor, periscope, reflector-*) — not implemented
+
+### Next steps
+1. Test in Blender — verify actor picker shows new types
+2. Test export — check a few actors actually spawn in-game
+3. Address any o_only issues (some .o names may need verification)
+4. Decide which Tier 3 actors to tackle next
