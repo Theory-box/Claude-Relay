@@ -184,6 +184,80 @@ ENTITY_DEFS = {
     "swamp-spike":      {"label":"Swamp Spike",          "cat":"Objects",   "ag":"swamp-spike-ag.go",       "nav_safe":True,  "needs_path":False, "needs_pathb":False, "is_prop":True,  "ai_type":"prop",             "color":(0.7,0.3,0.2,1.0), "shape":"CONE"},
     "whirlpool":        {"label":"Whirlpool",            "cat":"Objects",   "ag":"whirlpool-ag.go",         "nav_safe":True,  "needs_path":False, "needs_pathb":False, "is_prop":True,  "ai_type":"prop",             "color":(0.2,0.4,0.8,1.0), "shape":"CIRCLE"},
     "warp-gate":        {"label":"Warp Gate Switch",     "cat":"Objects",   "ag":"warp-gate-switch-ag.go",  "nav_safe":True,  "needs_path":False, "needs_pathb":False, "is_prop":True,  "ai_type":"prop",             "color":(0.2,0.7,0.8,1.0), "shape":"CIRCLE"},
+    # ---- ENEMIES (NEW) — process-drawable, no navmesh needed ----
+    # Misty group
+    "balloonlurker":    {"label":"Balloon Lurker",       "cat":"Enemies",   "tpage_group":"Misty",    "ag":"balloonlurker-ag.go",     "nav_safe":True,  "needs_path":False, "needs_pathb":False, "is_prop":False, "ai_type":"process-drawable", "color":(0.7,0.5,0.8,1.0), "shape":"SPHERE"},
+    # Jungle group
+    "darkvine":         {"label":"Dark Vine",            "cat":"Enemies",   "tpage_group":"Jungle",   "ag":"darkvine-ag.go",          "nav_safe":True,  "needs_path":False, "needs_pathb":False, "is_prop":False, "ai_type":"process-drawable", "color":(0.2,0.5,0.1,1.0), "shape":"SPHERE"},
+    "junglefish":       {"label":"Jungle Fish",          "cat":"Enemies",   "tpage_group":"Jungle",   "ag":"junglefish-ag.go",        "nav_safe":True,  "needs_path":False, "needs_pathb":False, "is_prop":False, "ai_type":"process-drawable", "color":(0.3,0.6,0.5,1.0), "shape":"SPHERE"},
+    # Rolling group
+    "peeper":           {"label":"Peeper",               "cat":"Enemies",   "tpage_group":"Rolling",  "ag":"lightning-mole-ag.go",    "nav_safe":True,  "needs_path":False, "needs_pathb":False, "is_prop":False, "ai_type":"process-drawable", "color":(0.8,0.8,0.3,1.0), "shape":"SPHERE"},
+    # Robocave group
+    "cave-trap":        {"label":"Cave Trap",            "cat":"Enemies",   "tpage_group":"Robocave", "ag":None,                      "nav_safe":True,  "needs_path":True,  "needs_pathb":False, "is_prop":False, "ai_type":"process-drawable", "color":(0.5,0.2,0.1,1.0), "shape":"SPHERE"},
+    "spider-egg":       {"label":"Spider Egg",           "cat":"Enemies",   "tpage_group":"Robocave", "ag":"spider-egg-ag.go",        "nav_safe":True,  "needs_path":False, "needs_pathb":False, "is_prop":False, "ai_type":"process-drawable", "color":(0.6,0.5,0.3,1.0), "shape":"SPHERE"},
+    "spider-vent":      {"label":"Spider Vent",          "cat":"Enemies",   "tpage_group":"Robocave", "ag":None,                      "nav_safe":True,  "needs_path":False, "needs_pathb":False, "is_prop":False, "ai_type":"process-drawable", "color":(0.5,0.3,0.1,1.0), "shape":"SPHERE"},
+    # Swamp group
+    "swamp-rat-nest":   {"label":"Swamp Rat Nest",       "cat":"Enemies",   "tpage_group":"Swamp",    "ag":"swamp-rat-nest-ag.go",    "nav_safe":True,  "needs_path":True,  "needs_pathb":False, "is_prop":False, "ai_type":"process-drawable", "color":(0.4,0.3,0.1,1.0), "shape":"SPHERE"},
+    # Sunken group
+    "sunkenfisha":      {"label":"Sunken Fish School",   "cat":"Enemies",   "tpage_group":"Sunken",   "ag":None,                      "nav_safe":True,  "needs_path":True,  "needs_pathb":False, "is_prop":False, "ai_type":"process-drawable", "color":(0.2,0.5,0.7,1.0), "shape":"SPHERE"},
+    "sharkey":          {"label":"Lurker Shark",         "cat":"Enemies",   "tpage_group":"Swamp",    "ag":"sharkey-ag.go",           "nav_safe":True,  "needs_path":False, "needs_pathb":False, "is_prop":False, "ai_type":"process-drawable", "color":(0.6,0.3,0.1,1.0), "shape":"SPHERE"},
+    # Village1 group
+    "villa-starfish":   {"label":"Villa Starfish",       "cat":"Enemies",   "tpage_group":"Village1", "ag":None,                      "nav_safe":True,  "needs_path":True,  "needs_pathb":False, "is_prop":False, "ai_type":"process-drawable", "color":(1.0,0.6,0.5,1.0), "shape":"SPHERE"},
+
+    # ---- PICKUPS (NEW) ----
+    "eco-pill":         {"label":"Eco Pill (Health)",    "cat":"Pickups",   "ag":"eco-pill-ag.go",          "nav_safe":True,  "color":(0.3,0.9,0.3,1.0), "shape":"PLAIN_AXES"},
+    "ecovent":          {"label":"Blue Eco Vent",        "cat":"Pickups",   "ag":"vent-ag.go",              "nav_safe":True,  "color":(0.2,0.4,1.0,1.0), "shape":"PLAIN_AXES"},
+    "ventblue":         {"label":"Blue Eco Vent (alt)",  "cat":"Pickups",   "ag":"vent-ag.go",              "nav_safe":True,  "color":(0.2,0.4,1.0,1.0), "shape":"PLAIN_AXES"},
+    "ventred":          {"label":"Red Eco Vent",         "cat":"Pickups",   "ag":"vent-ag.go",              "nav_safe":True,  "color":(1.0,0.2,0.1,1.0), "shape":"PLAIN_AXES"},
+    "ventyellow":       {"label":"Yellow Eco Vent",      "cat":"Pickups",   "ag":"vent-ag.go",              "nav_safe":True,  "color":(1.0,0.9,0.0,1.0), "shape":"PLAIN_AXES"},
+    "ecoventrock":      {"label":"Eco Vent (Rock)",      "cat":"Pickups",   "tpage_group":"Beach",    "ag":"ecoventrock-ag.go",       "nav_safe":True,  "color":(0.3,0.7,0.3,1.0), "shape":"PLAIN_AXES"},
+
+    # ---- PLATFORMS (NEW) ----
+    "orbit-plat":       {"label":"Orbit Platform",       "cat":"Platforms", "tpage_group":"Sunken",   "ag":"orbit-plat-ag.go",        "nav_safe":True,  "needs_path":False, "needs_sync":False, "needs_notice_dist":False, "color":(0.4,0.6,0.9,1.0), "shape":"CUBE"},
+    "square-platform":  {"label":"Square Platform",      "cat":"Platforms", "tpage_group":"Sunken",   "ag":"square-platform-ag.go",   "nav_safe":True,  "needs_path":False, "needs_sync":False, "needs_notice_dist":False, "color":(0.4,0.6,0.8,1.0), "shape":"CUBE"},
+    "ropebridge":       {"label":"Rope Bridge",          "cat":"Platforms", "tpage_group":"Jungle",   "ag":None,                      "nav_safe":True,  "needs_path":False, "needs_sync":False, "needs_notice_dist":False, "color":(0.6,0.4,0.2,1.0), "shape":"CUBE"},
+    "lavaballoon":      {"label":"Lava Balloon",         "cat":"Platforms", "tpage_group":"Lavatube", "ag":"lavaballoon-ag.go",       "nav_safe":True,  "needs_path":True,  "needs_sync":False, "needs_notice_dist":False, "color":(1.0,0.5,0.1,1.0), "shape":"SPHERE"},
+    "darkecobarrel":    {"label":"Dark Eco Barrel",      "cat":"Platforms", "tpage_group":"Lavatube", "ag":"darkecobarrel-ag.go",     "nav_safe":True,  "needs_path":True,  "needs_sync":False, "needs_notice_dist":False, "color":(0.3,0.0,0.5,1.0), "shape":"CUBE"},
+    "caveelevator":     {"label":"Cave Elevator",        "cat":"Platforms", "tpage_group":"Maincave", "ag":"caveelevator-ag.go",      "nav_safe":True,  "needs_path":True,  "needs_sync":False, "needs_notice_dist":False, "color":(0.5,0.4,0.3,1.0), "shape":"CUBE"},
+    "caveflamepots":    {"label":"Cave Flame Pots",      "cat":"Platforms", "tpage_group":"Maincave", "ag":"caveflamepots-ag.go",     "nav_safe":True,  "needs_path":True,  "needs_sync":False, "needs_notice_dist":False, "color":(1.0,0.3,0.0,1.0), "shape":"CUBE"},
+    "cavetrapdoor":     {"label":"Cave Trap Door",       "cat":"Platforms", "tpage_group":"Maincave", "ag":"cavetrapdoor-ag.go",      "nav_safe":True,  "needs_path":False, "needs_sync":False, "needs_notice_dist":False, "color":(0.4,0.3,0.2,1.0), "shape":"CUBE"},
+    "cavespatula":      {"label":"Cave Spatula Plat",    "cat":"Platforms", "tpage_group":"Maincave", "ag":"cavespatula-ag.go",       "nav_safe":True,  "needs_path":False, "needs_sync":False, "needs_notice_dist":False, "color":(0.5,0.4,0.2,1.0), "shape":"CUBE"},
+    "cavespatulatwo":   {"label":"Cave Spatula Plat 2",  "cat":"Platforms", "tpage_group":"Maincave", "ag":"cavespatulatwo-ag.go",    "nav_safe":True,  "needs_path":False, "needs_sync":False, "needs_notice_dist":False, "color":(0.5,0.4,0.3,1.0), "shape":"CUBE"},
+    "ogre-bridge":      {"label":"Ogre Drawbridge",      "cat":"Platforms", "tpage_group":"Ogre",     "ag":"ogre-bridge-ag.go",       "nav_safe":True,  "needs_path":False, "needs_sync":False, "needs_notice_dist":False, "color":(0.5,0.4,0.2,1.0), "shape":"CUBE"},
+    "ogre-bridgeend":   {"label":"Ogre Bridge End",      "cat":"Platforms", "tpage_group":"Ogre",     "ag":"ogre-bridgeend-ag.go",    "nav_safe":True,  "needs_path":False, "needs_sync":False, "needs_notice_dist":False, "color":(0.5,0.4,0.3,1.0), "shape":"CUBE"},
+    "pontoon":          {"label":"Pontoon (Village2)",   "cat":"Platforms", "tpage_group":"Village2", "ag":"pontoon-ag.go",           "nav_safe":True,  "needs_path":False, "needs_sync":False, "needs_notice_dist":False, "color":(0.5,0.4,0.2,1.0), "shape":"CUBE"},
+    "tra-pontoon":      {"label":"Pontoon (Training)",   "cat":"Platforms", "tpage_group":"Training", "ag":"tra-pontoon-ag.go",       "nav_safe":True,  "needs_path":False, "needs_sync":False, "needs_notice_dist":False, "color":(0.5,0.4,0.3,1.0), "shape":"CUBE"},
+    "mis-bone-bridge":  {"label":"Bone Bridge",          "cat":"Platforms", "tpage_group":"Misty",    "ag":"mis-bone-bridge-ag.go",   "nav_safe":True,  "needs_path":False, "needs_sync":False, "needs_notice_dist":False, "color":(0.7,0.6,0.4,1.0), "shape":"CUBE"},
+    "breakaway-left":   {"label":"Breakaway Plat (L)",   "cat":"Platforms", "tpage_group":"Misty",    "ag":"breakaway-left-ag.go",    "nav_safe":True,  "needs_path":False, "needs_sync":False, "needs_notice_dist":False, "color":(0.6,0.5,0.3,1.0), "shape":"CUBE"},
+    "breakaway-mid":    {"label":"Breakaway Plat (M)",   "cat":"Platforms", "tpage_group":"Misty",    "ag":"breakaway-mid-ag.go",     "nav_safe":True,  "needs_path":False, "needs_sync":False, "needs_notice_dist":False, "color":(0.6,0.5,0.3,1.0), "shape":"CUBE"},
+    "breakaway-right":  {"label":"Breakaway Plat (R)",   "cat":"Platforms", "tpage_group":"Misty",    "ag":"breakaway-right-ag.go",   "nav_safe":True,  "needs_path":False, "needs_sync":False, "needs_notice_dist":False, "color":(0.6,0.5,0.3,1.0), "shape":"CUBE"},
+
+    # ---- OBJECTS / INTERACTABLES (NEW) ----
+    "water-vol":        {"label":"Water Volume",         "cat":"Objects",   "ag":None,                      "nav_safe":True,  "needs_path":False, "needs_pathb":False, "is_prop":False, "ai_type":"process-drawable", "color":(0.2,0.4,0.9,0.6), "shape":"CUBE"},
+    "swingpole":        {"label":"Swing Pole",           "cat":"Objects",   "ag":None,                      "nav_safe":True,  "needs_path":False, "needs_pathb":False, "is_prop":False, "ai_type":"process-drawable", "color":(0.8,0.6,0.2,1.0), "shape":"PLAIN_AXES"},
+    "springbox":        {"label":"Bounce Pad (Bouncer)", "cat":"Objects",   "tpage_group":"Jungle",   "ag":"bouncer-ag.go",           "nav_safe":True,  "needs_path":False, "needs_pathb":False, "is_prop":False, "ai_type":"process-drawable", "color":(0.9,0.7,0.1,1.0), "shape":"CUBE"},
+    "oracle":           {"label":"Oracle",               "cat":"NPCs",      "tpage_group":"Village1", "ag":"oracle-ag.go",            "nav_safe":True,  "needs_path":False, "needs_pathb":False, "is_prop":False, "ai_type":"process-drawable", "color":(0.9,0.8,0.5,1.0), "shape":"SPHERE"},
+    "minershort":       {"label":"Miner (Short)",        "cat":"NPCs",      "tpage_group":"Village3", "ag":"minershort-ag.go",        "nav_safe":True,  "needs_path":False, "needs_pathb":False, "is_prop":False, "ai_type":"process-drawable", "color":(0.6,0.5,0.3,1.0), "shape":"SPHERE"},
+    "minertall":        {"label":"Miner (Tall)",         "cat":"NPCs",      "tpage_group":"Village3", "ag":"minertall-ag.go",         "nav_safe":True,  "needs_path":False, "needs_pathb":False, "is_prop":False, "ai_type":"process-drawable", "color":(0.5,0.45,0.3,1.0),"shape":"SPHERE"},
+    "eco-door":         {"label":"Eco Door",             "cat":"Objects",   "ag":"eco-door-ag.go",          "nav_safe":True,  "needs_path":False, "needs_pathb":False, "is_prop":False, "ai_type":"process-drawable", "color":(0.3,0.6,0.8,1.0), "shape":"CUBE"},
+    "launcherdoor":     {"label":"Launcher Door",        "cat":"Objects",   "ag":"launcherdoor-ag.go",      "nav_safe":True,  "needs_path":False, "needs_pathb":False, "is_prop":False, "ai_type":"process-drawable", "color":(0.4,0.5,0.7,1.0), "shape":"CUBE"},
+    "shover":           {"label":"Shover Platform",      "cat":"Objects",   "tpage_group":"Sunken",   "ag":"shover-ag.go",            "nav_safe":True,  "needs_path":True,  "needs_pathb":False, "is_prop":False, "ai_type":"process-drawable", "color":(0.5,0.5,0.7,1.0), "shape":"CUBE"},
+    "swampgate":        {"label":"Swamp Spike Gate",     "cat":"Objects",   "tpage_group":"Swamp",    "ag":"swamp-spike-gate-ag.go",  "nav_safe":True,  "needs_path":False, "needs_pathb":False, "is_prop":False, "ai_type":"process-drawable", "color":(0.4,0.5,0.2,1.0), "shape":"CUBE"},
+    "ceilingflag":      {"label":"Ceiling Flag",         "cat":"Objects",   "tpage_group":"Village2", "ag":"ceilingflag-ag.go",       "nav_safe":True,  "needs_path":False, "needs_pathb":False, "is_prop":True,  "ai_type":"prop",             "color":(0.8,0.6,0.2,1.0), "shape":"SPHERE"},
+    "windturbine":      {"label":"Wind Turbine",         "cat":"Objects",   "tpage_group":"Misty",    "ag":"windturbine-ag.go",       "nav_safe":True,  "needs_path":False, "needs_pathb":False, "is_prop":True,  "ai_type":"prop",             "color":(0.6,0.6,0.7,1.0), "shape":"SPHERE"},
+    "boatpaddle":       {"label":"Boat Paddle",          "cat":"Objects",   "tpage_group":"Misty",    "ag":"boatpaddle-ag.go",        "nav_safe":True,  "needs_path":False, "needs_pathb":False, "is_prop":True,  "ai_type":"prop",             "color":(0.5,0.4,0.2,1.0), "shape":"SPHERE"},
+    "accordian":        {"label":"Accordian Obstacle",   "cat":"Objects",   "tpage_group":"Jungle",   "ag":"accordian-ag.go",         "nav_safe":True,  "needs_path":False, "needs_pathb":False, "is_prop":False, "ai_type":"process-drawable", "color":(0.5,0.5,0.3,1.0), "shape":"CUBE"},
+    "lavafall":         {"label":"Lava Fall",            "cat":"Objects",   "tpage_group":"Lavatube", "ag":"lavafall-ag.go",          "nav_safe":True,  "needs_path":False, "needs_pathb":False, "is_prop":True,  "ai_type":"prop",             "color":(1.0,0.3,0.0,1.0), "shape":"CUBE"},
+    "lavafallsewera":   {"label":"Lava Fall Sewer A",    "cat":"Objects",   "tpage_group":"Lavatube", "ag":"lavafallsewera-ag.go",    "nav_safe":True,  "needs_path":False, "needs_pathb":False, "is_prop":True,  "ai_type":"prop",             "color":(1.0,0.3,0.0,1.0), "shape":"CUBE"},
+    "lavafallsewerb":   {"label":"Lava Fall Sewer B",    "cat":"Objects",   "tpage_group":"Lavatube", "ag":"lavafallsewerb-ag.go",    "nav_safe":True,  "needs_path":False, "needs_pathb":False, "is_prop":True,  "ai_type":"prop",             "color":(1.0,0.35,0.0,1.0),"shape":"CUBE"},
+    "lavabase":         {"label":"Lava Base",            "cat":"Objects",   "tpage_group":"Lavatube", "ag":"lavabase-ag.go",          "nav_safe":True,  "needs_path":False, "needs_pathb":False, "is_prop":True,  "ai_type":"prop",             "color":(0.9,0.2,0.0,1.0), "shape":"CUBE"},
+    "lavayellowtarp":   {"label":"Lava Yellow Tarp",     "cat":"Objects",   "tpage_group":"Lavatube", "ag":"lavayellowtarp-ag.go",    "nav_safe":True,  "needs_path":False, "needs_pathb":False, "is_prop":True,  "ai_type":"prop",             "color":(0.9,0.8,0.1,1.0), "shape":"CUBE"},
+    "chainmine":        {"label":"Chain Mine",           "cat":"Objects",   "tpage_group":"Lavatube", "ag":"chainmine-ag.go",         "nav_safe":True,  "needs_path":False, "needs_pathb":False, "is_prop":False, "ai_type":"process-drawable", "color":(0.6,0.1,0.1,1.0), "shape":"SPHERE"},
+    "balloon":          {"label":"Balloon Obstacle",     "cat":"Objects",   "tpage_group":"Firecanyon","ag":"balloon-ag.go",          "nav_safe":True,  "needs_path":False, "needs_pathb":False, "is_prop":True,  "ai_type":"prop",             "color":(0.9,0.4,0.1,1.0), "shape":"SPHERE"},
+    "crate-darkeco-cluster": {"label":"Dark Eco Crate Cluster","cat":"Objects","tpage_group":"Firecanyon","ag":"crate-darkeco-cluster-ag.go","nav_safe":True,"needs_path":False,"needs_pathb":False,"is_prop":False,"ai_type":"process-drawable","color":(0.3,0.0,0.5,1.0),"shape":"CUBE"},
+    "swamp-tetherrock": {"label":"Swamp Tether Rock",    "cat":"Objects",   "tpage_group":"Village2", "ag":"swamp-tetherrock-ag.go",  "nav_safe":True,  "needs_path":False, "needs_pathb":False, "is_prop":False, "ai_type":"process-drawable", "color":(0.5,0.4,0.3,1.0), "shape":"SPHERE"},
+    "fishermans-boat":  {"label":"Fisherman's Boat",     "cat":"Objects",   "tpage_group":"Village1", "ag":"fishermans-boat-ag.go",   "nav_safe":True,  "needs_path":False, "needs_pathb":False, "is_prop":True,  "ai_type":"prop",             "color":(0.5,0.4,0.2,1.0), "shape":"CUBE"},
+
     # ---- DEBUG ----
     "test-actor":       {"label":"Test Actor",           "cat":"Debug",     "ag":"test-actor-ag.go",        "nav_safe":True,  "needs_path":False, "needs_pathb":False, "is_prop":False, "ai_type":"prop",             "color":(0.8,0.8,0.8,1.0), "shape":"PLAIN_AXES"},
 }
@@ -449,6 +523,70 @@ ETYPE_CODE = {
     "junglesnake":     {"o": "junglesnake.o",      "o_only": True},
     "muse":            {"o": "muse.o",             "o_only": True},
     "bonelurker":      {"o": "bonelurker.o",       "o_only": True},  # ⚠ known crash - see open questions
+    # New enemies
+    "balloonlurker":   {"o": "balloonlurker.o",   "o_only": True},
+    "darkvine":        {"o": "darkvine.o",         "o_only": True},
+    "junglefish":      {"o": "junglefish.o",       "o_only": True},
+    "peeper":          {"o": "rolling-lightning-mole.o", "o_only": True},
+    "cave-trap":       {"o": "cave-trap.o",        "o_only": True},
+    "spider-egg":      {"o": "spider-egg.o",       "o_only": True},
+    "spider-vent":     {"o": "cave-trap.o",        "o_only": True},  # spider-vent is in cave-trap.gc
+    "swamp-rat-nest":  {"o": "swamp-rat-nest.o",   "o_only": True},
+    "sunkenfisha":     {"o": "sunken-fish.o",      "o_only": True},
+    "sharkey":         {"o": "sharkey.o",          "o_only": True},
+    "villa-starfish":  {"o": "village-obs.o",      "o_only": True},  # villa-starfish is in village-obs.gc
+    # New pickups
+    "eco-pill":        {"o": "collectables.o",     "o_only": True},
+    "ecovent":         {"o": "collectables.o",     "o_only": True},
+    "ventblue":        {"o": "collectables.o",     "o_only": True},
+    "ventred":         {"o": "collectables.o",     "o_only": True},
+    "ventyellow":      {"o": "collectables.o",     "o_only": True},
+    "ecoventrock":     {"o": "beach-obs.o",        "o_only": True},
+    # New platforms
+    "orbit-plat":      {"o": "orbit-plat.o",       "o_only": True},
+    "square-platform": {"o": "square-platform.o",  "o_only": True},
+    "ropebridge":      {"o": "ropebridge.o",       "o_only": True},
+    "lavaballoon":     {"o": "lavatube-obs.o",     "o_only": True},
+    "darkecobarrel":   {"o": "lavatube-obs.o",     "o_only": True},
+    "caveelevator":    {"o": "maincave-obs.o",     "o_only": True},
+    "caveflamepots":   {"o": "maincave-obs.o",     "o_only": True},
+    "cavetrapdoor":    {"o": "maincave-obs.o",     "o_only": True},
+    "cavespatula":     {"o": "maincave-obs.o",     "o_only": True},
+    "cavespatulatwo":  {"o": "maincave-obs.o",     "o_only": True},
+    "ogre-bridge":     {"o": "ogre-obs.o",         "o_only": True},
+    "ogre-bridgeend":  {"o": "ogre-obs.o",         "o_only": True},
+    "pontoon":         {"o": "village2-obs.o",     "o_only": True},
+    "tra-pontoon":     {"o": "training-obs.o",     "o_only": True},
+    "mis-bone-bridge": {"o": "misty-obs.o",        "o_only": True},
+    "breakaway-left":  {"o": "misty-obs.o",        "o_only": True},
+    "breakaway-mid":   {"o": "misty-obs.o",        "o_only": True},
+    "breakaway-right": {"o": "misty-obs.o",        "o_only": True},
+    # New objects / interactables
+    "water-vol":       {"o": "water.o",            "o_only": True},
+    "swingpole":       {"o": "generic-obs.o",      "o_only": True},
+    "springbox":       {"o": "bouncer.o",          "o_only": True},
+    "eco-door":        {"o": "baseplat.o",         "o_only": True},
+    "launcherdoor":    {"o": "launcherdoor.o",     "o_only": True},
+    "shover":          {"o": "shover.o",           "o_only": True},
+    "swampgate":       {"o": "swamp-obs.o",        "o_only": True},
+    "ceilingflag":     {"o": "village2-obs.o",     "o_only": True},
+    "windturbine":     {"o": "misty-obs.o",        "o_only": True},
+    "boatpaddle":      {"o": "misty-obs.o",        "o_only": True},
+    "accordian":       {"o": "jungle-obs.o",       "o_only": True},
+    "lavafall":        {"o": "lavatube-obs.o",     "o_only": True},
+    "lavafallsewera":  {"o": "lavatube-obs.o",     "o_only": True},
+    "lavafallsewerb":  {"o": "lavatube-obs.o",     "o_only": True},
+    "lavabase":        {"o": "lavatube-obs.o",     "o_only": True},
+    "lavayellowtarp":  {"o": "lavatube-obs.o",     "o_only": True},
+    "chainmine":       {"o": "lavatube-obs.o",     "o_only": True},
+    "balloon":         {"o": "firecanyon-obs.o",   "o_only": True},
+    "crate-darkeco-cluster": {"o": "firecanyon-obs.o", "o_only": True},
+    "swamp-tetherrock":{"o": "swamp-blimp.o",      "o_only": True},
+    "fishermans-boat": {"o": "fishermans-boat.o",  "o_only": True},
+    # New NPCs
+    "oracle":          {"o": "oracle.o",           "o_only": True},
+    "minershort":      {"o": "miners.o",           "o_only": True},
+    "minertall":       {"o": "miners.o",           "o_only": True},
 
     # NPCs — vanilla, inject .o only
     "flutflut":        {"o": "flutflut.o",         "o_only": True},
@@ -494,6 +632,13 @@ ROBOCAVE_TPAGES= ["tpage-1318.go", "tpage-1319.go", "tpage-1317.go", "tpage-1316
 DARK_TPAGES    = ["tpage-1306.go", "tpage-1307.go", "tpage-1305.go", "tpage-1304.go"]             # dar.gd  (darkcave spiders — NOT maincave)
 OGRE_TPAGES    = ["tpage-875.go",  "tpage-967.go",  "tpage-884.go",  "tpage-1117.go"]             # ogr.gd  (flying-lurker)
 MISTY_TPAGES   = ["tpage-516.go",  "tpage-521.go",  "tpage-518.go",  "tpage-520.go"]              # mis.gd  (quicksandlurker, muse, bonelurker, balloonlurker)
+LAVATUBE_TPAGES= ["tpage-1119.go", "tpage-1338.go", "tpage-1340.go", "tpage-1339.go", "tpage-1337.go"] # lav.gd
+FIRECANYON_TPAGES=["tpage-1119.go","tpage-815.go",  "tpage-822.go",  "tpage-854.go",  "tpage-1123.go"] # fic.gd
+VILLAGE1_TPAGES= ["tpage-398.go",  "tpage-400.go",  "tpage-399.go",  "tpage-401.go",  "tpage-1470.go"] # vi1.gd
+VILLAGE2_TPAGES= ["tpage-919.go",  "tpage-922.go",  "tpage-920.go",  "tpage-921.go",  "tpage-1476.go"] # vi2.gd
+VILLAGE3_TPAGES= ["tpage-1208.go", "tpage-1210.go", "tpage-1209.go", "tpage-1194.go"]                  # vi3.gd
+ROLLING_TPAGES = ["tpage-1119.go", "tpage-923.go",  "tpage-926.go",  "tpage-924.go",  "tpage-925.go",  "tpage-1353.go"] # rol.gd
+TRAINING_TPAGES= ["tpage-1309.go", "tpage-1311.go", "tpage-1310.go", "tpage-1308.go", "tpage-775.go"]  # tra.gd
 
 ETYPE_TPAGES = {
     # Beach (bea.gd)
@@ -531,6 +676,67 @@ ETYPE_TPAGES = {
     "muse":            MISTY_TPAGES,
     "bonelurker":      MISTY_TPAGES,
     "balloonlurker":   MISTY_TPAGES,
+    "mis-bone-bridge": MISTY_TPAGES,
+    "breakaway-left":  MISTY_TPAGES,
+    "breakaway-mid":   MISTY_TPAGES,
+    "breakaway-right": MISTY_TPAGES,
+    "windturbine":     MISTY_TPAGES,
+    "boatpaddle":      MISTY_TPAGES,
+    # Jungle (jun.gd) — new
+    "darkvine":        JUNGLE_TPAGES,
+    "junglefish":      JUNGLE_TPAGES,
+    "springbox":       JUNGLE_TPAGES,
+    "ropebridge":      JUNGLE_TPAGES,
+    "accordian":       JUNGLE_TPAGES,
+    # Swamp (swa.gd) — new
+    "swamp-rat-nest":  SWAMP_TPAGES,
+    "sharkey":         SWAMP_TPAGES,
+    "swampgate":       SWAMP_TPAGES,
+    # Sunken (sun.gd) — new
+    "sunkenfisha":     SUNKEN_TPAGES,
+    "orbit-plat":      SUNKEN_TPAGES,
+    "square-platform": SUNKEN_TPAGES,
+    "shover":          SUNKEN_TPAGES,
+    # Maincave (mai.gd) — new
+    "cave-trap":       CAVE_TPAGES,
+    "spider-egg":      CAVE_TPAGES,
+    "spider-vent":     CAVE_TPAGES,
+    "caveelevator":    CAVE_TPAGES,
+    "caveflamepots":   CAVE_TPAGES,
+    "cavetrapdoor":    CAVE_TPAGES,
+    "cavespatula":     CAVE_TPAGES,
+    "cavespatulatwo":  CAVE_TPAGES,
+    # Lavatube (lav.gd) — new
+    "lavafall":        LAVATUBE_TPAGES,
+    "lavafallsewera":  LAVATUBE_TPAGES,
+    "lavafallsewerb":  LAVATUBE_TPAGES,
+    "lavabase":        LAVATUBE_TPAGES,
+    "lavayellowtarp":  LAVATUBE_TPAGES,
+    "chainmine":       LAVATUBE_TPAGES,
+    "lavaballoon":     LAVATUBE_TPAGES,
+    "darkecobarrel":   LAVATUBE_TPAGES,
+    # Firecanyon (fic.gd) — new
+    "balloon":         FIRECANYON_TPAGES,
+    "crate-darkeco-cluster": FIRECANYON_TPAGES,
+    # Village1 (vi1.gd) — new
+    "villa-starfish":  VILLAGE1_TPAGES,
+    "oracle":          VILLAGE1_TPAGES,
+    "fishermans-boat": VILLAGE1_TPAGES,
+    "ecoventrock":     BEACH_TPAGES,
+    # Village2 (vi2.gd) — new
+    "pontoon":         VILLAGE2_TPAGES,
+    "swamp-tetherrock":VILLAGE2_TPAGES,
+    "ceilingflag":     VILLAGE2_TPAGES,
+    # Village3 (vi3.gd) — new
+    "minershort":      VILLAGE3_TPAGES,
+    "minertall":       VILLAGE3_TPAGES,
+    # Rolling (rol.gd) — new
+    "peeper":          ROLLING_TPAGES,
+    # Training (tra.gd) — new
+    "tra-pontoon":     TRAINING_TPAGES,
+    # Ogre (ogr.gd) — new
+    "ogre-bridge":     OGRE_TPAGES,
+    "ogre-bridgeend":  OGRE_TPAGES,
 }
 
 def needed_tpages(actors):
@@ -5617,6 +5823,157 @@ LUMP_REFERENCE = {
         ("speed", "float", "Two values: 'base_speed random_range' in internal units."),
     ],
     "warp-gate":    [],
+    # ── New enemies ────────────────────────────────────────────────────────
+    "balloonlurker": [],  # no lumps; alt-actor 0 = partner entity for kill-state check
+    "darkvine":      [],  # no lumps
+    "junglefish": [
+        ("water-height", "float", "Y-coordinate of water surface in raw game units (not meters). Fish positions itself 1m below. Required."),
+    ],
+    "peeper":        [],  # no lumps; shares lightning-mole art group
+    "cave-trap": [
+        # alt-actor links to spider-egg entities are set via Waypoints (path) + actor links in JSONC
+        ("path", "vector3m", "Patrol path for spawned spiders. Required — export at least 2 waypoints."),
+    ],
+    "spider-egg": [
+        # alt-actor 0 = optional notify-actor (set via actor link, not a lump)
+    ],
+    "spider-vent":   [],  # no lumps; invisible spawner, just a position
+    "swamp-rat-nest": [
+        ("num-lurkers", "uint32", "Max rats active at once. Range 1–4. Default 3. Needs 'path' waypoints set."),
+    ],
+    "sunkenfisha": [
+        ("count",            "uint32", "Number of fish in the school (spawns count-1 extra children). Default 1."),
+        ("speed",            "float",  "Speed range in game units/frame: 'lo hi'. Defaults: '8192 26624' (2–6.5 m/s)."),
+        ("path-max-offset",  "float",  "Max wander from path: 'x_units y_units'. Defaults: '16384 28672' (4m, 7m)."),
+        ("path-trans-offset","float",  "Offset the entire path: 'x y z' in raw game units. Default 0 0 0."),
+    ],
+    "sharkey": [
+        ("scale",        "float",  "Uniform scale multiplier. Affects size and collision. Default 1.0."),
+        ("water-height", "float",  "Y-coordinate of water surface in raw game units. Required (defaults to 0)."),
+        ("delay",        "float",  "Seconds before shark re-engages after losing player. Default 1.0."),
+        ("distance",     "meters", "Player trigger radius — how far away shark can spawn. Default 30m."),
+        ("speed",        "meters", "Chase speed in meters/sec. Default ~12m/s."),
+    ],
+    "villa-starfish": [
+        ("num-lurkers", "uint32", "Number of starfish children. Range 1–8. Default 3. Needs path waypoints."),
+    ],
+
+    # ── New pickups ────────────────────────────────────────────────────────
+    "eco-pill":  [],  # no lumps; type/amount hardcoded
+    "ecovent":   [
+        # alt-actor 0 = optional blocker entity (set via actor link in JSONC, not a lump key)
+    ],
+    "ventblue":  [],  # identical to ecovent
+    "ventred":   [],  # type hardcoded to eco-red
+    "ventyellow":[],  # type hardcoded to eco-yellow
+    "ecoventrock":[],  # no lumps
+    "water-vol": [
+        ("water-height", "water-height", "Water surface definition: 'water_m wade_m swim_m [flags] [bottom_m]'. Required."),
+        ("attack-event", "symbol",       "Event fired when player drowns. Default 'drown. Bare string: \"'drown\"."),
+    ],
+
+    # ── New platforms ──────────────────────────────────────────────────────
+    "orbit-plat": [
+        ("scale",   "float", "Uniform scale of the platform mesh. Default 1.0."),
+        ("timeout", "float", "Seconds to wait before starting orbit. Default 10.0."),
+        # alt-actor 0 = center entity to orbit around (required — set via actor link)
+    ],
+    "square-platform": [
+        ("distance", "float", "Travel range: 'down_units up_units'. Defaults '-8192 16384' (-2m down, +4m up). Raw units."),
+        # alt-actor 0 = optional water-entity for splash effects
+    ],
+    "ropebridge": [
+        ("art-name", "string", "Bridge variant. Values: ropebridge-32, ropebridge-36, ropebridge-52, ropebridge-70, snow-bridge-36, vil3-bridge-36. Default: ropebridge-32."),
+    ],
+    "lavaballoon": [
+        ("speed", "meters", "Movement speed along path. Default ~3m/s."),
+    ],
+    "darkecobarrel": [
+        ("speed", "meters", "Movement speed along path. Default ~15m/s."),
+        ("delay", "float",  "Optional: array of spawn delay times in seconds. Replaces the 4 hardcoded defaults when set."),
+    ],
+    "caveelevator": [
+        ("trans-offset", "float",   "Position offset applied after placement: 'x y z' raw units. Default 0 0 0."),
+        ("rotoffset",    "degrees", "Y-axis rotation offset in degrees. Default 0."),
+        ("mode",         "uint32",  "Elevator mode variant selector. Default 0."),
+    ],
+    "caveflamepots": [
+        ("shove",       "meters",  "Upward launch force when player touches flame. Default 2m."),
+        ("rotoffset",   "degrees", "Y-axis rotation for flame direction. Default 0."),
+        ("cycle-speed", "float",   "Three floats: 'period_sec phase_fraction pause_sec'. Defaults: '4.0 0.0 2.0'. Phase offsets multiple pots."),
+    ],
+    "cavetrapdoor":   [],  # no lumps
+    "cavespatula":    [],  # no lumps; art group switches by level name automatically
+    "cavespatulatwo": [],  # no lumps
+    "ogre-bridge": [
+        # alt-actor 0 = ogre-bridgeend entity (required — set via actor link)
+    ],
+    "ogre-bridgeend": [],  # no lumps
+    "pontoon": [
+        ("alt-task", "uint32", "Second task ID gate — if this task is complete, pontoon sinks. Default 0 (unused). Main task from entity perm."),
+    ],
+    "tra-pontoon":    [],  # same as pontoon but no alt-task in training context
+    "mis-bone-bridge": [
+        ("animation-select", "uint32", "Selects bone bridge variant and particle group. Values: 1, 2, 3, 7. Default 0 (no particles)."),
+    ],
+    "breakaway-left": [
+        ("height-info", "float", "Two floats controlling fall height offsets: 'h1 h2'. Default 0 0."),
+    ],
+    "breakaway-mid":  [
+        ("height-info", "float", "Two floats controlling fall height offsets: 'h1 h2'. Default 0 0."),
+    ],
+    "breakaway-right":[
+        ("height-info", "float", "Two floats controlling fall height offsets: 'h1 h2'. Default 0 0."),
+    ],
+
+    # ── New objects / interactables ────────────────────────────────────────
+    "swingpole":  [],  # no art, no lumps; position+rotation from entity transform only. Y-axis = pole axis.
+    "springbox": [
+        ("spring-height", "meters", "Launch height in meters. Default ~11m."),
+    ],
+    "eco-door": [
+        ("scale", "float",       "Uniform scale. Default 1.0."),
+        ("flags", "enum-uint32", "Behaviour flags. e.g. '(eco-door-flags auto-close)' or '(eco-door-flags one-way)'. Default 0."),
+        # state-actor link = optional entity whose perm status locks the door
+    ],
+    "launcherdoor": [
+        ("continue-name", "string", "Level continue point name set when door is passed through. e.g. \"village1-hut\"."),
+    ],
+    "shover": [
+        ("shove",              "meters",  "Upward launch force when platform hits player. Default 3m."),
+        ("collision-mesh-id",  "uint32",  "Collision mesh index. Default 0."),
+        ("trans-offset",       "float",   "Position offset: 'x y z' raw units. Default 0 0 0."),
+        ("rotoffset",          "degrees", "Y-axis rotation. Default 0."),
+    ],
+    "swampgate":  [],  # no lumps; open/close driven by entity perm status
+    "ceilingflag":[],  # no lumps; pure prop
+    "windturbine": [
+        ("particle-select", "uint32", "Set to 1 to enable particle effects. Default 0 (off)."),
+    ],
+    "boatpaddle":  [],  # no lumps; ambient animation only
+    "accordian": [
+        # alt-actor 0 = optional task gate entity (entity link, not a lump)
+    ],
+    "lavafall":        [],  # no lumps; pure prop animation
+    "lavafallsewera":  [],  # no lumps
+    "lavafallsewerb":  [],  # no lumps
+    "lavabase":        [],  # no lumps
+    "lavayellowtarp":  [],  # no lumps
+    "chainmine":       [],  # no lumps; auto-kills on contact
+    "balloon":         [],  # no lumps; ambient prop
+    "crate-darkeco-cluster": [],  # no lumps; standard dark eco crate cluster
+    "swamp-tetherrock": [],  # no lumps; task-gated breakable rock
+    "fishermans-boat":  [],  # no lumps; state depends on current-continue level name
+
+    # ── New NPCs ───────────────────────────────────────────────────────────
+    "oracle": [
+        ("alt-task", "uint32", "Second orb task ID (game-task enum value). For two-orb oracle. Default 0 (one orb only). First task from entity perm."),
+    ],
+    "minershort": [
+        # alt-actor 0 = minertall partner (required — must be paired; set via actor link)
+    ],
+    "minertall":  [],  # no lumps; pair link held by minershort
+
     "test-actor":   [],
 }
 
