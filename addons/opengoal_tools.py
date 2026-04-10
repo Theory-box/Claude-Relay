@@ -5437,6 +5437,205 @@ def _actor_supports_aggro_trigger(etype):
 
 
 # ===========================================================================
+# LUMP REFERENCE TABLE
+# ---------------------------------------------------------------------------
+# Per-actor lump reference data. Each entry is:
+#   (key, ltype, description)
+# Used by OG_PT_SelectedLumpReference to auto-populate a read-only reference
+# panel and to pre-fill new rows when the user clicks "Use This".
+#
+# UNIVERSAL_LUMPS apply to every actor.
+# LUMP_REFERENCE maps etype → list of actor-specific entries.
+# ===========================================================================
+
+UNIVERSAL_LUMPS = [
+    ("vis-dist",      "meters",  "Distance at which entity stays active/visible. Enemies default 200m."),
+    ("idle-distance", "meters",  "Player must be closer than this to wake the enemy. Default 80m."),
+    ("shadow-mask",   "uint32",  "Which shadow layers render for this entity. e.g. 255 = all."),
+    ("light-index",   "uint32",  "Index into the level's light array. Controls entity illumination."),
+    ("lod-dist",      "meters",  "Distance threshold for LOD switching. Array of floats per LOD level."),
+    ("texture-bucket","int32",   "Texture bucket for draw calls. Default 1."),
+    ("options",       "enum-uint32", "fact-options bitfield e.g. '(fact-options has-power-cell)'."),
+    ("visvol",        "vector4m","Visibility bounding box — two vector4m entries (min corner, max corner)."),
+]
+
+# Format: etype → [(key, ltype, description), ...]
+LUMP_REFERENCE = {
+    # ── Enemies (universal to all enemies/bosses) ─────────────────────────
+    # Applied via _actor_is_enemy check in the panel draw, not listed per-type.
+    # Listed here under a special sentinel key "_enemy" for draw logic.
+    "_enemy": [
+        ("nav-mesh-sphere", "vector4m", "Fallback nav sphere: 'x y z radius_m'. Auto-injected for nav-unsafe enemies."),
+        ("nav-max-users",   "int32",    "Max nav-control users sharing this navmesh. Default 32."),
+    ],
+
+    # ── Nav-unsafe enemies (specific) ─────────────────────────────────────
+    "babak":          [],
+    "lurkercrab":     [],
+    "lurkerpuppy":    [],
+    "hopper":         [],
+    "swamp-rat":      [],
+    "kermit":         [],
+    "snow-bunny":     [
+        ("mode", "uint32", "Variant selector — controls snow-bunny behaviour variant."),
+    ],
+    "double-lurker":  [],
+    "bonelurker":     [],
+    "muse":           [],
+    "baby-spider":    [],
+    "green-eco-lurker":[],
+
+    # ── Process-drawable enemies ───────────────────────────────────────────
+    "lurkerworm":     [],
+    "junglesnake":    [],
+    "swamp-bat": [
+        ("num-lurkers", "int32",  "Number of bat slaves spawned. Range 2–8, default 6."),
+    ],
+    "yeti": [
+        ("num-lurkers",  "int32",  "Number of yeti children. Default = path vertex count."),
+        ("notice-dist",  "meters", "Distance at which yeti notices player. Default 50m."),
+    ],
+    "bully":          [],
+    "puffer": [
+        ("distance", "float", "Min/max notice distance in internal units: 'min max'. e.g. '40960 81920' = 10–20m."),
+        ("options",  "enum-uint32", "Use '(fact-options instant-collect)' for instant-kill puffer."),
+    ],
+    "flying-lurker":  [],
+    "plunger-lurker": [],
+    "mother-spider":  [],
+    "gnawer": [
+        ("extra-count",  "int32", "Two values: gnawer spawn counts."),
+        ("gnawer",       "int32", "Bitmask controlling gnawer behaviour variants."),
+        ("trans-offset", "float", "Position offset from base trans: 'dx dy dz' internal units."),
+    ],
+    "driller-lurker": [],
+    "dark-crystal": [
+        ("mode",     "int32", "1 = underwater dark crystal variant."),
+        ("extra-id", "int32", "Crystal number / identifier."),
+        ("extra-radius", "float", "Collision/activation radius override."),
+    ],
+    "cavecrusher":    [],
+    "quicksandlurker":[],
+    "ram":            [],
+    "lightning-mole": [],
+    "ice-cube":       [],
+    "fireboulder":    [],
+
+    # ── Bosses ─────────────────────────────────────────────────────────────
+    "ogreboss":       [],
+    "plant-boss":     [],
+    "robotboss":      [],
+
+    # ── NPCs ───────────────────────────────────────────────────────────────
+    "yakow": [
+        ("alt-vector", "vector3m", "Yakow wander target position: 'x y z'."),
+    ],
+    "flutflut":  [],
+    "mayor":     [],
+    "farmer":    [],
+    "fisher":    [],
+    "explorer":  [],
+    "geologist": [],
+    "warrior":   [],
+    "gambler":   [],
+    "sculptor":  [],
+    "billy":     [],
+    "pelican":   [],
+    "seagull":   [],
+    "robber":    [],
+
+    # ── Pickups ────────────────────────────────────────────────────────────
+    "fuel-cell": [
+        ("movie-pos", "movie-pos", "Cutscene landing position: 'x y z rot_deg'."),
+    ],
+    "money":         [],
+    "buzzer":        [],
+    "crate": [
+        ("crate-type", "string", "Crate variant: steel / wood / metal / darkeco / iron."),
+        ("eco-info",   "eco-info","Pickup contents: '(pickup-type money) amount'."),
+    ],
+    "orb-cache-top": [
+        ("orb-cache-count", "int32", "Number of orbs the cache releases when activated."),
+    ],
+    "powercellalt":  [],
+    "eco-yellow":    [],
+    "eco-red":       [],
+    "eco-blue":      [],
+    "eco-green":     [],
+
+    # ── Platforms ──────────────────────────────────────────────────────────
+    "plat": [
+        ("sync", "float", "Path timing: 'period_sec phase [ease_out ease_in]'. e.g. '4.0 0.0 0.15 0.15'."),
+    ],
+    "plat-eco": [
+        ("sync",        "float",  "Path timing: 'period_sec phase [ease_out ease_in]'."),
+        ("notice-dist", "meters", "Blue eco activation range. -1 = always active."),
+    ],
+    "plat-button": [
+        ("camera-name",   "string", "Name of camera to activate when button pressed."),
+        ("bidirectional", "symbol", "Set to 'true' to allow platform to return."),
+    ],
+    "plat-flip": [
+        ("delay",        "float", "Two values: 'before_down_sec before_up_sec'."),
+        ("sync-percent", "float", "Phase offset for sync."),
+    ],
+    "wall-plat":        [],
+    "balance-plat":     [],
+    "teetertotter":     [],
+    "side-to-side-plat":[
+        ("sync", "float", "Path timing: 'period_sec phase [ease_out ease_in]'."),
+    ],
+    "wedge-plat":   [],
+    "tar-plat":     [],
+    "revcycle":     [],
+    "launcher": [
+        ("spring-height", "meters", "Launch height. Default from art."),
+        ("alt-vector",    "vector3m", "Override launch direction: 'x y z'."),
+        ("mode",          "int32",  "Camera mode selector."),
+        ("art-name",      "symbol", "Art group override."),
+    ],
+    "warpgate": [],
+
+    # ── Objects / Interactables ────────────────────────────────────────────
+    "cavecrystal": [],
+    "cavegem":     [],
+    "tntbarrel":   [],
+    "shortcut-boulder": [],
+    "spike":       [],
+    "steam-cap": [
+        ("percent", "float", "Completion percentage threshold."),
+    ],
+    "windmill-one": [],
+    "ecoclaw":      [],
+    "ecovalve":     [],
+    "swamp-rock":   [],
+    "gondola":      [],
+    "swamp-blimp":  [],
+    "swamp-rope":   [],
+    "swamp-spike":  [],
+    "whirlpool": [
+        ("speed", "float", "Two values: 'base_speed random_range' in internal units."),
+    ],
+    "warp-gate":    [],
+    "test-actor":   [],
+}
+
+
+def _lump_ref_for_etype(etype):
+    """Return (universal_lumps, actor_lumps) for a given etype.
+
+    universal_lumps — always shown for every actor
+    actor_lumps     — specific to this etype, plus shared enemy lumps if applicable
+    """
+    actor_entries = list(LUMP_REFERENCE.get(etype, []))
+    einfo = ENTITY_DEFS.get(etype, {})
+    # Inject enemy-universal lumps for enemies and bosses
+    if einfo.get("cat") in ("Enemies", "Bosses"):
+        actor_entries = list(LUMP_REFERENCE.get("_enemy", [])) + actor_entries
+    return UNIVERSAL_LUMPS, actor_entries
+
+
+# ===========================================================================
 # LUMP ROW SYSTEM
 # ---------------------------------------------------------------------------
 # ACTOR_ empties can hold a CollectionProperty of OGLumpRow entries.
@@ -8135,6 +8334,95 @@ class OG_PT_SelectedLumps(Panel):
 
 
 # ===========================================================================
+# LUMP REFERENCE SUB-PANEL
+# ===========================================================================
+
+class OG_OT_UseLumpRef(bpy.types.Operator):
+    """Add a new lump row pre-filled with this reference entry's key and type."""
+    bl_idname  = "og.use_lump_ref"
+    bl_label   = "Use This"
+    bl_options = {"REGISTER", "UNDO"}
+
+    lump_key:   bpy.props.StringProperty()
+    lump_ltype: bpy.props.StringProperty()
+
+    def execute(self, ctx):
+        obj = ctx.active_object
+        if obj is None:
+            self.report({"ERROR"}, "No active object"); return {"CANCELLED"}
+        row = obj.og_lump_rows.add()
+        row.key   = self.lump_key
+        row.ltype = self.lump_ltype
+        obj.og_lump_rows_index = len(obj.og_lump_rows) - 1
+        return {"FINISHED"}
+
+
+def _draw_lump_ref_section(layout, title, entries, icon="DOT"):
+    """Draw a collapsible read-only reference section."""
+    if not entries:
+        return
+    box = layout.box()
+    box.label(text=title, icon=icon)
+    col = box.column(align=True)
+    for key, ltype, desc in entries:
+        row = col.row(align=True)
+        row.label(text=key, icon="KEYFRAME")
+        sub = row.row(align=True)
+        sub.enabled = False
+        sub.label(text=ltype)
+        op = row.operator("og.use_lump_ref", text="", icon="ADD")
+        op.lump_key   = key
+        op.lump_ltype = ltype
+        # Description as a greyed-out label on the next line
+        desc_row = col.row()
+        desc_row.enabled = False
+        desc_row.label(text=f"  {desc}")
+        col.separator(factor=0.3)
+
+
+class OG_PT_SelectedLumpReference(Panel):
+    bl_label       = "Lump Reference"
+    bl_idname      = "OG_PT_selected_lump_reference"
+    bl_space_type  = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category    = "OpenGOAL"
+    bl_parent_id   = "OG_PT_selected_object"
+    bl_options     = {"DEFAULT_CLOSED"}
+
+    @classmethod
+    def poll(cls, ctx):
+        sel = ctx.active_object
+        return (sel is not None
+                and sel.name.startswith("ACTOR_")
+                and "_wp_" not in sel.name)
+
+    def draw(self, ctx):
+        layout = self.layout
+        sel    = ctx.active_object
+        parts  = sel.name.split("_", 2)
+        if len(parts) < 3:
+            layout.label(text="Unknown actor type", icon="ERROR")
+            return
+        etype = parts[1]
+        einfo = ENTITY_DEFS.get(etype, {})
+        label = einfo.get("label", etype)
+
+        universal, actor_specific = _lump_ref_for_etype(etype)
+
+        layout.label(text=f"Available lumps for: {label}", icon="INFO")
+        layout.label(text="Click + to add a pre-filled row to Custom Lumps")
+        layout.separator(factor=0.4)
+
+        _draw_lump_ref_section(layout, "Universal (all actors)", universal, icon="WORLD")
+        if actor_specific:
+            _draw_lump_ref_section(layout, f"Specific to {label}", actor_specific, icon="OBJECT_DATA")
+        else:
+            sub = layout.row()
+            sub.enabled = False
+            sub.label(text=f"No additional lumps documented for {label}", icon="INFO")
+
+
+# ===========================================================================
 # WAYPOINTS (context-sensitive, unchanged)
 # ===========================================================================
 
@@ -8899,7 +9187,7 @@ classes = (
     OGLumpRow,
     OGVolLink,
     OGPreferences, OGProperties,
-    OG_OT_AddLumpRow, OG_OT_RemoveLumpRow,
+    OG_OT_AddLumpRow, OG_OT_RemoveLumpRow, OG_OT_UseLumpRef,
     OG_UL_LumpRows,
     OG_OT_ReloadAddon, OG_OT_CleanLevelFiles,
     OG_OT_SpawnPlayer, OG_OT_SpawnCheckpoint, OG_OT_SpawnCamAnchor,
@@ -8959,6 +9247,7 @@ classes = (
     OG_PT_SelectedLightBaking,
     OG_PT_SelectedNavMeshTag,
     OG_PT_SelectedLumps,
+    OG_PT_SelectedLumpReference,
     OG_PT_Waypoints,
     OG_PT_BuildPlay,
     OG_PT_DevTools,
