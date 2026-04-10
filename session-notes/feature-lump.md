@@ -194,3 +194,32 @@ LAVATUBE_TPAGES, FIRECANYON_TPAGES, VILLAGE1_TPAGES, VILLAGE2_TPAGES, VILLAGE3_T
 2. Test export — check a few actors actually spawn in-game
 3. Address any o_only issues (some .o names may need verification)
 4. Decide which Tier 3 actors to tackle next
+
+---
+
+## Entity Link System — April 2026
+
+Commit: e31b776
+
+### What was built
+Full actor-to-actor link system matching the volume trigger UI pattern.
+
+**Data:** `OGActorLink` PropertyGroup (lump_key, slot_index, target_name) stored as `og_actor_links` CollectionProperty on every Object.
+
+**ACTOR_LINK_DEFS:** 23 etypes, 26 slots. 8 required slots (marked with *).
+
+**UI:** `OG_PT_ActorLinks` sub-panel. Polls only for etypes with defined slots. Shows each slot with current link state, Link → button (appears on shift-select of compatible actor), X to clear. Type validation per slot.
+
+**Export:** `_build_actor_link_lumps()` writes `["string", name0, name1, ...]` lumps. Engine resolves via `entity-by-name`. Runs before custom lump rows so rows can override. Required unset slots emit `[WARNING]` in export log.
+
+### JSONC output example
+```json
+"alt-actor": ["string", "ogre-bridgeend-0"]
+"water-actor": ["string", "water-vol-0"]  
+"state-actor": ["string", "eco-door-controller-0"]
+```
+
+### Known gaps not yet in ACTOR_LINK_DEFS
+- snow-log-master (not in ENTITY_DEFS yet — needs adding before snow-log links are useful)
+- helix-slide-door, helix-water (not in ENTITY_DEFS yet)
+- eco-door state-actor target — any entity works, not just specific types
