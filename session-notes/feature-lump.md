@@ -223,3 +223,48 @@ Full actor-to-actor link system matching the volume trigger UI pattern.
 - snow-log-master (not in ENTITY_DEFS yet — needs adding before snow-log links are useful)
 - helix-slide-door, helix-water (not in ENTITY_DEFS yet)
 - eco-door state-actor target — any entity works, not just specific types
+
+---
+
+## Full Actor Audit + 147/147 Coverage — April 2026
+
+Commit: 36a8cd2
+
+### Audit method
+Full cross-check of all 147 ENTITY_DEFS entries against:
+- ETYPE_CODE (requires .o injection or in_game_cgo flag)
+- ETYPE_TPAGES (requires tpage group for art loading)
+- LUMP_REFERENCE (UI hints — soft requirement)
+
+### State before this session: 88/147 ready
+The 59 new actors added in the previous session were missing from ETYPE_CODE and ETYPE_TPAGES.
+Additionally, many pre-existing actors (plat variants, vanilla objects, props) were also never wired.
+
+### State after this session: 147/147 ready
+
+Key discoveries during audit:
+- `sharkey`, `plat`, `plat-button`, `plat-eco`, `warp-gate` already in `game.gd` — no .o injection needed
+- `warpgate` (villagep-obs.o) present in vi1/vi2/vi3/cit DGOs
+- 3 DGO groups previously missing: JUNGLEB_TPAGES (jub.gd), FINALBOSS_TPAGES (fin.gd), CITADEL_TPAGES (cit.gd)
+- `eco-blue/red/yellow/green` are legacy placeholder types — mapped to in_game_cgo since collectables.o always loaded
+
+### Actors with previously unknown lumps (found during audit)
+- `robber`: initial-spline-pos (spline start pos 0–1), water-height, timeout
+- `ram`: extra-id (which ram in sequence), mode (1=boss fight)
+- `ice-cube`: mode (variant selector)
+- `fireboulder`: alt-task (second task gate)
+- `wedge-plat`: rotspeed, rotoffset, distance
+- `launcher`: spring-height, trigger-height
+- `plat-flip`: delay float[2] (before_down, before_up seconds), sync-percent
+- `wall-plat`: tunemeters (z-offset tuning)
+- `cavecrystal`: timeout (default 8s)
+- `steam-cap`: percent (completion threshold)
+- `whirlpool`: speed float[2] (base + random range)
+- `swamp-rock`, `tar-plat`: scale-factor
+
+### Remaining known gaps (outside scope of this work)
+- `helix-water`, `helix-slide-door`, `helix-button` — not yet in ENTITY_DEFS (Tier 3 sunken puzzle)
+- `snow-log-master` — needed to make snow-log/button useful but not in ENTITY_DEFS
+- `qbert-plat-master`, `square-platform-master` — Tier 3 puzzle controllers
+- `battlecontroller`, `mistycannon`, `racer`, `race-ring` — Tier 3 complex systems
+- Prop batch (~30 pure decorative props) — deferred per user request at session start
