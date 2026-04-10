@@ -11,7 +11,8 @@ bl_info = {
 import bpy, os, re, json, socket, subprocess, threading, time, math, mathutils
 from pathlib import Path
 from bpy.props import (StringProperty, BoolProperty, IntProperty,
-                       EnumProperty, PointerProperty, FloatProperty)
+                       EnumProperty, PointerProperty, FloatProperty,
+                       CollectionProperty)
 from bpy.types import Panel, Operator, PropertyGroup, AddonPreferences
 
 # ---------------------------------------------------------------------------
@@ -3330,6 +3331,20 @@ def collect_actors(scene):
         if is_enemy and "vis-dist" not in lump:
             lump["vis-dist"] = ["meters", 200.0]
 
+        # ── Custom lump rows (assisted panel) ────────────────────────────────
+        # Merge OGLumpRow entries into the lump dict. Rows take priority over
+        # hardcoded values above — any conflict logs a warning but the row wins.
+        for row in getattr(o, "og_lump_rows", []):
+            value, err = _parse_lump_row(row.key, row.ltype, row.value)
+            if err:
+                log(f"  [WARNING] {o.name} lump row '{row.key}': {err} — skipped")
+                continue
+            key = row.key.strip()
+            if key in _LUMP_HARDCODED_KEYS and key in lump:
+                log(f"  [WARNING] {o.name} lump row '{key}' overrides addon default")
+            lump[key] = value
+            log(f"  [lump-row] {o.name}  '{key}' = {value}")
+
         out.append({
             "trans":     [gx, gy, gz],
             "etype":     etype,
@@ -5419,6 +5434,225 @@ def _actor_supports_aggro_trigger(etype):
     do NOT respond to these events — silently doing nothing if sent.
     """
     return _actor_uses_navmesh(etype)
+
+
+# ===========================================================================
+# LUMP ROW SYSTEM
+# ---------------------------------------------------------------------------
+# ACTOR_ empties can hold a CollectionProperty of OGLumpRow entries.
+# Each row is a (key, ltype, value) triplet that gets injected into the lump
+# dict at export time. The assisted panel is the primary UI for this.
+#
+# Type strings map 1:1 to the 18 valid JSONC lump type strings understood by
+# the C++ level builder (goalc/build_level/common/Entity.cpp).
+#
+# Value field is space-separated for multi-value types:
+#   meters    → "50.0"           → ["meters", 50.0]
+#   float     → "4.0 0.0 0.15"  → ["float", 4.0, 0.0, 0.15]
+#   vector3m  → "1.5 2.0 -3.0"  → ["vector3m", [1.5, 2.0, -3.0]]
+#   symbol    → "thunder"        → ["symbol", "thunder"]
+#   int32     → "3"              → ["int32", 3]
+#
+# Export priority (highest wins per key):
+#   1. Hardcoded addon values (name, path, sync, eco-info, etc.)  — lowest
+#   2. Assisted lump rows (this system)
+# Conflicts are logged as warnings in the export log.
+# ===========================================================================
+
+LUMP_TYPE_ITEMS = [
+    # Numeric scalars / arrays
+    ("float",        "float",        "Raw float array — space-separate multiple values e.g. '4.0 0.0 0.15 0.15'"),
+    ("meters",       "meters",       "Single float, scaled × 4096. Use for distances in metres"),
+    ("degrees",      "degrees",      "Single float, scaled × 182.044. Use for angles in degrees"),
+    ("int32",        "int32",        "Signed 32-bit int array — space-separate multiple values"),
+    ("uint32",       "uint32",       "Unsigned 32-bit int array — space-separate multiple values"),
+    # Enum helpers
+    ("enum-int32",   "enum-int32",   "GOAL enum resolved to int32 e.g. '(game-task village1-yakow)'"),
+    ("enum-uint32",  "enum-uint32",  "GOAL enum resolved to uint32 e.g. '(fact-options has-power-cell)'"),
+    # Vectors
+    ("vector4m",     "vector4m",     "4-component vector, each × 4096 — 'x y z w'"),
+    ("vector3m",     "vector3m",     "3-component vector, each × 4096, w=1 — 'x y z'"),
+    ("vector-vol",   "vector-vol",   "Volume vector: 'x y z radius_m' (xyz raw, w × 4096)"),
+    ("vector",       "vector",       "4-component raw vector — 'x y z w' (no unit scaling)"),
+    ("movie-pos",    "movie-pos",    "Cutscene position: 'x y z rot_deg' (xyz × 4096, w × degrees)"),
+    # Compound
+    ("water-height", "water-height", "Water volumes: 'water wade swim flags [bottom]' (4-5 values)"),
+    ("eco-info",     "eco-info",     "Pickup encoding — use the dedicated eco-info / cell-info / buzzer-info formats"),
+    ("cell-info",    "cell-info",    "Fuel cell: '(game-task none)' — encodes task ID"),
+    ("buzzer-info",  "buzzer-info",  "Scout fly: '(game-task none) index'"),
+    # String-likes
+    ("symbol",       "symbol",       "GOAL symbol reference e.g. 'thunder'"),
+    ("string",       "string",       "Plain string value"),
+    ("type",         "type",         "GOAL type reference e.g. 'process-drawable'"),
+]
+
+# Keys that the hardcoded export system always sets.
+# Lump rows that target these keys will emit a warning but are NOT blocked —
+# the row value takes priority, letting power users override defaults.
+_LUMP_HARDCODED_KEYS = frozenset({
+    "name", "path", "pathb", "sync", "options",
+    "eco-info", "cell-info", "buzzer-info", "crate-type",
+    "nav-mesh-sphere", "idle-distance", "vis-dist", "notice-dist",
+})
+
+
+def _parse_lump_row(key, ltype, value_str):
+    """Parse an OGLumpRow into a JSONC lump value, or return None on error.
+
+    Returns (jsonc_value, error_str) where error_str is None on success.
+    """
+    s = value_str.strip()
+    if not s:
+        return None, "empty value"
+    if not key.strip():
+        return None, "empty key"
+
+    try:
+        # Types that take a single string / enum value
+        if ltype in ("symbol", "string", "type", "enum-int32", "enum-uint32",
+                     "cell-info"):
+            return [ltype, s], None
+
+        if ltype == "buzzer-info":
+            parts = s.split()
+            if len(parts) == 1:
+                return ["buzzer-info", parts[0], 1], None
+            return ["buzzer-info", parts[0], int(parts[1])], None
+
+        if ltype == "eco-info":
+            parts = s.split()
+            if len(parts) < 2:
+                return None, "eco-info needs 'pickup-type amount'"
+            return ["eco-info", parts[0], int(parts[1])], None
+
+        # Numeric scalar types
+        if ltype in ("meters", "degrees"):
+            return [ltype, float(s)], None
+
+        # Multi-float / multi-int types
+        if ltype == "float":
+            nums = [float(x) for x in s.split()]
+            return ["float"] + nums, None
+
+        if ltype == "int32":
+            nums = [int(x) for x in s.split()]
+            return ["int32"] + nums, None
+
+        if ltype == "uint32":
+            nums = [int(x) for x in s.split()]
+            return ["uint32"] + nums, None
+
+        # Vector types — nested list format
+        if ltype == "vector3m":
+            nums = [float(x) for x in s.split()]
+            if len(nums) != 3:
+                return None, f"vector3m needs 3 values, got {len(nums)}"
+            return ["vector3m", nums], None
+
+        if ltype in ("vector4m", "vector", "movie-pos", "vector-vol"):
+            nums = [float(x) for x in s.split()]
+            if len(nums) != 4:
+                return None, f"{ltype} needs 4 values, got {len(nums)}"
+            return [ltype, nums], None
+
+        if ltype == "water-height":
+            parts = s.split()
+            if len(parts) < 4:
+                return None, "water-height needs at least 4 values"
+            return ["water-height"] + [float(p) if i != 3 else p
+                                       for i, p in enumerate(parts)], None
+
+    except (ValueError, IndexError) as e:
+        return None, str(e)
+
+    return None, f"unknown type '{ltype}'"
+
+
+class OGLumpRow(bpy.types.PropertyGroup):
+    """One custom lump entry on an ACTOR_ empty.
+    Stored as a CollectionProperty on the Object (og_lump_rows).
+    Rendered as a scrollable list in OG_PT_SelectedLumps.
+    """
+    key:   StringProperty(
+        name="Key",
+        description="Lump key name (e.g. notice-dist, mode, num-lurkers)",
+        default="",
+    )
+    ltype: EnumProperty(
+        name="Type",
+        items=LUMP_TYPE_ITEMS,
+        default="meters",
+        description="JSONC lump value type",
+    )
+    value: StringProperty(
+        name="Value",
+        description="Value(s) — space-separated for multi-value types",
+        default="",
+    )
+
+
+# ---------------------------------------------------------------------------
+# Lump row operators
+# ---------------------------------------------------------------------------
+
+class OG_OT_AddLumpRow(bpy.types.Operator):
+    bl_idname  = "og.add_lump_row"
+    bl_label   = "Add Lump Row"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, ctx):
+        obj = ctx.active_object
+        if obj is None:
+            self.report({"ERROR"}, "No active object"); return {"CANCELLED"}
+        obj.og_lump_rows.add()
+        obj.og_lump_rows_index = len(obj.og_lump_rows) - 1
+        return {"FINISHED"}
+
+
+class OG_OT_RemoveLumpRow(bpy.types.Operator):
+    bl_idname  = "og.remove_lump_row"
+    bl_label   = "Remove Lump Row"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, ctx):
+        obj = ctx.active_object
+        if obj is None:
+            self.report({"ERROR"}, "No active object"); return {"CANCELLED"}
+        rows = obj.og_lump_rows
+        idx  = obj.og_lump_rows_index
+        if not rows or idx < 0 or idx >= len(rows):
+            self.report({"ERROR"}, "Nothing to remove"); return {"CANCELLED"}
+        rows.remove(idx)
+        obj.og_lump_rows_index = max(0, min(idx, len(rows) - 1))
+        return {"FINISHED"}
+
+
+# ---------------------------------------------------------------------------
+# Lump UIList
+# ---------------------------------------------------------------------------
+
+class OG_UL_LumpRows(bpy.types.UIList):
+    """Scrollable list of custom lump rows for an ACTOR_ empty."""
+
+    def draw_item(self, ctx, layout, data, item, icon, active_data,
+                  active_propname, index):
+        row = layout.row(align=True)
+        # Key field — reasonably wide
+        row.prop(item, "key",   text="", emboss=True, placeholder="key")
+        # Type dropdown — compact
+        sub = row.row(align=True)
+        sub.scale_x = 0.9
+        sub.prop(item, "ltype", text="")
+        # Value field
+        row.prop(item, "value", text="", emboss=True, placeholder="value(s)")
+        # Live parse indicator — red dot on bad rows
+        _, err = _parse_lump_row(item.key, item.ltype, item.value)
+        if err:
+            row.label(text="", icon="ERROR")
+
+    def filter_items(self, ctx, data, propname):
+        # No filtering — just return defaults
+        return [], []
 
 
 # ===========================================================================
@@ -7836,6 +8070,71 @@ class OG_PT_SelectedNavMeshTag(Panel):
 
 
 # ===========================================================================
+# LUMP SUB-PANEL (actor empties only)
+# ===========================================================================
+
+def _draw_lump_panel(layout, obj):
+    """Draw the Custom Lumps assisted-entry list for an ACTOR_ empty."""
+    rows   = obj.og_lump_rows
+    index  = obj.og_lump_rows_index
+
+    # Column header labels
+    hdr = layout.row(align=True)
+    hdr.label(text="Key")
+    hdr.label(text="Type")
+    hdr.label(text="Value")
+
+    # Scrollable UIList  — 5 rows visible, expandable
+    layout.template_list(
+        "OG_UL_LumpRows", "",
+        obj, "og_lump_rows",
+        obj, "og_lump_rows_index",
+        rows=5,
+    )
+
+    # Add / Remove buttons
+    row = layout.row(align=True)
+    row.operator("og.add_lump_row",    text="Add",    icon="ADD")
+    row.operator("og.remove_lump_row", text="Remove", icon="REMOVE")
+
+    # Inline error detail for the currently selected row
+    if rows and 0 <= index < len(rows):
+        item = rows[index]
+        _, err = _parse_lump_row(item.key, item.ltype, item.value)
+        if err:
+            box = layout.box()
+            box.label(text=f"⚠ Row {index+1}: {err}", icon="ERROR")
+        elif item.key.strip() in _LUMP_HARDCODED_KEYS:
+            box = layout.box()
+            box.label(text=f"'{item.key}' overrides addon default", icon="INFO")
+
+    if not rows:
+        sub = layout.row()
+        sub.enabled = False
+        sub.label(text="No custom lumps — click Add to start", icon="INFO")
+
+
+class OG_PT_SelectedLumps(Panel):
+    bl_label       = "Custom Lumps"
+    bl_idname      = "OG_PT_selected_lumps"
+    bl_space_type  = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category    = "OpenGOAL"
+    bl_parent_id   = "OG_PT_selected_object"
+    bl_options     = {"DEFAULT_CLOSED"}
+
+    @classmethod
+    def poll(cls, ctx):
+        sel = ctx.active_object
+        return (sel is not None
+                and sel.name.startswith("ACTOR_")
+                and "_wp_" not in sel.name)
+
+    def draw(self, ctx):
+        _draw_lump_panel(self.layout, ctx.active_object)
+
+
+# ===========================================================================
 # WAYPOINTS (context-sensitive, unchanged)
 # ===========================================================================
 
@@ -8597,8 +8896,11 @@ class OG_OT_RefreshLevels(Operator):
 # ---------------------------------------------------------------------------
 
 classes = (
+    OGLumpRow,
     OGVolLink,
     OGPreferences, OGProperties,
+    OG_OT_AddLumpRow, OG_OT_RemoveLumpRow,
+    OG_UL_LumpRows,
     OG_OT_ReloadAddon, OG_OT_CleanLevelFiles,
     OG_OT_SpawnPlayer, OG_OT_SpawnCheckpoint, OG_OT_SpawnCamAnchor,
     OG_OT_SpawnVolume, OG_OT_SpawnVolumeAutoLink, OG_OT_LinkVolume, OG_OT_UnlinkVolume, OG_OT_CleanOrphanedLinks,
@@ -8656,6 +8958,7 @@ classes = (
     OG_PT_SelectedCollision,
     OG_PT_SelectedLightBaking,
     OG_PT_SelectedNavMeshTag,
+    OG_PT_SelectedLumps,
     OG_PT_Waypoints,
     OG_PT_BuildPlay,
     OG_PT_DevTools,
@@ -8698,6 +9001,11 @@ def register():
     # Each VOL_ mesh holds a list of (target_name, behaviour) entries.
     bpy.types.Object.og_vol_links          = bpy.props.CollectionProperty(type=OGVolLink)
 
+    # Custom lump rows — registered after OGLumpRow is in classes tuple.
+    # Each ACTOR_ empty holds a list of (key, ltype, value) assisted lump entries.
+    bpy.types.Object.og_lump_rows          = bpy.props.CollectionProperty(type=OGLumpRow)
+    bpy.types.Object.og_lump_rows_index    = bpy.props.IntProperty(name="Active Lump Row", default=0)
+
     bpy.types.Collection.og_no_export      = bpy.props.BoolProperty(
         name="Exclude from Export",
         description="When enabled, this collection and its contents are excluded from level export",
@@ -8716,7 +9024,8 @@ def unregister():
         except Exception: pass
     for a in ("set_invisible","set_collision","ignore","noedge","noentity",
               "nolineofsight","nocamera","collide_material","collide_event","collide_mode",
-              "enable_custom_weights","copy_eye_draws","copy_mod_draws","og_vol_links"):
+              "enable_custom_weights","copy_eye_draws","copy_mod_draws","og_vol_links",
+              "og_lump_rows","og_lump_rows_index"):
         try: delattr(bpy.types.Object, a)
         except Exception: pass
     try: delattr(bpy.types.Collection, "og_no_export")
