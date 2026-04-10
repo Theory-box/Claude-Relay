@@ -1,8 +1,10 @@
 # Unsupported Actors — Audit
 _Audited April 2026 from goal_src/jak1/ — all types with init-from-entity! not in ENTITY_DEFS_
+_Updated April 2026: addon now covers 147 actor types after feature/lumps session_
 
-**Current addon coverage:** 73 actor types supported  
-**Missing placeable actors:** 164  
+**Addon coverage as of feature/lumps merge:** 147 actor types  
+**Status:** Most Tier 1 and Tier 2 non-prop actors implemented. Prop batch (~30) deferred.  
+**Remaining missing placeable actors:** ~100 (mostly props, Tier 3 complex systems, Tier 4)  
 
 Actors are grouped by category and complexity. "Complexity" is a rough estimate of
 effort to add to ENTITY_DEFS and get working in a custom level.

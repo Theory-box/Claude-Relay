@@ -564,3 +564,106 @@ Village1 sky tpages (398, 400, 399, 401, 1470) are always loaded and count towar
 | Village1 | evilplant (always loaded — free) |
 
 Mixing 3+ groups in one scene causes `kmalloc: !alloc mem data-segment` crash mid-DGO-load.
+
+---
+
+## 11. Full Actor Coverage — April 2026 Update
+_Updated after feature/lumps session. Addon now supports 147 actor types._
+
+### 11.1 Types always in GAME.CGO (no .o injection needed)
+
+These are compiled into the always-loaded game executable. Art groups still need tpages in your DGO.
+
+| Type | Code source | Art needed |
+|---|---|---|
+| `babak` | `common-obs/babak.gc` | babak-ag + BEACH_TPAGES |
+| `sharkey` | `common-obs/sharkey.gc` | sharkey-ag + SWAMP_TPAGES |
+| `plat` | `common-obs/plat.gc` | plat-ag |
+| `plat-button` | `common-obs/plat-button.gc` | plat-button-ag |
+| `plat-eco` | `common-obs/plat-eco.gc` | plat-eco-ag |
+| `ropebridge` | `common-obs/ropebridge.gc` | variant-selected by art-name lump |
+| `eco-door` | `common-obs/baseplat.gc` | eco-door-ag |
+| `warp-gate` | `common-obs/basebutton.gc` | warp-gate-ag |
+| `swingpole` | `common-obs/generic-obs.gc` | none (invisible) |
+| `water-vol` | `engine/common-obs/water.gc` | none |
+| `fuel-cell`, `money`, `buzzer` | `common-obs/collectables.gc` | art in game.gd tpages |
+| `crate` | `common-obs/crates.gc` | crate-ag |
+| `orb-cache-top` | `common-obs/orb-cache.gc` | orb-cache-top-ag |
+| `eco-pill`, `ecovent`, `ventblue`, `ventred`, `ventyellow` | `common-obs/collectables.gc` | vent art |
+| `ecovalve` | `common-obs/baseplat.gc` | ecovalve-ag (in game.gd) |
+
+### 11.2 DGO tpage group constants
+
+All constants defined in the addon. HEAP WARNING: each tpage set costs ~200–250KB. Max ~2 groups per scene safely.
+
+| Constant | DGO | Representative actors |
+|---|---|---|
+| `BEACH_TPAGES` | bea.gd | babak, lurkercrab, lurkerpuppy, lurkerworm, sculptor, pelican, seagull, windmill-one, ecoventrock |
+| `JUNGLE_TPAGES` | jun.gd | hopper, junglesnake, darkvine, junglefish, springbox, fisher, accordian, ropebridge |
+| `SWAMP_TPAGES` | swa.gd | kermit, swamp-bat, swamp-rat, sharkey, swamp-rat-nest, swampgate, balance-plat, tar-plat, swamp-rock, swamp-spike, billy, flutflut |
+| `SNOW_TPAGES` | sno.gd | yeti, snow-bunny, ice-cube, ram |
+| `SUNKEN_TPAGES` | sun.gd | bully, double-lurker, puffer, sunkenfisha, orbit-plat, square-platform, shover, launcher, side-to-side-plat, wall-plat, wedge-plat, steam-cap, whirlpool |
+| `SUB_TPAGES` | sub.gd | (sunken city B) |
+| `CAVE_TPAGES` | mai.gd | baby-spider, mother-spider, gnawer, driller-lurker, dark-crystal, cavecrusher, caveelevator, caveflamepots, cavetrapdoor, cavespatula, cavespatulatwo |
+| `DARK_TPAGES` | dar.gd | cavecrystal |
+| `ROBOCAVE_TPAGES` | rob.gd | cave-trap, spider-egg, spider-vent |
+| `MISTY_TPAGES` | mis.gd | quicksandlurker, muse, bonelurker, balloonlurker, mis-bone-bridge, breakaway-left/mid/right, windturbine, boatpaddle, teetertotter |
+| `OGRE_TPAGES` | ogr.gd | flying-lurker, plunger-lurker, ogreboss, ogre-bridge, ogre-bridgeend, tntbarrel, shortcut-boulder |
+| `LAVATUBE_TPAGES` | lav.gd | lavafall, lavafallsewera/b, lavabase, lavayellowtarp, chainmine, lavaballoon, darkecobarrel |
+| `FIRECANYON_TPAGES` | fic.gd | balloon, crate-darkeco-cluster, spike |
+| `VILLAGE1_TPAGES` | vi1.gd | farmer, mayor, yakow, explorer, oracle, fishermans-boat, revcycle, evilplant |
+| `VILLAGE2_TPAGES` | vi2.gd | gambler, geologist, warrior, fireboulder, warpgate, pontoon, swamp-blimp, swamp-rope, swamp-tetherrock, ceilingflag |
+| `VILLAGE3_TPAGES` | vi3.gd | minershort, minertall, cavegem, gondola |
+| `ROLLING_TPAGES` | rol.gd | peeper (lightning-mole), robber, dark-plant, lightning-mole |
+| `TRAINING_TPAGES` | tra.gd | tra-pontoon |
+| `JUNGLEB_TPAGES` | jub.gd | plant-boss, plat-flip |
+| `FINALBOSS_TPAGES` | fin.gd | robotboss, green-eco-lurker, ecoclaw, powercellalt |
+| `CITADEL_TPAGES` | cit.gd | (citadel actors) |
+
+### 11.3 Entity link system (alt-actor, water-actor, state-actor)
+
+Many actors reference other actors at runtime via `entity-actor-lookup`. The addon's **Entity Links** sub-panel handles these. Links are stored as string arrays: `"alt-actor": ["string", "target-name-0", "target-name-1"]`.
+
+The engine resolves strings via `entity-by-name` — no index arithmetic needed.
+
+**Actors with required links (must be set or they hang/crash):**
+
+| Actor | Slot | Target type | Notes |
+|---|---|---|---|
+| `orbit-plat` | `alt-actor 0` | any | Center entity to orbit. Platform waits forever if unset. |
+| `ogre-bridge` | `alt-actor 0` | `ogre-bridgeend` | Bridge end piece. |
+| `snow-log` | `alt-actor 0` | snow-log-master | Master controller. |
+| `snow-log-button` | `alt-actor 0` | `snow-log` | Log to activate. |
+| `helix-water` | `alt-actor 0` | `helix-button` | First button (required); 1–3 more optional. |
+| `helix-button` | `alt-actor 0,1` | `helix-water`, `helix-slide-door` | Both required. |
+| `minershort` | `alt-actor 0` | `minertall` | Partner miner. |
+
+**Actors with optional links:**
+
+| Actor | Slot | Effect if unset |
+|---|---|---|
+| `quicksandlurker` | `water-actor 0` | No mud surface tracking (still works) |
+| `balloonlurker` | `water-actor 0` | No water animation reference |
+| `spider-egg` | `alt-actor 0` | No notify message on hatch |
+| `cave-trap` | `alt-actor 0–3` | No spider-egg children to spawn |
+| `square-platform` | `alt-actor 0` | No water splash effects |
+| `eco-door` | `state-actor 0` | Door not locked to any task |
+| `ecovent/ventblue/ventred/ventyellow` | `alt-actor 0` | Vent always active (not blocked) |
+| `pontoon` | (none — `alt-task` is a lump, not a link) | — |
+
+### 11.4 New actors added — quick reference
+
+**Enemies:** balloonlurker, darkvine, junglefish, peeper, cave-trap, spider-egg, spider-vent, swamp-rat-nest, sunkenfisha, sharkey, villa-starfish, baby-spider, cavecrusher, dark-crystal, mother-spider, fireboulder, green-eco-lurker, ice-cube, lightning-mole, plunger-lurker, ram
+
+**NPCs:** oracle, minershort, minertall, pelican, robber, seagull
+
+**Pickups:** eco-pill, ecovent, ventblue, ventred, ventyellow, ecoventrock
+
+**Platforms:** orbit-plat, square-platform, ropebridge, lavaballoon, darkecobarrel, caveelevator, caveflamepots, cavetrapdoor, cavespatula, cavespatulatwo, ogre-bridge, ogre-bridgeend, pontoon, tra-pontoon, mis-bone-bridge, breakaway-left/mid/right, plat-flip, side-to-side-plat, wall-plat, wedge-plat, tar-plat, balance-plat, teetertotter, revcycle, launcher, warpgate
+
+**Objects:** water-vol, swingpole, springbox, eco-door, launcherdoor, shover, swampgate, ceilingflag, windturbine, boatpaddle, accordian, all lava props, balloon, crate-darkeco-cluster, swamp-tetherrock, fishermans-boat, cavecrystal, cavegem, ecoclaw, gondola, shortcut-boulder, spike, steam-cap, swamp-blimp, swamp-rock, swamp-rope, swamp-spike, tntbarrel, whirlpool, windmill-one
+
+**Props:** dark-plant, evilplant
+
+**Bosses:** ogreboss, plant-boss, robotboss
+

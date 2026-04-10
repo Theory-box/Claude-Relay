@@ -252,3 +252,55 @@ Automatically managed by the addon via `ETYPE_AG`. Added to JSONC `art_groups` a
 **Enemy idle with no AI** — bsphere too small, code not loaded, or nav-unsafe without workaround.
 
 **Level crash on load** — remove actors one at a time to isolate. Known bad actor: bonelurker.
+
+---
+
+## April 2026 Update — feature/lumps session
+
+### New actor coverage: 147 types (was 73)
+
+Major additions across all categories. See `entity-spawning.md` section 11 for full list.
+
+### Lump system (Custom Lumps panel)
+
+Every `ACTOR_` empty now has:
+- **Custom Lumps** sub-panel — assisted key/type/value entry for any res-lump key
+- **Lump Reference** sub-panel — per-etype hints showing all known lump keys, types, and descriptions
+- 147 etypes fully covered in `LUMP_REFERENCE`
+
+Custom lump rows export as JSONC lump entries and take priority over addon-hardcoded values (with a warning in the export log).
+
+### Entity link system (Entity Links panel)
+
+23 actor types with entity reference slots now show an **Entity Links** sub-panel. Workflow:
+1. Select the source actor (e.g. `orbit-plat`)
+2. Shift-select the target actor (e.g. the empty it should orbit)
+3. Click **Link → target-name** button that appears
+
+Links export as `"alt-actor": ["string", "target-name"]` — resolved at runtime via `entity-by-name`.
+
+Required slots are marked with `*` and emit `[WARNING]` in the export log if unset.
+
+### Actor sub-panel refactor
+
+Selected Object panel now uses targeted sub-panels:
+- **Activation** — idle-distance for all enemies/bosses
+- **Trigger Behaviour** — aggro event for nav-enemies only
+- **NavMesh** — navmesh patch link for nav-enemies
+- **Entity Links** — alt-actor/water-actor/state-actor for 23 etypes
+- **Platform Settings** — sync/path/notice-dist for platform types
+- **Waypoints** — path waypoint management for path-required types
+- **Custom Lumps** — assisted lump entry for all actors
+- **Lump Reference** — per-etype documentation
+
+### Data structure overview
+
+| Structure | Purpose | Count |
+|---|---|---|
+| `ENTITY_DEFS` | Picker metadata (label, cat, ag, color, shape) | 147 etypes |
+| `ETYPE_CODE` | .o file injection into custom DGO | 138 entries + 16 in_game_cgo |
+| `ETYPE_TPAGES` | Tpage group per etype for art loading | 124 entries |
+| `LUMP_REFERENCE` | UI hint table (key, type, description) | 148 entries |
+| `ACTOR_LINK_DEFS` | Entity link slot definitions | 23 etypes, 26 slots |
+| `ENTITY_WIKI` | Wiki images and descriptions | 33 entries |
+
