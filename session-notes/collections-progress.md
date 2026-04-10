@@ -221,3 +221,42 @@ Migration: "Convert to Collection Level" operator moves existing objects into th
   - Created on demand — no empty folders
   - Auto-sort geometry on creation only, manual after
   - Backward compat: no level collections = v1.1.0 behavior
+- 2026-04-09: Full functionality wiring complete (commit a1d5bb8). Session log:
+
+  UI polish (commit 0a29a6b):
+  - Level panel: pencil icon right of dropdown, ID/ISO/Nick on one row,
+    death plane as layout.prop float field (getter/setter bridging to
+    collection custom prop), duplicate name label removed
+  - Level Manager: checkbox-style list (CHECKBOX_HLT/DEHLT), no X button,
+    matches Collection Properties aesthetic
+
+  Functionality wiring (commit a1d5bb8):
+  Export pipeline fully scoped:
+    collect_actors, collect_ambients, collect_spawns, collect_cameras,
+    collect_nav_mesh_geometry, _collect_navmesh_actors,
+    _clean_orphaned_vol_links, _vol_for_target — all use _level_objects()
+  patch_level_info reads via _get_level_prop (no more og_props direct reads)
+  All three build functions (_bg_build, _bg_build_and_play, _bg_geo_rebuild)
+    use _get_level_prop for base_id and _level_objects for checkpoint check
+  export_glb scoped to Geometry sub-collection (use_selection=True),
+    excludes Reference, saves/restores full selection state; fallback intact
+  Spawn operator uid counters all scoped to _level_objects:
+    SpawnPlayer, SpawnCheckpoint, SpawnEntity, SpawnPlatform,
+    AddSoundEmitter, AddCamera, SpawnVolume, SpawnVolumeAutoLink
+  Spawn collection routing wired:
+    SpawnPlatform -> Spawnables/Platforms
+    SpawnVolume -> Triggers
+  All panel object lists scoped: LevelFlow, platform, sound emitter,
+    waypoints, camera, triggers, _draw_vol_settings, OG_OT_DeleteObject
+  OG_OT_CleanLevelFiles + dev tools Quick Open use _lname(ctx)
+
+  Automated test results: 8/8 tests pass, 0 regressions, syntax clean.
+  4 intentional scene.objects references confirmed and documented:
+    - L853, L1027: docstrings only
+    - L3723, L3739: export_glb selection save/restore (must be scene-wide)
+
+  Phase 1 (Foundation) ✅ complete
+  Phase 2 (Export Scoping) ✅ complete
+  Phase 3 (Auto-Organization) ✅ complete
+  Phase 4 (Geometry Organization) — not yet started
+  Phase 5 (Migration) — not yet started
