@@ -2709,6 +2709,16 @@ class OGProperties(PropertyGroup):
                                          description="Currently selected sound for emitter placement")
     ambient_default_radius: FloatProperty(name="Default Emitter Radius (m)", default=15.0, min=1.0, max=200.0,
                                           description="Bsphere radius for new sound emitter empties")
+    # Level flow spawn type picker
+    spawn_flow_type: EnumProperty(
+        name="Type",
+        items=[
+            ("SPAWN",      "Player Spawn",  "Place a player spawn / continue point", "EMPTY_ARROWS",        0),
+            ("CHECKPOINT", "Checkpoint",    "Place a mid-level checkpoint trigger",  "EMPTY_SINGLE_ARROW",  1),
+        ],
+        default="SPAWN",
+        description="Select the type of level flow object to place",
+    )
     # Level flow
     bottom_height:     FloatProperty(name="Death Plane (m)", default=-20.0, min=-500.0, max=-1.0,
                                      get=_get_death_plane, set=_set_death_plane,
@@ -5870,9 +5880,8 @@ def _draw_platform_settings(layout, sel, scene):
 # Tab: OpenGOAL (N-panel)
 #
 #  📁 Level              OG_PT_Level          (parent, always open)
-#    🗺 Level Flow        OG_PT_LevelFlow      (sub, DEFAULT_CLOSED)
 #    🗂 Level Manager     OG_PT_LevelManagerSub (sub, DEFAULT_CLOSED)
-#    📂 Collection Props  OG_PT_CollectionProperties (sub, DEFAULT_CLOSED, poll-gated)
+#    📂 Collections       OG_PT_CollectionProperties (sub, DEFAULT_CLOSED, poll-gated)
 #      Disable Export    OG_PT_DisableExport     (sub-sub, DEFAULT_CLOSED)
 #      🧹 Clean          OG_PT_CleanSub          (sub-sub, DEFAULT_CLOSED)
 #    💡 Light Baking      OG_PT_LightBakingSub  (sub, DEFAULT_CLOSED)
@@ -5885,6 +5894,7 @@ def _draw_platform_settings(layout, sel, scene):
 #    🧍 NPCs              OG_PT_SpawnNPCs      (sub, DEFAULT_CLOSED)
 #    ⭐ Pickups           OG_PT_SpawnPickups   (sub, DEFAULT_CLOSED)
 #    🔊 Sound Emitters    OG_PT_SpawnSounds    (sub, DEFAULT_CLOSED)
+#    🗺 Level Flow        OG_PT_SpawnLevelFlow (sub, DEFAULT_CLOSED)
 #    📷 Cameras           OG_PT_Camera         (sub, DEFAULT_CLOSED)
 #    🔗 Triggers          OG_PT_Triggers       (sub, DEFAULT_CLOSED)
 #
@@ -6038,16 +6048,16 @@ class OG_PT_Level(Panel):
 
 
 # ---------------------------------------------------------------------------
-# Level > Level Flow  (sub-panel)
+# Spawn > Level Flow  (sub-panel)
 # ---------------------------------------------------------------------------
 
-class OG_PT_LevelFlow(Panel):
+class OG_PT_SpawnLevelFlow(Panel):
     bl_label       = "🗺  Level Flow"
-    bl_idname      = "OG_PT_level_flow"
+    bl_idname      = "OG_PT_spawn_level_flow"
     bl_space_type  = "VIEW_3D"
     bl_region_type = "UI"
     bl_category    = "OpenGOAL"
-    bl_parent_id   = "OG_PT_level"
+    bl_parent_id   = "OG_PT_spawn"
     bl_options     = {"DEFAULT_CLOSED"}
 
     def draw(self, ctx):
@@ -6055,117 +6065,112 @@ class OG_PT_LevelFlow(Panel):
         props  = ctx.scene.og_props
         scene  = ctx.scene
 
-        layout.label(text="Spawn Points", icon="ARMATURE_DATA")
-        col = layout.column(align=True)
-        col.operator("og.spawn_player",     text="Add Player Spawn",  icon="ADD")
-        col.operator("og.spawn_checkpoint", text="Add Checkpoint",    icon="KEYFRAME")
+        # ── Dropdown + Add button ─────────────────────────────────────────
+        row = layout.row(align=True)
+        row.prop(props, "spawn_flow_type", text="")
+        if props.spawn_flow_type == "SPAWN":
+            row.operator("og.spawn_player",     text="Add", icon="ADD")
+        else:
+            row.operator("og.spawn_checkpoint", text="Add", icon="ADD")
 
-        # Scope object lists to the active level collection (fallback = all scene objects)
+        # ── Object lists ──────────────────────────────────────────────────
         lv_objs     = _level_objects(scene)
-        spawns      = [o for o in lv_objs if o.name.startswith("SPAWN_")      and o.type == "EMPTY" and not o.name.endswith("_CAM")]
-        checkpoints = [o for o in lv_objs if o.name.startswith("CHECKPOINT_") and o.type == "EMPTY" and not o.name.endswith("_CAM")]
+        spawns      = [o for o in lv_objs if o.name.startswith("SPAWN_")
+                       and o.type == "EMPTY" and not o.name.endswith("_CAM")]
+        checkpoints = [o for o in lv_objs if o.name.startswith("CHECKPOINT_")
+                       and o.type == "EMPTY" and not o.name.endswith("_CAM")]
 
         if spawns or checkpoints:
             layout.separator(factor=0.4)
 
-            if spawns:
-                row = layout.row()
-                icon = "TRIA_DOWN" if props.show_spawn_list else "TRIA_RIGHT"
-                row.prop(props, "show_spawn_list",
-                         text=f"Player Spawns ({len(spawns)})", icon=icon, emboss=False)
-                if props.show_spawn_list:
-                    box = layout.box()
-                    for o in sorted(spawns, key=lambda x: x.name):
-                        row = box.row(align=True)
-                        row.label(text=o.name, icon="EMPTY_ARROWS")
-                        # CAM anchors looked up globally by name — correct, they may live anywhere
-                        cam_obj = scene.objects.get(o.name + "_CAM")
-                        if cam_obj:
-                            row.label(text="📷", icon="NONE")
-                        else:
-                            sub = row.row()
-                            sub.alert = True
-                            sub.label(text="no cam", icon="NONE")
-                        op = row.operator("og.select_and_frame", text="", icon="VIEWZOOM")
-                        op.obj_name = o.name
-                        op = row.operator("og.delete_object", text="", icon="TRASH")
-                        op.obj_name = o.name
+        if spawns:
+            row = layout.row()
+            icon = "TRIA_DOWN" if props.show_spawn_list else "TRIA_RIGHT"
+            row.prop(props, "show_spawn_list",
+                     text=f"Player Spawns ({len(spawns)})", icon=icon, emboss=False)
+            if props.show_spawn_list:
+                box = layout.box()
+                for o in sorted(spawns, key=lambda x: x.name):
+                    row = box.row(align=True)
+                    row.label(text=o.name, icon="EMPTY_ARROWS")
+                    cam_obj = scene.objects.get(o.name + "_CAM")
+                    if cam_obj:
+                        row.label(text="📷", icon="NONE")
+                    else:
+                        sub = row.row()
+                        sub.alert = True
+                        sub.label(text="no cam", icon="NONE")
+                    op = row.operator("og.select_and_frame", text="", icon="VIEWZOOM")
+                    op.obj_name = o.name
+                    op = row.operator("og.delete_object", text="", icon="TRASH")
+                    op.obj_name = o.name
 
-            if checkpoints:
-                row = layout.row()
-                icon = "TRIA_DOWN" if props.show_checkpoint_list else "TRIA_RIGHT"
-                row.prop(props, "show_checkpoint_list",
-                         text=f"Checkpoints ({len(checkpoints)})", icon=icon, emboss=False)
-                if props.show_checkpoint_list:
-                    vol_by_cp_panel = {}
-                    for o in lv_objs:
-                        if o.type == "MESH" and o.name.startswith("VOL_"):
-                            link = o.get("og_vol_link", "")
-                            if link and link.startswith("CHECKPOINT_"):
-                                vol_by_cp_panel[link] = o
-                    box = layout.box()
-                    for o in sorted(checkpoints, key=lambda x: x.name):
-                        row = box.row(align=True)
-                        row.label(text=o.name, icon="EMPTY_SINGLE_ARROW")
-                        vol = vol_by_cp_panel.get(o.name)
-                        if vol:
-                            row.label(text=f"📦 {vol.name}")
-                        else:
-                            r = float(o.get("og_checkpoint_radius", 3.0))
-                            sub = row.row()
-                            sub.alert = True
-                            sub.label(text=f"r={r:.1f}m")
-                        cam_obj = scene.objects.get(o.name + "_CAM")
-                        if cam_obj:
-                            row.label(text="📷", icon="NONE")
-                        op = row.operator("og.select_and_frame", text="", icon="VIEWZOOM")
-                        op.obj_name = o.name
-                        op = row.operator("og.delete_object", text="", icon="TRASH")
-                        op.obj_name = o.name
+        if checkpoints:
+            row = layout.row()
+            icon = "TRIA_DOWN" if props.show_checkpoint_list else "TRIA_RIGHT"
+            row.prop(props, "show_checkpoint_list",
+                     text=f"Checkpoints ({len(checkpoints)})", icon=icon, emboss=False)
+            if props.show_checkpoint_list:
+                vol_by_cp = {}
+                for o in lv_objs:
+                    if o.type == "MESH" and o.name.startswith("VOL_"):
+                        link = o.get("og_vol_link", "")
+                        if link and link.startswith("CHECKPOINT_"):
+                            vol_by_cp[link] = o
+                box = layout.box()
+                for o in sorted(checkpoints, key=lambda x: x.name):
+                    row = box.row(align=True)
+                    row.label(text=o.name, icon="EMPTY_SINGLE_ARROW")
+                    vol = vol_by_cp.get(o.name)
+                    if vol:
+                        row.label(text=f"📦 {vol.name}")
+                    else:
+                        r = float(o.get("og_checkpoint_radius", 3.0))
+                        sub = row.row()
+                        sub.alert = True
+                        sub.label(text=f"r={r:.1f}m")
+                    cam_obj = scene.objects.get(o.name + "_CAM")
+                    if cam_obj:
+                        row.label(text="📷", icon="NONE")
+                    op = row.operator("og.select_and_frame", text="", icon="VIEWZOOM")
+                    op.obj_name = o.name
+                    op = row.operator("og.delete_object", text="", icon="TRASH")
+                    op.obj_name = o.name
 
-            sel = ctx.active_object
-            if sel and sel.type == "EMPTY" and (sel.name.startswith("SPAWN_") or sel.name.startswith("CHECKPOINT_")) and not sel.name.endswith("_CAM"):
-                is_cp = sel.name.startswith("CHECKPOINT_")
-                layout.separator(factor=0.3)
-                sub = layout.column(align=True)
-                cam_exists = bool(scene.objects.get(sel.name + "_CAM"))
-                if not cam_exists:
-                    sub.operator("og.spawn_cam_anchor", text=f"Add Camera for {sel.name}", icon="CAMERA_DATA")
-                else:
+        # ── Selected spawn/checkpoint context actions ─────────────────────
+        sel = ctx.active_object
+        if (sel and sel.type == "EMPTY"
+                and (sel.name.startswith("SPAWN_") or sel.name.startswith("CHECKPOINT_"))
+                and not sel.name.endswith("_CAM")):
+            is_cp = sel.name.startswith("CHECKPOINT_")
+            layout.separator(factor=0.3)
+            sub = layout.column(align=True)
+            cam_exists = bool(scene.objects.get(sel.name + "_CAM"))
+            if not cam_exists:
+                sub.operator("og.spawn_cam_anchor",
+                             text=f"Add Camera for {sel.name}", icon="CAMERA_DATA")
+            else:
+                row = sub.row()
+                row.enabled = False
+                row.label(text=f"{sel.name}_CAM exists ✓", icon="CHECKMARK")
+            if is_cp:
+                vol_by_cp_sel = {}
+                for o in lv_objs:
+                    if o.type == "MESH" and o.name.startswith("VOL_"):
+                        lnk = o.get("og_vol_link", "")
+                        if lnk and lnk.startswith("CHECKPOINT_"):
+                            vol_by_cp_sel[lnk] = o
+                vol_linked = vol_by_cp_sel.get(sel.name)
+                if vol_linked:
                     row = sub.row()
                     row.enabled = False
-                    row.label(text=f"{sel.name}_CAM exists ✓", icon="CHECKMARK")
-                if is_cp:
-                    vol_by_cp_sel = {}
-                    for o in lv_objs:
-                        if o.type == "MESH" and o.name.startswith("VOL_"):
-                            lnk = o.get("og_vol_link", "")
-                            if lnk and lnk.startswith("CHECKPOINT_"):
-                                vol_by_cp_sel[lnk] = o
-                    vol_linked = vol_by_cp_sel.get(sel.name)
-                    if vol_linked:
-                        row = sub.row()
-                        row.enabled = False
-                        row.label(text=f"{vol_linked.name} linked ✓", icon="MESH_CUBE")
-                        sub.operator("og.unlink_volume", text="Unlink Volume", icon="X")
-                    else:
-                        op = sub.operator("og.spawn_volume_autolink", text="Add Trigger Volume", icon="MESH_CUBE")
-                        op.target_name = sel.name
-                        sub.label(text="Or use Triggers panel to link existing", icon="INFO")
-
-        if spawns or checkpoints:
-            all_pts = spawns + checkpoints
-            xs = [o.location.x for o in all_pts]
-            ys = [o.location.z for o in all_pts]
-            zs = [-o.location.y for o in all_pts]
-            cx = sum(xs)/len(xs); cy = sum(ys)/len(ys); cz = sum(zs)/len(zs)
-            r  = max(
-                math.sqrt((o.location.x-cx)**2 + (o.location.z-cy)**2 + (-o.location.y-cz)**2)
-                for o in all_pts
-            ) + 64.0
-            info_row = layout.row()
-            info_row.enabled = False
-            info_row.label(text=f"Bsphere: r≈{r:.0f}m  centre ({cx:.1f}, {cy:.1f}, {cz:.1f})", icon="SPHERE")
+                    row.label(text=f"{vol_linked.name} linked ✓", icon="MESH_CUBE")
+                    sub.operator("og.unlink_volume", text="Unlink Volume", icon="X")
+                else:
+                    op = sub.operator("og.spawn_volume_autolink",
+                                      text="Add Trigger Volume", icon="MESH_CUBE")
+                    op.target_name = sel.name
+                    sub.label(text="Or use Triggers panel to link existing", icon="INFO")
 
 
 # ---------------------------------------------------------------------------
@@ -7929,7 +7934,6 @@ classes = (
     # ── Panels ──────────────────────────────────────────────────────────
     # Level group
     OG_PT_Level,
-    OG_PT_LevelFlow,
     OG_PT_LevelManagerSub,
     OG_PT_CollectionProperties,
     OG_PT_DisableExport,
@@ -7944,11 +7948,12 @@ classes = (
     OG_PT_SpawnNPCs,
     OG_PT_SpawnPickups,
     OG_PT_SpawnSounds,
+    OG_PT_SpawnLevelFlow,
+    OG_PT_Camera,
+    OG_PT_Triggers,
     # Standalone panels
     OG_PT_SelectedObject,
     OG_PT_Waypoints,
-    OG_PT_Triggers,
-    OG_PT_Camera,
     OG_PT_BuildPlay,
     OG_PT_DevTools,
     OG_PT_Collision,
