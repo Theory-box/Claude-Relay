@@ -1167,12 +1167,105 @@ def _camera_aabb_to_planes(b_min, b_max):
     ]
 
 
+def _vol_aabb(vol_obj):
+    """Compute the game-space AABB of a volume mesh.
+    Returns (xs_min, xs_max, ys_min, ys_max, zs_min, zs_max, cx, cy, cz, radius).
+    Used by all trigger build passes (camera, checkpoint, aggro).
+    """
+    corners = [vol_obj.matrix_world @ v.co for v in vol_obj.data.vertices]
+    gc = [(c.x, c.z, -c.y) for c in corners]
+    xs = [c[0] for c in gc]; ys = [c[1] for c in gc]; zs = [c[2] for c in gc]
+    xmin, xmax = min(xs), max(xs)
+    ymin, ymax = min(ys), max(ys)
+    zmin, zmax = min(zs), max(zs)
+    cx = round((xmin + xmax) / 2, 4)
+    cy = round((ymin + ymax) / 2, 4)
+    cz = round((zmin + zmax) / 2, 4)
+    rad = round(max(xmax - xmin, ymax - ymin, zmax - zmin) / 2 + 5.0, 2)
+    return (round(xmin, 4), round(xmax, 4),
+            round(ymin, 4), round(ymax, 4),
+            round(zmin, 4), round(zmax, 4),
+            cx, cy, cz, rad)
+
+
+def collect_aggro_triggers(scene):
+    """Build aggro-trigger actor list from VOL_ meshes whose og_vol_links
+    contain at least one nav-enemy ACTOR_ target.
+
+    One actor is emitted per (volume, enemy_link) pair. The actor's lump holds
+    the target enemy's name (string), an event-id integer (0=cue-chase,
+    1=cue-patrol, 2=go-wait-for-cue), and 6 AABB bound-* floats.
+
+    The target-name lump must match the *emitted name lump* on the target
+    actor (which is f"{etype}-{uid}", e.g. "babak-1"), NOT the Blender object
+    name (e.g. "ACTOR_babak_1"). The engine's entity-by-name walks all loaded
+    actors and matches the 'name lump string verbatim — this lookup is what
+    process-by-ename uses at runtime.
+
+    At runtime the aggro-trigger polls AABB; on rising edge it calls
+    (process-by-ename target-name) and sends the appropriate event symbol.
+    Implemented entirely with res-lumps — no engine patches required.
+
+    Engine refs:
+      nav-enemy.gc:142 — 'cue-chase, 'cue-patrol, 'go-wait-for-cue handlers
+      entity.gc:92    — entity-by-name lookup
+      entity.gc:167   — process-by-ename helper
+    """
+    out = []
+    counter = 0
+    for vol in _level_objects(scene):
+        if vol.type != "MESH" or not vol.name.startswith("VOL_"):
+            continue
+        for entry in _vol_links(vol):
+            if _classify_target(entry.target_name) != "enemy":
+                continue
+            target_obj = scene.objects.get(entry.target_name)
+            if not target_obj:
+                log(f"  [WARNING] aggro-trigger {vol.name}: target '{entry.target_name}' not in scene — skipped")
+                continue
+            # Convert Blender object name to the actor's emitted 'name lump.
+            # ACTOR_<etype>_<uid> -> <etype>-<uid>  (matches collect_actors line ~3170)
+            parts = entry.target_name.split("_", 2)
+            if len(parts) < 3:
+                log(f"  [WARNING] aggro-trigger {vol.name}: malformed target name '{entry.target_name}' — skipped")
+                continue
+            target_lump_name = f"{parts[1]}-{parts[2]}"
+            xmin, xmax, ymin, ymax, zmin, zmax, cx, cy, cz, rad = _vol_aabb(vol)
+            event_id = _aggro_event_id(entry.behaviour)
+            uid = counter
+            counter += 1
+            out.append({
+                "trans":     [cx, cy, cz],
+                "etype":     "aggro-trigger",
+                "game_task": "(game-task none)",
+                "quat":      [0, 0, 0, 1],
+                "vis_id":    0,
+                "bsphere":   [cx, cy, cz, rad],
+                "lump": {
+                    "name":        f"aggrotrig-{uid}",
+                    "target-name": target_lump_name,
+                    "event-id":    ["uint32", event_id],
+                    "bound-xmin":  ["meters", xmin],
+                    "bound-xmax":  ["meters", xmax],
+                    "bound-ymin":  ["meters", ymin],
+                    "bound-ymax":  ["meters", ymax],
+                    "bound-zmin":  ["meters", zmin],
+                    "bound-zmax":  ["meters", zmax],
+                },
+            })
+            log(f"  [aggro-trigger] {vol.name} → {entry.target_name} (lump: {target_lump_name}, {entry.behaviour})")
+    return out
+
+
 def collect_cameras(scene):
     """Build camera actor list from CAMERA_ camera objects.
 
     Returns (camera_actors, trigger_actors) where both are JSONC actor dicts.
     camera_actors  -- camera-marker entities (hold position/rotation)
     trigger_actors -- camera-trigger entities (AABB polling, birth on level load)
+
+    A volume can hold multiple links. We iterate every VOL_ mesh's links and
+    emit one camera-trigger actor per (volume, camera_link) pair.
     """
     level_objs = _level_objects(scene)
 
@@ -1182,12 +1275,14 @@ def collect_cameras(scene):
         key=lambda o: o.name,
     )
 
-    vol_by_cam = {}
+    # Build cam_name -> [vol_obj, ...] from VOL_ meshes' og_vol_links collections.
+    # One camera can be linked from multiple volumes (Scenario A from design discussion).
+    vols_by_cam = {}
     for o in level_objs:
         if o.type == "MESH" and o.name.startswith("VOL_"):
-            link = o.get("og_vol_link", "")
-            if link:
-                vol_by_cam[link] = o
+            for entry in _vol_links(o):
+                if _classify_target(entry.target_name) == "camera":
+                    vols_by_cam.setdefault(entry.target_name, []).append(o)
 
     camera_actors  = []
     trigger_actors = []
@@ -1282,43 +1377,39 @@ def collect_cameras(scene):
             "lump":      lump,
         })
 
-        vol_obj = vol_by_cam.get(cam_name)
-        if vol_obj:
-            corners = [vol_obj.matrix_world @ v.co for v in vol_obj.data.vertices]
-            gc = [(c.x, c.z, -c.y) for c in corners]
-            xs = [c[0] for c in gc]; ys = [c[1] for c in gc]; zs = [c[2] for c in gc]
-            cx = round((min(xs)+max(xs))/2, 4)
-            cy = round((min(ys)+max(ys))/2, 4)
-            cz = round((min(zs)+max(zs))/2, 4)
-            rad = round(max(max(xs)-min(xs), max(ys)-min(ys), max(zs)-min(zs))/2 + 5.0, 2)
-            trigger_actors.append({
-                "trans":     [cx, cy, cz],
-                "etype":     "camera-trigger",
-                "game_task": 0,
-                "quat":      [0, 0, 0, 1],
-                "vis_id":    0,
-                "bsphere":   [cx, cy, cz, rad],
-                "lump": {
-                    "name":       f"camtrig-{cam_name.lower()}",
-                    "cam-name":   cam_name,
-                    "bound-xmin": ["meters", round(min(xs), 4)],
-                    "bound-xmax": ["meters", round(max(xs), 4)],
-                    "bound-ymin": ["meters", round(min(ys), 4)],
-                    "bound-ymax": ["meters", round(max(ys), 4)],
-                    "bound-zmin": ["meters", round(min(zs), 4)],
-                    "bound-zmax": ["meters", round(max(zs), 4)],
-                },
-            })
-            log(f"  [camera] {cam_name} + trigger {vol_obj.name}")
+        vol_list = vols_by_cam.get(cam_name, [])
+        if vol_list:
+            for vol_obj in vol_list:
+                xmin, xmax, ymin, ymax, zmin, zmax, cx, cy, cz, rad = _vol_aabb(vol_obj)
+                trigger_actors.append({
+                    "trans":     [cx, cy, cz],
+                    "etype":     "camera-trigger",
+                    "game_task": 0,
+                    "quat":      [0, 0, 0, 1],
+                    "vis_id":    0,
+                    "bsphere":   [cx, cy, cz, rad],
+                    "lump": {
+                        "name":       f"camtrig-{cam_name.lower()}-{vol_obj.get('og_vol_id', 0)}",
+                        "cam-name":   cam_name,
+                        "bound-xmin": ["meters", xmin],
+                        "bound-xmax": ["meters", xmax],
+                        "bound-ymin": ["meters", ymin],
+                        "bound-ymax": ["meters", ymax],
+                        "bound-zmin": ["meters", zmin],
+                        "bound-zmax": ["meters", zmax],
+                    },
+                })
+                log(f"  [camera] {cam_name} + trigger {vol_obj.name}")
         else:
             log(f"  [camera] {cam_name} -- no trigger volume")
 
     return camera_actors, trigger_actors
 
 
-def write_gc(name, has_triggers=False, has_checkpoints=False):
+def write_gc(name, has_triggers=False, has_checkpoints=False, has_aggro_triggers=False):
     """Write obs.gc: always emits camera-marker type; if has_triggers also
-    emits camera-trigger type; if has_checkpoints emits checkpoint-trigger type.
+    emits camera-trigger type; if has_checkpoints emits checkpoint-trigger type;
+    if has_aggro_triggers emits aggro-trigger type.
     All types birth automatically via entity-actor.birth! — no nREPL needed.
     """
     d = _goal_src() / "levels" / name
@@ -1461,6 +1552,74 @@ def write_gc(name, has_triggers=False, has_checkpoints=False):
             "",
         ]
         log(f"  [write_gc] checkpoint-trigger type embedded")
+
+    if has_aggro_triggers:
+        lines += [
+            ";; aggro-trigger: AABB volume entity that sends a wakeup event to a target enemy.",
+            ";; On rising edge (player enters volume), looks up target enemy by name via",
+            ";; (process-by-ename ...) and sends one of three quoted symbols based on event-id:",
+            ";;   0 = 'cue-chase        — wake enemy + chase player",
+            ";;   1 = 'cue-patrol       — return to patrol",
+            ";;   2 = 'go-wait-for-cue  — freeze until next cue",
+            ";; Re-fires every time the player re-enters (inside flag clears on exit).",
+            ";; Only nav-enemies respond to these events (engine: nav-enemy.gc line 142).",
+            "(deftype aggro-trigger (process-drawable)",
+            "  ((target-name string  :offset-assert 176)",
+            "   (event-id    int32   :offset-assert 180)",
+            "   (xmin        float   :offset-assert 184)",
+            "   (xmax        float   :offset-assert 188)",
+            "   (ymin        float   :offset-assert 192)",
+            "   (ymax        float   :offset-assert 196)",
+            "   (zmin        float   :offset-assert 200)",
+            "   (zmax        float   :offset-assert 204)",
+            "   (inside      symbol  :offset-assert 208))",
+            "  :heap-base #x70",
+            "  :size-assert #xd4",
+            "  (:states aggro-trigger-active))",
+            "",
+            "(defstate aggro-trigger-active (aggro-trigger)",
+            "  :code",
+            "  (behavior ()",
+            "    (loop",
+            "      (when *target*",
+            "        (let* ((pos (-> *target* control trans))",
+            "               (in-vol (and",
+            "                 (< (-> self xmin) (-> pos x)) (< (-> pos x) (-> self xmax))",
+            "                 (< (-> self ymin) (-> pos y)) (< (-> pos y) (-> self ymax))",
+            "                 (< (-> self zmin) (-> pos z)) (< (-> pos z) (-> self zmax)))))",
+            "          (cond",
+            "            ((and in-vol (not (-> self inside)))",
+            "             (set! (-> self inside) #t)",
+            "             (let ((proc (process-by-ename (-> self target-name))))",
+            "               (when proc",
+            "                 (cond",
+            "                   ((zero? (-> self event-id))",
+            "                    (send-event proc 'cue-chase))",
+            "                   ((= (-> self event-id) 1)",
+            "                    (send-event proc 'cue-patrol))",
+            "                   ((= (-> self event-id) 2)",
+            "                    (send-event proc 'go-wait-for-cue))))))",
+            "            ((and (not in-vol) (-> self inside))",
+            "             (set! (-> self inside) #f)))))",
+            "      (suspend))))",
+            "",
+            "(defmethod init-from-entity! ((this aggro-trigger) (arg0 entity-actor))",
+            "  (set! (-> this root) (new (quote process) (quote trsqv)))",
+            "  (process-drawable-from-entity! this arg0)",
+            "  (set! (-> this target-name) (res-lump-struct arg0 (quote target-name) string))",
+            "  (set! (-> this event-id)    (the int (res-lump-value arg0 (quote event-id) uint128)))",
+            "  (set! (-> this xmin)        (res-lump-float arg0 (quote bound-xmin)))",
+            "  (set! (-> this xmax)        (res-lump-float arg0 (quote bound-xmax)))",
+            "  (set! (-> this ymin)        (res-lump-float arg0 (quote bound-ymin)))",
+            "  (set! (-> this ymax)        (res-lump-float arg0 (quote bound-ymax)))",
+            "  (set! (-> this zmin)        (res-lump-float arg0 (quote bound-zmin)))",
+            "  (set! (-> this zmax)        (res-lump-float arg0 (quote bound-zmax)))",
+            "  (set! (-> this inside)      #f)",
+            "  (go aggro-trigger-active)",
+            "  (none))",
+            "",
+        ]
+        log(f"  [write_gc] aggro-trigger type embedded")
 
     new_text = "\n".join(lines)
     if p.exists() and p.read_text() == new_text:
@@ -3144,6 +3303,18 @@ def collect_actors(scene):
             lump["notice-dist"] = ["meters", notice]
             log(f"  [notice-dist] {o.name}  {notice}m  ({'always active' if notice < 0 else 'eco required'})")
 
+        # ── Enemy: idle-distance ──────────────────────────────────────────────
+        # Per-instance activation range. The engine reads this in
+        # fact-info-enemy:new (engine fact-h.gc line 191) — when the player is
+        # farther than idle-distance from the enemy, the enemy stays in its
+        # idle state and won't notice the player. Engine default is 80m.
+        # Lower = enemy stays "asleep" longer; higher = enemy wakes up sooner.
+        # Applies to all enemies and bosses (they all inherit fact-info-enemy).
+        if _actor_is_enemy(etype):
+            idle_d = float(o.get("og_idle_distance", 80.0))
+            lump["idle-distance"] = ["meters", idle_d]
+            log(f"  [idle-distance] {o.name}  {idle_d}m")
+
                 # Bsphere radius controls vis-culling distance.  nav-enemy run-logic?
         # only processes AI/collision events when draw-status was-drawn is set,
         # which requires the bsphere to pass the renderer's cull test.
@@ -3184,13 +3355,15 @@ def collect_actors(scene):
     # a 'has-volume' lump (uint32 1) to choose AABB vs sphere.
     level_name_for_cp = str(_get_level_prop(scene, "og_level_name", "")).strip().lower().replace(" ", "-")
 
-    # Build cp_name → vol_obj map from linked CPVOL_ meshes
+    # Build cp_name → first linked vol_obj from og_vol_links collections.
+    # Checkpoint links are soft-enforced 1:1 at link time (block duplicates),
+    # so first() is the same as only() in well-formed scenes.
     vol_by_cp = {}
     for o in level_objs:
         if o.type == "MESH" and o.name.startswith("VOL_"):
-            link = o.get("og_vol_link", "")
-            if link and link.startswith("CHECKPOINT_"):
-                vol_by_cp[link] = o
+            for entry in _vol_links(o):
+                if _classify_target(entry.target_name) == "checkpoint":
+                    vol_by_cp.setdefault(entry.target_name, o)
 
     for o in sorted(level_objs, key=lambda o: o.name):
         if not (o.name.startswith("CHECKPOINT_") and o.type == "EMPTY"):
@@ -3212,20 +3385,16 @@ def collect_actors(scene):
         vol_obj = vol_by_cp.get(o.name)
         if vol_obj:
             # AABB mode — derive bounds from volume mesh world-space verts
-            corners = [vol_obj.matrix_world @ v.co for v in vol_obj.data.vertices]
-            gc = [(c.x, c.z, -c.y) for c in corners]  # bl→game remap
-            xs = [c[0] for c in gc]; ys = [c[1] for c in gc]; zs = [c[2] for c in gc]
-            cx = round((min(xs)+max(xs))/2, 4)
-            cy = round((min(ys)+max(ys))/2, 4)
-            cz = round((min(zs)+max(zs))/2, 4)
-            rad = round(max(max(xs)-min(xs), max(ys)-min(ys), max(zs)-min(zs))/2 + 2.0, 2)
+            xmin, xmax, ymin, ymax, zmin, zmax, cx, cy, cz, rad = _vol_aabb(vol_obj)
+            # Slightly tighter padding for checkpoints (matches old behaviour)
+            rad = round(max(xmax - xmin, ymax - ymin, zmax - zmin) / 2 + 2.0, 2)
             lump["has-volume"]  = ["uint32", 1]
-            lump["bound-xmin"]  = ["meters", round(min(xs), 4)]
-            lump["bound-xmax"]  = ["meters", round(max(xs), 4)]
-            lump["bound-ymin"]  = ["meters", round(min(ys), 4)]
-            lump["bound-ymax"]  = ["meters", round(max(ys), 4)]
-            lump["bound-zmin"]  = ["meters", round(min(zs), 4)]
-            lump["bound-zmax"]  = ["meters", round(max(zs), 4)]
+            lump["bound-xmin"]  = ["meters", xmin]
+            lump["bound-xmax"]  = ["meters", xmax]
+            lump["bound-ymin"]  = ["meters", ymin]
+            lump["bound-ymax"]  = ["meters", ymax]
+            lump["bound-zmin"]  = ["meters", zmin]
+            lump["bound-zmax"]  = ["meters", zmax]
             out.append({
                 "trans":     [cx, cy, cz],
                 "etype":     "checkpoint-trigger",
@@ -4582,12 +4751,13 @@ def _bg_build(name, scene):
 
         state["status"] = "Writing files..."
         base_id = int(_get_level_prop(scene, "og_base_id", 10000))
-        write_jsonc(name, actors, ambients, cam_actors + trigger_actors, base_id)
+        aggro_actors = collect_aggro_triggers(scene)
+        write_jsonc(name, actors, ambients, cam_actors + trigger_actors + aggro_actors, base_id)
         write_gd(name, ags, code_deps, tpages)
         navmesh_actors = _collect_navmesh_actors(scene)
         _lv_objs = _level_objects(scene)
         has_cps = bool([o for o in _lv_objs if o.name.startswith("CHECKPOINT_") and o.type == "EMPTY" and not o.name.endswith("_CAM")])
-        write_gc(name, has_triggers=bool(trigger_actors), has_checkpoints=has_cps)
+        write_gc(name, has_triggers=bool(trigger_actors), has_checkpoints=has_cps, has_aggro_triggers=bool(aggro_actors))
         patch_entity_gc(navmesh_actors)
         patch_level_info(name, spawns, scene)
         patch_game_gp(name, code_deps)
@@ -4963,11 +5133,12 @@ def _bg_geo_rebuild(name, scene):
 
         state["status"] = "Writing level files..."
         base_id = int(_get_level_prop(scene, "og_base_id", 10000))
-        write_jsonc(name, actors, ambients, cam_actors + trigger_actors, base_id)
+        aggro_actors = collect_aggro_triggers(scene)
+        write_jsonc(name, actors, ambients, cam_actors + trigger_actors + aggro_actors, base_id)
         write_gd(name, ags, code_deps, tpages)
         _lv_objs = _level_objects(scene)
         has_cps = bool([o for o in _lv_objs if o.name.startswith("CHECKPOINT_") and o.type == "EMPTY" and not o.name.endswith("_CAM")])
-        write_gc(name, has_triggers=bool(trigger_actors), has_checkpoints=has_cps)
+        write_gc(name, has_triggers=bool(trigger_actors), has_checkpoints=has_cps, has_aggro_triggers=bool(aggro_actors))
         patch_level_info(name, spawns, scene)  # update spawn continue-points if moved
 
         # Run (mi) — re-extracts GLB, repacks DGO, skips unchanged .gc files
@@ -5083,12 +5254,13 @@ def _bg_build_and_play(name, scene):
 
         state["status"] = "Writing level files..."
         base_id = int(_get_level_prop(scene, "og_base_id", 10000))
-        write_jsonc(name, actors, ambients, cam_actors + trigger_actors, base_id)
+        aggro_actors = collect_aggro_triggers(scene)
+        write_jsonc(name, actors, ambients, cam_actors + trigger_actors + aggro_actors, base_id)
         write_gd(name, ags, code_deps, tpages)
         navmesh_actors = _collect_navmesh_actors(scene)
         _lv_objs = _level_objects(scene)
         has_cps = bool([o for o in _lv_objs if o.name.startswith("CHECKPOINT_") and o.type == "EMPTY" and not o.name.endswith("_CAM")])
-        write_gc(name, has_triggers=bool(trigger_actors), has_checkpoints=has_cps)
+        write_gc(name, has_triggers=bool(trigger_actors), has_checkpoints=has_cps, has_aggro_triggers=bool(aggro_actors))
         patch_entity_gc(navmesh_actors)
         patch_level_info(name, spawns, scene)
         patch_game_gp(name, code_deps)
@@ -5229,6 +5401,169 @@ def _actor_uses_navmesh(etype):
 def _actor_is_platform(etype):
     """True if this entity is in the Platforms category."""
     return ENTITY_DEFS.get(etype, {}).get("cat") == "Platforms"
+
+
+def _actor_is_enemy(etype):
+    """True if this entity is in the Enemies or Bosses category.
+    Enemies/bosses inherit fact-info-enemy, which reads idle-distance from
+    the entity's res-lump on construction (engine: fact-h.gc line 191).
+    Engine default is 80 meters.
+    """
+    return ENTITY_DEFS.get(etype, {}).get("cat") in ("Enemies", "Bosses")
+
+
+def _actor_supports_aggro_trigger(etype):
+    """True if this enemy responds to 'cue-chase / 'cue-patrol / 'go-wait-for-cue.
+    Only nav-enemies have these handlers (engine: nav-enemy.gc line 142).
+    Process-drawable enemies (junglesnake, bully, yeti, mother-spider, etc.)
+    do NOT respond to these events — silently doing nothing if sent.
+    """
+    return _actor_uses_navmesh(etype)
+
+
+# ===========================================================================
+# VOLUME LINK SYSTEM
+# ---------------------------------------------------------------------------
+# A trigger volume (VOL_ mesh) holds a CollectionProperty of OGVolLink entries.
+# Each entry links the volume to one target (camera / checkpoint / nav-enemy).
+# Multiple entries per volume = one volume drives multiple things on enter.
+#
+# Behaviour field is per-link, only meaningful for nav-enemy targets:
+#   cue-chase        — wake up + chase player (default)
+#   cue-patrol       — return to patrol
+#   go-wait-for-cue  — freeze until next cue
+# Translated to integer enum at build time and emitted as a uint32 lump.
+# Camera and checkpoint links ignore this field.
+# ===========================================================================
+
+AGGRO_TRIGGER_EVENTS = [
+    ("cue-chase",       "Aggro (chase player)",                  "Wake enemy and start chasing player"),
+    ("cue-patrol",      "Patrol",                                 "Return enemy to patrol state"),
+    ("go-wait-for-cue", "Wait for cue (freeze)",                  "Freeze enemy until next cue event"),
+]
+
+AGGRO_EVENT_ENUM_ITEMS = [(n, lbl, desc) for n, lbl, desc in AGGRO_TRIGGER_EVENTS]
+
+
+def _aggro_event_id(name):
+    """Return the integer enum (0/1/2) for an event name. Default 0."""
+    for i, (n, _, _) in enumerate(AGGRO_TRIGGER_EVENTS):
+        if n == name:
+            return i
+    return 0
+
+
+class OGVolLink(PropertyGroup):
+    """One link between a trigger volume and a target object.
+    Stored in a CollectionProperty on the volume mesh as og_vol_links.
+    """
+    target_name: StringProperty(
+        name="Target",
+        description="Name of the linked target object (camera, checkpoint, or enemy)",
+    )
+    behaviour:   EnumProperty(
+        name="Behaviour",
+        items=AGGRO_EVENT_ENUM_ITEMS,
+        default="cue-chase",
+        description="Event sent to the enemy on volume enter (nav-enemies only — ignored for cameras/checkpoints)",
+    )
+
+
+def _vol_links(vol):
+    """Return the og_vol_links CollectionProperty on a volume mesh.
+    Migrates legacy single-string og_vol_link if present.
+    Always safe to call — returns the live collection.
+    """
+    if vol is None:
+        return None
+    # Migration: legacy single-string format -> single-entry collection
+    legacy = vol.get("og_vol_link", "")
+    if legacy and len(vol.og_vol_links) == 0:
+        entry = vol.og_vol_links.add()
+        entry.target_name = legacy
+        entry.behaviour   = "cue-chase"
+        try:
+            del vol["og_vol_link"]
+        except Exception:
+            pass
+    return vol.og_vol_links
+
+
+def _vol_link_targets(vol):
+    """Return list of target_name strings for a volume. Migrates if needed."""
+    links = _vol_links(vol)
+    if links is None:
+        return []
+    return [e.target_name for e in links]
+
+
+def _vol_has_link_to(vol, target_name):
+    """True if the volume has at least one link to target_name."""
+    return target_name in _vol_link_targets(vol)
+
+
+def _rename_vol_for_links(vol):
+    """Rename a volume mesh based on its current link count.
+    0 links → VOL_<id>
+    1 link  → VOL_<target_name>
+    2+ links → VOL_<id>_<n>links
+    Idempotent. Stores the original numeric id in og_vol_id (set on spawn).
+    """
+    if vol is None:
+        return
+    links = _vol_links(vol)
+    n = len(links)
+    vid = vol.get("og_vol_id", 0)
+    if n == 0:
+        new_name = f"VOL_{vid}"
+    elif n == 1:
+        new_name = f"VOL_{links[0].target_name}"
+    else:
+        new_name = f"VOL_{vid}_{n}links"
+    if vol.name != new_name:
+        vol.name = new_name
+
+
+def _vols_linking_to(scene, target_name):
+    """Return all VOL_ meshes that have at least one link to target_name."""
+    return sorted(
+        [o for o in _level_objects(scene)
+         if o.type == "MESH" and o.name.startswith("VOL_")
+         and _vol_has_link_to(o, target_name)],
+        key=lambda o: o.name,
+    )
+
+
+def _vol_get_link_to(vol, target_name):
+    """Return the OGVolLink entry on vol pointing at target_name, or None."""
+    for entry in _vol_links(vol):
+        if entry.target_name == target_name:
+            return entry
+    return None
+
+
+def _vol_remove_link_to(vol, target_name):
+    """Remove the link entry pointing at target_name from vol. Returns True if found."""
+    links = _vol_links(vol)
+    for i, entry in enumerate(links):
+        if entry.target_name == target_name:
+            links.remove(i)
+            _rename_vol_for_links(vol)
+            return True
+    return False
+
+
+def _classify_target(target_name):
+    """Return one of 'camera', 'checkpoint', 'enemy', or '' for an unknown target."""
+    if target_name.startswith("CAMERA_"):
+        return "camera"
+    if target_name.startswith("CHECKPOINT_") and not target_name.endswith("_CAM"):
+        return "checkpoint"
+    if target_name.startswith("ACTOR_") and "_wp_" not in target_name and "_wpb_" not in target_name:
+        parts = target_name.split("_", 2)
+        if len(parts) >= 3 and _actor_supports_aggro_trigger(parts[1]):
+            return "enemy"
+    return ""
 # ---------------------------------------------------------------------------
 
 
@@ -5337,7 +5672,7 @@ class OG_OT_SpawnVolume(Operator):
         bpy.ops.mesh.primitive_cube_add(size=4.0, location=ctx.scene.cursor.location)
         vol = ctx.active_object
         vol.name = f"VOL_{n}"
-        vol["og_vol_id"] = n          # remember original number for unlink rename
+        vol["og_vol_id"] = n          # numeric id used for naming when 0 or 2+ links
         vol.show_name = True
         vol.display_type = "WIRE"
         vol.color = (0.0, 0.9, 0.3, 0.4)
@@ -5345,21 +5680,22 @@ class OG_OT_SpawnVolume(Operator):
         vol.set_collision = True
         vol.ignore        = True
 
-        # Auto-link if the previously active object is a valid target
-        prev = ctx.scene.objects.get(getattr(ctx, "_prev_active_name", ""))
-        # Re-read: before empty_add the active was our target
-        # We stored it in the scene temp prop via the operator invoke
-        target_name = vol.get("_auto_link_target", "")
+        # Auto-link if a target name was stamped on the scene by invoke()
+        target_name = ctx.scene.get("_pending_vol_target", "")
         if target_name:
             target = ctx.scene.objects.get(target_name)
-            if target and not _vol_for_target(ctx.scene, target_name):
-                vol["og_vol_link"] = target_name
-                vol.name = f"VOL_{target_name}"
-                del vol["_auto_link_target"]
+            if target:
+                links = _vol_links(vol)
+                entry = links.add()
+                entry.target_name = target_name
+                entry.behaviour   = "cue-chase"
+                _rename_vol_for_links(vol)
+                ctx.scene["_pending_vol_target"] = ""
                 _link_object_to_sub_collection(ctx.scene, vol, *_COL_PATH_TRIGGERS)
                 self.report({"INFO"}, f"Added and linked {vol.name} → {target_name}")
                 return {"FINISHED"}
 
+        ctx.scene["_pending_vol_target"] = ""
         _link_object_to_sub_collection(ctx.scene, vol, *_COL_PATH_TRIGGERS)
         self.report({"INFO"}, f"Added {vol.name}  —  select volume + target → Link in Triggers panel")
         return {"FINISHED"}
@@ -5368,13 +5704,12 @@ class OG_OT_SpawnVolume(Operator):
         # Store active object name before adding geometry changes active
         sel = ctx.active_object
         if sel and _is_linkable(sel):
-            # Check not already linked
-            existing = _vol_for_target(ctx.scene, sel.name)
-            if existing:
-                self.report({"WARNING"}, f"{sel.name} already has {existing.name} linked — unlink first")
-                return {"CANCELLED"}
-            # Temporarily stamp target onto the new vol via a scene prop
-            # We use a scene-level string prop as a handoff since active changes after add
+            # Block duplicate camera/checkpoint links; aggro targets allow multiple
+            if not _is_aggro_target(sel):
+                existing = _vol_for_target(ctx.scene, sel.name)
+                if existing:
+                    self.report({"WARNING"}, f"{sel.name} already has {existing.name} linked — unlink first")
+                    return {"CANCELLED"}
             ctx.scene["_pending_vol_target"] = sel.name
         else:
             ctx.scene["_pending_vol_target"] = ""
@@ -5382,32 +5717,76 @@ class OG_OT_SpawnVolume(Operator):
 
 
 def _is_linkable(obj):
-    """True if this object type can accept a trigger volume."""
-    return (obj.type == "CAMERA" and obj.name.startswith("CAMERA_")) or            (obj.type == "EMPTY"  and (obj.name.startswith("SPAWN_") or obj.name.startswith("CHECKPOINT_")) and not obj.name.endswith("_CAM"))
+    """True if this object type can accept a trigger volume link.
+    Cameras, checkpoints, player spawns, and nav-enemy actors are linkable.
+    Process-drawable enemies (Yeti, Bully, etc.) are NOT linkable because
+    they don't respond to 'cue-chase events.
+    """
+    if obj is None:
+        return False
+    if obj.type == "CAMERA" and obj.name.startswith("CAMERA_"):
+        return True
+    if obj.type == "EMPTY":
+        n = obj.name
+        if n.endswith("_CAM"):
+            return False
+        if n.startswith("SPAWN_") or n.startswith("CHECKPOINT_"):
+            return True
+        if n.startswith("ACTOR_") and "_wp_" not in n and "_wpb_" not in n:
+            parts = n.split("_", 2)
+            if len(parts) >= 3 and _actor_supports_aggro_trigger(parts[1]):
+                return True
+    return False
+
+
+def _is_aggro_target(obj):
+    """True if this object is a nav-enemy ACTOR_ empty.
+    Aggro targets allow multiple linked volumes (and multiple links per volume
+    pointing at the same enemy with different behaviours). Cameras and
+    checkpoints are 1:1 (soft-enforced at link time).
+    """
+    if obj is None or obj.type != "EMPTY" or not obj.name.startswith("ACTOR_"):
+        return False
+    if "_wp_" in obj.name or "_wpb_" in obj.name or obj.name.endswith("_CAM"):
+        return False
+    parts = obj.name.split("_", 2)
+    return len(parts) >= 3 and _actor_supports_aggro_trigger(parts[1])
 
 
 def _vol_for_target(scene, target_name):
-    """Return the VOL_ mesh linked to target_name, or None."""
+    """Return the first VOL_ mesh that has at least one link to target_name, or None.
+    For multi-link enemies, use _vols_linking_to() instead.
+    """
     for o in _level_objects(scene):
-        if o.type == "MESH" and o.name.startswith("VOL_") and o.get("og_vol_link") == target_name:
+        if o.type == "MESH" and o.name.startswith("VOL_") and _vol_has_link_to(o, target_name):
             return o
     return None
 
 
 def _clean_orphaned_vol_links(scene):
-    """Remove og_vol_link from any VOL_ mesh whose target no longer exists.
+    """Remove link entries from VOL_ meshes whose targets no longer exist.
     Called at export time and available as a panel button.
-    Returns list of volume names that were cleaned."""
+    Returns list of (vol_name, target_name) tuples that were cleaned.
+    Volume is renamed if its link count changes (or restored to VOL_<id> if empty).
+    """
     cleaned = []
     for o in _level_objects(scene):
-        if o.type == "MESH" and o.name.startswith("VOL_"):
-            link = o.get("og_vol_link", "")
-            if link and not scene.objects.get(link):
-                orig_id = o.get("og_vol_id", 0)
-                del o["og_vol_link"]
-                o.name = f"VOL_{orig_id}"
-                cleaned.append(link)
-                log(f"  [vol] cleaned orphaned link → '{link}' (target deleted)")
+        if o.type != "MESH" or not o.name.startswith("VOL_"):
+            continue
+        links = _vol_links(o)
+        # walk in reverse so removals don't shift indices
+        i = len(links) - 1
+        any_removed = False
+        while i >= 0:
+            tname = links[i].target_name
+            if not scene.objects.get(tname):
+                links.remove(i)
+                cleaned.append((o.name, tname))
+                log(f"  [vol] cleaned orphaned link {o.name} → '{tname}' (target deleted)")
+                any_removed = True
+            i -= 1
+        if any_removed:
+            _rename_vol_for_links(o)
     return cleaned
 
 
@@ -5424,14 +5803,17 @@ class OG_OT_SpawnVolumeAutoLink(Operator):
         if not target:
             self.report({"ERROR"}, f"Target {self.target_name} not found")
             return {"CANCELLED"}
-        existing = _vol_for_target(ctx.scene, self.target_name)
-        if existing:
-            self.report({"WARNING"}, f"{self.target_name} already linked to {existing.name} — unlink first")
-            return {"CANCELLED"}
+        # Cameras / checkpoints: 1:1 (block duplicate). Aggro enemies: allow multiple.
+        if not _is_aggro_target(target):
+            existing = _vol_for_target(ctx.scene, self.target_name)
+            if existing:
+                self.report({"WARNING"}, f"{self.target_name} already linked to {existing.name} — unlink first")
+                return {"CANCELLED"}
         n = len([o for o in _level_objects(ctx.scene) if o.type == "MESH" and o.name.startswith("VOL_")])
         # Place at target location
         bpy.ops.mesh.primitive_cube_add(size=4.0, location=target.location)
         vol = ctx.active_object
+        vol.name = f"VOL_{n}"   # interim — _rename_vol_for_links replaces this
         vol["og_vol_id"] = n
         vol.show_name = True
         vol.display_type = "WIRE"
@@ -5439,22 +5821,28 @@ class OG_OT_SpawnVolumeAutoLink(Operator):
         vol.set_collision = True
         vol.ignore        = True
         if target.type == "CAMERA":
-            vol.color = (0.0, 0.9, 0.3, 0.4)
+            vol.color = (0.0, 0.9, 0.3, 0.4)   # green — camera
+        elif _is_aggro_target(target):
+            vol.color = (1.0, 0.3, 0.0, 0.4)   # red-orange — aggro
         else:
-            vol.color = (1.0, 0.85, 0.0, 0.4)
-        vol["og_vol_link"] = self.target_name
-        vol.name = f"VOL_{self.target_name}"
+            vol.color = (1.0, 0.85, 0.0, 0.4)  # yellow — checkpoint
+        links = _vol_links(vol)
+        entry = links.add()
+        entry.target_name = self.target_name
+        entry.behaviour   = "cue-chase"
+        _rename_vol_for_links(vol)
         _link_object_to_sub_collection(ctx.scene, vol, *_COL_PATH_TRIGGERS)
         self.report({"INFO"}, f"Added {vol.name} → {self.target_name}")
         return {"FINISHED"}
 
 
 class OG_OT_LinkVolume(Operator):
-    """Link a VOL_ mesh to a camera, spawn, or checkpoint.
-    Select the VOL_ mesh first, then shift-click the target, then click Link."""
+    """Append a link from a VOL_ mesh to a camera, checkpoint, or nav-enemy.
+    Select the VOL_ mesh first, then shift-click the target, then click Link.
+    A volume can hold multiple links — each fires its own action on enter."""
     bl_idname   = "og.link_volume"
     bl_label    = "Link Volume"
-    bl_description = "Select VOL_ mesh first, then shift-click the target (camera/spawn/checkpoint), then click"
+    bl_description = "Select VOL_ mesh first, then shift-click the target (camera/checkpoint/enemy), then click"
 
     def execute(self, ctx):
         selected = ctx.selected_objects
@@ -5468,7 +5856,7 @@ class OG_OT_LinkVolume(Operator):
             self.report({"ERROR"}, "Multiple volumes selected — select exactly one")
             return {"CANCELLED"}
         if not targets:
-            self.report({"ERROR"}, "No linkable target (CAMERA_/SPAWN_/CHECKPOINT_) in selection")
+            self.report({"ERROR"}, "No linkable target (camera, checkpoint, or nav-enemy) in selection")
             return {"CANCELLED"}
         if len(targets) > 1:
             self.report({"ERROR"}, "Multiple targets selected — select exactly one")
@@ -5476,27 +5864,30 @@ class OG_OT_LinkVolume(Operator):
 
         vol    = vols[0]
         target = targets[0]
+        links  = _vol_links(vol)
 
-        # Check vol not already linked
-        existing_link = vol.get("og_vol_link", "")
-        if existing_link:
-            if existing_link == target.name:
-                self.report({"WARNING"}, f"{vol.name} is already linked to {target.name}")
-            else:
-                self.report({"WARNING"}, f"{vol.name} is already linked to {existing_link} — unlink first")
+        # Block duplicate link to the same camera/checkpoint on this vol
+        # (Scenario B from design — pointless duplicate). Aggro enemy targets
+        # are also blocked from exact duplicates: each link entry must have
+        # a unique target_name on a given vol.
+        if _vol_has_link_to(vol, target.name):
+            self.report({"WARNING"}, f"{vol.name} is already linked to {target.name}")
             return {"CANCELLED"}
 
-        # Check target not already has a vol
-        existing_vol = _vol_for_target(ctx.scene, target.name)
-        if existing_vol:
-            self.report({"WARNING"}, f"{target.name} already has {existing_vol.name} linked — unlink first")
-            return {"CANCELLED"}
+        # For cameras/checkpoints, also block the cross-volume duplicate
+        # (one camera/checkpoint should have one trigger volume system-wide).
+        if not _is_aggro_target(target):
+            existing = _vol_for_target(ctx.scene, target.name)
+            if existing and existing != vol:
+                self.report({"WARNING"},
+                    f"{target.name} already has {existing.name} linked — unlink first")
+                return {"CANCELLED"}
 
-        vol["og_vol_link"] = target.name
-        if "og_vol_id" not in vol:
-            vol["og_vol_id"] = int(vol.name.replace("VOL_", "") if vol.name[4:].isdigit() else 0)
-        vol.name = f"VOL_{target.name}"
-        self.report({"INFO"}, f"Linked {vol.name} → {target.name}")
+        entry = links.add()
+        entry.target_name = target.name
+        entry.behaviour   = "cue-chase"
+        _rename_vol_for_links(vol)
+        self.report({"INFO"}, f"Linked {vol.name} → {target.name}  ({len(links)} link{'s' if len(links)!=1 else ''})")
         return {"FINISHED"}
 
 
@@ -5509,13 +5900,14 @@ class OG_OT_UnlinkVolume(Operator):
     def execute(self, ctx):
         count = 0
         for o in ctx.selected_objects:
-            if o.type == "MESH" and o.name.startswith("VOL_") and "og_vol_link" in o:
-                orig_id = o.get("og_vol_id", 0)
-                del o["og_vol_link"]
-                o.name = f"VOL_{orig_id}"
-                count += 1
+            if o.type == "MESH" and o.name.startswith("VOL_"):
+                links = _vol_links(o)
+                if len(links) > 0:
+                    links.clear()
+                    _rename_vol_for_links(o)
+                    count += 1
         if count:
-            self.report({"INFO"}, f"Unlinked {count} volume(s)")
+            self.report({"INFO"}, f"Unlinked all entries from {count} volume(s)")
         else:
             self.report({"WARNING"}, "No linked VOL_ meshes in selection")
         return {"FINISHED"}
@@ -5556,13 +5948,11 @@ class OG_OT_DeleteObject(Operator):
         if not obj:
             self.report({"ERROR"}, f"Object '{self.obj_name}' not found")
             return {"CANCELLED"}
-        # Clean any volumes linked to this object before deleting
+        # Clean any link entries pointing to this object before deleting it.
+        # Volumes themselves stay (orphaned) — user decision per design discussion.
         for o in _level_objects(ctx.scene):
             if o.type == "MESH" and o.name.startswith("VOL_"):
-                if o.get("og_vol_link") == self.obj_name:
-                    orig_id = o.get("og_vol_id", 0)
-                    del o["og_vol_link"]
-                    o.name = f"VOL_{orig_id}"
+                _vol_remove_link_to(o, self.obj_name)
         # Also delete associated _CAM, _ALIGN, _PIVOT, _LOOK_AT empties for cameras
         suffixes = ["_CAM", "_ALIGN", "_PIVOT", "_LOOK_AT"]
         for suf in suffixes:
@@ -5576,17 +5966,130 @@ class OG_OT_DeleteObject(Operator):
 
 
 class OG_OT_CleanOrphanedLinks(Operator):
-    """Remove og_vol_link from any VOL_ whose target object has been deleted."""
+    """Remove link entries from VOL_ meshes whose targets have been deleted."""
     bl_idname   = "og.clean_orphaned_links"
     bl_label    = "Clean Orphaned Links"
-    bl_description = "Remove links from volumes whose target (camera/spawn/checkpoint) has been deleted"
+    bl_description = "Remove links from volumes whose target (camera/checkpoint/enemy) has been deleted"
 
     def execute(self, ctx):
         cleaned = _clean_orphaned_vol_links(ctx.scene)
         if cleaned:
-            self.report({"INFO"}, f"Cleaned {len(cleaned)} orphaned link(s): {', '.join(cleaned)}")
+            msg = ", ".join(f"{v}→{t}" for v, t in cleaned)
+            self.report({"INFO"}, f"Cleaned {len(cleaned)} orphaned link(s): {msg}")
         else:
             self.report({"INFO"}, "No orphaned links found")
+        return {"FINISHED"}
+
+
+class OG_OT_RemoveVolLink(Operator):
+    """Remove a single link entry from a volume.
+    Used by per-link X buttons in the volume / camera / checkpoint / enemy panels.
+    Volume is renamed automatically based on remaining link count.
+    Removing the last link leaves the volume orphaned (per design — user
+    can re-link or delete it manually).
+    """
+    bl_idname   = "og.remove_vol_link"
+    bl_label    = "Remove Link"
+    bl_options  = {"REGISTER", "UNDO"}
+    bl_description = "Remove this single link from the volume"
+
+    vol_name:    bpy.props.StringProperty()
+    target_name: bpy.props.StringProperty()
+
+    def execute(self, ctx):
+        vol = ctx.scene.objects.get(self.vol_name)
+        if not vol:
+            self.report({"ERROR"}, f"Volume '{self.vol_name}' not found")
+            return {"CANCELLED"}
+        if _vol_remove_link_to(vol, self.target_name):
+            self.report({"INFO"}, f"Removed link {self.vol_name} → {self.target_name}")
+        else:
+            self.report({"WARNING"}, f"No link to {self.target_name} on {self.vol_name}")
+        return {"FINISHED"}
+
+
+class OG_OT_AddLinkFromSelection(Operator):
+    """Append a link from a volume to a target (specified by name).
+    Used by panel buttons that have both objects in scope.
+    """
+    bl_idname   = "og.add_link_from_selection"
+    bl_label    = "Link"
+    bl_options  = {"REGISTER", "UNDO"}
+    bl_description = "Append a link from this volume to the named target"
+
+    vol_name:    bpy.props.StringProperty()
+    target_name: bpy.props.StringProperty()
+
+    def execute(self, ctx):
+        vol    = ctx.scene.objects.get(self.vol_name)
+        target = ctx.scene.objects.get(self.target_name)
+        if not vol:
+            self.report({"ERROR"}, f"Volume '{self.vol_name}' not found")
+            return {"CANCELLED"}
+        if not target:
+            self.report({"ERROR"}, f"Target '{self.target_name}' not found")
+            return {"CANCELLED"}
+        if not _is_linkable(target):
+            self.report({"ERROR"}, f"{self.target_name} is not linkable")
+            return {"CANCELLED"}
+        if _vol_has_link_to(vol, self.target_name):
+            self.report({"WARNING"}, f"{self.vol_name} already linked to {self.target_name}")
+            return {"CANCELLED"}
+        # Cross-volume duplicate check for camera/checkpoint
+        if not _is_aggro_target(target):
+            existing = _vol_for_target(ctx.scene, self.target_name)
+            if existing and existing != vol:
+                self.report({"WARNING"},
+                    f"{self.target_name} already linked to {existing.name} — unlink first")
+                return {"CANCELLED"}
+        links = _vol_links(vol)
+        entry = links.add()
+        entry.target_name = self.target_name
+        entry.behaviour   = "cue-chase"
+        _rename_vol_for_links(vol)
+        self.report({"INFO"}, f"Linked {vol.name} → {self.target_name}")
+        return {"FINISHED"}
+
+
+class OG_OT_SpawnAggroTrigger(Operator):
+    """Spawn a new trigger volume at an enemy's location and link it as aggro.
+    Used by the per-enemy 'Add Aggro Trigger' button in the selected-actor panel.
+    Multiple aggro triggers per enemy are allowed.
+    """
+    bl_idname   = "og.spawn_aggro_trigger"
+    bl_label    = "Add Aggro Trigger"
+    bl_options  = {"REGISTER", "UNDO"}
+    bl_description = "Spawn a new trigger volume at this enemy and link it as aggro"
+
+    target_name: bpy.props.StringProperty()
+
+    def execute(self, ctx):
+        target = ctx.scene.objects.get(self.target_name)
+        if not target:
+            self.report({"ERROR"}, f"Target '{self.target_name}' not found")
+            return {"CANCELLED"}
+        if not _is_aggro_target(target):
+            self.report({"ERROR"}, f"{self.target_name} is not a nav-enemy")
+            return {"CANCELLED"}
+        n = len([o for o in _level_objects(ctx.scene)
+                 if o.type == "MESH" and o.name.startswith("VOL_")])
+        bpy.ops.mesh.primitive_cube_add(size=4.0, location=target.location)
+        vol = ctx.active_object
+        vol.name = f"VOL_{n}"
+        vol["og_vol_id"] = n
+        vol.show_name = True
+        vol.display_type = "WIRE"
+        vol.color = (1.0, 0.3, 0.0, 0.4)   # red-orange aggro
+        vol.set_invisible = True
+        vol.set_collision = True
+        vol.ignore        = True
+        links = _vol_links(vol)
+        entry = links.add()
+        entry.target_name = self.target_name
+        entry.behaviour   = "cue-chase"
+        _rename_vol_for_links(vol)
+        _link_object_to_sub_collection(ctx.scene, vol, *_COL_PATH_TRIGGERS)
+        self.report({"INFO"}, f"Added {vol.name} → {self.target_name}")
         return {"FINISHED"}
 
 
@@ -6146,19 +6649,13 @@ class OG_PT_SpawnLevelFlow(Panel):
             row.prop(props, "show_checkpoint_list",
                      text=f"Checkpoints ({len(checkpoints)})", icon=icon, emboss=False)
             if props.show_checkpoint_list:
-                vol_by_cp = {}
-                for o in lv_objs:
-                    if o.type == "MESH" and o.name.startswith("VOL_"):
-                        link = o.get("og_vol_link", "")
-                        if link and link.startswith("CHECKPOINT_"):
-                            vol_by_cp[link] = o
                 box = layout.box()
                 for o in sorted(checkpoints, key=lambda x: x.name):
                     row = box.row(align=True)
                     row.label(text=o.name, icon="EMPTY_SINGLE_ARROW")
-                    vol = vol_by_cp.get(o.name)
-                    if vol:
-                        row.label(text=f"📦 {vol.name}")
+                    vol_list = _vols_linking_to(scene, o.name)
+                    if vol_list:
+                        row.label(text=f"📦 {vol_list[0].name}")
                     else:
                         r = float(o.get("og_checkpoint_radius", 3.0))
                         sub = row.row()
@@ -6189,14 +6686,9 @@ class OG_PT_SpawnLevelFlow(Panel):
                 row.enabled = False
                 row.label(text=f"{sel.name}_CAM exists ✓", icon="CHECKMARK")
             if is_cp:
-                vol_by_cp_sel = {}
-                for o in lv_objs:
-                    if o.type == "MESH" and o.name.startswith("VOL_"):
-                        lnk = o.get("og_vol_link", "")
-                        if lnk and lnk.startswith("CHECKPOINT_"):
-                            vol_by_cp_sel[lnk] = o
-                vol_linked = vol_by_cp_sel.get(sel.name)
-                if vol_linked:
+                vol_list_sel = _vols_linking_to(scene, sel.name)
+                if vol_list_sel:
+                    vol_linked = vol_list_sel[0]
                     row = sub.row()
                     row.enabled = False
                     row.label(text=f"{vol_linked.name} linked ✓", icon="MESH_CUBE")
@@ -6728,6 +7220,53 @@ def _draw_selected_actor(layout, sel, scene):
     sub.enabled = False
     sub.label(text=f"[{cat}]")
 
+    # ── Enemy: Activation distance (idle-distance lump) ──────────────────
+    # Per-instance override of the engine's 80m default. Below this distance
+    # the enemy wakes up and starts noticing the player. Lower = stays asleep
+    # longer. Reads og_idle_distance, emitted as 'idle-distance lump at build.
+    if _actor_is_enemy(etype):
+        box = layout.box()
+        box.label(text="Activation", icon="RADIOBUT_ON")
+        idle_d = float(sel.get("og_idle_distance", 80.0))
+        row = box.row(align=True)
+        op = row.operator("og.nudge_float_prop", text="-5m", icon="REMOVE")
+        op.prop_name = "og_idle_distance"; op.delta = -5.0; op.val_min = 0.0
+        row.label(text=f"Idle Distance: {idle_d:.0f}m")
+        op = row.operator("og.nudge_float_prop", text="+5m", icon="ADD")
+        op.prop_name = "og_idle_distance"; op.delta = 5.0; op.val_max = 500.0
+        sub = box.row()
+        sub.enabled = False
+        sub.label(text="Player must be closer than this to wake the enemy", icon="INFO")
+
+    # ── Nav-enemy: Trigger Behaviour (aggro / patrol / wait-for-cue) ─────
+    # Lists every volume that links to this enemy. Each link has its own
+    # behaviour dropdown. Only nav-enemies (those that respond to 'cue-chase)
+    # get this UI; process-drawable enemies don't have the engine handler.
+    if _actor_supports_aggro_trigger(etype):
+        box = layout.box()
+        box.label(text="Trigger Behaviour", icon="FORCE_FORCE")
+        linked_vols = _vols_linking_to(scene, sel.name)
+        if linked_vols:
+            for v in linked_vols:
+                # Find the link entry pointing to this enemy
+                entry = _vol_get_link_to(v, sel.name)
+                if not entry:
+                    continue
+                row = box.row(align=True)
+                row.label(text=f"✓ {v.name}", icon="MESH_CUBE")
+                row.prop(entry, "behaviour", text="")
+                op = row.operator("og.select_and_frame", text="", icon="VIEWZOOM")
+                op.obj_name = v.name
+                op = row.operator("og.remove_vol_link", text="", icon="X")
+                op.vol_name    = v.name
+                op.target_name = sel.name
+        else:
+            sub = box.row()
+            sub.enabled = False
+            sub.label(text="No trigger volumes linked", icon="INFO")
+        op = box.operator("og.spawn_aggro_trigger", text="Add Aggro Trigger", icon="ADD")
+        op.target_name = sel.name
+
     # ── Nav-enemy: navmesh management ────────────────────────────────────
     if _actor_uses_navmesh(etype):
         box = layout.box()
@@ -6870,17 +7409,14 @@ def _draw_selected_checkpoint(layout, sel, scene):
 
     # Volume link
     layout.separator(factor=0.3)
-    vol_linked = None
-    for o in _level_objects(scene):
-        if o.type == "MESH" and o.name.startswith("VOL_"):
-            if o.get("og_vol_link") == sel.name:
-                vol_linked = o
-                break
-
-    if vol_linked:
+    vol_list = _vols_linking_to(scene, sel.name)
+    if vol_list:
+        vol_linked = vol_list[0]
         row = layout.row(align=True)
         row.label(text=f"✓ {vol_linked.name}", icon="MESH_CUBE")
-        row.operator("og.unlink_volume", text="", icon="X")
+        op = row.operator("og.remove_vol_link", text="", icon="X")
+        op.vol_name = vol_linked.name
+        op.target_name = sel.name
     else:
         r = float(sel.get("og_checkpoint_radius", 3.0))
         layout.label(text=f"⚠ No trigger volume (fallback r={r:.1f}m)", icon="ERROR")
@@ -6903,29 +7439,64 @@ def _draw_selected_emitter(layout, sel):
 
 
 def _draw_selected_volume(layout, sel, scene):
-    """Draw settings for a VOL_ trigger volume."""
+    """Draw settings for a VOL_ trigger volume.
+    Lists every link entry; per-link UI varies by target type:
+      camera/checkpoint links → just name + unlink button
+      nav-enemy links → name + behaviour dropdown + unlink button
+    """
     layout.label(text=sel.name, icon="MESH_CUBE")
 
-    link = sel.get("og_vol_link", "")
-    if link:
-        target = scene.objects.get(link)
-        row = layout.row(align=True)
-        if target:
-            row.label(text=f"Linked to: {link}", icon="LINKED")
-            op = row.operator("og.select_and_frame", text="", icon="VIEWZOOM")
-            op.obj_name = link
-        else:
-            row.alert = True
-            row.label(text=f"⚠ Target missing: {link}", icon="ERROR")
-        layout.operator("og.unlink_volume", text="Unlink", icon="X")
+    links = _vol_links(sel)
+    n = len(links)
+
+    box = layout.box()
+    box.label(text=f"Links ({n})", icon="LINKED")
+
+    if n == 0:
+        box.label(text="Not linked", icon="INFO")
     else:
-        layout.label(text="Not linked", icon="ERROR")
-        # Check if a linkable target is also selected
-        sel_targets = [o for o in bpy.context.selected_objects if _is_linkable(o)]
-        if sel_targets:
-            layout.operator("og.link_volume", text=f"Link → {sel_targets[0].name}", icon="LINKED")
-        else:
-            layout.label(text="Shift-select a target to link", icon="INFO")
+        col = box.column(align=True)
+        for entry in links:
+            tname = entry.target_name
+            target = scene.objects.get(tname)
+            kind = _classify_target(tname)
+            row = col.row(align=True)
+            if not target:
+                row.alert = True
+                row.label(text=f"⚠ missing: {tname}", icon="ERROR")
+            else:
+                # Icon by target type
+                icon = "MESH_CUBE"
+                if kind == "camera":
+                    icon = "CAMERA_DATA"
+                elif kind == "checkpoint":
+                    icon = "EMPTY_SINGLE_ARROW"
+                elif kind == "enemy":
+                    icon = "OUTLINER_OB_ARMATURE"
+                row.label(text=tname, icon=icon)
+                # Behaviour dropdown — only for nav-enemy targets
+                if kind == "enemy":
+                    row.prop(entry, "behaviour", text="")
+                # Jump-to button
+                op = row.operator("og.select_and_frame", text="", icon="VIEWZOOM")
+                op.obj_name = tname
+            # Per-link unlink button
+            op = row.operator("og.remove_vol_link", text="", icon="X")
+            op.vol_name = sel.name
+            op.target_name = tname
+
+    # Add-link button: enabled when exactly one other linkable object selected
+    sel_targets = [o for o in bpy.context.selected_objects
+                   if _is_linkable(o) and o != sel]
+    if len(sel_targets) == 1:
+        op = box.operator("og.add_link_from_selection", text=f"Link → {sel_targets[0].name}", icon="LINKED")
+        op.vol_name = sel.name
+        op.target_name = sel_targets[0].name
+    else:
+        box.label(text="Shift-select a target then click Link →", icon="INFO")
+
+    if n > 0:
+        layout.operator("og.unlink_volume", text="Clear All Links", icon="X")
 
 
 def _draw_selected_camera(layout, sel, scene):
@@ -7015,9 +7586,7 @@ def _draw_selected_camera(layout, sel, scene):
         pass
 
     # ── Linked trigger volumes ───────────────────────────────────────────
-    vols = [o for o in _level_objects(scene)
-            if o.type == "MESH" and o.name.startswith("VOL_")
-            and o.get("og_vol_link") == sel.name]
+    vols = _vols_linking_to(scene, sel.name)
     vbox = layout.box()
     vbox.label(text="Trigger Volumes", icon="MESH_CUBE")
     if vols:
@@ -7026,6 +7595,9 @@ def _draw_selected_camera(layout, sel, scene):
             row.label(text=v.name, icon="CHECKMARK")
             op = row.operator("og.select_and_frame", text="", icon="VIEWZOOM")
             op.obj_name = v.name
+            op = row.operator("og.remove_vol_link", text="", icon="X")
+            op.vol_name = v.name
+            op.target_name = sel.name
     else:
         vbox.label(text="No trigger — always active", icon="INFO")
     op = vbox.operator("og.spawn_volume_autolink", text="Add Volume", icon="ADD")
@@ -7370,23 +7942,29 @@ class OG_PT_Triggers(Panel):
         if active_vol:
             box = layout.box()
             box.label(text=active_vol.name, icon="MESH_CUBE")
-            link = active_vol.get("og_vol_link", "")
-            if link:
-                box.label(text=f"Linked → {link}", icon="CHECKMARK")
-                box.operator("og.unlink_volume", text="Unlink", icon="X")
-            else:
-                if sel_targets:
-                    tgt = sel_targets[0]
+            links = _vol_links(active_vol)
+            box.label(text=f"{len(links)} link{'s' if len(links) != 1 else ''}", icon="LINKED")
+            if sel_targets:
+                tgt = sel_targets[0]
+                if tgt == active_vol:
+                    pass  # active is itself, ignore
+                elif _vol_has_link_to(active_vol, tgt.name):
+                    row = box.row()
+                    row.alert = True
+                    row.label(text=f"Already linked to {tgt.name}", icon="INFO")
+                elif (not _is_aggro_target(tgt)
+                        and _vol_for_target(scene, tgt.name) is not None
+                        and _vol_for_target(scene, tgt.name) != active_vol):
                     existing = _vol_for_target(scene, tgt.name)
-                    if existing and existing is not active_vol:
-                        row = box.row()
-                        row.alert = True
-                        row.label(text=f"{tgt.name} already linked to {existing.name}", icon="ERROR")
-                    else:
-                        box.operator("og.link_volume", text=f"Link → {tgt.name}", icon="LINKED")
+                    row = box.row()
+                    row.alert = True
+                    row.label(text=f"{tgt.name} already linked to {existing.name}", icon="ERROR")
                 else:
-                    box.label(text="Not linked", icon="ERROR")
-                    box.label(text="Shift-select a target to link", icon="INFO")
+                    op = box.operator("og.add_link_from_selection", text=f"Link → {tgt.name}", icon="LINKED")
+                    op.vol_name    = active_vol.name
+                    op.target_name = tgt.name
+            else:
+                box.label(text="Shift-select a target to link", icon="INFO")
             layout.separator(factor=0.3)
         elif sel_targets and not sel_vols:
             box = layout.box()
@@ -7412,31 +7990,42 @@ class OG_PT_Triggers(Panel):
         box = layout.box()
         for v in vols:
             row = box.row(align=True)
-            link = v.get("og_vol_link", "")
-            if link:
-                target_exists = bool(scene.objects.get(link))
-                if target_exists:
-                    row.label(text=v.name, icon="CHECKMARK")
-                    row.label(text=f"→ {link}")
-                else:
-                    row.alert = True
-                    row.label(text=v.name, icon="ERROR")
-                    row.label(text=f"→ {link} (DELETED)")
-            else:
+            v_links = _vol_links(v)
+            link_count = len(v_links)
+            if link_count == 0:
                 row.alert = True
                 row.label(text=v.name, icon="MESH_CUBE")
                 row.label(text="unlinked")
+            else:
+                # Show first link target inline; count if multiple
+                first = v_links[0]
+                exists = bool(scene.objects.get(first.target_name))
+                if not exists:
+                    row.alert = True
+                    row.label(text=v.name, icon="ERROR")
+                    row.label(text=f"→ {first.target_name} (DELETED)")
+                else:
+                    row.label(text=v.name, icon="CHECKMARK")
+                    if link_count == 1:
+                        row.label(text=f"→ {first.target_name}")
+                    else:
+                        row.label(text=f"→ {first.target_name} +{link_count-1}")
             op = row.operator("og.select_and_frame", text="", icon="VIEWZOOM")
             op.obj_name = v.name
             op = row.operator("og.delete_object", text="", icon="TRASH")
             op.obj_name = v.name
 
-        orphans = [o for o in vols if o.get("og_vol_link") and not scene.objects.get(o.get("og_vol_link", ""))]
-        if orphans:
+        # Orphan check: any vol with at least one link entry pointing to a missing target
+        orphan_count = 0
+        for o in vols:
+            for entry in _vol_links(o):
+                if not scene.objects.get(entry.target_name):
+                    orphan_count += 1
+        if orphan_count:
             layout.separator(factor=0.3)
             row = layout.row()
             row.alert = True
-            row.operator("og.clean_orphaned_links", text=f"Clean {len(orphans)} Orphaned Link(s)", icon="ERROR")
+            row.operator("og.clean_orphaned_links", text=f"Clean {orphan_count} Orphaned Link(s)", icon="ERROR")
 
 
 # ===========================================================================
@@ -7493,9 +8082,9 @@ class OG_PT_Camera(Panel):
         vol_map = {}
         for o in _level_objects(scene):
             if o.type == "MESH" and o.name.startswith("VOL_"):
-                link = o.get("og_vol_link", "")
-                if link and link.startswith("CAMERA_"):
-                    vol_map.setdefault(link, []).append(o.name)
+                for entry in _vol_links(o):
+                    if _classify_target(entry.target_name) == "camera":
+                        vol_map.setdefault(entry.target_name, []).append(o.name)
 
         for cam_obj in cam_objects:
             box = layout.box()
@@ -7590,13 +8179,19 @@ class OG_PT_Camera(Panel):
     def _draw_volume_props(self, layout, vol, scene):
         box = layout.box()
         box.label(text=f"Selected: {vol.name}", icon="MESH_CUBE")
-        link = vol.get("og_vol_link", "")
-        if link:
-            box.label(text=f"Linked to: {link}", icon="CHECKMARK")
-            box.operator("og.unlink_volume", text="Unlink", icon="X")
-        else:
-            box.label(text="Not linked to any camera", icon="ERROR")
+        links = _vol_links(vol)
+        if len(links) == 0:
+            box.label(text="No links", icon="ERROR")
             box.label(text="Use Triggers panel to link", icon="INFO")
+            return
+        for entry in links:
+            row = box.row(align=True)
+            row.label(text=entry.target_name, icon="LINKED")
+            if _classify_target(entry.target_name) == "enemy":
+                row.prop(entry, "behaviour", text="")
+            op = row.operator("og.remove_vol_link", text="", icon="X")
+            op.vol_name    = vol.name
+            op.target_name = entry.target_name
 
 
 class OG_PT_BuildPlay(Panel):
@@ -8002,10 +8597,12 @@ class OG_OT_RefreshLevels(Operator):
 # ---------------------------------------------------------------------------
 
 classes = (
+    OGVolLink,
     OGPreferences, OGProperties,
     OG_OT_ReloadAddon, OG_OT_CleanLevelFiles,
     OG_OT_SpawnPlayer, OG_OT_SpawnCheckpoint, OG_OT_SpawnCamAnchor,
     OG_OT_SpawnVolume, OG_OT_SpawnVolumeAutoLink, OG_OT_LinkVolume, OG_OT_UnlinkVolume, OG_OT_CleanOrphanedLinks,
+    OG_OT_RemoveVolLink, OG_OT_AddLinkFromSelection, OG_OT_SpawnAggroTrigger,
     OG_OT_SelectAndFrame, OG_OT_DeleteObject,
     OG_OT_SpawnEntity,
     OG_OT_SpawnCamera, OG_OT_SpawnCamAlign, OG_OT_SpawnCamPivot,
@@ -8097,6 +8694,10 @@ def register():
     bpy.types.Object.collide_event         = bpy.props.EnumProperty(items=pat_events,   name="Event")
     bpy.types.Object.collide_mode          = bpy.props.EnumProperty(items=pat_modes,    name="Mode")
 
+    # Trigger volume link collection — registered after OGVolLink is in classes tuple.
+    # Each VOL_ mesh holds a list of (target_name, behaviour) entries.
+    bpy.types.Object.og_vol_links          = bpy.props.CollectionProperty(type=OGVolLink)
+
     bpy.types.Collection.og_no_export      = bpy.props.BoolProperty(
         name="Exclude from Export",
         description="When enabled, this collection and its contents are excluded from level export",
@@ -8115,7 +8716,7 @@ def unregister():
         except Exception: pass
     for a in ("set_invisible","set_collision","ignore","noedge","noentity",
               "nolineofsight","nocamera","collide_material","collide_event","collide_mode",
-              "enable_custom_weights","copy_eye_draws","copy_mod_draws"):
+              "enable_custom_weights","copy_eye_draws","copy_mod_draws","og_vol_links"):
         try: delattr(bpy.types.Object, a)
         except Exception: pass
     try: delattr(bpy.types.Collection, "og_no_export")
