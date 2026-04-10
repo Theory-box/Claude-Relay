@@ -245,3 +245,52 @@ of truth.
 it's defined per-type in `nav-info`, not per-entity, so it can't be
 overridden via res-lump. The addon doesn't expose it. `idle-distance` is the
 right knob for "wake up sooner" tuning.
+
+## Debugging notes (gotchas learned the hard way)
+
+### Actor `'name` lump format vs Blender object name
+
+The addon's `collect_actors` writes the actor's `'name` lump as
+`f"{etype}-{uid}"` (e.g. `babak-1`), where `uid` is `o.name.split("_", 2)[2]`.
+**It does NOT write the full Blender object name** (`ACTOR_babak_1`).
+
+This matters for any code that wants to look up an actor by name at runtime
+via `(entity-by-name ...)` or `(process-by-ename ...)` — the string passed in
+must match the *emitted lump*, not the Blender object name. The
+`collect_aggro_triggers` build pass converts `ACTOR_<etype>_<uid>` →
+`<etype>-<uid>` before writing the `target-name` lump for this reason.
+
+If you add a new feature that needs to reference an actor by name from the
+runtime side, follow the same convention. A failing `process-by-ename`
+returns `#f` silently — there is no error log, the calling code just gets
+nothing back, so this kind of bug is invisible until you trace it manually.
+
+### The babak `uid` is sparse, not a contiguous index
+
+Don't assume actor uids are 0..N-1. The addon uses `len(matching ACTOR_ in scene)`
+to assign new uids on spawn, but the actual numbers depend on creation/delete
+history. A scene with 5 babaks might have `babak-0, babak-1, babak-2, babak-6, babak-7`
+in its JSONC. The lump name still works because it's the unique uid string,
+not the array index. Don't try to "fix" gaps — the engine doesn't care.
+
+### Move-to-ground warnings for nav-enemies
+
+If you see `WARNING: move-to-ground: (Y_VALUE 20.0000) failed to locate ground [<name> type <type>]`
+in the runtime log, the engine couldn't find collision geometry directly under
+that nav-enemy at spawn. The babak (or whoever) is over a hole in your level
+collision mesh. Check that the babak's spawn position is directly above
+exported solid geometry (not just navmesh — they're separate). Repeated
+warnings with decreasing Y values mean the entity is falling through the void
+under gravity.
+
+### `run-logic?` gating on nav-enemies
+
+Nav-enemies have a `run-logic?` override (`nav-enemy.gc:472`) that gates
+*frame-by-frame logic* on a combination of `actor-pause` mask and camera
+distance. **Event delivery via `send-event` bypasses this gate** — the event
+handler runs synchronously regardless of `run-logic?`. So aggro triggers
+work even on babaks that haven't been drawn yet. This was our initial
+suspicion when debugging "two babaks aggro, two don't" — turned out to be a
+level-design issue on the user's side, not a kernel-gating issue. Worth
+remembering: `send-event` is always live, `:trans` and `:post` callbacks
+are gated.

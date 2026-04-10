@@ -1,17 +1,26 @@
 # OpenGOAL Blender Addon — Session Progress
 
-## Status: v1.1.0 MERGED TO MAIN ✅
-## Active branch: feature/enemies (in testing — NOT merged)
+## Status: v1.2.0 MERGED TO MAIN ✅
+## Active branch: main (feature/enemies merged 2026-04-10)
 
-## Active Branch: feature/enemies
+## Active Branch: main
 ## Addon file: `addons/opengoal_tools.py`
-## Backup: `addons/opengoal_tools_v1.0.0_backup.py`
+## Backups: `addons/opengoal_tools_v1.0.0_backup.py`, `addons/opengoal_tools_v1.1.0_backup.py`
 
 ---
 
-## What's In Main (v1.1.0)
+## What's In Main (v1.2.0)
 
-### UI Restructure
+### v1.2.0 additions (from feature/enemies)
+- **Per-enemy idle distance** — `og_idle_distance` (default 80m), emitted as `'idle-distance` lump on every enemy/boss. Engine reads via `fact-info-enemy:new` (fact-h.gc:191). Lower = enemy stays asleep longer; higher = wakes up sooner.
+- **Trigger-driven aggro** — new `aggro-trigger` GOAL deftype emitted by `write_gc` when any vol has nav-enemy links. Polls AABB, looks up target via `(process-by-ename ...)`, dispatches `'cue-chase` / `'cue-patrol` / `'go-wait-for-cue` based on a uint32 `event-id` lump. Re-fires on re-entry.
+- **Multi-link volume system** — replaces single-string `og_vol_link` with `og_vol_links` `CollectionProperty(type=OGVolLink)`. One volume can hold N links of mixed types (camera + checkpoint + enemy). Three independent build passes scan each volume's links and emit one trigger actor per link. Auto-migration shim for legacy `.blend` files.
+- **Volume naming**: 0 links → `VOL_<id>`; 1 link → `VOL_<target>`; 2+ links → `VOL_<id>_<n>links`.
+- **Per-link behaviour dropdown** — only renders for nav-enemy links; camera/checkpoint links show name + unlink button only.
+- **Critical limitation**: only nav-enemies (Babak, Lurker Crab, Hopper, Snow Bunny, Kermit, etc.) respond to `'cue-chase`. Process-drawable enemies (Yeti, Bully, Mother Spider, Jungle Snake, etc.) don't have the engine handler. Addon enforces this — UI hides aggro trigger box for unsupported enemies.
+- See `knowledge-base/opengoal/enemy-activation.md` for full engine references.
+
+### v1.1.0 baseline (UI Restructure)
 - **Level panel** (parent, always open): name, ID, death plane at top
   - Level Flow sub-panel: spawns, checkpoints, bsphere preview
   - Level Manager sub-panel: custom level list, remove/refresh
@@ -71,95 +80,7 @@ qx, qy, qz, qw = -gq.x, -gq.y, -gq.z, gq.w  # conjugate
 | feature/navmesh | Navmesh link/compute/entity.gc patch | ✅ Merged to main |
 | feature/lumps | Lump system for actor properties | ✅ Merged to main |
 | feature/ui-restructure | Panel groups, per-category dropdowns | ✅ Merged to main (2026-04-09) |
-
----
-
-## feature/enemies (active, NOT merged)
-
-Adds enemy activation distance control + trigger-driven aggro + a generalized
-multi-link volume system. See `knowledge-base/opengoal/enemy-activation.md`
-for full engine reference.
-
-### Features
-- **Per-enemy idle distance** (`og_idle_distance`, default 80m). Emits
-  `idle-distance` lump on every enemy/boss actor. Engine reads it via
-  `fact-info-enemy:new` (`fact-h.gc:191`). Lower = enemy stays asleep
-  longer; higher = wakes up sooner. UI: `Activation` box on selected enemy
-  with -5m / +5m nudge buttons. Range 0–500m.
-- **Aggro triggers**: trigger volume → nav-enemy link sends `'cue-chase`
-  (or `'cue-patrol` / `'go-wait-for-cue`) on player enter. Implemented as
-  new `aggro-trigger` deftype emitted by `write_gc`, polls AABB, looks up
-  target via `(process-by-ename ...)` and dispatches event by hardcoded
-  `cond` on a uint32 `event-id` lump. Re-fires on re-entry.
-- **Multi-link volume system**: replaces single-string `og_vol_link` with
-  `og_vol_links` `CollectionProperty(type=OGVolLink)`. One volume can hold
-  N links of mixed types (camera + checkpoint + enemy). Three independent
-  build passes scan each volume's links and emit one trigger actor per link.
-- **Per-link behaviour dropdown** (nav-enemy targets only): each link entry
-  has its own `behaviour` enum (`cue-chase` / `cue-patrol` / `go-wait-for-cue`).
-  The dropdown only renders for enemy links — camera/checkpoint links show
-  just name + unlink button.
-- **Auto-migration** from legacy `og_vol_link` strings via `_vol_links()`
-  shim — old `.blend` files load transparently.
-
-### Critical limitation
-**Process-drawable enemies do NOT respond to `'cue-chase`.** The handler
-is on `nav-enemy` only (`nav-enemy.gc:142`). The addon enforces this:
-`_actor_supports_aggro_trigger()` checks `ai_type == "nav-enemy"`. UI hides
-the trigger behaviour box and "Add Aggro Trigger" button for unsupported
-enemies (Yeti, Bully, Mother Spider, Jungle Snake, etc.).
-
-### Volume naming convention
-- 0 links → `VOL_<id>`
-- 1 link → `VOL_<target_name>`
-- 2+ links → `VOL_<id>_<n>links`
-
-Renamed automatically by `_rename_vol_for_links()` after every add/remove.
-
-### Color coding
-- Green — camera triggers (existing)
-- Yellow — checkpoint triggers (existing)
-- Red-orange — aggro triggers (new)
-
-### Duplicate-link rules
-- Same vol → same target twice: blocked for all types
-- Different vols → same camera/checkpoint: blocked (Scenario B)
-- Different vols → same enemy: ALLOWED (Scenario A — multi-region aggro)
-
-### Key files / functions added
-- `class OGVolLink(PropertyGroup)` — link entry data type
-- `class OG_OT_RemoveVolLink` — per-link X button
-- `class OG_OT_AddLinkFromSelection` — append a link from panel
-- `class OG_OT_SpawnAggroTrigger` — context-aware "Add Aggro Trigger" button
-- `def collect_aggro_triggers(scene)` — build pass
-- `def _vol_aabb(vol_obj)` — shared AABB extraction (used by all 3 trigger passes)
-- `def _vol_links(vol)` — accessor with legacy migration shim
-- `def _rename_vol_for_links(vol)` — naming based on link count
-- `def _vols_linking_to(scene, target_name)` — reverse lookup
-- `def _vol_remove_link_to(vol, target_name)` — single-entry removal
-- `def _classify_target(name)` → 'camera' | 'checkpoint' | 'enemy' | ''
-- `def _actor_is_enemy(etype)` / `_actor_supports_aggro_trigger(etype)`
-- `def _aggro_event_id(name)` → 0/1/2 for the lump
-
-### Refactored
-- `OG_OT_LinkVolume` — appends instead of rejecting
-- `OG_OT_UnlinkVolume` — clears all links from selection
-- `OG_OT_SpawnVolume` / `OG_OT_SpawnVolumeAutoLink` — collection-based
-- `OG_OT_DeleteObject` — removes only matching link entries (vols orphan)
-- `OG_OT_CleanOrphanedLinks` — per-entry cleanup, returns tuples
-- `_draw_selected_volume` — full multi-link list view
-- `_draw_selected_camera` / `_draw_selected_checkpoint` — uses `_vols_linking_to`
-- `_draw_selected_actor` — new Activation + Trigger Behaviour boxes for enemies
-- `OG_PT_Triggers.draw` — multi-link aware list, count-based orphan check
-- `collect_cameras` / checkpoint build pass — iterate `og_vol_links`
-
-### Engine refs (no patches required)
-- `fact-h.gc:191` — `idle-distance` res-lump read
-- `nav-enemy.gc:142–144` — `'cue-chase` / `'cue-patrol` / `'go-wait-for-cue` handlers
-- `entity.gc:92` — `entity-by-name`
-- `entity.gc:167` — `process-by-ename`
-- `nav-enemy.gc:495,534,709,754` — `idle-distance` AI check
-- `battlecontroller.gc:114,203` — base game `(send-event ... 'cue-chase)` reference
+| feature/enemies | Idle distance, aggro triggers, multi-link volumes (v1.2.0) | ✅ Merged to main (2026-04-10) |
 
 ---
 
