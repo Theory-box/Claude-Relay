@@ -770,6 +770,7 @@ _COL_PATH_GEO_COLLISION       = ("Geometry", "Collision Only")
 _COL_PATH_GEO_VISUAL          = ("Geometry", "Visual Only")
 _COL_PATH_GEO_REFERENCE       = ("Geometry", "Reference")
 _COL_PATH_WAYPOINTS           = ("Waypoints",)
+_COL_PATH_NAVMESHES           = ("NavMeshes",)
 
 # Entity category → sub-collection path
 _ENTITY_CAT_TO_COL_PATH = {
@@ -934,9 +935,12 @@ def _classify_object(obj):
 
     # ── Meshes → Geometry/Solid (default) ───────────────────────────────────
     # VOL_ meshes are trigger volumes — they live in Triggers, not Geometry
+    # NAVMESH_ meshes live in NavMeshes
     if otype == "MESH":
         if name.startswith("VOL_"):
             return _COL_PATH_TRIGGERS
+        if name.startswith("NAVMESH_") or obj.get("og_navmesh", False):
+            return _COL_PATH_NAVMESHES
         return _COL_PATH_GEO_SOLID
 
     # ── Empties by name prefix ───────────────────────────────────────────────
@@ -4343,12 +4347,15 @@ class OG_OT_SpawnEntity(Operator):
 class OG_OT_MarkNavMesh(Operator):
     bl_idname = "og.mark_navmesh"
     bl_label  = "Mark as NavMesh"
-    bl_description = "Tag selected mesh objects for future auto-navmesh generation"
+    bl_description = "Tag selected mesh objects as navmesh geometry and move into NavMeshes sub-collection"
     def execute(self, ctx):
         count = 0
         for o in ctx.selected_objects:
             if o.type == "MESH":
                 o["og_navmesh"] = True
+                if not o.name.startswith("NAVMESH_"):
+                    o.name = "NAVMESH_" + o.name
+                _link_object_to_sub_collection(ctx.scene, o, *_COL_PATH_NAVMESHES)
                 count += 1
         self.report({"INFO"}, f"Tagged {count} object(s) as navmesh geometry")
         return {"FINISHED"}
@@ -4356,12 +4363,18 @@ class OG_OT_MarkNavMesh(Operator):
 class OG_OT_UnmarkNavMesh(Operator):
     bl_idname = "og.unmark_navmesh"
     bl_label  = "Unmark NavMesh"
-    bl_description = "Remove navmesh tag from selected objects"
+    bl_description = "Remove navmesh tag and move out of NavMeshes sub-collection into Geometry/Solid"
     def execute(self, ctx):
         count = 0
         for o in ctx.selected_objects:
             if "og_navmesh" in o:
-                del o["og_navmesh"]; count += 1
+                del o["og_navmesh"]
+                # Strip NAVMESH_ prefix if present
+                if o.name.startswith("NAVMESH_"):
+                    o.name = o.name[len("NAVMESH_"):]
+                # Move to Geometry/Solid
+                _link_object_to_sub_collection(ctx.scene, o, *_COL_PATH_GEO_SOLID)
+                count += 1
         self.report({"INFO"}, f"Untagged {count} object(s)")
         return {"FINISHED"}
 
@@ -4412,10 +4425,11 @@ class OG_OT_LinkNavMesh(Operator):
 
         nm = meshes[0]
 
-        # Tag mesh as navmesh and prefix name if needed
+        # Tag mesh as navmesh, prefix name if needed, route into NavMeshes sub-collection
         nm["og_navmesh"] = True
         if not nm.name.startswith("NAVMESH_"):
             nm.name = "NAVMESH_" + nm.name
+        _link_object_to_sub_collection(ctx.scene, nm, *_COL_PATH_NAVMESHES)
 
         for enemy in enemies:
             enemy["og_navmesh_link"] = nm.name
@@ -4425,7 +4439,8 @@ class OG_OT_LinkNavMesh(Operator):
 
 
 class OG_OT_UnlinkNavMesh(Operator):
-    """Remove navmesh link from selected enemy actors."""
+    """Remove navmesh link from selected enemy actors.
+    Also renames the mesh (strips NAVMESH_ prefix) and moves it to Geometry/Solid."""
     bl_idname = "og.unlink_navmesh"
     bl_label  = "Unlink NavMesh"
     bl_description = "Remove navmesh link from selected enemy actor(s)"
@@ -4434,7 +4449,19 @@ class OG_OT_UnlinkNavMesh(Operator):
         count = 0
         for o in ctx.selected_objects:
             if "og_navmesh_link" in o:
+                nm_name = o["og_navmesh_link"]
                 del o["og_navmesh_link"]
+                # Clean up the mesh itself if it still exists
+                nm_obj = bpy.data.objects.get(nm_name)
+                if nm_obj and nm_obj.type == "MESH":
+                    # Remove navmesh tag
+                    if "og_navmesh" in nm_obj:
+                        del nm_obj["og_navmesh"]
+                    # Strip NAVMESH_ prefix
+                    if nm_obj.name.startswith("NAVMESH_"):
+                        nm_obj.name = nm_obj.name[len("NAVMESH_"):]
+                    # Move back to Geometry/Solid
+                    _link_object_to_sub_collection(ctx.scene, nm_obj, *_COL_PATH_GEO_SOLID)
                 count += 1
         self.report({"INFO"}, f"Unlinked {count} actor(s)")
         return {"FINISHED"}
@@ -5898,8 +5925,11 @@ def _draw_platform_settings(layout, sel, scene):
 #    📷 Cameras           OG_PT_Camera         (sub, DEFAULT_CLOSED)
 #    🔗 Triggers          OG_PT_Triggers       (sub, DEFAULT_CLOSED)
 #
-#  🔍 Selected Object   OG_PT_SelectedObject (standalone, poll-gated)
-#  〰 Waypoints          OG_PT_Waypoints      (context, poll-gated)
+#  🔍 Selected Object   OG_PT_SelectedObject    (always visible)
+#    Collision          OG_PT_SelectedCollision  (sub, DEFAULT_CLOSED, mesh poll)
+#    Light Baking       OG_PT_SelectedLightBaking(sub, DEFAULT_CLOSED, mesh poll)
+#    NavMesh            OG_PT_SelectedNavMeshTag (sub, DEFAULT_CLOSED, mesh poll)
+#  〰 Waypoints          OG_PT_Waypoints          (context, poll-gated)
 #  ▶  Build & Play       OG_PT_BuildPlay      (always visible)
 #  🔧 Developer Tools    OG_PT_DevTools       (DEFAULT_CLOSED)
 #  Collision             OG_PT_Collision      (object context)
@@ -5972,10 +6002,15 @@ def _draw_entity_sub(layout, ctx, cats, nav_inline=False, prop_name="entity_type
                     row.operator("og.unlink_navmesh", text="", icon="X")
                 else:
                     row.label(text="No mesh linked", icon="ERROR")
-                    box2 = layout.box()
-                    box2.label(text="Shift-select enemy + navmesh quad,", icon="INFO")
-                    box2.label(text="then click Link below.")
-                    box2.operator("og.link_navmesh", text="Link NavMesh", icon="LINKED")
+                    # Only show Link button when a mesh is also in the selection
+                    sel_meshes = [o for o in ctx.selected_objects if o.type == "MESH"]
+                    if sel_meshes:
+                        box2 = layout.box()
+                        box2.label(text=f"Will link to: {sel_meshes[0].name}", icon="INFO")
+                        box2.operator("og.link_navmesh", text="Link NavMesh", icon="LINKED")
+                    else:
+                        box2 = layout.box()
+                        box2.label(text="Shift-select a mesh to link", icon="INFO")
     elif einfo.get("needs_pathb"):
         box = layout.box()
         box.label(text="Needs 2 path sets", icon="INFO")
@@ -6713,9 +6748,13 @@ def _draw_selected_actor(layout, sel, scene):
                 pass
         else:
             box.label(text="No mesh linked", icon="ERROR")
-            box.label(text="Shift-select enemy + navmesh quad,", icon="INFO")
-            box.label(text="then click Link below.")
-            box.operator("og.link_navmesh", text="Link NavMesh", icon="LINKED")
+            # Only show Link button when a mesh is also selected
+            sel_meshes = [o for o in bpy.context.selected_objects if o.type == "MESH"]
+            if sel_meshes:
+                box.label(text=f"Will link to: {sel_meshes[0].name}", icon="INFO")
+                box.operator("og.link_navmesh", text="Link NavMesh", icon="LINKED")
+            else:
+                box.label(text="Shift-select a mesh to link", icon="INFO")
 
         nav_r = float(sel.get("og_nav_radius", 6.0))
         box.label(text=f"Fallback sphere radius: {nav_r:.1f}m", icon="SPHERE")
@@ -7104,13 +7143,23 @@ class OG_PT_SelectedObject(Panel):
 
     @classmethod
     def poll(cls, ctx):
-        return _og_managed_object(ctx.active_object)
+        return True  # Always visible — draw handles empty/unmanaged selection
 
     def draw(self, ctx):
         layout = self.layout
         sel    = ctx.active_object
         scene  = ctx.scene
-        name   = sel.name
+
+        if sel is None:
+            layout.label(text="Select an object to inspect", icon="INFO")
+            return
+
+        if not _og_managed_object(sel):
+            layout.label(text=sel.name, icon="OBJECT_DATA")
+            layout.label(text="Not an OpenGOAL-managed object", icon="INFO")
+            return
+
+        name = sel.name
 
         # Dispatch based on object type
         if name.startswith("ACTOR_") and "_wp_" not in name:
@@ -7140,13 +7189,7 @@ class OG_PT_SelectedObject(Panel):
                 _draw_selected_navmesh(layout, sel)
             else:
                 layout.label(text=sel.name, icon="MESH_DATA")
-
-            # Mesh tools — collision, visibility, lightbake, navmesh tagging
-            layout.separator(factor=0.3)
-            _draw_selected_mesh_visibility(layout, sel)
-            _draw_selected_mesh_collision(layout, sel)
-            _draw_selected_mesh_lightbake(layout, ctx)
-            _draw_selected_mesh_navtag(layout, sel)
+            # Collision, Visibility, Light Baking, NavMesh Tag rendered by sub-panels
 
         else:
             layout.label(text=sel.name, icon="OBJECT_DATA")
@@ -7158,6 +7201,66 @@ class OG_PT_SelectedObject(Panel):
         op.obj_name = name
         op = row.operator("og.delete_object", text="Delete", icon="TRASH")
         op.obj_name = name
+
+
+# ---------------------------------------------------------------------------
+# Selected Object sub-panels  (mesh context, collapsible)
+# ---------------------------------------------------------------------------
+
+class OG_PT_SelectedCollision(Panel):
+    bl_label       = "Collision"
+    bl_idname      = "OG_PT_selected_collision"
+    bl_space_type  = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category    = "OpenGOAL"
+    bl_parent_id   = "OG_PT_selected_object"
+    bl_options     = {"DEFAULT_CLOSED"}
+
+    @classmethod
+    def poll(cls, ctx):
+        sel = ctx.active_object
+        return sel is not None and sel.type == "MESH"
+
+    def draw(self, ctx):
+        _draw_selected_mesh_collision(self.layout, ctx.active_object)
+        self.layout.separator(factor=0.2)
+        _draw_selected_mesh_visibility(self.layout, ctx.active_object)
+
+
+class OG_PT_SelectedLightBaking(Panel):
+    bl_label       = "Light Baking"
+    bl_idname      = "OG_PT_selected_lightbaking"
+    bl_space_type  = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category    = "OpenGOAL"
+    bl_parent_id   = "OG_PT_selected_object"
+    bl_options     = {"DEFAULT_CLOSED"}
+
+    @classmethod
+    def poll(cls, ctx):
+        sel = ctx.active_object
+        return sel is not None and sel.type == "MESH"
+
+    def draw(self, ctx):
+        _draw_selected_mesh_lightbake(self.layout, ctx)
+
+
+class OG_PT_SelectedNavMeshTag(Panel):
+    bl_label       = "NavMesh"
+    bl_idname      = "OG_PT_selected_navmesh_tag"
+    bl_space_type  = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category    = "OpenGOAL"
+    bl_parent_id   = "OG_PT_selected_object"
+    bl_options     = {"DEFAULT_CLOSED"}
+
+    @classmethod
+    def poll(cls, ctx):
+        sel = ctx.active_object
+        return sel is not None and sel.type == "MESH"
+
+    def draw(self, ctx):
+        _draw_selected_mesh_navtag(self.layout, ctx.active_object)
 
 
 # ===========================================================================
@@ -7953,6 +8056,9 @@ classes = (
     OG_PT_Triggers,
     # Standalone panels
     OG_PT_SelectedObject,
+    OG_PT_SelectedCollision,
+    OG_PT_SelectedLightBaking,
+    OG_PT_SelectedNavMeshTag,
     OG_PT_Waypoints,
     OG_PT_BuildPlay,
     OG_PT_DevTools,
