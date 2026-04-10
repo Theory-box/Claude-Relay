@@ -1196,6 +1196,12 @@ def collect_aggro_triggers(scene):
     the target enemy's name (string), an event-id integer (0=cue-chase,
     1=cue-patrol, 2=go-wait-for-cue), and 6 AABB bound-* floats.
 
+    The target-name lump must match the *emitted name lump* on the target
+    actor (which is f"{etype}-{uid}", e.g. "babak-1"), NOT the Blender object
+    name (e.g. "ACTOR_babak_1"). The engine's entity-by-name walks all loaded
+    actors and matches the 'name lump string verbatim — this lookup is what
+    process-by-ename uses at runtime.
+
     At runtime the aggro-trigger polls AABB; on rising edge it calls
     (process-by-ename target-name) and sends the appropriate event symbol.
     Implemented entirely with res-lumps — no engine patches required.
@@ -1217,6 +1223,13 @@ def collect_aggro_triggers(scene):
             if not target_obj:
                 log(f"  [WARNING] aggro-trigger {vol.name}: target '{entry.target_name}' not in scene — skipped")
                 continue
+            # Convert Blender object name to the actor's emitted 'name lump.
+            # ACTOR_<etype>_<uid> -> <etype>-<uid>  (matches collect_actors line ~3170)
+            parts = entry.target_name.split("_", 2)
+            if len(parts) < 3:
+                log(f"  [WARNING] aggro-trigger {vol.name}: malformed target name '{entry.target_name}' — skipped")
+                continue
+            target_lump_name = f"{parts[1]}-{parts[2]}"
             xmin, xmax, ymin, ymax, zmin, zmax, cx, cy, cz, rad = _vol_aabb(vol)
             event_id = _aggro_event_id(entry.behaviour)
             uid = counter
@@ -1230,7 +1243,7 @@ def collect_aggro_triggers(scene):
                 "bsphere":   [cx, cy, cz, rad],
                 "lump": {
                     "name":        f"aggrotrig-{uid}",
-                    "target-name": entry.target_name,
+                    "target-name": target_lump_name,
                     "event-id":    ["uint32", event_id],
                     "bound-xmin":  ["meters", xmin],
                     "bound-xmax":  ["meters", xmax],
@@ -1240,7 +1253,7 @@ def collect_aggro_triggers(scene):
                     "bound-zmax":  ["meters", zmax],
                 },
             })
-            log(f"  [aggro-trigger] {vol.name} → {entry.target_name}  ({entry.behaviour})")
+            log(f"  [aggro-trigger] {vol.name} → {entry.target_name} (lump: {target_lump_name}, {entry.behaviour})")
     return out
 
 
