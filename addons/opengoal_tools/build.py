@@ -12,12 +12,12 @@ from .collections import _get_level_prop, _level_objects, _active_level_col
 from .export import (
     collect_actors, collect_ambients, collect_spawns, collect_cameras,
     collect_nav_mesh_geometry, collect_aggro_triggers,
-    needed_ags, needed_code, write_jsonc, write_gd,
+    needed_ags, needed_code, write_jsonc, write_gd, write_gc,
     patch_level_info, patch_game_gp, export_glb,
     _collect_navmesh_actors, _canonical_actor_objects,
     _nick, _iso, _lname, _ldir, _goal_src, _level_info,
     _game_gp, _levels_dir, _entity_gc,
-    _clean_orphaned_vol_links,
+    _clean_orphaned_vol_links, _vol_links,
     _navmesh_to_goal,
 )
 
