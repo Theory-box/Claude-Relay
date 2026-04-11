@@ -280,8 +280,15 @@ Investigate whether our custom trigger types (camera-trigger, checkpoint-trigger
 4. Stale entries on checkpoint removal — cleanup guard was inside `if boundaries:`; fixed by making it unconditional
 5. Redundant `import math` inside function — cleaned up
 
+**Bug 6 — border? never set (found from first in-game test, commit 8181ce3):**
+`render-boundaries` only calls `check-boundary` when `(-> *target* control border?)` is `#t`.
+In vanilla levels this is set by `target-continue`'s `:exit` handler after first respawn.
+Custom levels never go through that path so `border?` stays `#f` forever — all load-boundary
+crossings silently ignored. Fixed by emitting `(when *target* (set! (-> *target* control border?) #t))`
+before the `load-boundary-from-template` calls. Guard is safe on cold load (Jak not yet spawned).
+
 ### Branch status
-`feature/native-checkpoints` — pushed, awaiting in-game test before merge to main.
+`feature/native-checkpoints` — fix pushed (commit 8181ce3), needs re-test in-game.
 
 Active branch: `feature/native-checkpoints`
 Working file: `addons/opengoal_tools.py`
