@@ -204,3 +204,44 @@ Not yet merged to main.
 - [ ] Hot-reload via nREPL (`(mi)`) — no duplicate boundaries, checkpoints still fire
 - [ ] Level with no checkpoints — obs.gc compiles cleanly (no load-boundary code emitted)
 - [ ] VOL_ mesh linked to CHECKPOINT_ — convex hull boundary matches mesh footprint in-game
+
+### Additional bugs caught pre-test (same session)
+
+**Bug 3 — First-load list wipe** (caught during review):
+Unconditional `(set! *load-boundary-list* *lb-tail*)` ran on first load when `*lb-tail*` was `#f` — wiping all 170 vanilla boundaries. Fixed with `(when *lb-tail* ...)` guard.
+
+**Bug 4 — Quoted-pair binteger (critical, would have silently misfired or crashed)**:
+`'((the binteger 6) "name" #f)` in a quoted context does NOT evaluate `(the binteger 6)` — GOAL stores the literal symbol-list as the pair's car. Engine then reads `(/ (the-as int car) 8)` expecting a boxed integer and gets a pair pointer.
+Fixed: use `(static-load-boundary :fwd (checkpt "name" #f) ...)` directly — the macro evaluates `(the binteger ...)` at compile time, same as all 170 vanilla boundaries in `load-boundary-data.gc`.
+
+**Bug 5 — Stale entries when removing all checkpoints**:
+Cleanup guard was inside `if boundaries:` — rebuilding with 0 checkpoints left stale entries from the previous build in `*load-boundary-list*` indefinitely.
+Fixed: always emit the `define-perm` + `(when ...)` guard at top level regardless of checkpoint count.
+
+### Final generated GOAL (with checkpoints)
+```lisp
+;; load-boundary cleanup guard for my-level.
+(define-perm *my-level-lb-tail* load-boundary #f)
+(when *my-level-lb-tail*
+  (set! *load-boundary-list* *my-level-lb-tail*))
+(set! *my-level-lb-tail* *load-boundary-list*)
+
+(load-boundary-from-template
+  (static-load-boundary
+    :flags (player closed)
+    :top 12288.0 :bot -4096.0
+    :points (32768.0 -28672.0 49152.0 -28672.0 49152.0 -12288.0 32768.0 -12288.0)
+    :fwd (checkpt "my-level-cp1" #f)
+    :bwd (invalid #f #f)))
+```
+
+### Version
+v1.3.0 on branch `feature/native-checkpoints`
+
+### Test checklist
+- [ ] Build compiles without error (GOALC)
+- [ ] Walk through CHECKPOINT_ zone → `(-> *game-info* current-continue name)` updates
+- [ ] Die → respawn at checkpoint, not level start
+- [ ] Hot-reload `(mi)` → no duplicate entries, checkpoint still fires
+- [ ] Remove all checkpoints, rebuild → no stale trigger from previous build
+- [ ] Level with no checkpoints → builds clean
