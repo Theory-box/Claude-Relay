@@ -1,0 +1,259 @@
+Adds multi-slot time-of-day vertex color support to the jak1 custom level builder.
+
+The builder previously read only COLOR_0 from the GLB and duplicated it into all 8
+PackedTimeOfDay palette slots, making geometry lighting static regardless of time of day.
+
+With this patch it reads COLOR_0 through COLOR_7 when present, one per TOD slot:
+  COLOR_0 = _SUNRISE   COLOR_1 = _MORNING   COLOR_2 = _NOON    COLOR_3 = _AFTERNOON
+  COLOR_4 = _SUNSET    COLOR_5 = _TWILIGHT  COLOR_6 = _EVENING COLOR_7 = _GREENSUN
+
+Blender export: use the gltf2_blender_extract.py plugin from custom_assets/blender_plugins/
+to export all color_attributes as numbered COLOR_N streams in slot order.
+
+Quantization uses COLOR_2 (_NOON) as the base for the shared vertex->palette-entry
+mapping, then re-averages each other slot's raw colors within those same buckets.
+Levels with only COLOR_0 (no multi-slot TOD baking) behave identically to before.
+
+Apply with:  git apply tod_geometry_fix.patch
+Undo with:   git apply -R tod_geometry_fix.patch
+Then:        cmake --build build --target goalc -j$(nproc)
+
+diff --git a/common/util/gltf_util.h b/common/util/gltf_util.h
+--- a/common/util/gltf_util.h
++++ b/common/util/gltf_util.h
+@@ -178,6 +178,17 @@ tfrag3::PackedTimeOfDay pack_time_of_day(const std::vector<math::Vector<u8, 4>>& color_palette);
+ 
++// Pack 8 per-slot palettes into a PackedTimeOfDay.
++// Slot order: SUNRISE(0) MORNING(1) NOON(2) AFTERNOON(3) SUNSET(4) TWILIGHT(5) EVENING(6) GREENSUN(7).
++// Empty slots fall back to slot 2 (NOON), or slot 0 if slot 2 is also empty.
++tfrag3::PackedTimeOfDay pack_time_of_day_8(
++    const std::array<std::vector<math::Vector<u8, 4>>, 8>& palettes);
++
++// Read a named vertex color attribute (e.g. "COLOR_3") from a GLTF primitive's attribute map.
++// Returns empty vector if absent or vertex count doesn't match expected_count.
++std::vector<math::Vector<u8, 4>> gltf_read_color_attr(
++    const tinygltf::Model& model,
++    const std::map<std::string, int>& attributes,
++    const std::string& attr_name,
++    u32 expected_count);
++
+ struct MercExtractData {
+
+diff --git a/common/util/gltf_util.cpp b/common/util/gltf_util.cpp
+--- a/common/util/gltf_util.cpp
++++ b/common/util/gltf_util.cpp
+@@ -770,6 +770,67 @@ tfrag3::PackedTimeOfDay pack_time_of_day(const std::vector<math::Vector<u8, 4>>& color_palette) {
+   return colors;
+ }
+ 
++tfrag3::PackedTimeOfDay pack_time_of_day_8(
++    const std::array<std::vector<math::Vector<u8, 4>>, 8>& palettes) {
++  const auto& base = palettes[2].empty() ? palettes[0] : palettes[2];
++  ASSERT_MSG(!base.empty(), "pack_time_of_day_8: slots 0 and 2 both empty");
++  tfrag3::PackedTimeOfDay colors;
++  colors.color_count = (base.size() + 3) & (~3);
++  colors.data.resize(colors.color_count * 8 * 4);
++  for (u32 color_index = 0; color_index < base.size(); color_index++) {
++    for (u32 palette = 0; palette < 8; palette++) {
++      const auto& src = palettes[palette].empty() ? base : palettes[palette];
++      for (u32 channel = 0; channel < 4; channel++) {
++        colors.read(color_index, palette, channel) = src[color_index][channel];
++      }
++    }
++  }
++  return colors;
++}
++
++std::vector<math::Vector<u8, 4>> gltf_read_color_attr(
++    const tinygltf::Model& model,
++    const std::map<std::string, int>& attributes,
++    const std::string& attr_name,
++    u32 expected_count) {
++  const auto it = attributes.find(attr_name);
++  if (it == attributes.end()) return {};
++  const auto& acc = model.accessors[it->second];
++  if ((u32)acc.count != expected_count) return {};
++  const auto& bv = model.bufferViews[acc.bufferView];
++  const auto& buf = model.buffers[bv.buffer];
++  const u8* data_ptr = buf.data.data() + bv.byteOffset + acc.byteOffset;
++  const u32 byte_stride = (u32)acc.ByteStride(bv);
++  const u32 count = (u32)acc.count;
++  switch (acc.type) {
++    case TINYGLTF_TYPE_VEC4:
++      switch (acc.componentType) {
++        case TINYGLTF_COMPONENT_TYPE_FLOAT:
++          return extract_color_from_vec4_float(data_ptr, count, byte_stride);
++        case TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT:
++          return extract_color_from_vec4_u16(data_ptr, count, byte_stride);
++        case TINYGLTF_COMPONENT_TYPE_UNSIGNED_BYTE:
++          return extract_color_from_vec4_u8(data_ptr, count, byte_stride);
++        default:
++          lg::warn("gltf_read_color_attr: unknown component type for {}", attr_name);
++          return {};
++      }
++    case TINYGLTF_TYPE_VEC3:
++      if (acc.componentType == TINYGLTF_COMPONENT_TYPE_FLOAT)
++        return extract_color_from_vec3_float(data_ptr, count, byte_stride);
++      return {};
++    default:
++      return {};
++  }
++}
++
+
+diff --git a/goalc/build_level/common/gltf_mesh_extract.h b/goalc/build_level/common/gltf_mesh_extract.h
+--- a/goalc/build_level/common/gltf_mesh_extract.h
++++ b/goalc/build_level/common/gltf_mesh_extract.h
+@@ -1,4 +1,5 @@
+ #pragma once
++#include <array>
+ 
+ #include "common/custom_data/Tfrag3Data.h"
+ #include "common/util/gltf_util.h"
+@@ -25,14 +26,16 @@ struct TfragOutput {
+   std::vector<tfrag3::StripDraw> normal_strip_draws;
+   std::vector<tfrag3::StripDraw> trans_strip_draws;
+   std::vector<tfrag3::PreloadedVertex> tfrag_vertices;
+-  std::vector<math::Vector<u8, 4>> color_palette;
++  // One palette per TOD slot. Empty slots fall back to slot 2 in pack_time_of_day_8.
++  std::array<std::vector<math::Vector<u8, 4>>, 8> color_palettes;
+ };
+ 
+ struct TieOutput {
+   std::vector<tfrag3::StripDraw> base_draws;
+   std::vector<tfrag3::StripDraw> envmap_draws;
+   std::vector<tfrag3::PackedTieVertices::Vertex> vertices;
+   std::vector<u16> color_indices;
+-  std::vector<math::Vector<u8, 4>> color_palette;
++  // One palette per TOD slot. Empty slots fall back to slot 2 in pack_time_of_day_8.
++  std::array<std::vector<math::Vector<u8, 4>>, 8> color_palettes;
+ };
+
+diff --git a/goalc/build_level/common/gltf_mesh_extract.cpp b/goalc/build_level/common/gltf_mesh_extract.cpp
+--- a/goalc/build_level/common/gltf_mesh_extract.cpp
++++ b/goalc/build_level/common/gltf_mesh_extract.cpp
+@@ -4,9 +4,54 @@
+ #include "gltf_mesh_extract.h"
+ #include "color_quantization.h"
+ 
++#include <array>
++#include <vector>
++
+ namespace gltf_mesh_extract {
+ 
++static const std::array<std::string, 8> kTodColorAttrs = {
++    "COLOR_0", "COLOR_1", "COLOR_2", "COLOR_3",
++    "COLOR_4", "COLOR_5", "COLOR_6", "COLOR_7"};
++
++// Build per-slot color palettes from raw per-vertex slot colors and a shared quantization.
++// quantized.vtx_to_color maps each vertex to its palette bucket (derived from NOON).
++// For each slot, average that slot's raw vertex colors within each bucket.
++static void build_slot_palettes(
++    const std::array<std::vector<math::Vector<u8, 4>>, 8>& raw_slot_colors,
++    const QuantizedColors& quantized,
++    std::array<std::vector<math::Vector<u8, 4>>, 8>& out_palettes) {
++  const size_t n_entries = quantized.final_colors.size();
++  const size_t n_verts = quantized.vtx_to_color.size();
++  for (int s = 0; s < 8; s++) {
++    const auto& raw = raw_slot_colors[s];
++    if (raw.empty()) continue;
++    ASSERT(raw.size() == n_verts);
++    out_palettes[s].assign(n_entries, math::Vector<u8, 4>(0, 0, 0, 0));
++    std::vector<u32> counts(n_entries, 0);
++    std::vector<std::array<u32, 4>> accum(n_entries, std::array<u32, 4>{0, 0, 0, 0});
++    for (size_t v = 0; v < n_verts; v++) {
++      u32 ci = quantized.vtx_to_color[v];
++      for (int ch = 0; ch < 4; ch++) accum[ci][ch] += raw[v][ch];
++      counts[ci]++;
++    }
++    for (size_t ci = 0; ci < n_entries; ci++) {
++      u32 n = counts[ci] ? counts[ci] : 1;
++      for (int ch = 0; ch < 4; ch++)
++        out_palettes[s][ci][ch] = (u8)(accum[ci][ch] / n);
++    }
++  }
++}
++
++// Collect all 8 TOD color slots from one primitive into the running totals.
++static void collect_tod_colors(
++    const tinygltf::Model& model,
++    const std::map<std::string, int>& attributes,
++    const std::vector<math::Vector<u8, 4>>& color_0,
++    std::array<std::vector<math::Vector<u8, 4>>, 8>& all_slot_colors) {
++  const u32 n = (u32)color_0.size();
++  all_slot_colors[0].insert(all_slot_colors[0].end(), color_0.begin(), color_0.end());
++  for (int s = 1; s < 8; s++) {
++    auto c = gltf_util::gltf_read_color_attr(model, attributes, kTodColorAttrs[s], n);
++    if (!c.empty())
++      all_slot_colors[s].insert(all_slot_colors[s].end(), c.begin(), c.end());
++  }
++}
++
+ void dedup_tfrag_vertices(TfragOutput& data) {
+@@ -128,10 +173,10 @@ void extract(const Input& in,       /* tfrag overload */
+         auto verts = gltf_vertices(model, prim.attributes, n.w_T_node, true, false, mesh.name);
+         out.tfrag_vertices.insert(out.tfrag_vertices.end(), verts.vtx.begin(), verts.vtx.end());
+-        all_vtx_colors.insert(all_vtx_colors.end(), verts.vtx_colors.begin(), verts.vtx_colors.end());
+-        ASSERT(all_vtx_colors.size() == out.tfrag_vertices.size());
++        collect_tod_colors(model, prim.attributes, verts.vtx_colors, all_slot_colors);
++        ASSERT(all_slot_colors[0].size() == out.tfrag_vertices.size());
+ 
+@@ -96,1 +141,1 @@
+-  std::vector<math::Vector<u8, 4>> all_vtx_colors;
++  std::array<std::vector<math::Vector<u8, 4>>, 8> all_slot_colors;
+ 
+@@ -196,7 +241,8 @@ void extract(const Input& in,       /* tfrag overload */
+-  auto quantized = quantize_colors_kd_tree(all_vtx_colors, kColorTreeDepth);
++  const auto& quant_base = all_slot_colors[2].empty() ? all_slot_colors[0] : all_slot_colors[2];
++  auto quantized = quantize_colors_kd_tree(quant_base, kColorTreeDepth);
+   for (size_t i = 0; i < out.tfrag_vertices.size(); i++) {
+     out.tfrag_vertices[i].color_index = quantized.vtx_to_color[i];
+   }
+-  out.color_palette = std::move(quantized.final_colors);
++  build_slot_palettes(all_slot_colors, quantized, out.color_palettes);
++  out.color_palettes[2] = std::move(quantized.final_colors);
+ 
+@@ -282,10 +327,10 @@ void extract(const Input& in,       /* tie overload */
+         auto verts = gltf_vertices(model, prim.attributes, n.w_T_node, true, true, mesh.name);
+         add_to_packed_verts(&out.vertices, verts.vtx, verts.normals);
+-        all_vtx_colors.insert(all_vtx_colors.end(), verts.vtx_colors.begin(), verts.vtx_colors.end());
+-        ASSERT(all_vtx_colors.size() == out.vertices.size());
++        collect_tod_colors(model, prim.attributes, verts.vtx_colors, all_slot_colors);
++        ASSERT(all_slot_colors[0].size() == out.vertices.size());
+ 
+@@ -252,1 +297,1 @@
+-  std::vector<math::Vector<u8, 4>> all_vtx_colors;
++  std::array<std::vector<math::Vector<u8, 4>>, 8> all_slot_colors;
+ 
+@@ -362,7 +407,8 @@ void extract(const Input& in,       /* tie overload */
+-  auto quantized = quantize_colors_kd_tree(all_vtx_colors, kColorTreeDepth);
++  const auto& quant_base = all_slot_colors[2].empty() ? all_slot_colors[0] : all_slot_colors[2];
++  auto quantized = quantize_colors_kd_tree(quant_base, kColorTreeDepth);
+   for (size_t i = 0; i < out.vertices.size(); i++) {
+     out.color_indices.push_back(quantized.vtx_to_color[i]);
+   }
+-  out.color_palette = std::move(quantized.final_colors);
++  build_slot_palettes(all_slot_colors, quantized, out.color_palettes);
++  out.color_palettes[2] = std::move(quantized.final_colors);
+ 
+
+diff --git a/goalc/build_level/common/Tfrag.cpp b/goalc/build_level/common/Tfrag.cpp
+--- a/goalc/build_level/common/Tfrag.cpp
++++ b/goalc/build_level/common/Tfrag.cpp
+@@ -19,7 +19,7 @@ void add_tree(std::vector<tfrag3::TfragTree>& out_pc,
+   normal.kind = kind;
+   normal.draws = draws;
+   pack_tfrag_vertices(&normal.packed_vertices, mesh_extract_out.tfrag_vertices);
+-  normal.colors = gltf_util::pack_time_of_day(mesh_extract_out.color_palette);
++  normal.colors = gltf_util::pack_time_of_day_8(mesh_extract_out.color_palettes);
+   normal.use_strips = false;
+ }
+
+diff --git a/goalc/build_level/common/Tie.cpp b/goalc/build_level/common/Tie.cpp
+--- a/goalc/build_level/common/Tie.cpp
++++ b/goalc/build_level/common/Tie.cpp
+@@ -53,7 +53,7 @@ void tie_from_gltf(const gltf_mesh_extract::TieOutput& mesh_extract_out,
+   // colors
+-  out.colors = gltf_util::pack_time_of_day(mesh_extract_out.color_palette);
++  out.colors = gltf_util::pack_time_of_day_8(mesh_extract_out.color_palettes);
+ }
