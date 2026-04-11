@@ -26,7 +26,7 @@ from .collections import (
 # _data_root reads the addon pref — duplicated here to avoid circular import with build.py
 def _data_root():
     import bpy as _bpy
-    prefs = _bpy.context.preferences.addons.get(__name__)
+    prefs = _bpy.context.preferences.addons.get("opengoal_tools")
     p = prefs.preferences.data_path if prefs else ""
     from pathlib import Path as _Path
     return _Path(p.strip().rstrip("\\").rstrip("/")) if p.strip() else _Path(".")

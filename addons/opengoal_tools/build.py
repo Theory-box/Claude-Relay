@@ -72,12 +72,12 @@ def _find_free_nrepl_port():
 def _strip(p): return p.strip().rstrip("\\").rstrip("/")
 
 def _exe_root():
-    prefs = bpy.context.preferences.addons.get(__name__)
+    prefs = bpy.context.preferences.addons.get("opengoal_tools")
     p = prefs.preferences.exe_path if prefs else ""
     return Path(_strip(p)) if p.strip() else Path(".")
 
 def _data_root():
-    prefs = bpy.context.preferences.addons.get(__name__)
+    prefs = bpy.context.preferences.addons.get("opengoal_tools")
     p = prefs.preferences.data_path if prefs else ""
     return Path(_strip(p)) if p.strip() else Path(".")
 
