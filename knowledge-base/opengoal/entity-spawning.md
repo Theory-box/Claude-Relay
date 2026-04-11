@@ -511,12 +511,12 @@ Results from testing in `april-2026` custom level. Updated as tests are run.
 | `junglesnake` | process-drawable | Jungle | Stationary ambush, no path needed. |
 | `swamp-rat` | nav-enemy | Swamp | Works. Needs navmesh for chase. |
 | `swamp-bat` | process-drawable | Swamp | Works. Needs both `path` and `pathb`. |
-| `kermit` | nav-enemy | Swamp | Works. Needs navmesh for chase. |
+| `kermit` | nav-enemy | Swamp | **Works with caveat** — must be placed slightly above floor level (Y+) or fails to spawn. Once spawned correctly, chases and attacks. Waypoint following unconfirmed. Needs navmesh for chase. |
 | `snow-bunny` | nav-enemy | Snow | Works. Needs navmesh + path lump (errors without path). |
 | `yeti` | process-drawable | Snow | Works. Needs path (defines spawn points for yeti-slave children). |
 | `bully` | process-drawable | Sunken A | Works. No navmesh needed. Idles until Jak within 80m, then spins. |
-| `puffer` | process-drawable | Sunken A | Works. Needs `path` lump. |
-| `double-lurker` | process-drawable | Sunken A | Works. Spawns `double-lurker-top` child automatically. |
+| `puffer` | process-drawable | Sunken A | **Partially works** — spawns and activates, but does not follow path points correctly. Passes through walls. Uses `nav-control` for movement not navmesh, but path following appears broken. Avoid until investigated. |
+| `double-lurker` | process-drawable | Sunken A | **Unreliable** — spawned once then immediately despawned; failed to spawn on subsequent loads. Root cause unknown. Moved to partial/issues. |
 | `flying-lurker` | process-drawable | Ogre | Needs path. Patrols correctly. |
 | `quicksandlurker` | process-drawable | Misty | Works. Stationary, no path needed. |
 | `muse` | nav-enemy | Misty | Works. Needs navmesh for chase. |
@@ -533,6 +533,12 @@ Results from testing in `april-2026` custom level. Updated as tests are run.
 | `swamp-bat` | process-drawable | Broken — requires investigation | Confirmed not working despite `path` + `pathb` lumps. Likely slave-spawn or path init issue. Do not use until root cause found. |
 | `mother-spider` | process-drawable | Broken — does not spawn children | Loads but does not spawn `baby-spider` children. Root cause unknown — may be task-gated or require a `spider-vent` actor to function. Do not use until investigated. |
 | `dark-crystal` | process-drawable | Decorative only | Spawns and displays animated texture correctly. No collision, no behaviour, no AI. Usable purely as a visual prop. |
+| `double-lurker` | process-drawable | Unreliable — spawns then immediately despawns | Observed spawning once then vanishing instantly. Did not spawn at all on subsequent loads. Cause unknown — may be a missing `double-lurker-top` art group issue or AID conflict. Moved from confirmed working. |
+| `puffer` | process-drawable | Spawns but path-following broken | Activates and moves but ignores path points, passes through geometry. `nav-control` movement appears non-functional in custom levels. Avoid. |
+| `fireboulder` | process-drawable | Decorative only | Spawns with no collision and no behaviour. Likely scripted/triggered in vanilla and not self-activating. |
+| `green-eco-lurker` | nav-enemy | Spawns but no interaction | Idles, no collision, does not react to player. Likely needs navmesh patch to activate — untested with navmesh. |
+| `ram` | unknown | Untested — no path/navmesh options in addon | No waypoint or navmesh UI exposed in addon. May be self-contained or trigger-driven. Unknown if it even spawns correctly. |
+| `lightning-mole` / `peeper` | unknown | Untested — no path/navmesh options in addon | Same as ram — no waypoint/navmesh UI in addon. May be intentional if it uses its own hardcoded patrol. Unknown if it spawns correctly. |
 
 ### 🔲 Untested
 | Enemy | Group | Notes |
