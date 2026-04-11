@@ -245,3 +245,49 @@ v1.3.0 on branch `feature/native-checkpoints`
 - [ ] Hot-reload `(mi)` → no duplicate entries, checkpoint still fires
 - [ ] Remove all checkpoints, rebuild → no stale trigger from previous build
 - [ ] Level with no checkpoints → builds clean
+
+---
+
+## Session — April 11 2026: Trigger System Research + native-checkpoints
+
+### What we set out to do
+Investigate whether our custom trigger types (camera-trigger, checkpoint-trigger, aggro-trigger) were bypassing working engine systems. Answer: partially yes.
+
+### Research findings (trigger-systems.md)
+
+**Camera triggers** — engine HAS a native vol-lump region system (`master-check-regions`, `in-cam-entity-volume?`, `vol`/`pvol` plane lumps on `entity-camera`). But the C++ level builder (`build_level/jak1/LevelFile.cpp`) has the cameras section entirely commented out — `EntityCamera {}` is an empty stub, no JSONC cameras array is read, so `entity-camera.birth!` never fires and `*camera-engine*` stays empty for custom levels. Our `camera-trigger` deftype is the only working approach. Native system requires upstream C++ fix.
+
+**Checkpoint triggers** — `static-load-boundary` with `checkpt` command is engine-native pure GOAL. 170 vanilla boundaries already use this. `render-boundaries` → `check-boundary` runs every frame. No custom deftype, no born process, proper XZ polygon crossing with fwd/bwd direction. Fully replaceable.
+
+**Enemy aggro triggers** — no native equivalent. Keep custom `aggro-trigger`.
+
+### What changed: feature/native-checkpoints (v1.3.0)
+
+**Removed:**
+- `checkpoint-trigger` deftype + state + `init-from-entity!` from obs.gc (~70 lines)
+- `checkpoint-trigger` JSONC actor emission from `collect_actors`
+- `has_cps` bool + all three `_lv_objs` scans in build pipeline
+
+**Added:**
+- `collect_load_boundaries(scene, name)` — extracts CHECKPOINT_ + linked VOL_ meshes → boundary dicts with convex-hull XZ polygon in raw game units
+- `_convex_hull_2d(pts)` — Andrew's monotone chain
+- `write_gc` now unconditionally emits `define-perm` + reload guard, then conditionally emits `load-boundary-from-template(static-load-boundary ...)` per checkpoint
+
+**5 bugs caught before any in-game test:**
+1. Reload accumulation — `load-boundary-from-template` prepends on every eval; fixed with perm+restore guard
+2. First-load list wipe — unconditional restore with `#f` tail would nuke all vanilla boundaries; fixed with `(when *lb-tail* ...)`
+3. Quoted-pair binteger (critical) — `'((the binteger 6) ...)` doesn't evaluate in GOAL quote context; engine reads pair pointer instead of boxed int → silent misfire. Fixed by using `static-load-boundary` macro directly
+4. Stale entries on checkpoint removal — cleanup guard was inside `if boundaries:`; fixed by making it unconditional
+5. Redundant `import math` inside function — cleaned up
+
+### Branch status
+`feature/native-checkpoints` — pushed, awaiting in-game test before merge to main.
+
+Active branch: `feature/native-checkpoints`
+Working file: `addons/opengoal_tools.py`
+
+### Next session
+Test the branch in-game. If passing, merge to main. Key REPL check:
+```lisp
+(-> *game-info* current-continue name)  ; should update as you cross the zone
+```
