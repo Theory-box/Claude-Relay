@@ -235,6 +235,8 @@ classes = (
     OG_PT_Music,
     # Spawn group
     OG_PT_Spawn,
+    OG_OT_SearchSelectEntity,
+    OG_PT_SpawnSearch,
     OG_PT_SpawnEnemies,
     OG_PT_SpawnPlatforms,
     OG_PT_SpawnProps,
