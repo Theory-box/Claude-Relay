@@ -4103,6 +4103,7 @@ def patch_level_info(name, spawns, scene=None):
         _sky       = props.sky      if props else True
         _sun_fade  = props.sun_fade if props else 1.0
         _mood_func = MOOD_FUNC_OVERRIDES.get(_mood_id, _mood_id)
+        _sf = f"{_sun_fade:.4g}"; _sf = _sf if "." in _sf else _sf + ".0"
     else:
         _music_val = "#f"
         _sbanks_val = "'()"
@@ -4112,6 +4113,7 @@ def patch_level_info(name, spawns, scene=None):
         _mood_func = "village1"
         _sky       = True
         _sun_fade  = 1.0
+        _sf = "1.0"
 
     # ── Auto-compute bsphere from spawn positions ────────────────────────────
     # Centre = mean of all spawn XZ positions, Y = mean spawn Y + 2m.
@@ -4151,7 +4153,7 @@ def patch_level_info(name, spawns, scene=None):
              f"       :mood-func 'update-mood-{_mood_func}\n"
              f"       :ocean #f\n"
              f"       :sky {'#t' if _sky else '#f'}\n"
-             f"       :sun-fade {_sun_fade:.4g}\n"
+             f"       :sun-fade {_sf}\n"
              f"       :continues\n"
              f"       {_make_continues(name, spawns)}\n"
              f"       :tasks '()\n"
