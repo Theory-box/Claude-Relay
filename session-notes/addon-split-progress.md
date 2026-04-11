@@ -1,119 +1,71 @@
 # Addon Split — Session Notes
 
 **Branch:** `feature/addon-split`
-**Status:** Phase 4 complete — 4 of 7 modules extracted
+**Status:** ALL PHASES COMPLETE — split done, ready for regression testing
 **Last updated:** 2026-04-11
 
 ---
 
-## Goal
+## Final Structure
 
-Split `addons/opengoal_tools.py` (12,429 lines, single file) into a Blender
-package (`addons/opengoal_tools/`) with logical sub-modules. Pure refactor —
-zero logic changes.
+| File | Lines | Contents |
+|---|---|---|
+| `__init__.py` | 445 | bl_info, stdlib imports, 7 submodule imports, preview funcs, classes tuple, register(), unregister() |
+| `data.py` | 2,704 | All pure data tables and derived constants — no bpy |
+| `collections.py` | 324 | Collection path constants, level collection helpers, property accessors |
+| `export.py` | 2,253 | Navmesh geometry, collect/write pipeline, actor/volume helpers, path helpers |
+| `build.py` | 685 | GOALC process management, build/play pipeline, port file helpers |
+| `properties.py` | 254 | OGPreferences, OGProperties, OGLumpRow, OGActorLink, OGVolLink, UIList |
+| `operators.py` | 2,468 | All 76 OG_OT_* operators + helper functions + _draw_mat |
+| `panels.py` | 3,665 | All 65 OG_PT_* panels + _draw_* helpers + 4 mixed operators |
+| **TOTAL** | **12,798** | |
 
----
-
-## Progress
-
-### ✅ Phase 1 — Scaffold (commit c6d209e)
-Created `addons/opengoal_tools/__init__.py` as verbatim copy of the monolith.
-Regression baseline: install `opengoal_tools/` folder from `addons/`.
-
-### ✅ Phase 2 — data.py (commit bbb8b62)
-Extracted all pure data tables and derived constants into `data.py` (2,704 lines).
-36 names explicitly imported. No bpy dependencies. `__init__.py`: 12,429 → 9,783 lines.
-
-### ✅ Phase 3 — collections.py (commit a2d58ad)
-Extracted collection path constants and level collection helpers into `collections.py` (324 lines).
-**Bug fixed:** `_KEY_MAP` defined identically in both `_get_level_prop` and `_set_level_prop` —
-hoisted to module-level `_LEVEL_PROP_KEY_MAP` constant.
-33 names imported. `__init__.py`: 9,783 → 9,475 lines.
-
-### ✅ Phase 4 — export.py (commit 383eb06)
-Extracted navmesh geometry, collect/write pipeline, and actor/volume helpers into
-`export.py` (2,226 lines). Note: path helpers (`_nick`, `_iso`, `_lname`, `_ldir`,
-`_goal_src`, `_level_info`, `_game_gp`, `_levels_dir`, `_entity_gc`) are temporarily
-in `export.py` — they will move to `build.py` when that phase runs.
-45 names imported. `__init__.py`: 9,475 → 7,325 lines.
-
-### Current file sizes
-| File           | Lines |
-|----------------|-------|
-| __init__.py    | 7,325 |
-| data.py        | 2,704 |
-| collections.py |   324 |
-| export.py      | 2,226 |
-| **TOTAL**      | **12,579** |
+Original monolith: `opengoal_tools.py` — 12,429 lines
 
 ---
 
-## Remaining Phases
+## Bugs Fixed During Split
 
-### Phase 5 — build.py
-Extract GOALC process management, build/play pipeline, port file helpers.
-Target lines: ~1,300. Key functions: `launch_goalc`, `launch_gk`, `_bg_build`,
-`_bg_build_and_play`, `_bg_geo_rebuild`, `goalc_send`, `goalc_ok`, `kill_gk`,
-`kill_goalc`, `_process_running`, `_kill_process`, `write_startup_gc`.
-Path helpers (`_nick`, `_iso`, etc.) move here from export.py.
-Note: `import sys as _sys` and `import tempfile as _tempfile` mid-file — move here.
-
-**Find these in current __init__.py:**
-- `class OGPreferences` — L~152
-- `import sys as _sys` — after OGPreferences  
-- `GOALC_PORT`, `GOALC_TIMEOUT`, `_PORT_FILE` constants
-- `_save_port_file`, `_load_port_file`, `_delete_port_file`, `_find_free_nrepl_port`
-- `_exe_root`, `_data_root`, `_gk`, `_goalc`, `_data`
-- `_process_running`, `_kill_process`, `kill_gk`, `kill_goalc`
-- `goalc_send`, `goalc_ok`, `_user_base`, `_user_dir`, `write_startup_gc`
-- `launch_goalc`, `launch_gk`
-- `_bg_build`, `_bg_build_and_play`, `_bg_geo_rebuild`, `_build_state`, `_play_state`
-
-### Phase 6 — properties.py
-Extract `OGProperties` PropertyGroup (~L260–L485 range in current file).
-
-### Phase 7 — operators.py + panels.py
-The 78 operators and 65 panels. May need sub-splitting if still too large.
-Final cleanup of `__init__.py` to ~150 lines: bl_info, imports, classes tuple,
-register/unregister.
+- **`_KEY_MAP` duplicate** (Phase 3): Identical dict defined locally in both `_get_level_prop`
+  and `_set_level_prop`. Hoisted to module-level `_LEVEL_PROP_KEY_MAP` in `collections.py`.
+- **`OGPreferences.bl_idname = __name__`** (Phase 6): Would evaluate to
+  `opengoal_tools.properties` in a submodule. Hardcoded to `"opengoal_tools"`.
 
 ---
 
-## Known Risks Remaining
+## Regression Test Checklist
 
-| Risk | Status |
-|---|---|
-| `_KEY_MAP` duplicate | ✅ Fixed in Phase 3 |
-| Path helpers in export.py (temporary) | Pending Phase 5 |
-| `import sys as _sys` / `import tempfile` mid-file | Pending Phase 5 |
-| operators.py may exceed 3,500 lines | Will assess in Phase 7 |
-
----
-
-## Regression Test Checklist (run after each phase)
-- [ ] Addon installs without error in Blender 4.4
-- [ ] N-panel shows up in viewport
+Run after installing the package in Blender 4.4:
+- [ ] Addon installs without error
+- [ ] N-panel shows up in viewport (OpenGOAL category)
 - [ ] Level panel shows active level settings
 - [ ] Spawn an enemy — routes to correct sub-collection
 - [ ] Build & Play completes without GOAL compile error
 - [ ] Camera trigger works in-game
 - [ ] Checkpoint trigger fires and re-arms
+- [ ] Hot-reload (OG_OT_ReloadAddon) works
+
+## Install method
+Zip the `opengoal_tools/` folder (the directory itself, not its contents).
+Install via Blender Preferences → Add-ons → Install from file.
 
 ---
 
-## Files
+## Known Notes for Future Work
 
-- `addons/opengoal_tools.py` on `main` — source of truth, do not touch during split
-- `addons/opengoal_tools/` on `feature/addon-split` — working directory
-- `session-notes/addon-split-progress.md` — this file
+- Path helpers (`_nick`, `_iso`, `_lname`, `_ldir`, `_goal_src`, `_level_info`,
+  `_game_gp`, `_levels_dir`, `_entity_gc`) currently live in `export.py` but
+  logically belong in `build.py`. Low priority since both modules are reasonably sized.
+- `panels.py` at 3,665 lines is the largest file. Could be split into
+  `panels_actor.py` + `panels_level.py` etc if future editing warrants it.
+- `operators.py` contains `_draw_mat` (a panel draw callback). Acceptable since
+  it's small and tightly coupled to register().
 
 ---
 
 ## Session Log
 
-- 2026-04-11 (Session 1): Branch created. Analysis complete. Dependency graph mapped.
-  _KEY_MAP duplicate noted. Implementation plan written.
-- 2026-04-11 (Session 2): Phase 1 scaffold. Phase 2 data.py. Phase 3 collections.py
-  (fixed _KEY_MAP). Phase 4 export.py. All 4 modules AST-verified. 
-  __init__.py: 12,429 → 7,325 lines (-5,104). 
-  Next: Phase 5 build.py.
+- 2026-04-11 (Session 1): Branch created. Analysis complete.
+- 2026-04-11 (Session 2): Phases 1-4 complete (scaffold, data, collections, export).
+- 2026-04-11 (Session 3): Phases 5-7 complete (build, properties, operators+panels).
+  Split complete. All 8 files AST-verified. 285 named imports, all resolved.
