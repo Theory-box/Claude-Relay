@@ -277,3 +277,137 @@ C) On 4.0+, manually arrange attributes so COLOR_N comes out in correct
 ### Stop point
 Session 4 end. NO fix yet. NO addon changes. Need to read jak-project
 importer source before proposing anything.
+
+---
+
+## Session 5 — April 11 — ROOT CAUSE FULLY CONFIRMED + FIX DESIGNED
+
+### Source code trace complete
+Full read of jak-project C++ source. Files examined:
+- `common/util/gltf_util.cpp` — `gltf_vertices()` + `pack_time_of_day()`
+- `common/custom_data/Tfrag3Data.h` — `PackedTimeOfDay` struct
+- `goalc/build_level/common/gltf_mesh_extract.cpp` — mesh extraction pipeline
+- `goalc/build_level/common/Tfrag.cpp` + `Tie.cpp` — call sites
+- `game/graphics/opengl_renderer/background/TFragment.cpp` + `background_common.cpp` — renderer
+- `goal_src/jak1/engine/gfx/mood/mood.gc` — `update-mood-itimes`
+
+### What the engine ACTUALLY does (renderer side)
+`PackedTimeOfDay` stores 8 palettes × N colors × 4 channels.
+Every frame, `interp_time_of_day()` reads `camera.itimes` (the GOAL-packed blend weights from
+`update-mood-itimes`) and computes a weighted sum across all 8 palettes for each color entry.
+This is SSE-vectorised, fully functional, and used for TFrag, TIE, Shrub, and Hfrag.
+The 8 palette slots map DIRECTLY to GOAL `times[0..7].w`:
+  palette 0 = times[0] = _SUNRISE
+  palette 1 = times[1] = _MORNING
+  palette 2 = times[2] = _NOON
+  palette 3 = times[3] = _AFTERNOON
+  palette 4 = times[4] = _SUNSET
+  palette 5 = times[5] = _TWILIGHT
+  palette 6 = times[6] = _EVENING
+  palette 7 = times[7] = _GREENSUN
+
+### What the level builder ACTUALLY does (builder side)
+`pack_time_of_day()` in `common/util/gltf_util.cpp` line 759:
+  - Takes ONE `vector<Vector<u8,4>> color_palette`
+  - Copies it identically into ALL 8 palette slots
+  - Source: only ever called with `mesh_extract_out.color_palette`
+  - `mesh_extract_out.color_palette` comes from `gltf_vertices()` which reads `COLOR_0` only
+
+`gltf_vertices()` line 231:
+  ```cpp
+  const auto& color_attrib = attributes.find("COLOR_0");
+  ```
+  No code anywhere in the builder reads `_SUNRISE`, `_MORNING`, `_NOON`, etc.
+  Zero mentions of these names in the entire jak-project codebase.
+
+### Root cause — one sentence
+The level builder reads only `COLOR_0` and writes it into all 8 TOD palette slots,
+making them all identical, so `interp_time_of_day` always produces the same result
+regardless of the time-of-day blend weights.
+
+### Why community users "have it working"
+The community is NOT using per-slot vertex color baking via named attributes.
+Their levels show TOD changes in fog/sky/actor lighting (mood system — fully working)
+but NOT per-vertex geometry lighting changes across time slots. Either:
+  (a) They consider fog+sky change sufficient and call it "TOD working", OR
+  (b) They use the full pipeline but accept that all geometry slots are identical
+      (baked to one single lighting condition which looks fine since most levels do
+       not strongly vary vertex colors across TOD anyway), OR
+  (c) A small number use a custom build/fork of jak-project with an extended builder
+
+### The fix — C++ level builder change required
+The addon's `_SUNRISE`/`_NOON` export is correct. The fix is in jak-project source.
+
+**Files to change:**
+1. `common/util/gltf_util.h` — add declaration:
+   ```cpp
+   tfrag3::PackedTimeOfDay pack_time_of_day(
+     const std::array<std::vector<math::Vector<u8, 4>>, 8>& palettes);
+   ```
+
+2. `common/util/gltf_util.cpp` — add overload:
+   ```cpp
+   tfrag3::PackedTimeOfDay pack_time_of_day(
+     const std::array<std::vector<math::Vector<u8, 4>>, 8>& palettes) {
+     // all palettes must have same size; use palette[2] (NOON) as size reference
+     const auto n = palettes[2].size();
+     tfrag3::PackedTimeOfDay colors;
+     colors.color_count = (n + 3) & (~3);
+     colors.data.resize(colors.color_count * 8 * 4);
+     for (u32 color_index = 0; color_index < n; color_index++) {
+       for (u32 palette = 0; palette < 8; palette++) {
+         for (u32 channel = 0; channel < 4; channel++) {
+           colors.read(color_index, palette, channel) =
+             palettes[palette][color_index][channel];
+         }
+       }
+     }
+     return colors;
+   }
+   ```
+   Also add a helper to read a named attribute (not just COLOR_0):
+   ```cpp
+   // reads a named vertex color attribute (e.g. "_SUNRISE") instead of COLOR_0
+   // returns empty vector if attribute not present
+   std::vector<math::Vector<u8, 4>> gltf_colors_for_attribute(
+     const tinygltf::Model& model,
+     const std::map<std::string, int>& attributes,
+     const std::string& attr_name);
+   ```
+
+3. `goalc/build_level/common/gltf_mesh_extract.cpp` — change tfrag + TIE extraction to:
+   - After collecting vertices per primitive, also collect colors for all 8 named slots
+   - If any `_NAME` slot is present on the mesh, use 8-palette path
+   - If no `_NAME` slots (legacy mesh), fall back to COLOR_0 + duplicate (existing behavior)
+   - Aggregate all-vertex color lists per slot across all primitives, then call new `pack_time_of_day`
+
+### Color quantization consideration
+The existing path runs `quantize_colors_kd_tree` on one palette, producing `color_indices` (shared
+vertex→palette-entry mapping) + `color_palette`. The 8-palette extension must share the same
+`color_indices` — you can't have separate per-slot quantization because vertices need to reference
+the same index regardless of TOD slot (the engine uses one index per vertex, not one per slot).
+
+Correct approach:
+  - Quantize on the NOON palette (slot 2, the canonical "base" bake)
+  - Use the resulting `vtx_to_color` index mapping for all 8 slots
+  - Build 8 color palettes where `palette[slot][color_index]` = average color of all vertices
+    mapped to that index in that slot's raw color data
+
+### Confidence: VERY HIGH
+- Every claim above is sourced from reading actual lines of source code
+- The renderer works, the GOAL pipeline works, the GLB export works
+- The one broken link is `gltf_vertices` reading `COLOR_0` only and `pack_time_of_day`
+  receiving a single palette and duplicating it
+
+### What we should NOT change
+- The Blender addon's `_SUNRISE`/`_NOON` etc. export — it is correct
+- The renderer — it is correct
+- The GOAL mood system — it is correct and unrelated to vertex color TOD
+
+### Stop point / next action
+This is a C++ change to jak-project, not a Blender addon change.
+To get it working:
+  Option A — Submit PR to jak-project with the fix above
+  Option B — Build a custom version of jak-project with the change
+  Option C — As a workaround: bake all 8 slots to the same lighting (what users already do),
+              and accept that geometry color doesn't change with TOD (only fog/sky/actor lighting does)
