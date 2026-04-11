@@ -4381,6 +4381,87 @@ def remove_level(name):
     return msgs
 
 
+
+# ── GLB TOD slot remapper ──────────────────────────────────────────────────────
+# After export, rename _SUNRISE.._GREENSUN primitive attributes to COLOR_0..COLOR_7
+# so the patched goalc builder can read them as numbered color streams.
+# Only runs when the patched builder is active (_tod_patch_status == "patched").
+
+_TOD_SLOT_TO_COLOR = {
+    "_SUNRISE":   "COLOR_0",
+    "_MORNING":   "COLOR_1",
+    "_NOON":      "COLOR_2",
+    "_AFTERNOON": "COLOR_3",
+    "_SUNSET":    "COLOR_4",
+    "_TWILIGHT":  "COLOR_5",
+    "_EVENING":   "COLOR_6",
+    "_GREENSUN":  "COLOR_7",
+}
+
+def _glb_remap_tod_slots(glb_path):
+    """
+    Rewrites the GLB JSON chunk to rename _NAME TOD attribute keys to COLOR_N.
+    The binary buffer is untouched — only the JSON metadata changes.
+    Returns True if any changes were made, False if nothing to do.
+    """
+    import struct, json as _json
+    from pathlib import Path
+
+    data = bytearray(Path(glb_path).read_bytes())
+
+    # GLB header: magic(4) version(4) length(4)
+    if data[:4] != b'glTF':
+        return False
+
+    # JSON chunk: length(4) type(4) data(length)
+    json_chunk_len = struct.unpack_from("<I", data, 12)[0]
+    # chunk type at offset 16 should be 0x4E4F534A ("JSON")
+    json_start = 20
+    json_bytes = data[json_start : json_start + json_chunk_len].rstrip(b'\x20')  # strip space padding
+
+    try:
+        gltf = _json.loads(json_bytes)
+    except Exception:
+        return False
+
+    changed = False
+    for mesh in gltf.get("meshes", []):
+        for prim in mesh.get("primitives", []):
+            attrs = prim.get("attributes", {})
+            remapped = {}
+            for key, val in attrs.items():
+                new_key = _TOD_SLOT_TO_COLOR.get(key, key)
+                if new_key != key:
+                    changed = True
+                remapped[new_key] = val
+            if changed:
+                prim["attributes"] = remapped
+
+    if not changed:
+        return False
+
+    # Reserialise JSON, pad to 4-byte boundary with spaces
+    new_json = _json.dumps(gltf, separators=(",", ":")).encode("utf-8")
+    pad = (4 - len(new_json) % 4) % 4
+    new_json += b'\x20' * pad  # GLB spec: JSON chunk padded with spaces
+
+    # Rebuild: header + new JSON chunk + rest of file (BIN chunk unchanged)
+    old_json_end = json_start + json_chunk_len
+    bin_chunk = data[old_json_end:]  # BIN chunk (length + type + data) or empty
+
+    new_json_chunk = struct.pack("<II", len(new_json), 0x4E4F534A) + new_json
+    new_total = 12 + len(new_json_chunk) + len(bin_chunk)
+
+    new_data = bytearray()
+    new_data += data[:8]                          # magic + version
+    new_data += struct.pack("<I", new_total)      # updated total length
+    new_data += new_json_chunk
+    new_data += bin_chunk
+
+    Path(glb_path).write_bytes(bytes(new_data))
+    return True
+
+
 def export_glb(ctx, name):
     d = _ldir(name); d.mkdir(parents=True, exist_ok=True)
 
@@ -4443,6 +4524,12 @@ def export_glb(ctx, name):
             export_yup=True, export_skins=False, export_animations=False,
             export_extras=True, **_ea_kwargs)
 
+    # Remap _SUNRISE.._GREENSUN → COLOR_0..COLOR_7 when TOD patch is active
+    if _tod_patch_status(_data_root()) == "patched":
+        glb_path = str(_ldir(name) / f"{name}.glb")
+        remapped = _glb_remap_tod_slots(glb_path)
+        if remapped:
+            log("GLB: remapped TOD slots to COLOR_N for patched builder")
     log("Exported GLB")
 
 # ---------------------------------------------------------------------------
