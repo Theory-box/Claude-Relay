@@ -125,3 +125,82 @@ qx, qy, qz, qw = -gq.x, -gq.y, -gq.z, gq.w  # conjugate
 - `knowledge-base/opengoal/` — system reference docs
 - `session-notes/` — per-feature progress tracking
 
+
+---
+
+## Trigger System Research — April 2026
+
+### Camera triggers
+Native vol-lump camera region system exists in engine (`master-check-regions`, `in-cam-entity-volume?`, `vol`/`pvol` plane lumps on `entity-camera`) but is NOT reachable from custom levels. The C++ builder (`build_level/jak1/LevelFile.cpp`) has the cameras section entirely commented out — `EntityCamera` is an empty stub struct, the JSONC cameras array is never read, so `entity-camera.birth!` never fires and `*camera-engine*` stays empty.
+
+**Decision: Keep `camera-trigger` custom deftype. It is the only working approach.**
+
+Future upstream path: implement `add_cameras_from_json()` in build_level, then use `vol` lumps directly on camera-marker entities. See `knowledge-base/opengoal/trigger-systems.md`.
+
+### Checkpoint triggers
+`static-load-boundary` with `checkpt` command is the native approach — pure GOAL, no born process, proper XZ polygon crossing detection with fwd/bwd direction, fires `set-continue!` on crossing. Called every frame in `render-boundaries` walking `*load-boundary-list*`.
+
+**Decision: Replace `checkpoint-trigger` deftype with `static-load-boundary` GOAL emission.**
+
+Implementation plan:
+1. New `collect_load_boundaries(scene)` → list of boundary dicts (xz polygon, top/bot, cp_name)
+2. `write_gc`: remove `checkpoint-trigger` deftype; emit `(defun setup-level-checkpoints () ...)` that creates and links load-boundary objects at level load time
+3. Stop emitting `checkpoint-trigger` JSONC actors in `collect_actors`
+
+Coordinate conversion: boundary x = bl_x * 4096, boundary z = -bl_y * 4096, top/bot = bl_z * 4096. Points are RAW game units, not meters.
+
+### Enemy aggro triggers
+No native equivalent. Keep `aggro-trigger` custom deftype.
+
+## feature/native-checkpoints — April 2026
+
+### What changed
+Replaced `checkpoint-trigger` custom GOAL deftype with native `load-boundary` engine system.
+
+**Removed:**
+- `checkpoint-trigger` deftype + state + init-from-entity! from obs.gc (~70 lines)
+- checkpoint-trigger JSONC actor emission from collect_actors
+- `has_cps` bool detection in all 3 build pipeline call sites
+
+**Added:**
+- `collect_load_boundaries(scene, name)` — extracts CHECKPOINT_ empties + linked VOL_ meshes into boundary dicts with convex-hull XZ polygon coordinates
+- `_convex_hull_2d(pts)` — Andrew's monotone chain for clean polygon footprints from arbitrary VOL_ mesh vertex clouds
+- `write_gc` now emits `define-perm`/`when`/`set!` reload guard + `load-boundary-from-template` calls per checkpoint
+
+**Generated GOAL pattern:**
+```lisp
+(define-perm *my-level-lb-tail* load-boundary #f)
+
+(when *my-level-lb-tail*
+  (set! *load-boundary-list* *my-level-lb-tail*))  ; reload: snip old entries
+(set! *my-level-lb-tail* *load-boundary-list*)     ; save vanilla head
+
+(load-boundary-from-template
+  (new 'static 'boxed-array :type array :length 4 :allocated-length 4
+    (the binteger 3)                         ; flags = player|closed
+    (new 'static 'boxed-array :type float :length N :allocated-length N
+      top bot x0 z0 x1 z1 ...)              ; raw game units
+    '((the binteger 6) "continue-name" #f)   ; fwd = checkpt
+    '((the binteger 0) #f #f)))              ; bwd = invalid
+```
+
+**Verified:**
+- `define-perm` semantics (define-once, skips if already set) — correct
+- `load-boundary-from-template` argument structure — exact match to engine source
+- flags=3 (player|closed), checkpt=6, invalid=0 — confirmed against enum values
+- Coordinate conversion: bl_x*4096=bnd_x, -bl_y*4096=bnd_z, bl_z*4096=top/bot
+- Convex hull with 4-point box test — correct extents
+- First-load / reload execution trace — no accumulation, vanilla list untouched
+- `border?` confirmed set by target-continue `:exit` handler — boundaries fire in gameplay
+
+### Status
+Branch: `feature/native-checkpoints` — READY FOR IN-GAME TEST
+Not yet merged to main.
+
+### Test checklist (before merge)
+- [ ] Place CHECKPOINT_ empty in a level, export and build — obs.gc compiles without error
+- [ ] Player walks through checkpoint area — continue-name updates (check via REPL: `(-> *game-info* current-continue name)`)
+- [ ] Player dies — respawns at checkpoint, not level start
+- [ ] Hot-reload via nREPL (`(mi)`) — no duplicate boundaries, checkpoints still fire
+- [ ] Level with no checkpoints — obs.gc compiles cleanly (no load-boundary code emitted)
+- [ ] VOL_ mesh linked to CHECKPOINT_ — convex hull boundary matches mesh footprint in-game
