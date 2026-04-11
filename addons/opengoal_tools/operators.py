@@ -42,6 +42,7 @@ from .export import (
     _classify_target, _clean_orphaned_vol_links, collect_actors,
     collect_spawns, collect_ambients, needed_ags, needed_code,
     patch_level_info, patch_game_gp, discover_custom_levels, remove_level,
+    export_glb,
 )
 from .build import (
     _EXE, _BUILD_STATE, _PLAY_STATE, _GEO_REBUILD_STATE, _BUILD_PLAY_STATE, _exe_root, _data_root, _data,
