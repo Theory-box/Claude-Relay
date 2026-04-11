@@ -1,7 +1,7 @@
 bl_info = {
     "name": "OpenGOAL Level Tools",
     "author": "water111 / JohnCheathem",
-    "version": (1, 2, 0),
+    "version": (1, 3, 0),
     "blender": (4, 4, 0),
     "location": "View3D > N-Panel > OpenGOAL",
     "description": "Jak 1 level export, actor placement, build and launch tools",
@@ -1978,41 +1978,27 @@ def write_gc(name, has_triggers=False, boundaries=None, has_aggro_triggers=False
         ]
         log(f"  [write_gc] camera-trigger type embedded")
 
+    # Always emit the lb-tail perm and cleanup guard, even with no checkpoints.
+    # This ensures stale entries from a previous build (when checkpoints existed)
+    # are removed when rebuilding without any checkpoints.
+    lines += [
+        f";; load-boundary cleanup guard for {name}.",
+        f";; *{name}-lb-tail* tracks the vanilla list head before our entries.",
+        f";; Always emitted so removing all checkpoints cleans up stale entries.",
+        f"(define-perm *{name}-lb-tail* load-boundary #f)",
+        f"(when *{name}-lb-tail*",
+        f"  (set! *load-boundary-list* *{name}-lb-tail*))",
+        f"(set! *{name}-lb-tail* *load-boundary-list*)",
+        f"",
+    ]
+
     if boundaries:
         # Emit native load-boundary objects for each CHECKPOINT_ empty.
-        #
-        # Each boundary uses engine-native XZ polygon crossing detection
-        # (check-boundary, called every frame in render-boundaries).
-        # On crossing it fires (set-continue! *game-info* "cp-name").
-        # :flags 3 = (load-boundary-flags player closed).
+        # Uses the static-load-boundary macro — same as load-boundary-data.gc
+        # for all 170 vanilla boundaries. The macro evaluates (the binteger ...)
+        # at compile time, producing correct boxed integers in static data.
+        # :flags (player closed) — closed polygon, trigger on player position.
         # No born process. No per-frame GOAL poll. No custom deftype.
-        #
-        # RELOAD SAFETY: load-boundary-from-template prepends to *load-boundary-list*.
-        # If obs.gc is re-evaluated (hot reload via nREPL), boundaries accumulate.
-        # Fix: save list head BEFORE our entries as *<n>-lb-tail*.
-        # On reload, restore *load-boundary-list* to that pointer first —
-        # cleanly removing our previous entries without touching vanilla ones.
-        #
-        # load-boundary-from-template expects boxed-array of 4 elements:
-        #   [0] flags binteger  — 3 = (load-boundary-flags player closed)
-        #   [1] float array     — top, bot, x0, z0, x1, z1, ...
-        #   [2] fwd cmd pair    — '((the binteger 6) "name" #f)  ; 6 = checkpt
-        #   [3] bwd cmd pair    — '((the binteger 0) #f #f)      ; 0 = invalid
-        #
-        lines += [
-            f";; Native load-boundary checkpoints for {name}.",
-            f";; *{name}-lb-tail* stores the vanilla list head (before our entries).",
-            f";; On first load it is #f so we skip the restore. On reload we snip",
-            f";; our previous entries by restoring to it before re-adding.",
-            f"(define-perm *{name}-lb-tail* load-boundary #f)",
-            f"",
-            f";; On reload only: restore list to vanilla head, removing our old entries.",
-            f"(when *{name}-lb-tail*",
-            f"  (set! *load-boundary-list* *{name}-lb-tail*))",
-            f";; Save vanilla head — our new entries will prepend before it.",
-            f"(set! *{name}-lb-tail* *load-boundary-list*)",
-            f"",
-        ]
 
         for bd in boundaries:
             cp    = bd["cp_name"]
