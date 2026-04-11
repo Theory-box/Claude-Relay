@@ -1993,6 +1993,21 @@ def write_gc(name, has_triggers=False, boundaries=None, has_aggro_triggers=False
     ]
 
     if boundaries:
+        # Enable border-checking so render-boundaries fires each frame.
+        # The engine only runs check-boundary when (-> *target* control border?) is #t.
+        # In vanilla levels this is set by target-continue's :exit handler after the
+        # first respawn. Custom levels never go through that path, so it's never set.
+        # We set it here unconditionally. The (when *target* ...) guard handles cold
+        # load (Jak not yet spawned); on hot-reload (mi) *target* is live and it fires.
+        lines += [
+            f";; Enable load-boundary crossing detection for this level.",
+            f";; render-boundaries only fires check-boundary when border? is #t.",
+            f";; Vanilla levels get this via target-continue; custom levels must set it.",
+            f"(when *target*",
+            f"  (set! (-> *target* control border?) #t))",
+            f"",
+        ]
+
         # Emit native load-boundary objects for each CHECKPOINT_ empty.
         # Uses the static-load-boundary macro — same as load-boundary-data.gc
         # for all 170 vanilla boundaries. The macro evaluates (the binteger ...)
