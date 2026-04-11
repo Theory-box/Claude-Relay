@@ -2224,3 +2224,30 @@ def export_glb(ctx, name):
 
     log("Exported GLB")
 
+
+
+def _clean_orphaned_vol_links(scene):
+    """Remove link entries from VOL_ meshes whose targets no longer exist.
+    Called at export time and available as a panel button.
+    Returns list of (vol_name, target_name) tuples that were cleaned.
+    Volume is renamed if its link count changes (or restored to VOL_<id> if empty).
+    """
+    cleaned = []
+    for o in _level_objects(scene):
+        if o.type != "MESH" or not o.name.startswith("VOL_"):
+            continue
+        links = _vol_links(o)
+        # walk in reverse so removals don't shift indices
+        i = len(links) - 1
+        any_removed = False
+        while i >= 0:
+            tname = links[i].target_name
+            if not scene.objects.get(tname):
+                links.remove(i)
+                cleaned.append((o.name, tname))
+                log(f"  [vol] cleaned orphaned link {o.name} → '{tname}' (target deleted)")
+                any_removed = True
+            i -= 1
+        if any_removed:
+            _rename_vol_for_links(o)
+    return cleaned
