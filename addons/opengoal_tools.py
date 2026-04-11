@@ -10537,6 +10537,36 @@ source tree. Requires rebuilding goalc afterward."""
         return {"FINISHED"}
 
 
+class OG_OT_RestoreTODBackup(Operator):
+    """Restore the original jak-project source files from the .og_tod_bak backups
+created when the TOD patch was first applied. Use this if Remove Patch fails
+or the files end up in an unexpected state."""
+    bl_idname   = "og.restore_tod_backup"
+    bl_label    = "Restore from Backup"
+    bl_description = "Restore original C++ files from .og_tod_bak backups made before patching"
+
+    def execute(self, ctx):
+        import shutil
+        files   = _tod_patch_files(_data_root())
+        restored = []
+        missing  = []
+        for k, p in files.items():
+            bak = p.with_suffix(p.suffix + ".og_tod_bak")
+            if bak.exists():
+                shutil.copy2(str(bak), str(p))
+                restored.append(p.name)
+            else:
+                missing.append(p.name)
+        if not restored:
+            self.report({"WARNING"}, "No .og_tod_bak backups found — nothing restored")
+            return {"CANCELLED"}
+        msg = f"Restored {len(restored)} files from backup"
+        if missing:
+            msg += f" (no backup for: {', '.join(missing)})"
+        self.report({"INFO"}, msg)
+        return {"FINISHED"}
+
+
 class OG_OT_UnpatchTODGeometry(Operator):
     """Remove the TOD geometry patch from jak-project source files,
 restoring them to their original state."""
@@ -10602,6 +10632,13 @@ def _apply_tod_geometry_patch(root):
     status = _tod_patch_status(root)
     if status == "patched":
         return {"errors": [], "changed": [], "already_patched": True}
+
+    # ── Backup originals before touching anything ─────────────────────────────
+    for k, p in files.items():
+        bak = p.with_suffix(p.suffix + ".og_tod_bak")
+        if not bak.exists():  # don't overwrite an existing backup
+            import shutil
+            shutil.copy2(str(p), str(bak))
 
     # ── gltf_util.h ──────────────────────────────────────────────────────────
     OLD_UTIL_H = "tfrag3::PackedTimeOfDay pack_time_of_day(const std::vector<math::Vector<u8, 4>>& color_palette);\n\nstruct MercExtractData {"
@@ -10990,10 +11027,21 @@ class OG_PT_DevTools(Panel):
             tod_box.label(text="Set Data Path in preferences", icon="INFO")
         elif status == "patched":
             tod_box.label(text="✓ Patch applied — rebuild goalc", icon="CHECKMARK")
-            tod_box.operator("og.unpatch_tod_geometry", text="Remove Patch", icon="X")
+            row = tod_box.row(align=True)
+            row.operator("og.unpatch_tod_geometry",  text="Remove Patch",       icon="X")
+            # Show restore button only if backups exist
+            files = _tod_patch_files(_data_root())
+            has_bak = any(p.with_suffix(p.suffix + ".og_tod_bak").exists() for p in files.values())
+            if has_bak:
+                row.operator("og.restore_tod_backup", text="Restore Backup", icon="LOOP_BACK")
         elif status == "partial":
             tod_box.label(text="⚠ Partial patch — re-apply", icon="ERROR")
-            tod_box.operator("og.patch_tod_geometry",   text="Apply TOD Patch", icon="TOOL_SETTINGS")
+            row = tod_box.row(align=True)
+            row.operator("og.patch_tod_geometry",   text="Apply TOD Patch",  icon="TOOL_SETTINGS")
+            files = _tod_patch_files(_data_root())
+            has_bak = any(p.with_suffix(p.suffix + ".og_tod_bak").exists() for p in files.values())
+            if has_bak:
+                row.operator("og.restore_tod_backup", text="Restore Backup", icon="LOOP_BACK")
         else:
             tod_box.label(text="Enables per-slot vertex color TOD", icon="INFO")
             tod_box.operator("og.patch_tod_geometry",   text="Apply TOD Patch", icon="TOOL_SETTINGS")
@@ -11519,7 +11567,7 @@ classes = (
     OG_OT_AddLumpRow, OG_OT_RemoveLumpRow, OG_OT_UseLumpRef,
     OG_UL_LumpRows,
     OG_OT_ReloadAddon, OG_OT_CleanLevelFiles,
-    OG_OT_PatchTODGeometry, OG_OT_UnpatchTODGeometry,
+    OG_OT_PatchTODGeometry, OG_OT_UnpatchTODGeometry, OG_OT_RestoreTODBackup,
     OG_OT_SpawnPlayer, OG_OT_SpawnCheckpoint, OG_OT_SpawnCamAnchor,
     OG_OT_SpawnVolume, OG_OT_SpawnVolumeAutoLink, OG_OT_LinkVolume, OG_OT_UnlinkVolume, OG_OT_CleanOrphanedLinks,
     OG_OT_RemoveVolLink, OG_OT_AddLinkFromSelection, OG_OT_SpawnAggroTrigger,
