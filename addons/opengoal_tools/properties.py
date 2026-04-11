@@ -62,6 +62,7 @@ class OGProperties(PropertyGroup):
     # Search bar (Spawn Objects panel)
     entity_search:          StringProperty(name="", description="Search all spawnable objects by name", default="")
     entity_search_selected: StringProperty(name="", description="Currently selected search result", default="")
+    show_search_results:    BoolProperty(name="Results", default=True)
     platform_type:  EnumProperty(name="Platform Type",  items=PLATFORM_ENUM_ITEMS)
     crate_type:  EnumProperty(name="Crate Type",  items=CRATE_ITEMS)
     # Per-category entity pickers — each Spawn sub-panel uses its own prop

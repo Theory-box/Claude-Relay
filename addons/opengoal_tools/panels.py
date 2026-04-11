@@ -549,23 +549,31 @@ class OG_PT_SpawnSearch(Panel):
             matches.sort(key=lambda x: x[1]["label"].lower())
 
             if matches:
-                box = layout.box()
-                selected = props.entity_search_selected
+                # Collapsible header for results
+                icon = "TRIA_DOWN" if props.show_search_results else "TRIA_RIGHT"
+                row_hdr = layout.row()
+                row_hdr.prop(props, "show_search_results",
+                             text=f"Results ({min(len(matches), 20)}{'+' if len(matches) > 20 else ''})",
+                             icon=icon, emboss=False)
 
-                for etype, info in matches[:20]:
-                    cat    = info.get("cat", "")
-                    label  = info["label"]
-                    is_sel = (etype == selected)
-                    row2   = box.row(align=True)
-                    op = row2.operator(
-                        "og.search_select_entity",
-                        text=f"{'▶ ' if is_sel else ''}{label}  [{cat}]",
-                        emboss=is_sel,
-                    )
-                    op.etype = etype
+                if props.show_search_results:
+                    box = layout.box()
+                    selected = props.entity_search_selected
 
-                if len(matches) > 20:
-                    layout.label(text=f"… {len(matches) - 20} more — refine your search", icon="INFO")
+                    for etype, info in matches[:20]:
+                        cat    = info.get("cat", "")
+                        label  = info["label"]
+                        is_sel = (etype == selected)
+                        row2   = box.row(align=True)
+                        op = row2.operator(
+                            "og.search_select_entity",
+                            text=f"{'▶ ' if is_sel else ''}{label}  [{cat}]",
+                            emboss=is_sel,
+                        )
+                        op.etype = etype
+
+                    if len(matches) > 20:
+                        layout.label(text=f"… {len(matches) - 20} more — refine your search", icon="INFO")
 
                 layout.separator(factor=0.3)
                 sel = props.entity_search_selected
