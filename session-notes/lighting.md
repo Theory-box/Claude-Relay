@@ -60,3 +60,21 @@ Levels → Light Baking → 🕐 Time of Day
 ## Known Gaps
 - Custom mood tables (fog/lights/sun per slot) still require manual GOAL editing
 - Blender <3.4: export_attributes not available, ToD slots bake but won't export
+
+---
+
+## Bug Audit Session — 9 fixes applied
+
+### Confirmed Bugs Fixed
+1. **sun_fade precision** — `:.1f` formatted `0.25` as `0.2` in GOAL output → fixed to `:.4g`
+2. **SetupTOD double-link crash** — `children_recursive` check ran after `level_col.children.link()` already called, causing `RuntimeError: already in collection` → guard now checks `level_col.children` instead
+3. **`hasattr(scene, "cycles")` wrong guard** — this always returns True (scene.cycles always exists); used in both bake ops → removed, access scene.cycles directly
+4. **No try/finally in BakeToDSlot** — if bake raised, engine/selection never restored → wrapped in try/finally
+5. **`target="ACTIVE_COLOR_ATTRIBUTE"`** — requires Blender 3.4+, inconsistent with existing BakeLighting → changed to `target="VERTEX_COLORS"` (works from 3.1+)
+6. **`active_index` assignment** — color_attributes.active_index deprecated path; should set `.active_color = mesh.color_attributes[name]` → fixed in both bake ops
+7. **BakeAllToDSlots** — same bugs 3–6 present, all fixed
+8. **`export_attributes` missing from export_glb** — ToD vertex color slots (`_SUNRISE` etc.) were not being exported to GLB → added `export_attributes=True` with version guard `bpy.app.version >= (3, 4, 0)` to both export paths (selection and fallback)
+9. **Leftover bad display lookup** — a broken first attempt at slot display name resolution (`d for _, d, _ in TOD_SLOTS if _ == slot`) left in alongside the correct one → removed
+
+### Minor Cleanup
+- Removed unused `TOD_COLLECTION_NAMES` / `TOD_SLOT_IDS` constants (SetupTOD iterates TOD_SLOTS directly)
