@@ -1652,23 +1652,33 @@ def collect_load_boundaries(scene, name):
 
         vol_obj = vol_by_cp.get(o.name)
         if vol_obj:
-            # VOL_ mesh mode — extract XZ polygon from world-space vertices.
-            # We project all verts onto the XZ plane (game space) and take
-            # the convex hull to get a clean boundary polygon.
+            # VOL_ mesh mode — emit a 2-point open line segment.
+            #
+            # check-open-boundary is a line-crossing test: it fires when the
+            # player's XZ movement crosses any edge [0->1, 1->2, ..., (n-2)->(n-1)]
+            # within the Y range [bot, top]. Vanilla checkpoint boundaries are all
+            # 2-3 point open lines, NOT closed polygons. A 4-point hull box only
+            # gets 3 edges tested and the player may spawn inside it (no crossing).
+            #
+            # Strategy: find the longest edge of the VOL_ convex hull and emit
+            # just those 2 points — one clear line the player walks through.
             corners = [vol_obj.matrix_world @ v.co for v in vol_obj.data.vertices]
             gc = [(c.x, c.z, -c.y) for c in corners]  # (game_x, game_y, game_z)
 
-            # raw game-unit Y bounds from mesh height
-            ys   = [c[1] for c in gc]
-            top  = round(max(ys) * METER + METER, 0)   # +1m headroom
-            bot  = round(min(ys) * METER - METER, 0)   # -1m floor buffer
+            ys  = [c[1] for c in gc]
+            top = round(max(ys) * METER + METER, 0)
+            bot = round(min(ys) * METER - METER, 0)
 
-            # XZ footprint — convex hull of (game_x, game_z) pairs
             xz_pts = [(c[0], c[2]) for c in gc]
             hull   = _convex_hull_2d(xz_pts)
-            # convert to raw game units
-            points = [(round(p[0] * METER, 1), round(p[1] * METER, 1)) for p in hull]
 
+            # check-open-boundary checks edges 0→1, 1→2, ..., (n-2)→(n-1).
+            # It does NOT wrap around to edge (n-1)→0.
+            # Duplicate the first point as the last point so all sides fire:
+            # 4-pt box → 5 pts → edges 0→1, 1→2, 2→3, 3→4(==0). All 4 sides.
+            hull_closed = hull + [hull[0]]
+            points = [(round(p[0] * METER, 1), round(p[1] * METER, 1)) for p in hull_closed]
+            n_pts  = len(points)
             cx = round(sum(p[0] for p in hull) / len(hull), 4)
             cz = round(sum(p[1] for p in hull) / len(hull), 4)
             cy = round((max(ys) + min(ys)) / 2, 4)
@@ -1678,25 +1688,29 @@ def collect_load_boundaries(scene, name):
                 "points": points, "top": top, "bot": bot,
                 "cx": cx, "cy": cy, "cz": cz,
             })
-            log(f"  [load-boundary] {o.name} → '{cp_name}'  vol={vol_obj.name} ({len(points)} pts)")
+            log(f"  [load-boundary] {o.name} → '{cp_name}'  vol={vol_obj.name} ({n_pts} pts, closed loop)")
         else:
-            # Sphere mode — approximate circle as 8-gon in XZ plane.
+            # No VOL_ linked — 2-point line along the empty's local X axis.
             l  = o.location
             gx = l.x;  gz = -l.y;  gy = l.z
-            r  = float(o.get("og_checkpoint_radius", 3.0))
-            n  = 8
-            pts_bl = [(gx + r * math.cos(2*math.pi*i/n),
-                       gz + r * math.sin(2*math.pi*i/n)) for i in range(n)]
-            points = [(round(p[0] * METER, 1), round(p[1] * METER, 1)) for p in pts_bl]
-            top    = round((gy + r) * METER + METER, 0)
-            bot    = round((gy - r) * METER - METER, 0)
+            r  = float(o.get("og_checkpoint_radius", 4.0))
+            m3   = o.matrix_world.to_3x3()
+            lx_g = (m3[0][0], -m3[1][0])
+            mag  = math.sqrt(lx_g[0]**2 + lx_g[1]**2) or 1.0
+            dx, dz = lx_g[0]/mag * r, lx_g[1]/mag * r
+            points = [
+                (round((gx - dx) * METER, 1), round((gz - dz) * METER, 1)),
+                (round((gx + dx) * METER, 1), round((gz + dz) * METER, 1)),
+            ]
+            top = round((gy + 2.0) * METER, 0)
+            bot = round((gy - 1.0) * METER, 0)
 
             out.append({
-                "cp_name": cp_name, "mode": "sphere",
+                "cp_name": cp_name, "mode": "line",
                 "points": points, "top": top, "bot": bot,
                 "cx": round(gx, 4), "cy": round(gy, 4), "cz": round(gz, 4),
             })
-            log(f"  [load-boundary] {o.name} → '{cp_name}'  sphere r={r}m ({n}-gon)")
+            log(f"  [load-boundary] {o.name} -> '{cp_name}'  no VOL_, line r={r}m")
 
     return out
 
