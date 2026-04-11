@@ -39,7 +39,7 @@ from .export import (
     _actor_is_enemy, _actor_supports_aggro_trigger,
     _vol_links, _vol_link_targets, _vol_has_link_to, _rename_vol_for_links,
     _vols_linking_to, _vol_get_link_to, _vol_remove_link_to,
-    _classify_target, _clean_orphaned_vol_links, collect_actors,
+    _classify_target, _clean_orphaned_vol_links, log, collect_actors,
     collect_spawns, collect_ambients, needed_ags, needed_code,
     patch_level_info, patch_game_gp, discover_custom_levels, remove_level,
     export_glb,

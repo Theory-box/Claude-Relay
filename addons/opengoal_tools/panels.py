@@ -32,7 +32,7 @@ from .export import (
     _actor_is_enemy, _actor_supports_aggro_trigger,
     _vol_links, _vols_linking_to, _classify_target,
     _vol_get_link_to, _vol_has_link_to,
-    collect_cameras, collect_aggro_triggers,
+    collect_cameras, collect_aggro_triggers, log,
 )
 from .build import (
     _EXE, _BUILD_STATE, _PLAY_STATE, goalc_ok, kill_gk,

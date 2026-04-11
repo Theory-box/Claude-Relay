@@ -18,7 +18,7 @@ from .export import (
     _nick, _iso, _lname, _ldir, _goal_src, _level_info,
     _game_gp, _levels_dir, _entity_gc,
     _clean_orphaned_vol_links, _vol_links,
-    _navmesh_to_goal,
+    _navmesh_to_goal, log,
 )
 
 # PATH HELPERS
