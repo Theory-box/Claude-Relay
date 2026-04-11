@@ -280,6 +280,12 @@ Investigate whether our custom trigger types (camera-trigger, checkpoint-trigger
 4. Stale entries on checkpoint removal — cleanup guard was inside `if boundaries:`; fixed by making it unconditional
 5. Redundant `import math` inside function — cleaned up
 
+**Bug 7 — wrong boundary flag: closed vs open (found from second in-game test, commit 8fb202f):**
+`:flags (player closed)` routes to `check-closed-boundary` which fires only when the player's
+Y position crosses `top-plane` — designed for pit/drop-into-zone triggers. Our walkthrough
+checkpoint zones need `check-open-boundary` which fires on XZ edge crossing (player walks
+through the polygon edge). Fix: `:flags (player)` — drop `closed`.
+
 **Bug 6 — border? never set (found from first in-game test, commit 8181ce3):**
 `render-boundaries` only calls `check-boundary` when `(-> *target* control border?)` is `#t`.
 In vanilla levels this is set by `target-continue`'s `:exit` handler after first respawn.
@@ -288,7 +294,7 @@ crossings silently ignored. Fixed by emitting `(when *target* (set! (-> *target*
 before the `load-boundary-from-template` calls. Guard is safe on cold load (Jak not yet spawned).
 
 ### Branch status
-`feature/native-checkpoints` — fix pushed (commit 8181ce3), needs re-test in-game.
+`feature/native-checkpoints` — latest fix commit 8fb202f, needs re-test in-game.
 
 Active branch: `feature/native-checkpoints`
 Working file: `addons/opengoal_tools.py`
