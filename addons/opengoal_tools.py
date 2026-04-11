@@ -1979,44 +1979,52 @@ def write_gc(name, has_triggers=False, boundaries=None, has_aggro_triggers=False
         log(f"  [write_gc] camera-trigger type embedded")
 
     if boundaries:
-        # Emit a top-level GOAL function that creates native load-boundary
-        # objects and links them into *load-boundary-list* at level load time.
+        # Emit native load-boundary objects for each CHECKPOINT_ empty.
         #
-        # Each load-boundary uses the engine's built-in XZ polygon crossing
-        # detection (check-boundary, called every frame in render-boundaries).
+        # Each boundary uses engine-native XZ polygon crossing detection
+        # (check-boundary, called every frame in render-boundaries).
         # On crossing it fires (set-continue! *game-info* "cp-name").
-        # :flags (player closed) — trigger on player position, closed polygon.
+        # :flags 3 = (load-boundary-flags player closed).
         # No born process. No per-frame GOAL poll. No custom deftype.
         #
-        # load-boundary-from-template expects a boxed-array of 4 elements:
-        #   [0] flags binteger  — (load-boundary-flags player closed) = 3
-        #   [1] float array     — top, bot, x0, z0, x1, z1, ...
-        #   [2] fwd cmd pair    — '((the binteger (load-boundary-cmd checkpt)) "name" #f)
-        #   [3] bwd cmd pair    — same or '((the binteger (load-boundary-cmd invalid)) #f #f)
+        # RELOAD SAFETY: load-boundary-from-template prepends to *load-boundary-list*.
+        # If obs.gc is re-evaluated (hot reload via nREPL), boundaries accumulate.
+        # Fix: save list head BEFORE our entries as *<n>-lb-tail*.
+        # On reload, restore *load-boundary-list* to that pointer first —
+        # cleanly removing our previous entries without touching vanilla ones.
         #
-        # We emit a static-load-boundary for each checkpoint and call
-        # load-boundary-from-template on each at module load time.
+        # load-boundary-from-template expects boxed-array of 4 elements:
+        #   [0] flags binteger  — 3 = (load-boundary-flags player closed)
+        #   [1] float array     — top, bot, x0, z0, x1, z1, ...
+        #   [2] fwd cmd pair    — '((the binteger 6) "name" #f)  ; 6 = checkpt
+        #   [3] bwd cmd pair    — '((the binteger 0) #f #f)      ; 0 = invalid
         #
         lines += [
-            ";; setup-checkpoints — creates native load-boundary objects for each",
-            ";; CHECKPOINT_ empty. Linked into *load-boundary-list* at module load.",
-            ";; Uses engine-native XZ polygon crossing detection — no custom polling.",
-            ";; :flags 3 = (load-boundary-flags player closed)  fwd = checkpt.",
-            "",
+            f";; Native load-boundary checkpoints for {name}.",
+            f";; *{name}-lb-tail* stores the vanilla list head (before our entries).",
+            f";; On first load it is #f so we skip the restore. On reload we snip",
+            f";; our previous entries by restoring to it before re-adding.",
+            f"(define-perm *{name}-lb-tail* load-boundary #f)",
+            f"",
+            f";; On reload only: restore list to vanilla head, removing our old entries.",
+            f"(when *{name}-lb-tail*",
+            f"  (set! *load-boundary-list* *{name}-lb-tail*))",
+            f";; Save vanilla head — our new entries will prepend before it.",
+            f"(set! *{name}-lb-tail* *load-boundary-list*)",
+            f"",
         ]
 
         for bd in boundaries:
-            cp   = bd["cp_name"]
-            top  = bd["top"]
-            bot  = bd["bot"]
-            pts  = bd["points"]   # list of (bx, bz) raw game units
+            cp       = bd["cp_name"]
+            top      = bd["top"]
+            bot      = bd["bot"]
+            pts      = bd["points"]   # list of (bx, bz) raw game units
+            n_pts    = len(pts)
+            n_floats = 2 + n_pts * 2
 
-            # Build the flat float array: [top, bot, x0, z0, x1, z1, ...]
             floats_str = f"{top:.1f} {bot:.1f}"
             for bx, bz in pts:
                 floats_str += f" {bx:.1f} {bz:.1f}"
-            n_pts   = len(pts)
-            n_floats = 2 + n_pts * 2  # top + bot + pairs
 
             lines += [
                 f";; checkpoint '{cp}'  ({bd['mode']}, {n_pts} pts)",
