@@ -523,7 +523,7 @@ class OG_OT_SearchSelectEntity(bpy.types.Operator):
 # ---------------------------------------------------------------------------
 
 class OG_PT_SpawnSearch(Panel):
-    bl_label       = "🔍  Quick Search"
+    bl_label       = "Quick Search"
     bl_idname      = "OG_PT_spawn_search"
     bl_space_type  = "VIEW_3D"
     bl_region_type = "UI"
