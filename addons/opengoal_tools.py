@@ -1607,6 +1607,137 @@ def collect_aggro_triggers(scene):
     return out
 
 
+def collect_load_boundaries(scene, name):
+    """Build load-boundary dicts from CHECKPOINT_ empties.
+
+    Each CHECKPOINT_ empty becomes one entry in *load-boundary-list* via
+    static-load-boundary GOAL macro — a proper engine-native XZ polygon
+    crossing trigger that calls set-continue! with no custom deftype or
+    polling process.
+
+    Returns a list of dicts:
+      cp_name  — full continue-point name e.g. "my-level-cp1"
+      mode     — "vol" (polygon from VOL_ mesh) or "sphere" (circle approx)
+      points   — list of (bx, bz) raw game-unit pairs for :points
+      top      — raw game-unit Y ceiling
+      bot      — raw game-unit Y floor
+      cx/cy/cz — game-space centre (metres, for logging only)
+
+    Coordinate mapping (Blender → load-boundary raw game units):
+      boundary_x = blender_x * 4096
+      boundary_z = -blender_y * 4096    (Blender Y is game -Z)
+      top/bot    = blender_z * 4096     (Blender Z is game Y)
+    """
+    METER = 4096.0
+    level_name = str(_get_level_prop(scene, "og_level_name", "")).strip().lower().replace(" ", "-")
+    level_objs = _level_objects(scene)
+
+    # Build CHECKPOINT_name → first linked VOL_ mesh
+    vol_by_cp = {}
+    for o in level_objs:
+        if o.type == "MESH" and o.name.startswith("VOL_"):
+            for entry in _vol_links(o):
+                if _classify_target(entry.target_name) == "checkpoint":
+                    vol_by_cp.setdefault(entry.target_name, o)
+
+    out = []
+    for o in sorted(level_objs, key=lambda o: o.name):
+        if not (o.name.startswith("CHECKPOINT_") and o.type == "EMPTY"):
+            continue
+        if o.name.endswith("_CAM"):
+            continue
+
+        uid     = o.name[11:] or "cp0"
+        cp_name = f"{level_name}-{uid}" if level_name else uid
+
+        vol_obj = vol_by_cp.get(o.name)
+        if vol_obj:
+            # VOL_ mesh mode — extract XZ polygon from world-space vertices.
+            # We project all verts onto the XZ plane (game space) and take
+            # the convex hull to get a clean boundary polygon.
+            corners = [vol_obj.matrix_world @ v.co for v in vol_obj.data.vertices]
+            gc = [(c.x, c.z, -c.y) for c in corners]  # (game_x, game_y, game_z)
+
+            # raw game-unit Y bounds from mesh height
+            ys   = [c[1] for c in gc]
+            top  = round(max(ys) * METER + METER, 0)   # +1m headroom
+            bot  = round(min(ys) * METER - METER, 0)   # -1m floor buffer
+
+            # XZ footprint — convex hull of (game_x, game_z) pairs
+            xz_pts = [(c[0], c[2]) for c in gc]
+            hull   = _convex_hull_2d(xz_pts)
+            # convert to raw game units
+            points = [(round(p[0] * METER, 1), round(p[1] * METER, 1)) for p in hull]
+
+            cx = round(sum(p[0] for p in hull) / len(hull), 4)
+            cz = round(sum(p[1] for p in hull) / len(hull), 4)
+            cy = round((max(ys) + min(ys)) / 2, 4)
+
+            out.append({
+                "cp_name": cp_name, "mode": "vol",
+                "points": points, "top": top, "bot": bot,
+                "cx": cx, "cy": cy, "cz": cz,
+            })
+            log(f"  [load-boundary] {o.name} → '{cp_name}'  vol={vol_obj.name} ({len(points)} pts)")
+        else:
+            # Sphere mode — approximate circle as 8-gon in XZ plane.
+            l  = o.location
+            gx = l.x;  gz = -l.y;  gy = l.z
+            r  = float(o.get("og_checkpoint_radius", 3.0))
+            n  = 8
+            pts_bl = [(gx + r * math.cos(2*math.pi*i/n),
+                       gz + r * math.sin(2*math.pi*i/n)) for i in range(n)]
+            points = [(round(p[0] * METER, 1), round(p[1] * METER, 1)) for p in pts_bl]
+            top    = round((gy + r) * METER + METER, 0)
+            bot    = round((gy - r) * METER - METER, 0)
+
+            out.append({
+                "cp_name": cp_name, "mode": "sphere",
+                "points": points, "top": top, "bot": bot,
+                "cx": round(gx, 4), "cy": round(gy, 4), "cz": round(gz, 4),
+            })
+            log(f"  [load-boundary] {o.name} → '{cp_name}'  sphere r={r}m ({n}-gon)")
+
+    return out
+
+
+def _convex_hull_2d(pts):
+    """Compute convex hull of 2D point list, return CCW vertex list.
+    Uses the standard gift-wrapping / Graham scan approach.
+    Input/output: list of (x, z) tuples.
+    """
+    pts = list(set(pts))  # deduplicate
+    if len(pts) <= 2:
+        return pts
+    # Sort by x then z
+    pts.sort()
+    # Build lower hull
+    lower = []
+    for p in pts:
+        while len(lower) >= 2:
+            a, b = lower[-2], lower[-1]
+            # cross product of (b-a) x (p-a) — positive = CCW
+            cross = (b[0]-a[0])*(p[1]-a[1]) - (b[1]-a[1])*(p[0]-a[0])
+            if cross <= 0:
+                lower.pop()
+            else:
+                break
+        lower.append(p)
+    # Build upper hull
+    upper = []
+    for p in reversed(pts):
+        while len(upper) >= 2:
+            a, b = upper[-2], upper[-1]
+            cross = (b[0]-a[0])*(p[1]-a[1]) - (b[1]-a[1])*(p[0]-a[0])
+            if cross <= 0:
+                upper.pop()
+            else:
+                break
+        upper.append(p)
+    # Remove last point of each (duplicates first of the other)
+    return lower[:-1] + upper[:-1]
+
+
 def collect_cameras(scene):
     """Build camera actor list from CAMERA_ camera objects.
 
@@ -1756,12 +1887,18 @@ def collect_cameras(scene):
     return camera_actors, trigger_actors
 
 
-def write_gc(name, has_triggers=False, has_checkpoints=False, has_aggro_triggers=False):
+def write_gc(name, has_triggers=False, boundaries=None, has_aggro_triggers=False,
+             has_checkpoints=False):
     """Write obs.gc: always emits camera-marker type; if has_triggers also
-    emits camera-trigger type; if has_checkpoints emits checkpoint-trigger type;
+    emits camera-trigger type; if boundaries is non-empty emits a
+    setup-checkpoints function that creates native load-boundary objects;
     if has_aggro_triggers emits aggro-trigger type.
-    All types birth automatically via entity-actor.birth! — no nREPL needed.
+
+    has_checkpoints is kept for backwards compatibility but ignored —
+    checkpoint detection is now via len(boundaries) > 0.
     """
+    if boundaries is None:
+        boundaries = []
     d = _goal_src() / "levels" / name
     d.mkdir(parents=True, exist_ok=True)
     p = d / f"{name}-obs.gc"
@@ -1841,67 +1978,60 @@ def write_gc(name, has_triggers=False, has_checkpoints=False, has_aggro_triggers
         ]
         log(f"  [write_gc] camera-trigger type embedded")
 
-    if has_checkpoints:
+    if boundaries:
+        # Emit a top-level GOAL function that creates native load-boundary
+        # objects and links them into *load-boundary-list* at level load time.
+        #
+        # Each load-boundary uses the engine's built-in XZ polygon crossing
+        # detection (check-boundary, called every frame in render-boundaries).
+        # On crossing it fires (set-continue! *game-info* "cp-name").
+        # :flags (player closed) — trigger on player position, closed polygon.
+        # No born process. No per-frame GOAL poll. No custom deftype.
+        #
+        # load-boundary-from-template expects a boxed-array of 4 elements:
+        #   [0] flags binteger  — (load-boundary-flags player closed) = 3
+        #   [1] float array     — top, bot, x0, z0, x1, z1, ...
+        #   [2] fwd cmd pair    — '((the binteger (load-boundary-cmd checkpt)) "name" #f)
+        #   [3] bwd cmd pair    — same or '((the binteger (load-boundary-cmd invalid)) #f #f)
+        #
+        # We emit a static-load-boundary for each checkpoint and call
+        # load-boundary-from-template on each at module load time.
+        #
         lines += [
-            ";; checkpoint-trigger: invisible entity that calls set-continue! when Jak enters.",
-            ";; Two modes depending on lumps present:",
-            ";;   Sphere mode (default): polls distance against 'radius lump.",
-            ";;   AABB mode (when has-volume lump = 1): polls against 6 bound-* lumps.",
-            ";; One-shot — triggered flag latches, never fires again this session.",
-            "(deftype checkpoint-trigger (process-drawable)",
-            "  ((cp-name   string  :offset-assert 176)",
-            "   (radius    float   :offset-assert 180)",
-            "   (triggered symbol  :offset-assert 184)",
-            "   (use-vol   symbol  :offset-assert 188)",
-            "   (xmin      float   :offset-assert 192)",
-            "   (xmax      float   :offset-assert 196)",
-            "   (ymin      float   :offset-assert 200)",
-            "   (ymax      float   :offset-assert 204)",
-            "   (zmin      float   :offset-assert 208)",
-            "   (zmax      float   :offset-assert 212))",
-            "  :heap-base #x70",
-            "  :size-assert #xd8",
-            "  (:states checkpoint-trigger-active))",
-            "",
-            "(defstate checkpoint-trigger-active (checkpoint-trigger)",
-            "  :code",
-            "  (behavior ()",
-            "    (loop",
-            "      (when (and *target* (not (-> self triggered)))",
-            "        (let* ((pos (-> *target* control trans))",
-            "               (inside (if (-> self use-vol)",
-            "                 (and",
-            "                   (< (-> self xmin) (-> pos x)) (< (-> pos x) (-> self xmax))",
-            "                   (< (-> self ymin) (-> pos y)) (< (-> pos y) (-> self ymax))",
-            "                   (< (-> self zmin) (-> pos z)) (< (-> pos z) (-> self zmax)))",
-            "                 (let* ((dx (- (-> pos x) (-> self root trans x)))",
-            "                        (dy (- (-> pos y) (-> self root trans y)))",
-            "                        (dz (- (-> pos z) (-> self root trans z)))",
-            "                        (r  (-> self radius)))",
-            "                   (< (+ (* dx dx) (* dy dy) (* dz dz)) (* r r))))))",
-            "          (when inside",
-            "            (set! (-> self triggered) #t)",
-            "            (set-continue! *game-info* (-> self cp-name)))))",
-            "      (suspend))))",
-            "",
-            "(defmethod init-from-entity! ((this checkpoint-trigger) (arg0 entity-actor))",
-            "  (set! (-> this root) (new (quote process) (quote trsqv)))",
-            "  (process-drawable-from-entity! this arg0)",
-            "  (set! (-> this cp-name)   (res-lump-struct arg0 (quote continue-name) string))",
-            "  (set! (-> this radius)    (res-lump-float  arg0 (quote radius)     :default 12288.0))",
-            "  (set! (-> this triggered) #f)",
-            "  (set! (-> this use-vol)   (!= 0 (the int (res-lump-value arg0 (quote has-volume) uint128))))",
-            "  (set! (-> this xmin)      (res-lump-float arg0 (quote bound-xmin)))",
-            "  (set! (-> this xmax)      (res-lump-float arg0 (quote bound-xmax)))",
-            "  (set! (-> this ymin)      (res-lump-float arg0 (quote bound-ymin)))",
-            "  (set! (-> this ymax)      (res-lump-float arg0 (quote bound-ymax)))",
-            "  (set! (-> this zmin)      (res-lump-float arg0 (quote bound-zmin)))",
-            "  (set! (-> this zmax)      (res-lump-float arg0 (quote bound-zmax)))",
-            "  (go checkpoint-trigger-active)",
-            "  (none))",
+            ";; setup-checkpoints — creates native load-boundary objects for each",
+            ";; CHECKPOINT_ empty. Linked into *load-boundary-list* at module load.",
+            ";; Uses engine-native XZ polygon crossing detection — no custom polling.",
+            ";; :flags 3 = (load-boundary-flags player closed)  fwd = checkpt.",
             "",
         ]
-        log(f"  [write_gc] checkpoint-trigger type embedded")
+
+        for bd in boundaries:
+            cp   = bd["cp_name"]
+            top  = bd["top"]
+            bot  = bd["bot"]
+            pts  = bd["points"]   # list of (bx, bz) raw game units
+
+            # Build the flat float array: [top, bot, x0, z0, x1, z1, ...]
+            floats_str = f"{top:.1f} {bot:.1f}"
+            for bx, bz in pts:
+                floats_str += f" {bx:.1f} {bz:.1f}"
+            n_pts   = len(pts)
+            n_floats = 2 + n_pts * 2  # top + bot + pairs
+
+            lines += [
+                f";; checkpoint '{cp}'  ({bd['mode']}, {n_pts} pts)",
+                f"(load-boundary-from-template",
+                f"  (new 'static 'boxed-array :type array :length 4 :allocated-length 4",
+                f"    (the binteger 3)",
+                f"    (new 'static 'boxed-array :type float :length {n_floats} :allocated-length {n_floats}",
+                f"      {floats_str})",
+                f"    '((the binteger 6) \"{cp}\" #f)",
+                f"    '((the binteger 0) #f #f)))",
+                f"",
+            ]
+            log(f"  [write_gc] load-boundary '{cp}' ({bd['mode']}, {n_pts} pts)")
+
+        log(f"  [write_gc] {len(boundaries)} load-boundary checkpoint(s) emitted")
 
     if has_aggro_triggers:
         lines += [
@@ -3719,83 +3849,10 @@ def collect_actors(scene):
         })
 
     # ── Checkpoint trigger actors ─────────────────────────────────────────────
-    # CHECKPOINT_ empties export as two things:
-    #   1. A continue-point record in level-info.gc (via collect_spawns) — the
-    #      spawn data the engine uses on respawn.
-    #   2. A checkpoint-trigger actor in the JSONC (here) — an invisible entity
-    #      that calls set-continue! when Jak enters it.
-    # Both are needed: the actor does the triggering, the continue-point holds
-    # the spawn position. The actor's continue-name lump must match the
-    # continue-point name exactly: "{level_name}-{uid}".
-    #
-    # Volume mode: if a CPVOL_ mesh is linked (og_cp_link = checkpoint name),
-    # the actor uses AABB bounds instead of sphere radius. The GOAL code reads
-    # a 'has-volume' lump (uint32 1) to choose AABB vs sphere.
-    level_name_for_cp = str(_get_level_prop(scene, "og_level_name", "")).strip().lower().replace(" ", "-")
-
-    # Build cp_name → first linked vol_obj from og_vol_links collections.
-    # Checkpoint links are soft-enforced 1:1 at link time (block duplicates),
-    # so first() is the same as only() in well-formed scenes.
-    vol_by_cp = {}
-    for o in level_objs:
-        if o.type == "MESH" and o.name.startswith("VOL_"):
-            for entry in _vol_links(o):
-                if _classify_target(entry.target_name) == "checkpoint":
-                    vol_by_cp.setdefault(entry.target_name, o)
-
-    for o in sorted(level_objs, key=lambda o: o.name):
-        if not (o.name.startswith("CHECKPOINT_") and o.type == "EMPTY"):
-            continue
-        if o.name.endswith("_CAM"):
-            continue
-        uid = o.name[11:] or "cp0"
-        l   = o.location
-        gx  = round(l.x,  4)
-        gy  = round(l.z,  4)
-        gz  = round(-l.y, 4)
-        r   = float(o.get("og_checkpoint_radius", 3.0))
-        cp_name = f"{level_name_for_cp}-{uid}"
-        lump = {
-            "name":          f"checkpoint-trigger-{uid}",
-            "continue-name": cp_name,
-        }
-
-        vol_obj = vol_by_cp.get(o.name)
-        if vol_obj:
-            # AABB mode — derive bounds from volume mesh world-space verts
-            xmin, xmax, ymin, ymax, zmin, zmax, cx, cy, cz, rad = _vol_aabb(vol_obj)
-            # Slightly tighter padding for checkpoints (matches old behaviour)
-            rad = round(max(xmax - xmin, ymax - ymin, zmax - zmin) / 2 + 2.0, 2)
-            lump["has-volume"]  = ["uint32", 1]
-            lump["bound-xmin"]  = ["meters", xmin]
-            lump["bound-xmax"]  = ["meters", xmax]
-            lump["bound-ymin"]  = ["meters", ymin]
-            lump["bound-ymax"]  = ["meters", ymax]
-            lump["bound-zmin"]  = ["meters", zmin]
-            lump["bound-zmax"]  = ["meters", zmax]
-            out.append({
-                "trans":     [cx, cy, cz],
-                "etype":     "checkpoint-trigger",
-                "game_task": "(game-task none)",
-                "quat":      [0, 0, 0, 1],
-                "vis_id":    0,
-                "bsphere":   [cx, cy, cz, rad],
-                "lump":      lump,
-            })
-            log(f"  [checkpoint] {o.name} → '{cp_name}'  AABB vol={vol_obj.name}")
-        else:
-            # Sphere mode — use og_checkpoint_radius
-            lump["radius"] = ["meters", r]
-            out.append({
-                "trans":     [gx, gy, gz],
-                "etype":     "checkpoint-trigger",
-                "game_task": "(game-task none)",
-                "quat":      [0, 0, 0, 1],
-                "vis_id":    0,
-                "bsphere":   [gx, gy, gz, max(r, 3.0)],
-                "lump":      lump,
-            })
-            log(f"  [checkpoint] {o.name} → '{cp_name}'  sphere r={r}m")
+    # Checkpoints are now native load-boundary objects emitted in obs.gc —
+    # no JSONC actor needed. See collect_load_boundaries() and write_gc().
+    # CHECKPOINT_ empties still produce continue-points in level-info.gc
+    # (via collect_spawns) — that half is unchanged.
 
     return out
 
@@ -5130,12 +5187,11 @@ def _bg_build(name, scene):
         state["status"] = "Writing files..."
         base_id = int(_get_level_prop(scene, "og_base_id", 10000))
         aggro_actors = collect_aggro_triggers(scene)
+        boundaries   = collect_load_boundaries(scene, name)
         write_jsonc(name, actors, ambients, cam_actors + trigger_actors + aggro_actors, base_id)
         write_gd(name, ags, code_deps, tpages)
         navmesh_actors = _collect_navmesh_actors(scene)
-        _lv_objs = _level_objects(scene)
-        has_cps = bool([o for o in _lv_objs if o.name.startswith("CHECKPOINT_") and o.type == "EMPTY" and not o.name.endswith("_CAM")])
-        write_gc(name, has_triggers=bool(trigger_actors), has_checkpoints=has_cps, has_aggro_triggers=bool(aggro_actors))
+        write_gc(name, has_triggers=bool(trigger_actors), boundaries=boundaries, has_aggro_triggers=bool(aggro_actors))
         patch_entity_gc(navmesh_actors)
         patch_level_info(name, spawns, scene)
         patch_game_gp(name, code_deps)
@@ -5512,11 +5568,10 @@ def _bg_geo_rebuild(name, scene):
         state["status"] = "Writing level files..."
         base_id = int(_get_level_prop(scene, "og_base_id", 10000))
         aggro_actors = collect_aggro_triggers(scene)
+        boundaries   = collect_load_boundaries(scene, name)
         write_jsonc(name, actors, ambients, cam_actors + trigger_actors + aggro_actors, base_id)
         write_gd(name, ags, code_deps, tpages)
-        _lv_objs = _level_objects(scene)
-        has_cps = bool([o for o in _lv_objs if o.name.startswith("CHECKPOINT_") and o.type == "EMPTY" and not o.name.endswith("_CAM")])
-        write_gc(name, has_triggers=bool(trigger_actors), has_checkpoints=has_cps, has_aggro_triggers=bool(aggro_actors))
+        write_gc(name, has_triggers=bool(trigger_actors), boundaries=boundaries, has_aggro_triggers=bool(aggro_actors))
         patch_level_info(name, spawns, scene)  # update spawn continue-points if moved
 
         # Run (mi) — re-extracts GLB, repacks DGO, skips unchanged .gc files
@@ -5633,12 +5688,11 @@ def _bg_build_and_play(name, scene):
         state["status"] = "Writing level files..."
         base_id = int(_get_level_prop(scene, "og_base_id", 10000))
         aggro_actors = collect_aggro_triggers(scene)
+        boundaries   = collect_load_boundaries(scene, name)
         write_jsonc(name, actors, ambients, cam_actors + trigger_actors + aggro_actors, base_id)
         write_gd(name, ags, code_deps, tpages)
         navmesh_actors = _collect_navmesh_actors(scene)
-        _lv_objs = _level_objects(scene)
-        has_cps = bool([o for o in _lv_objs if o.name.startswith("CHECKPOINT_") and o.type == "EMPTY" and not o.name.endswith("_CAM")])
-        write_gc(name, has_triggers=bool(trigger_actors), has_checkpoints=has_cps, has_aggro_triggers=bool(aggro_actors))
+        write_gc(name, has_triggers=bool(trigger_actors), boundaries=boundaries, has_aggro_triggers=bool(aggro_actors))
         patch_entity_gc(navmesh_actors)
         patch_level_info(name, spawns, scene)
         patch_game_gp(name, code_deps)
