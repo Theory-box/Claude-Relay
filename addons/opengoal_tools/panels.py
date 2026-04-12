@@ -1435,8 +1435,15 @@ class OG_PT_VertexExport(Panel):
             row  = box.row(align=True)
             row.label(text=f"{info['label']}  [{info.get('cat','')}]", icon="CHECKMARK")
             row.operator("og.clear_vertex_export", text="", icon="X")
-            vcount = len(o.data.vertices)
-            box.label(text=f"{vcount} vert{'ex' if vcount == 1 else 'ices'} → {vcount} actor{'s' if vcount != 1 else ''}", icon="INFO")
+            # Use evaluated mesh so the preview count reflects modifiers
+            try:
+                depsgraph = ctx.evaluated_depsgraph_get()
+                o_eval    = o.evaluated_get(depsgraph)
+                vcount    = len(o_eval.to_mesh().vertices)
+                o_eval.to_mesh_clear()
+            except Exception:
+                vcount = len(o.data.vertices)
+            box.label(text=f"{vcount} vert{'ex' if vcount == 1 else 'ices'} → {vcount} actor{'s' if vcount != 1 else ''} (post-modifiers)", icon="INFO")
         else:
             layout.label(text="No entity assigned", icon="INFO")
 

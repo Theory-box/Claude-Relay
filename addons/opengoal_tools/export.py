@@ -1661,9 +1661,11 @@ def collect_actors(scene):
 
     # ── Vertex-export meshes ─────────────────────────────────────────────────
     # Plain MESH objects tagged with og_vertex_export_etype emit one actor per
-    # vertex at world-space position. Only whitelisted simple types (no required
-    # settings) are allowed — see VERTEX_EXPORT_TYPES in data.py.
-    import mathutils as _mu
+    # vertex at world-space position. Modifiers are evaluated via the dependency
+    # graph so the final post-modifier mesh is used — the original is untouched.
+    # This lets you use Subdivision Surface / Array / Curve modifiers to control
+    # point density non-destructively.
+    depsgraph = bpy.context.evaluated_depsgraph_get()
     ve_counter = 0
     for o in _level_objects(scene):
         if o.type != "MESH":
@@ -1671,9 +1673,12 @@ def collect_actors(scene):
         etype = str(o.get("og_vertex_export_etype", "")).strip()
         if not etype or etype not in VERTEX_EXPORT_TYPES:
             continue
-        einfo = VERTEX_EXPORT_TYPES[etype]
-        mat   = o.matrix_world
-        for v in o.data.vertices:
+        # Evaluate with modifiers applied — safe, does not modify the original
+        o_eval = o.evaluated_get(depsgraph)
+        mesh_eval = o_eval.to_mesh()
+        mat  = o.matrix_world
+        verts = mesh_eval.vertices
+        for v in verts:
             wco  = mat @ v.co
             gx_v = round(wco.x, 4)
             gy_v = round(wco.z, 4)
@@ -1681,7 +1686,6 @@ def collect_actors(scene):
             uid  = f"ve{ve_counter}"
             ve_counter += 1
             lump_v = {"name": f"{etype}-{uid}"}
-            # Apply the same minimal lump overrides that collect_actors uses
             if etype == "money":
                 lump_v["eco-info"] = ["eco-info", "(pickup-type money)", 1]
             elif etype == "buzzer":
@@ -1695,7 +1699,8 @@ def collect_actors(scene):
                 "bsphere":   [gx_v, gy_v, gz_v, 3.0],
                 "lump":      lump_v,
             })
-        log(f"  [vertex-export] {o.name} → {len(o.data.vertices)} × {etype}")
+        log(f"  [vertex-export] {o.name} → {len(verts)} × {etype} (modifiers applied)")
+        o_eval.to_mesh_clear()  # free the temporary evaluated mesh
 
     return out
 
