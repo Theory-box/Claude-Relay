@@ -1377,10 +1377,12 @@ def collect_actors(scene, depsgraph=None):
         #    The user sizes the empty to cover the water area.  Scale 1 = 1 m
         #    half-extent (2 m total width) — scale up to cover the water mesh.
         if etype == "water-vol":
+            # Legacy ACTOR_ water-vol path (hidden from picker — use WATER_ mesh instead).
+            # wade/swim are depths below surface (positive meters); bottom is absolute Y.
             surface = float(o.get("og_water_surface", 0.0))
-            wade    = float(o.get("og_water_wade",   -0.5))
-            swim    = float(o.get("og_water_swim",   -1.0))
-            bottom  = float(o.get("og_water_bottom", -5.0))
+            wade    = float(o.get("og_water_wade",    0.5))
+            swim    = float(o.get("og_water_swim",    1.0))
+            bottom  = float(o.get("og_water_bottom",  surface - 5.0))
             lump["water-height"] = ["water-height", surface, wade, swim, "(water-flags)", bottom]
 
             # Build the 6-plane vol box from the empty's world scale.
@@ -1791,8 +1793,8 @@ def collect_actors(scene, depsgraph=None):
     # scaled / rotated cube) drives the vol-control activation AABB.
     # Custom props on the mesh:
     #   og_water_surface  — world Y of the water surface (auto-set by sync op)
-    #   og_water_wade     — world Y below which Jak wades
-    #   og_water_swim     — world Y below which Jak swims
+    #   og_water_wade     — depth in meters below surface (default 0.5)
+    #   og_water_swim     — depth in meters below surface (default 1.0)
     #   og_water_bottom   — world Y of the kill floor
     #   og_water_attack   — damage type symbol string (default: 'drown)
     # All heights are absolute world Y (meters).  The vol planes are built from

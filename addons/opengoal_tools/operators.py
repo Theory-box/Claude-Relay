@@ -1852,17 +1852,18 @@ Place and scale it to cover your water area — rotation is supported."""
     bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, ctx):
-        import bpy, bmesh as bm_mod
         scene = ctx.scene
 
-        # Name: WATER_0, WATER_1, etc.
-        existing = [o for o in bpy.data.objects if o.name.startswith("WATER_")]
+        # Name: WATER_0, WATER_1, etc. Count only in current level objects.
+        existing = [o for o in _level_objects(scene) if o.name.startswith("WATER_")]
         idx  = len(existing)
         name = f"WATER_{idx}"
 
-        # Create a cube mesh
+        # Create a cube mesh — primitive_cube_add sets it as the active object
         bpy.ops.mesh.primitive_cube_add(size=2.0, location=ctx.scene.cursor.location)
         o      = ctx.active_object
+        # Set name twice: Blender resolves data-block name conflicts after first set
+        o.name = name
         o.name = name
 
         # Style: wireframe blue so it doesn't obscure the level

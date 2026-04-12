@@ -199,7 +199,7 @@ classes = (
     OG_OT_NudgeIntProp,
     OG_OT_SetLauncherDest, OG_OT_ClearLauncherDest, OG_OT_AddLauncherDest,
     OG_OT_ToggleDoorFlag, OG_OT_SetDoorCP, OG_OT_ClearDoorCP,
-    OG_OT_SyncWaterFromObject, OG_OT_AddWaterVolume, OG_OT_SyncWaterFromMesh,
+    OG_OT_SyncWaterFromObject, OG_OT_AddWaterVolume, OG_OT_SyncWaterFromMesh, OG_OT_SetWaterAttack,
     OG_OT_SetCrateType,
     OG_OT_SetCratePickup,
     OG_OT_SetCrateAmount,
