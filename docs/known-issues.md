@@ -18,6 +18,11 @@ Tracked here so nothing gets lost between sessions. Add new entries as they're f
 - **Status:** Non-functional
 - **Detail:** Swing pole entities spawn and export but do not function in-game. Jak cannot grab them. Likely missing a required lump, a navmesh interaction, or an engine-side patch that hasn't been identified yet.
 
+
+### Launcher — Out of Memory Crash on Level Load
+- **Status:** Broken — root cause identified, fix needed
+- **Detail:** Adding a `floating-launcher` art group to a level that already has heavy tpage usage (e.g. babak + multiple geometry tpages) pushes the engine kheap over its 11MB limit, causing a crash during DGO load with `kmalloc: !alloc mem data-segment`. The launcher entity itself exports and links correctly — this is a heap budget problem. Workaround: use `springbox` instead (same spring-height mechanic, no art group cost). Long-term fix: audit tpage budget before export and warn the user, or document a hard cap on simultaneous art groups.
+
 ---
 
 ## ⚠️ Limitations / Caveats
