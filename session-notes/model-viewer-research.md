@@ -376,3 +376,24 @@ This is O(1) memory for N spawns of the same type.
 
 The decompiler sets `baseColorFactor = {2.0, 2.0, 2.0, 2.0}` to compensate for PS2 blending. In Blender's Eevee/Cycles this means materials render brighter than the texture alone — colours will look washed out/bright. This is expected and intentional for the PS2 look. For a viewport stand-in it's fine. No adjustment needed.
 
+
+---
+
+## PART 9: Implementation Complete
+
+Branch: `feature/model-viewer` — commit `f1255f4`
+
+### Files changed
+- `model_preview.py` — new module (249 lines)
+- `data.py` — `glb` field on all 37 ENTITY_DEFS entries
+- `operators.py` — spawn hook + `OG_OT_ClearPreviews`
+- `panels.py` — preview toggle + warning in Enemies panel
+- `export.py` — fallback export filters `og_preview_mesh`
+- `properties.py` — `preview_models` BoolProperty
+- `__init__.py` — registers `OG_OT_ClearPreviews`
+
+### Known unknowns (need real install to verify)
+1. Bind-pose model origin — does babak stand at Z=0 (feet), Z=1 (center), or somewhere else? May need per-enemy Z offset.
+2. Model rotation after import — GLTF Y-up → Blender Z-up conversion should be handled by the importer, but if models come in rotated 90° we add a `mesh_obj.rotation_euler = (math.radians(90), 0, 0)` after import.
+3. `rip_levels` GLB subfolder name — confirmed from source as `levels/<level_name>/` but `<level_name>` is the BSP name not the DGO filename. The mapping in the `glb` field was derived from known level names — may need tweaking for one or two entries.
+
