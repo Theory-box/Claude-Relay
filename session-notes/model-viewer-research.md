@@ -289,3 +289,90 @@ For double-lurker (list of GLBs):
 - `addons/opengoal_tools/operators.py` — modify spawn operator
 - `addons/opengoal_tools/export.py` — fix fallback export filter
 - `session-notes/model-viewer-research.md` — this file
+
+---
+
+## PART 8: NO-ARMATURE APPROACH (final decision)
+
+### What Blender sees when it imports the GLB
+
+From source inspection, each GLB contains:
+- **One mesh node** (e.g. `babak-lod0-mg`) with the full geometry
+  - Multiple primitives (one per texture draw call, e.g. body/belt/eyes)
+  - Each primitive has its own PBR material with `baseColorTexture` pointing to embedded PNG
+  - `baseColorFactor = {2.0, 2.0, 2.0, 2.0}` (PS2 blending compensation)
+  - `POSITION`, `TEXCOORD_0`, `COLOR_0`, `JOINTS_0`, `WEIGHTS_0` attributes
+- **One skin** (the armature) with N bone nodes
+- The mesh node has `node.skin` set — it's a skinned mesh
+
+On import, Blender creates:
+1. An `Armature` object (with all bones in bind pose)
+2. A `Mesh` object parented to the armature, with Armature modifier
+3. The mesh lands at world origin in bind/rest pose
+
+### Simplified import strategy — just the mesh
+
+Since we only want a static visual stand-in, we don't want the armature at all. Options:
+
+**Option A — Import then strip armature (safe, simple):**
+```python
+before = set(bpy.data.objects)
+# import...
+new_objs = set(bpy.data.objects) - before
+
+mesh_obj = next((o for o in new_objs if o.type == 'MESH'), None)
+arm_obj  = next((o for o in new_objs if o.type == 'ARMATURE'), None)
+
+if mesh_obj and arm_obj:
+    # Unparent mesh from armature, keep world transform
+    bpy.ops.object.select_all(action='DESELECT')
+    mesh_obj.select_set(True)
+    bpy.context.view_layer.objects.active = mesh_obj
+    bpy.ops.object.parent_clear(type='CLEAR_KEEP_TRANSFORM')
+    
+    # Remove armature modifier from mesh
+    for mod in list(mesh_obj.modifiers):
+        if mod.type == 'ARMATURE':
+            mesh_obj.modifiers.remove(mod)
+    
+    # Delete the armature object
+    bpy.data.objects.remove(arm_obj, do_unlink=True)
+```
+
+**Option B — Use `import_scene.gltf` with `import_pack_images=True` + no_import_animations:**
+The gltf importer has flags but no "skip armature" flag — armature is always created for skinned meshes. Option A is the only way.
+
+**After stripping:**
+- Mesh object is free-standing, positioned at world origin (bind pose)
+- Materials intact with embedded textures as Blender Image nodes
+- Move mesh to cursor: `mesh_obj.location = cursor_location`
+- Parent to ACTOR empty: `mesh_obj.parent = actor_empty; mesh_obj.matrix_parent_inverse = actor_empty.matrix_world.inverted()`
+- Tag: `mesh_obj["og_preview_mesh"] = True`
+
+### Mesh bind-pose position
+
+The model will be in its **bind/rest pose** (T-pose or standing idle). For a Blender viewport stand-in this is exactly what we want — a static recognisable silhouette.
+
+The bind pose root bone is typically at world origin with the model standing upright. After `/4096` scaling the model should be ~1–2m tall, standing on Z=0. This may need a small Z offset depending on model origin — but testing will confirm.
+
+### Linked data for duplicate spawns
+
+When spawning a second babak, re-use mesh data instead of re-importing:
+```python
+existing_mesh = bpy.data.meshes.get("babak-lod0-mg")  # or with .001 suffix check
+if existing_mesh:
+    new_obj = bpy.data.objects.new("babak-lod0-mg", existing_mesh)
+    bpy.context.collection.objects.link(new_obj)
+    new_obj.location = cursor_loc
+    new_obj.parent = actor_empty
+    new_obj["og_preview_mesh"] = True
+else:
+    # full import + strip
+```
+
+This is O(1) memory for N spawns of the same type.
+
+### Material note — baseColorFactor = 2.0
+
+The decompiler sets `baseColorFactor = {2.0, 2.0, 2.0, 2.0}` to compensate for PS2 blending. In Blender's Eevee/Cycles this means materials render brighter than the texture alone — colours will look washed out/bright. This is expected and intentional for the PS2 look. For a viewport stand-in it's fine. No adjustment needed.
+
