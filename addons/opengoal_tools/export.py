@@ -1383,17 +1383,17 @@ def collect_actors(scene, depsgraph=None):
             bottom  = float(o.get("og_water_bottom", -5.0))
             lump["water-height"] = ["water-height", surface, wade, swim, "(water-flags)", bottom]
 
-            # Build the 6-plane vol box.
-            # Use o.dimensions for half-extents — world-space size of the empty
-            # regardless of rotation. matrix_world.to_scale() is unreliable on
-            # rotated empties because scale decomposition is not unique.
-            # Blender X → game X,  Blender Y → game Z (negated).
-            # og_water_bottom stores absolute world Y (same convention as surface/wade/swim).
-            dim   = o.dimensions           # (Blender X, Blender Y, Blender Z) world-space size
-            hx    = dim.x / 2.0            # game X half-extent
-            hz    = dim.y / 2.0            # game Z half-extent (Blender Y)
+            # Build the 6-plane vol box from the empty's world scale.
+            # NOTE: o.dimensions returns (0,0,0) for empties (no mesh geometry).
+            # Use o.scale directly — actor empties are never parented or rotated
+            # in this addon, so local scale == world scale.
+            # Scale X → game X half-extent, Scale Y → game Z half-extent.
+            # Default scale is (1,1,1) = a 2m×2m box. User should scale the
+            # empty to match the water area before exporting.
+            hx    = abs(o.scale.x)         # game X half-extent (meters)
+            hz    = abs(o.scale.y)         # game Z half-extent (meters)
             top_y = surface                # absolute Y of water surface
-            bot_y = bottom                 # absolute Y of kill floor
+            bot_y = bottom                 # absolute Y of kill floor (absolute, not relative)
 
             lump["vol"] = [
                 "vector-vol",
@@ -1408,7 +1408,7 @@ def collect_actors(scene, depsgraph=None):
                 [ 0,  0,  1,   gz - hz    ],   # -Z cap:   P.z >= cz-hz
             ]
             log(f"  [water-vol] {o.name}  surface={surface}m  wade={wade}m  swim={swim}m  "
-                f"bottom={bottom}m  box={dim.x:.1f}x{dim.y:.1f}m")
+                f"bottom={bottom}m  box={hx*2:.1f}x{hz*2:.1f}m")
 
         # ── Launcherdoor: continue-name lump ─────────────────────────────────
         # launcherdoor writes a continue-name string lump to set the active
@@ -1478,12 +1478,11 @@ def collect_actors(scene, depsgraph=None):
 
         # water-vol: bsphere must enclose the full activation box so the process
         # isn't culled before it can run point-in-vol checks each frame.
-        # Use o.dimensions (reliable world-space size) not matrix_world.to_scale().
+        # Use o.scale — empties have no dimensions, scale is the half-extent.
         if etype == "water-vol":
-            dim    = o.dimensions
-            hx     = dim.x / 2.0
-            hz     = dim.y / 2.0
-            bsph_r = (hx ** 2 + hz ** 2) ** 0.5
+            hx     = abs(o.scale.x)
+            hz     = abs(o.scale.y)
+            bsph_r = max((hx ** 2 + hz ** 2) ** 0.5, 10.0)  # minimum 10m
 
         # Add vis-dist for enemies so they stay active at reasonable range.
         # og_vis_dist custom prop overrides; default 200m.

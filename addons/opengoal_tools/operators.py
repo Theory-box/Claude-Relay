@@ -1837,11 +1837,12 @@ class OG_OT_SyncWaterFromObject(Operator):
         # Blender Y maps to game Z (up axis), so use location.z for height
         surface_y = round(o.location.z, 4)
         o["og_water_surface"] = surface_y
-        # Auto-set reasonable wade/swim/bottom relative to surface if not manually set
-        if "og_water_wade"   not in o: o["og_water_wade"]   = round(surface_y - 0.5, 4)
-        if "og_water_swim"   not in o: o["og_water_swim"]   = round(surface_y - 1.0, 4)
-        if "og_water_bottom" not in o: o["og_water_bottom"] = round(surface_y - 5.0, 4)
-        self.report({"INFO"}, f"Water surface set to {surface_y:.2f}m from object Z")
+        # Always reset wade/swim/bottom relative to new surface.
+        # These store absolute world Y — must stay consistent with surface.
+        o["og_water_wade"]   = round(surface_y - 0.5, 4)   # wade 0.5m below surface
+        o["og_water_swim"]   = round(surface_y - 1.0, 4)   # swim 1.0m below surface
+        o["og_water_bottom"] = round(surface_y - 5.0, 4)   # kill floor 5.0m below surface
+        self.report({"INFO"}, f"Water surface={surface_y:.2f}m  wade={surface_y-0.5:.2f}  swim={surface_y-1.0:.2f}  bottom={surface_y-5.0:.2f}")
         return {"FINISHED"}
 
 

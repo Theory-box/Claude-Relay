@@ -2230,32 +2230,43 @@ class OG_PT_ActorWaterVol(Panel):
         layout = self.layout
         sel    = ctx.active_object
 
+        # Scale warning — empties default to scale 1 = 2m box, must be scaled up
+        sx, sy = abs(sel.scale.x), abs(sel.scale.y)
+        if sx < 2.0 or sy < 2.0:
+            warn = layout.box()
+            warn.label(text="⚠  Scale empty to cover water area!", icon="ERROR")
+            warn.label(text=f"Current: {sx*2:.1f}m × {sy*2:.1f}m  (Scale X/Y in 3D view)")
+
         # Surface height
         box = layout.box()
-        box.label(text="Water Heights", icon="MOD_OCEAN")
+        box.label(text="Water Heights (world Y)", icon="MOD_OCEAN")
 
         water_y  = float(sel.get("og_water_surface", 0.0))
-        wade_y   = float(sel.get("og_water_wade",    -0.5))
-        swim_y   = float(sel.get("og_water_swim",    -1.0))
-        bottom_y = float(sel.get("og_water_bottom",  -5.0))
+        wade_y   = float(sel.get("og_water_wade",    water_y - 0.5))
+        swim_y   = float(sel.get("og_water_swim",    water_y - 1.0))
+        bottom_y = float(sel.get("og_water_bottom",  water_y - 5.0))
 
         col = box.column(align=True)
         for label, prop, val in [
             ("Surface Y:",  "og_water_surface", water_y),
-            ("Wade level:", "og_water_wade",    wade_y),
-            ("Swim level:", "og_water_swim",    swim_y),
+            ("Wade Y:",     "og_water_wade",    wade_y),
+            ("Swim Y:",     "og_water_swim",    swim_y),
             ("Bottom Y:",   "og_water_bottom",  bottom_y),
         ]:
             row = col.row(align=True)
             row.label(text=label)
             op = row.operator("og.nudge_float_prop", text="-0.5m", icon="REMOVE")
-            op.prop_name = prop; op.delta = -0.5; op.val_min = -200.0
+            op.prop_name = prop; op.delta = -0.5; op.val_min = -9999.0
             row.label(text=f"{val:.1f}m")
             op = row.operator("og.nudge_float_prop", text="+0.5m", icon="ADD")
-            op.prop_name = prop; op.delta = 0.5; op.val_max = 200.0
+            op.prop_name = prop; op.delta = 0.5; op.val_max = 9999.0
 
-        sub = box.row(); sub.enabled = False
-        sub.label(text="Heights are world Y positions in meters", icon="INFO")
+        # Show computed depths relative to surface so user can sanity-check
+        sub = box.column(align=True)
+        sub.enabled = False
+        sub.label(text=f"  Wade at: {water_y - wade_y:.2f}m below surface", icon="INFO")
+        sub.label(text=f"  Swim at: {water_y - swim_y:.2f}m below surface")
+        sub.label(text=f"  Kill floor: {water_y - bottom_y:.2f}m below surface")
 
         op = box.operator("og.sync_water_from_object", text="Sync Surface from Object Y", icon="OBJECT_ORIGIN")
         op.actor_name = sel.name
