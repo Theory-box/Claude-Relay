@@ -2336,31 +2336,57 @@ class OG_PT_WaterMesh(Panel):
         box = layout.box()
         box.label(text="Water Heights (world Y)", icon="MOD_OCEAN")
 
+        # surface and bottom are absolute world Y
+        # wade and swim are DEPTHS below surface (small positive values like 0.5, 1.0)
         surface = float(sel.get("og_water_surface", sel.location.z))
-        wade    = float(sel.get("og_water_wade",    surface - 0.5))
-        swim    = float(sel.get("og_water_swim",    surface - 1.0))
+        wade    = float(sel.get("og_water_wade",    0.5))
+        swim    = float(sel.get("og_water_swim",    1.0))
         bottom  = float(sel.get("og_water_bottom",  surface - 5.0))
 
         col = box.column(align=True)
-        for label, prop, val in [
-            ("Surface Y:",  "og_water_surface", surface),
-            ("Wade Y:",     "og_water_wade",    wade),
-            ("Swim Y:",     "og_water_swim",    swim),
-            ("Bottom Y:",   "og_water_bottom",  bottom),
-        ]:
-            row = col.row(align=True)
-            row.label(text=label)
-            op = row.operator("og.nudge_float_prop", text="-0.5m", icon="REMOVE")
-            op.prop_name = prop; op.delta = -0.5; op.val_min = -9999.0
-            row.label(text=f"{val:.1f}m")
-            op = row.operator("og.nudge_float_prop", text="+0.5m", icon="ADD")
-            op.prop_name = prop; op.delta = 0.5; op.val_max = 9999.0
 
-        # Sanity info
+        # Surface Y — large nudge makes sense
+        row = col.row(align=True)
+        row.label(text="Surface Y:")
+        op = row.operator("og.nudge_float_prop", text="-0.5m", icon="REMOVE")
+        op.prop_name = "og_water_surface"; op.delta = -0.5; op.val_min = -9999.0
+        row.label(text=f"{surface:.2f}m")
+        op = row.operator("og.nudge_float_prop", text="+0.5m", icon="ADD")
+        op.prop_name = "og_water_surface"; op.delta = 0.5; op.val_max = 9999.0
+
+        # Wade depth — small nudge, stays positive
+        row = col.row(align=True)
+        row.label(text="Wade depth:")
+        op = row.operator("og.nudge_float_prop", text="-0.1m", icon="REMOVE")
+        op.prop_name = "og_water_wade"; op.delta = -0.1; op.val_min = 0.1
+        row.label(text=f"{wade:.2f}m below")
+        op = row.operator("og.nudge_float_prop", text="+0.1m", icon="ADD")
+        op.prop_name = "og_water_wade"; op.delta = 0.1; op.val_max = 20.0
+
+        # Swim depth
+        row = col.row(align=True)
+        row.label(text="Swim depth:")
+        op = row.operator("og.nudge_float_prop", text="-0.1m", icon="REMOVE")
+        op.prop_name = "og_water_swim"; op.delta = -0.1; op.val_min = 0.1
+        row.label(text=f"{swim:.2f}m below")
+        op = row.operator("og.nudge_float_prop", text="+0.1m", icon="ADD")
+        op.prop_name = "og_water_swim"; op.delta = 0.1; op.val_max = 20.0
+
+        # Bottom Y — absolute, same as surface
+        row = col.row(align=True)
+        row.label(text="Bottom Y:")
+        op = row.operator("og.nudge_float_prop", text="-0.5m", icon="REMOVE")
+        op.prop_name = "og_water_bottom"; op.delta = -0.5; op.val_min = -9999.0
+        row.label(text=f"{bottom:.2f}m")
+        op = row.operator("og.nudge_float_prop", text="+0.5m", icon="ADD")
+        op.prop_name = "og_water_bottom"; op.delta = 0.5; op.val_max = 9999.0
+
+        # Sanity readout
         sub = box.column(align=True)
         sub.enabled = False
-        sub.label(text=f"  Wade: {surface - wade:.2f}m below surface", icon="INFO")
-        sub.label(text=f"  Swim: {surface - swim:.2f}m below surface")
+        sub.label(text=f"  Wades at {wade:.2f}m below surface  (Y={surface-wade:.2f})", icon="INFO")
+        sub.label(text=f"  Swims at {swim:.2f}m below surface  (Y={surface-swim:.2f})")
+        sub.label(text=f"  Kill floor: Y={bottom:.2f}m")
 
         # Damage type
         box2 = layout.box()

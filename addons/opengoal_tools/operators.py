@@ -1837,8 +1837,8 @@ class OG_OT_SyncWaterFromObject(Operator):
         # Blender Z = game Y (up). Use location.z for the surface height.
         surface_y = round(o.location.z, 4)
         o["og_water_surface"] = surface_y
-        o["og_water_wade"]    = round(surface_y - 0.5, 4)
-        o["og_water_swim"]    = round(surface_y - 1.0, 4)
+        o["og_water_wade"]    = 0.5
+        o["og_water_swim"]    = 1.0
         o["og_water_bottom"]  = round(surface_y - 5.0, 4)
         self.report({"INFO"}, f"Water surface={surface_y:.2f}m  wade={surface_y-0.5:.2f}  swim={surface_y-1.0:.2f}  bottom={surface_y-5.0:.2f}")
         return {"FINISHED"}
@@ -1878,9 +1878,9 @@ Place and scale it to cover your water area — rotation is supported."""
         # Set default water properties from cursor Z (game Y)
         surface_y = round(ctx.scene.cursor.location.z, 4)
         o["og_water_surface"] = surface_y
-        o["og_water_wade"]    = round(surface_y - 0.5, 4)
-        o["og_water_swim"]    = round(surface_y - 1.0, 4)
-        o["og_water_bottom"]  = round(surface_y - 5.0, 4)
+        o["og_water_wade"]    = 0.5   # depth below surface in meters
+        o["og_water_swim"]    = 1.0   # depth below surface in meters
+        o["og_water_bottom"]  = round(surface_y - 5.0, 4)  # absolute Y of kill floor
         o["og_water_attack"]  = "drown"
 
         # Link into the level collection
@@ -1908,10 +1908,10 @@ class OG_OT_SyncWaterFromMesh(Operator):
         top_y   = round(max(ys), 4)
         bot_y   = round(min(ys), 4)
         o["og_water_surface"] = top_y
-        o["og_water_wade"]    = round(top_y - 0.5, 4)
-        o["og_water_swim"]    = round(top_y - 1.0, 4)
+        o["og_water_wade"]    = 0.5   # depth below surface in meters
+        o["og_water_swim"]    = 1.0   # depth below surface in meters
         o["og_water_bottom"]  = bot_y
-        self.report({"INFO"}, f"Surface={top_y:.2f}m  bottom={bot_y:.2f}m")
+        self.report({"INFO"}, f"Surface={top_y:.2f}m  wade=0.5m  swim=1.0m  bottom={bot_y:.2f}m")
         return {"FINISHED"}
 
 
