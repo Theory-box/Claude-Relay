@@ -9,7 +9,7 @@ from pathlib import Path
 from .data import (
     ENTITY_DEFS, ENTITY_WIKI, ENTITY_ENUM_ITEMS, ENEMY_ENUM_ITEMS, VERTEX_EXPORT_TYPES,
     PROP_ENUM_ITEMS, NPC_ENUM_ITEMS, PICKUP_ENUM_ITEMS, PLATFORM_ENUM_ITEMS,
-    CRATE_ITEMS, ALL_SFX_ITEMS, SBK_SOUNDS, LEVEL_BANKS,
+    CRATE_ITEMS, CRATE_PICKUP_ITEMS, ALL_SFX_ITEMS, SBK_SOUNDS, LEVEL_BANKS,
     LUMP_REFERENCE, ACTOR_LINK_DEFS, LUMP_TYPE_ITEMS,
     NAV_UNSAFE_TYPES, NEEDS_PATH_TYPES, IS_PROP_TYPES, ETYPE_AG,
     _lump_ref_for_etype, _actor_link_slots, _actor_has_links,
@@ -931,9 +931,20 @@ def _draw_selected_actor(layout, sel, scene):
 
     # ── Crate type ───────────────────────────────────────────────────────
     if etype == "crate":
-        ct = sel.get("og_crate_type", "steel")
+        ct     = sel.get("og_crate_type",          "steel")
+        pickup = sel.get("og_crate_pickup",         "money")
+        amount = int(sel.get("og_crate_pickup_amount", 1))
         box = layout.box()
-        box.label(text=f"Crate Type: {ct}", icon="PACKAGE")
+        # Build readable summary
+        _PICKUP_LABELS = {uid: lbl for (uid, lbl, _, _, _) in CRATE_PICKUP_ITEMS}
+        pickup_label = _PICKUP_LABELS.get(pickup, pickup)
+        if pickup == "none":
+            summary = f"{ct.capitalize()}  —  Empty"
+        elif pickup == "buzzer":
+            summary = f"{ct.capitalize()}  —  Scout Fly"
+        else:
+            summary = f"{ct.capitalize()}  —  {pickup_label} ×{amount}"
+        box.label(text=summary, icon="PACKAGE")
 
     # ── Waypoints (full list + add/delete) ───────────────────────────────
     if _actor_uses_waypoints(etype):
@@ -1852,16 +1863,50 @@ class OG_PT_ActorCrate(Panel):
     def draw(self, ctx):
         layout = self.layout
         sel    = ctx.active_object
-        ct     = sel.get("og_crate_type", "steel")
+        ct     = sel.get("og_crate_type",          "steel")
+        pickup = sel.get("og_crate_pickup",         "money")
+        amount = int(sel.get("og_crate_pickup_amount", 1))
 
+        # ── Crate Type ───────────────────────────────────────────────────
         box = layout.box()
         box.label(text="Crate Type", icon="PACKAGE")
         col = box.column(align=True)
-        for (val, label, _, _) in CRATE_ITEMS:
-            row = col.row(align=True)
+        for (val, label, _, _, _) in CRATE_ITEMS:
+            sub = col.row(align=True)
+            # Wood is greyed out when a scout fly is inside
+            sub.enabled = not (val == "wood" and pickup == "buzzer")
             icon = "RADIOBUT_ON" if ct == val else "RADIOBUT_OFF"
-            op = row.operator("og.set_crate_type", text=label, icon=icon)
+            op = sub.operator("og.set_crate_type", text=label, icon=icon)
             op.crate_type = val
+
+        # Scout fly + wood warning
+        if pickup == "buzzer" and ct == "wood":
+            warn = box.box()
+            warn.alert = True
+            warn.label(text="Scout Fly needs Iron/Steel!", icon="ERROR")
+
+        # ── Contents ─────────────────────────────────────────────────────
+        box2 = layout.box()
+        box2.label(text="Contents", icon="GHOST_ENABLED")
+        col2 = box2.column(align=True)
+        for (uid, label, _, ico, _) in CRATE_PICKUP_ITEMS:
+            sub = col2.row(align=True)
+            btn_icon = "RADIOBUT_ON" if pickup == uid else "RADIOBUT_OFF"
+            op = sub.operator("og.set_crate_pickup", text=label, icon=btn_icon)
+            op.pickup_id = uid
+
+        # ── Amount stepper (only for orbs) ────────────────────────────────
+        _supports_multi = {uid: sm for (uid, _, _, _, sm) in CRATE_PICKUP_ITEMS}
+        if _supports_multi.get(pickup, False):
+            row = box2.row(align=True)
+            row.label(text="Amount:")
+            op = row.operator("og.set_crate_amount", text="", icon="REMOVE")
+            op.delta = -1
+            row.label(text=str(amount))
+            op2 = row.operator("og.set_crate_amount", text="", icon="ADD")
+            op2.delta = 1
+        elif pickup == "buzzer":
+            box2.label(text="Amount: 1  (fixed)", icon="INFO")
 
 
 class OG_PT_ActorDarkCrystal(Panel):

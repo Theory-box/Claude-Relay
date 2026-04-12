@@ -254,10 +254,26 @@ ENTITY_DEFS = {
 }
 
 CRATE_ITEMS = [
-    ("steel","Steel (empty)","",0), ("wood","Wood (orbs)","",1),
-    ("metal","Metal","",2), ("darkeco","Dark Eco","",3),
-    ("iron","Iron (spin to break)","",4),
+    ("steel",   "Steel",    "", 0),
+    ("wood",    "Wood",     "", 1),
+    ("iron",    "Iron",     "", 2),
+    ("darkeco", "Dark Eco", "", 3),
+    ("barrel",  "Barrel",   "", 4),
+    ("bucket",  "Bucket",   "", 5),
 ]
+
+# Pickup types valid inside a crate. Maps (ui_id, label, pickup-type string, icon).
+# amount=1 is locked for scout fly; fuel-cell omitted (needs task lump — not yet supported).
+CRATE_PICKUP_ITEMS = [
+    ("none",        "Empty",        "(pickup-type none)",       "X",             False),
+    ("money",       "Orbs",         "(pickup-type money)",      "SOLO",          True),
+    ("eco-yellow",  "Yellow Eco",   "(pickup-type eco-yellow)", "COLORSET_03_VEC", False),
+    ("eco-red",     "Red Eco",      "(pickup-type eco-red)",    "COLORSET_01_VEC", False),
+    ("eco-blue",    "Blue Eco",     "(pickup-type eco-blue)",   "COLORSET_04_VEC", False),
+    ("eco-green",   "Green Eco",    "(pickup-type eco-green)",  "COLORSET_08_VEC", False),
+    ("buzzer",      "Scout Fly",    "(pickup-type buzzer)",     "GP_SELECT",     False),
+]
+# (ui_id, label, engine pickup-type string, blender icon, supports_multi_amount)
 
 
 # ---------------------------------------------------------------------------
