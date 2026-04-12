@@ -831,6 +831,43 @@ class OG_PT_SpawnSounds(Panel):
             layout.label(text="No emitters placed yet", icon="INFO")
 
 
+class OG_PT_SpawnWater(Panel):
+    bl_label       = "💧  Water Volumes"
+    bl_idname      = "OG_PT_spawn_water"
+    bl_space_type  = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category    = "OpenGOAL"
+    bl_parent_id   = "OG_PT_spawn"
+    bl_options     = {"DEFAULT_CLOSED"}
+
+    def draw(self, ctx):
+        layout = self.layout
+        col = layout.column(align=True)
+
+        row = col.row()
+        row.scale_y = 1.4
+        row.operator("og.add_water_volume", text="Add Water Volume", icon="MOD_OCEAN")
+
+        col.separator(factor=0.4)
+        sub = col.row(); sub.enabled = False
+        sub.label(text="Scale to cover water area (no rotation)", icon="INFO")
+
+        # List existing water volumes
+        water_meshes = [o for o in _level_objects(ctx.scene)
+                        if o.type == "MESH" and o.name.startswith("WATER_")]
+        if water_meshes:
+            layout.separator(factor=0.3)
+            box = layout.box()
+            box.label(text=f"{len(water_meshes)} volume(s):", icon="MESH_CUBE")
+            for o in water_meshes:
+                row = box.row(align=True)
+                surface = float(o.get("og_water_surface", 0.0))
+                corners = [o.matrix_world @ v.co for v in o.data.vertices]
+                xs = [c.x for c in corners]; zs = [c.y for c in corners]
+                w = max(xs) - min(xs); d = max(zs) - min(zs)
+                row.label(text=f"{o.name}  {w:.1f}×{d:.1f}m  Y={surface:.1f}", icon="MOD_OCEAN")
+
+
 # ===========================================================================
 # SELECTED OBJECT  (standalone, poll-gated)
 # ===========================================================================
@@ -2270,6 +2307,70 @@ class OG_PT_ActorWaterVol(Panel):
 
         op = box.operator("og.sync_water_from_object", text="Sync Surface from Object Y", icon="OBJECT_ORIGIN")
         op.actor_name = sel.name
+
+
+class OG_PT_WaterMesh(Panel):
+    bl_label       = "💧  Water Volume Settings"
+    bl_idname      = "OG_PT_water_mesh"
+    bl_space_type  = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category    = "OpenGOAL"
+    bl_parent_id   = "OG_PT_selected_object"
+    bl_options     = {"DEFAULT_CLOSED"}
+
+    @classmethod
+    def poll(cls, ctx):
+        sel = ctx.active_object
+        return sel and sel.type == "MESH" and sel.name.startswith("WATER_")
+
+    def draw(self, ctx):
+        layout = self.layout
+        sel    = ctx.active_object
+
+        # Sync button first — most common first action
+        layout.operator("og.sync_water_from_mesh", text="Sync Heights from Mesh Top/Bottom",
+                        icon="OBJECT_ORIGIN").mesh_name = sel.name
+
+        box = layout.box()
+        box.label(text="Water Heights (world Y)", icon="MOD_OCEAN")
+
+        surface = float(sel.get("og_water_surface", sel.location.z))
+        wade    = float(sel.get("og_water_wade",    surface - 0.5))
+        swim    = float(sel.get("og_water_swim",    surface - 1.0))
+        bottom  = float(sel.get("og_water_bottom",  surface - 5.0))
+
+        col = box.column(align=True)
+        for label, prop, val in [
+            ("Surface Y:",  "og_water_surface", surface),
+            ("Wade Y:",     "og_water_wade",    wade),
+            ("Swim Y:",     "og_water_swim",    swim),
+            ("Bottom Y:",   "og_water_bottom",  bottom),
+        ]:
+            row = col.row(align=True)
+            row.label(text=label)
+            op = row.operator("og.nudge_float_prop", text="-0.5m", icon="REMOVE")
+            op.prop_name = prop; op.delta = -0.5; op.val_min = -9999.0
+            row.label(text=f"{val:.1f}m")
+            op = row.operator("og.nudge_float_prop", text="+0.5m", icon="ADD")
+            op.prop_name = prop; op.delta = 0.5; op.val_max = 9999.0
+
+        # Sanity info
+        sub = box.column(align=True)
+        sub.enabled = False
+        sub.label(text=f"  Wade: {surface - wade:.2f}m below surface", icon="INFO")
+        sub.label(text=f"  Swim: {surface - swim:.2f}m below surface")
+
+        # Damage type
+        box2 = layout.box()
+        box2.label(text="Damage Type", icon="GHOST_ENABLED")
+        attack = str(sel.get("og_water_attack", "drown"))
+        row = box2.row(align=True)
+        for opt in ["drown", "lava", "dark-eco-pool", "heat", "drown-death"]:
+            r = row.row()
+            r.enabled = (attack != opt)
+            op = r.operator("og.set_water_attack", text=opt)
+            op.mesh_name  = sel.name
+            op.attack_val = opt
 
 
 class OG_PT_ActorLauncherDoor(Panel):

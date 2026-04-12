@@ -1834,6 +1834,60 @@ def collect_ambients(scene):
                     "play-mode": "'notice",
                 },
             })
+    # ── WATER_ mesh volumes ───────────────────────────────────────────────────
+    # WATER_<name> meshes define swimmable water zones.  The mesh shape (any
+    # scaled / rotated cube) drives the vol-control activation AABB.
+    # Custom props on the mesh:
+    #   og_water_surface  — world Y of the water surface (auto-set by sync op)
+    #   og_water_wade     — world Y below which Jak wades
+    #   og_water_swim     — world Y below which Jak swims
+    #   og_water_bottom   — world Y of the kill floor
+    #   og_water_attack   — damage type symbol string (default: 'drown)
+    # All heights are absolute world Y (meters).  The vol planes are built from
+    # the mesh AABB so rotation and non-uniform scale are fully supported.
+    water_meshes = [o for o in level_objs
+                    if o.type == "MESH" and o.name.startswith("WATER_")]
+    for idx, o in enumerate(sorted(water_meshes, key=lambda x: x.name)):
+        xmin, xmax, ymin, ymax, zmin, zmax, cx, cy, cz, _ = _vol_aabb(o)
+
+        # Heights — all absolute world Y values.
+        # og_water_surface defaults to top of the mesh AABB (ymax).
+        surface = float(o.get("og_water_surface", ymax))
+        wade    = float(o.get("og_water_wade",    surface - 0.5))
+        swim    = float(o.get("og_water_swim",    surface - 1.0))
+        bottom  = float(o.get("og_water_bottom",  ymin))
+        attack  = str(o.get("og_water_attack",    "drown"))
+
+        # bsphere: covers full XZ footprint + a little vertical headroom
+        bsph_r  = round(max(
+            ((xmax - xmin) / 2) ** 2 + ((zmax - zmin) / 2) ** 2
+        ) ** 0.5 + 5.0, 2)
+
+        lump = {
+            "name":         f"water-vol-{idx}",
+            "water-height": ["water-height", surface, wade, swim, "(water-flags)", bottom],
+            "attack-event": f"'{attack}",
+            "vol": [
+                "vector-vol",
+                # Normals point INWARD. Inside: dot(P,N) >= d.
+                [ 0, -1,  0, -surface ],   # top cap:   P.y <= surface
+                [ 0,  1,  0,  bottom  ],   # floor:     P.y >= bottom
+                [-1,  0,  0, -xmax    ],   # +X cap:    P.x <= xmax
+                [ 1,  0,  0,  xmin    ],   # -X cap:    P.x >= xmin
+                [ 0,  0, -1, -zmax    ],   # +Z cap:    P.z <= zmax
+                [ 0,  0,  1,  zmin    ],   # -Z cap:    P.z >= zmin
+            ],
+        }
+        out.append({
+            "trans":     [cx, cy, cz],
+            "etype":     "water-vol",
+            "game_task": "(game-task none)",
+            "quat":      [0, 0, 0, 1],
+            "vis_id":    0,
+            "bsphere":   [cx, cy, cz, bsph_r],
+            "lump":      lump,
+        })
+        log(f"  [water] {o.name}  surface={surface:.2f}m  box={xmax-xmin:.1f}x{zmax-zmin:.1f}m  bsph={bsph_r:.1f}m")
     return out
 
 def collect_nav_mesh_geometry(scene, level_name):

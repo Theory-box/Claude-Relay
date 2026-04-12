@@ -29,7 +29,7 @@ from .collections import (
     _COL_PATH_SOUND_EMITTERS, _COL_PATH_SPAWNABLE_ENEMIES,
     _COL_PATH_SPAWNABLE_PLATFORMS, _COL_PATH_SPAWNABLE_PROPS,
     _COL_PATH_SPAWNABLE_NPCS, _COL_PATH_SPAWNABLE_PICKUPS,
-    _COL_PATH_GEO_SOLID,
+    _COL_PATH_GEO_SOLID, _COL_PATH_WATER,
     _set_blender_active_collection, _LEVEL_COL_DEFAULTS,
 )
 from .export import (
@@ -1834,15 +1834,98 @@ class OG_OT_SyncWaterFromObject(Operator):
     def execute(self, ctx):
         o = bpy.data.objects.get(self.actor_name)
         if not o: return {"CANCELLED"}
-        # Blender Y maps to game Z (up axis), so use location.z for height
+        # Blender Z = game Y (up). Use location.z for the surface height.
         surface_y = round(o.location.z, 4)
         o["og_water_surface"] = surface_y
-        # Always reset wade/swim/bottom relative to new surface.
-        # These store absolute world Y — must stay consistent with surface.
-        o["og_water_wade"]   = round(surface_y - 0.5, 4)   # wade 0.5m below surface
-        o["og_water_swim"]   = round(surface_y - 1.0, 4)   # swim 1.0m below surface
-        o["og_water_bottom"] = round(surface_y - 5.0, 4)   # kill floor 5.0m below surface
+        o["og_water_wade"]    = round(surface_y - 0.5, 4)
+        o["og_water_swim"]    = round(surface_y - 1.0, 4)
+        o["og_water_bottom"]  = round(surface_y - 5.0, 4)
         self.report({"INFO"}, f"Water surface={surface_y:.2f}m  wade={surface_y-0.5:.2f}  swim={surface_y-1.0:.2f}  bottom={surface_y-5.0:.2f}")
+        return {"FINISHED"}
+
+
+class OG_OT_AddWaterVolume(Operator):
+    """Add a water volume mesh at the 3D cursor.
+Place and scale it to cover your water area — rotation is supported."""
+    bl_idname  = "og.add_water_volume"
+    bl_label   = "Add Water Volume"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, ctx):
+        import bpy, bmesh as bm_mod
+        scene = ctx.scene
+
+        # Name: WATER_0, WATER_1, etc.
+        existing = [o for o in bpy.data.objects if o.name.startswith("WATER_")]
+        idx  = len(existing)
+        name = f"WATER_{idx}"
+
+        # Create a cube mesh
+        bpy.ops.mesh.primitive_cube_add(size=2.0, location=ctx.scene.cursor.location)
+        o      = ctx.active_object
+        o.name = name
+
+        # Style: wireframe blue so it doesn't obscure the level
+        o.display_type = "WIRE"
+        o.color        = (0.1, 0.4, 1.0, 0.5)
+        o.show_name    = True
+
+        # Lock rotation — water-vol uses an AABB, rotation has no effect in-game
+        o.lock_rotation[0] = True
+        o.lock_rotation[1] = True
+        o.lock_rotation[2] = True
+
+        # Set default water properties from cursor Z (game Y)
+        surface_y = round(ctx.scene.cursor.location.z, 4)
+        o["og_water_surface"] = surface_y
+        o["og_water_wade"]    = round(surface_y - 0.5, 4)
+        o["og_water_swim"]    = round(surface_y - 1.0, 4)
+        o["og_water_bottom"]  = round(surface_y - 5.0, 4)
+        o["og_water_attack"]  = "drown"
+
+        # Link into the level collection
+        _link_object_to_sub_collection(scene, o, *_COL_PATH_WATER)
+
+        self.report({"INFO"}, f"Added {name} — scale to cover your water area, then export")
+        return {"FINISHED"}
+
+
+class OG_OT_SyncWaterFromMesh(Operator):
+    """Sync water surface height from the top of the WATER_ mesh bounding box."""
+    bl_idname  = "og.sync_water_from_mesh"
+    bl_label   = "Sync Surface from Mesh Top"
+    bl_options = {"REGISTER", "UNDO"}
+
+    mesh_name: bpy.props.StringProperty()
+
+    def execute(self, ctx):
+        import bpy
+        o = bpy.data.objects.get(self.mesh_name)
+        if not o or o.type != "MESH": return {"CANCELLED"}
+        # World-space bounding box corners
+        corners = [o.matrix_world @ v.co for v in o.data.vertices]
+        ys      = [c.z for c in corners]   # Blender Z = game Y
+        top_y   = round(max(ys), 4)
+        bot_y   = round(min(ys), 4)
+        o["og_water_surface"] = top_y
+        o["og_water_wade"]    = round(top_y - 0.5, 4)
+        o["og_water_swim"]    = round(top_y - 1.0, 4)
+        o["og_water_bottom"]  = bot_y
+        self.report({"INFO"}, f"Surface={top_y:.2f}m  bottom={bot_y:.2f}m")
+        return {"FINISHED"}
+
+
+
+class OG_OT_SetWaterAttack(bpy.types.Operator):
+    """Set the damage type for this water volume."""
+    bl_idname  = "og.set_water_attack"
+    bl_label   = "Set Water Attack"
+    bl_options = {"REGISTER", "UNDO"}
+    mesh_name:  bpy.props.StringProperty()
+    attack_val: bpy.props.StringProperty()
+    def execute(self, ctx):
+        o = bpy.data.objects.get(self.mesh_name)
+        if o: o["og_water_attack"] = self.attack_val
         return {"FINISHED"}
 
 
