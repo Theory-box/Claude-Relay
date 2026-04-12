@@ -2673,10 +2673,21 @@ def _parse_lump_row(key, ltype, value_str):
             return ["buzzer-info", task, index], None
 
         if ltype == "eco-info":
-            parts = s.split()
-            if len(parts) < 2:
-                return None, "eco-info needs 'pickup-type amount'"
-            return ["eco-info", parts[0], int(parts[1])], None
+            # Value format: "(pickup-type money) 3" — split on closing paren
+            # so the GOAL expression isn't broken by internal spaces.
+            s_stripped = s.strip()
+            if ")" in s_stripped:
+                paren_end = s_stripped.index(")") + 1
+                pickup_type = s_stripped[:paren_end].strip()
+                remainder = s_stripped[paren_end:].strip()
+                if not remainder:
+                    return None, "eco-info needs '(pickup-type ...) amount'"
+                return ["eco-info", pickup_type, int(remainder)], None
+            else:
+                parts = s_stripped.split()
+                if len(parts) < 2:
+                    return None, "eco-info needs 'pickup-type amount'"
+                return ["eco-info", parts[0], int(parts[1])], None
 
         # Numeric scalar types
         if ltype in ("meters", "degrees"):
