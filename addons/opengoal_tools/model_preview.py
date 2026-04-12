@@ -98,10 +98,10 @@ def _import_glb(ctx, glb_path: Path) -> list:
     return [o for o in bpy.data.objects if o not in before]
 
 
-def _strip_and_keep_mesh(new_objs: list) -> bpy.types.Object | None:
-    """From the newly imported objects, keep only the primary mesh,
-    bake the armature rest pose into the geometry, then discard the rig.
-    Returns the kept mesh Object, or None if none found."""
+def _strip_and_keep_mesh(new_objs: list, glb_stem: str = "") -> bpy.types.Object | None:
+    """From the newly imported objects, keep the primary mesh (matched by name),
+    hide the armature, and delete any stray objects (icospheres etc).
+    Returns the primary mesh Object, or None if none found."""
 
     mesh_obj  = None
     arm_objs  = []
@@ -109,7 +109,15 @@ def _strip_and_keep_mesh(new_objs: list) -> bpy.types.Object | None:
 
     for obj in new_objs:
         if obj.type == "MESH":
-            if mesh_obj is None:
+            # Prefer the mesh whose name starts with the GLB stem (e.g. 'plat-lod0').
+            # The GLB importer may also create stray objects like 'Icosphere' from
+            # the default fallback material — those should be discarded.
+            obj_base = obj.name.split(".")[0]  # strip Blender .001/.002 suffix
+            if glb_stem and obj_base == glb_stem:
+                mesh_obj = obj
+            elif mesh_obj is None and glb_stem and obj_base != "Icosphere":
+                mesh_obj = obj  # fallback: any non-icosphere mesh
+            elif not glb_stem and mesh_obj is None:
                 mesh_obj = obj
             else:
                 junk_objs.append(obj)
@@ -118,40 +126,28 @@ def _strip_and_keep_mesh(new_objs: list) -> bpy.types.Object | None:
         else:
             junk_objs.append(obj)
 
+    # Any meshes that lost out to the named match also become junk
+    # (catches icosphere and any other stray geometry)
+    if mesh_obj is not None:
+        for obj in list(junk_objs):
+            pass  # already in junk
+        # make sure icospheres aren't accidentally kept
+        junk_objs = [o for o in new_objs if o is not mesh_obj and o not in arm_objs]
+
     if mesh_obj is None:
         for obj in new_objs:
             bpy.data.objects.remove(obj, do_unlink=True)
         return None
 
-    # ---- Bake armature rest pose into mesh geometry ----
-    # Without baking, removing the armature modifier leaves vertices in
-    # bone-local space, collapsing the mesh to an icosphere-like blob.
-    # Setting REST and evaluating via depsgraph bakes the flat/standing
-    # geometry cleanly without needing any bpy.ops context.
+    # ---- Hide the armature (keeps mesh deformed correctly at bind pose) ----
     for arm in arm_objs:
-        arm.data.pose_position = "REST"
+        arm.hide_viewport  = True
+        arm.hide_render    = True
+        arm.hide_select    = True
+        arm[_PREVIEW_PROP] = True
 
-    depsgraph = bpy.context.evaluated_depsgraph_get()
-    depsgraph.update()
-    eval_obj   = mesh_obj.evaluated_get(depsgraph)
-    baked_mesh = bpy.data.meshes.new_from_object(eval_obj)
-    old_mesh   = mesh_obj.data
-    mesh_obj.data = baked_mesh
-    if old_mesh.users == 0:
-        bpy.data.meshes.remove(old_mesh)
-
-    # ---- Strip all modifiers (armature is now baked) ----
-    for mod in list(mesh_obj.modifiers):
-        mesh_obj.modifiers.remove(mod)
-
-    # ---- Unparent mesh, preserving world transform ----
-    if mesh_obj.parent is not None:
-        world_mat = mesh_obj.matrix_world.copy()
-        mesh_obj.parent = None
-        mesh_obj.matrix_world = world_mat
-
-    # ---- Delete armature and junk ----
-    for obj in arm_objs + junk_objs:
+    # ---- Delete stray objects (icosphere, etc.) ----
+    for obj in junk_objs:
         bpy.data.objects.remove(obj, do_unlink=True)
 
     # ---- Recalculate normals ----
@@ -195,7 +191,7 @@ def _reuse_or_import(ctx, glb_path: Path, mesh_name: str) -> bpy.types.Object | 
     if not new_objs:
         return None
 
-    return _strip_and_keep_mesh(new_objs)
+    return _strip_and_keep_mesh(new_objs, glb_stem=mesh_name)
 
 
 # ---------------------------------------------------------------------------
