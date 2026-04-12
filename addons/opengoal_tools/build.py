@@ -359,12 +359,12 @@ def patch_entity_gc(navmesh_actors):
     p.write_bytes(out.encode("utf-8"))
     log(f"Patched entity.gc with {len(navmesh_actors)} nav-mesh actor(s)")
 
-def _bg_build(name, scene):
+def _bg_build(name, scene, depsgraph=None):
     state = _BUILD_STATE
     try:
         state["status"] = "Collecting scene..."
         _clean_orphaned_vol_links(scene)
-        actors    = collect_actors(scene)
+        actors    = collect_actors(scene, depsgraph)
         ambients  = collect_ambients(scene)
         spawns    = collect_spawns(scene)
         ags       = needed_ags(actors)
@@ -511,7 +511,7 @@ def _bg_play(name):
 
 
 
-def _bg_geo_rebuild(name, scene):
+def _bg_geo_rebuild(name, scene, depsgraph=None):
     """Export geo + actor placement, repack DGO, relaunch GK. No GOAL recompile.
 
     (mi) is GOALC's incremental build command — it skips .gc files that haven't
@@ -524,7 +524,7 @@ def _bg_geo_rebuild(name, scene):
     try:
         state["status"] = "Collecting scene..."
         _clean_orphaned_vol_links(scene)
-        actors   = collect_actors(scene)
+        actors   = collect_actors(scene, depsgraph)
         ambients = collect_ambients(scene)
         spawns   = collect_spawns(scene)
         ags      = needed_ags(actors)
@@ -569,7 +569,7 @@ def _bg_geo_rebuild(name, scene):
 
 
 
-def _bg_build_and_play(name, scene):
+def _bg_build_and_play(name, scene, depsgraph=None):
     """Export files, compile with GOALC, then launch GK and load the level.
 
     FLOW:
@@ -595,7 +595,7 @@ def _bg_build_and_play(name, scene):
         # ── Phase 1: Build ────────────────────────────────────────────────────
         state["status"] = "Collecting scene..."
         _clean_orphaned_vol_links(scene)
-        actors    = collect_actors(scene)
+        actors    = collect_actors(scene, depsgraph)
         ambients  = collect_ambients(scene)
         spawns    = collect_spawns(scene)
         ags       = needed_ags(actors)

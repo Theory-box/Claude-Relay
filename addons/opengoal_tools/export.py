@@ -1159,7 +1159,7 @@ def collect_spawns(scene):
         })
     return out
 
-def collect_actors(scene):
+def collect_actors(scene, depsgraph=None):
     """Build actor list from ACTOR_ empties.
 
     Nav-unsafe enemies (move-to-ground=True, hover-if-no-ground=False) will
@@ -1665,7 +1665,13 @@ def collect_actors(scene):
     # graph so the final post-modifier mesh is used — the original is untouched.
     # This lets you use Subdivision Surface / Array / Curve modifiers to control
     # point density non-destructively.
-    depsgraph = bpy.context.evaluated_depsgraph_get()
+    #
+    # depsgraph must be fetched on the main thread and passed in — calling
+    # bpy.context from a background thread is unsafe and causes intermittent
+    # Blender crashes (~25% of compile runs). Falls back to bpy.context only
+    # when called directly from a panel (i.e. on the main thread).
+    if depsgraph is None:
+        depsgraph = bpy.context.evaluated_depsgraph_get()
     ve_counter = 0
     for o in _level_objects(scene):
         if o.type != "MESH":

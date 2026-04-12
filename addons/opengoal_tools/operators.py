@@ -706,7 +706,8 @@ class OG_OT_ExportBuild(Operator):
             self.report({"ERROR"}, f"GLB export failed: {e}"); return {"CANCELLED"}
         _BUILD_STATE.clear()
         _BUILD_STATE.update({"done":False,"status":"Starting...","error":None,"ok":False})
-        threading.Thread(target=_bg_build, args=(name, ctx.scene), daemon=True).start()
+        depsgraph = ctx.evaluated_depsgraph_get()  # fetch on main thread — unsafe from bg thread
+        threading.Thread(target=_bg_build, args=(name, ctx.scene, depsgraph), daemon=True).start()
         wm = ctx.window_manager
         self._timer = wm.event_timer_add(0.5, window=ctx.window)
         wm.modal_handler_add(self)
@@ -945,7 +946,8 @@ class OG_OT_GeoRebuild(Operator):
             self.report({"ERROR"}, f"GLB export failed: {e}"); return {"CANCELLED"}
         _GEO_REBUILD_STATE.clear()
         _GEO_REBUILD_STATE.update({"done": False, "status": "Starting...", "error": None, "ok": False})
-        threading.Thread(target=_bg_geo_rebuild, args=(name, ctx.scene), daemon=True).start()
+        depsgraph = ctx.evaluated_depsgraph_get()  # fetch on main thread — unsafe from bg thread
+        threading.Thread(target=_bg_geo_rebuild, args=(name, ctx.scene, depsgraph), daemon=True).start()
         wm = ctx.window_manager
         self._timer = wm.event_timer_add(0.5, window=ctx.window)
         wm.modal_handler_add(self)
@@ -989,7 +991,8 @@ class OG_OT_ExportBuildPlay(Operator):
 
         _BUILD_PLAY_STATE.clear()
         _BUILD_PLAY_STATE.update({"done": False, "status": "Starting...", "error": None, "ok": False})
-        threading.Thread(target=_bg_build_and_play, args=(name, ctx.scene), daemon=True).start()
+        depsgraph = ctx.evaluated_depsgraph_get()  # fetch on main thread — unsafe from bg thread
+        threading.Thread(target=_bg_build_and_play, args=(name, ctx.scene, depsgraph), daemon=True).start()
         wm = ctx.window_manager
         self._timer = wm.event_timer_add(0.5, window=ctx.window)
         wm.modal_handler_add(self)
