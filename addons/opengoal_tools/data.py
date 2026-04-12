@@ -663,7 +663,7 @@ ETYPE_CODE = {
     "breakaway-mid":   {"o": "misty-obs.o",        "o_only": True},
     "breakaway-right": {"o": "misty-obs.o",        "o_only": True},
     # New objects / interactables
-    "water-vol":       {"o": "water.o",            "o_only": True},
+    "water-vol":       {"in_game_cgo": True},  # water.o is in GAME.CGO, always loaded
     "swingpole":       {"o": "generic-obs.o",      "o_only": True},
     "springbox":       {"o": "bouncer.o",          "o_only": True},
     "eco-door":        {"o": "baseplat.o",         "o_only": True},
