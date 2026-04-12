@@ -8,6 +8,11 @@ import bpy
 import os, re, json, socket, subprocess, threading, time
 from pathlib import Path
 from .data import needed_tpages
+from .tpage_combine import (
+    TpageCombiner, write_tpage_combine_files,
+    get_unique_tpage_groups, get_enemy_etypes_from_actors,
+    COMBINED_TPAGE_BASE_ID,
+)
 from .collections import _get_level_prop, _level_objects, _active_level_col
 from .export import (
     collect_actors, collect_ambients, collect_spawns, collect_cameras,
@@ -84,6 +89,55 @@ def _data_root():
 def _gk():         return _exe_root() / f"gk{_EXE}"
 def _goalc():      return _exe_root() / f"goalc{_EXE}"
 def _data():       return _data_root() / "data"
+
+
+def _run_tpage_combine(name, actors):
+    """
+    If the scene uses enemies from more than one tpage group, build a combined
+    tpage and write the skeleton .go + dir-tpages.go to disk.
+    Returns (extra_json_fields, combined_tpage_files) where:
+      extra_json_fields:    dict to merge into level JSON via write_jsonc extra_fields=
+      combined_tpage_files: list of .go filenames for write_gd tpages= arg
+                            (replaces all source tpage .go files)
+    Returns ({}, None) if no combining needed.
+    """
+    # Check the scene-level toggle
+    scene = bpy.context.scene
+    props = getattr(scene, "og_props", None)
+    if props and not props.combine_tpages:
+        return {}, None
+
+    groups = get_unique_tpage_groups(actors)
+    if len(groups) <= 1:
+        return {}, None   # all enemies share a tpage group — no combine needed
+
+    etypes = get_enemy_etypes_from_actors(actors)
+    if not etypes:
+        return {}, None
+
+    try:
+        combiner = TpageCombiner(_data_root())
+        result   = combiner.build(etypes, combined_tpage_id=COMBINED_TPAGE_BASE_ID)
+
+        level_obj_dir = _data() / "custom_assets" / "jak1" / "levels" / name
+        game_obj_dir  = _data_root() / "data" / "out" / "jak1" / "obj"
+        written = write_tpage_combine_files(result, level_obj_dir, game_obj_dir)
+
+        saved_mb = max(0, (len(groups) - 1) * 2)
+        log(f"[tpage-combine] {len(groups)} tpage groups → 1 combined "
+            f"(id={result.combined_tpage_id}, {result.combined_tex_count} textures, "
+            f"~{saved_mb}MB heap freed)")
+        log(f"[tpage-combine] wrote {written['skeleton_tpage']}")
+        log(f"[tpage-combine] wrote {written['dir_tpages']}")
+
+        combined_go = f"tpage-{result.combined_tpage_id}.go"
+        return result.level_json_fields, [combined_go]
+    except FileNotFoundError as e:
+        log(f"[tpage-combine] tex-info.min.json not found — skipping: {e}")
+        return {}, None
+    except Exception as e:
+        log(f"[tpage-combine] error during combine — skipping: {e}")
+        return {}, None
 
 
 # ---------------------------------------------------------------------------
@@ -380,8 +434,10 @@ def _bg_build(name, scene, depsgraph=None):
         state["status"] = "Writing files..."
         base_id = int(_get_level_prop(scene, "og_base_id", 10000))
         aggro_actors = collect_aggro_triggers(scene)
-        write_jsonc(name, actors, ambients, cam_actors + trigger_actors + aggro_actors, base_id)
-        write_gd(name, ags, code_deps, tpages)
+        tpage_extra, combined_tpages = _run_tpage_combine(name, actors)
+        write_jsonc(name, actors, ambients, cam_actors + trigger_actors + aggro_actors, base_id,
+                    extra_fields=tpage_extra or None)
+        write_gd(name, ags, code_deps, combined_tpages if combined_tpages else tpages)
         navmesh_actors = _collect_navmesh_actors(scene)
         _lv_objs = _level_objects(scene)
         has_cps = bool([o for o in _lv_objs if o.name.startswith("CHECKPOINT_") and o.type == "EMPTY" and not o.name.endswith("_CAM")])
@@ -535,8 +591,10 @@ def _bg_geo_rebuild(name, scene, depsgraph=None):
         state["status"] = "Writing level files..."
         base_id = int(_get_level_prop(scene, "og_base_id", 10000))
         aggro_actors = collect_aggro_triggers(scene)
-        write_jsonc(name, actors, ambients, cam_actors + trigger_actors + aggro_actors, base_id)
-        write_gd(name, ags, code_deps, tpages)
+        tpage_extra, combined_tpages = _run_tpage_combine(name, actors)
+        write_jsonc(name, actors, ambients, cam_actors + trigger_actors + aggro_actors, base_id,
+                    extra_fields=tpage_extra or None)
+        write_gd(name, ags, code_deps, combined_tpages if combined_tpages else tpages)
         _lv_objs = _level_objects(scene)
         has_cps = bool([o for o in _lv_objs if o.name.startswith("CHECKPOINT_") and o.type == "EMPTY" and not o.name.endswith("_CAM")])
         write_gc(name, has_triggers=bool(trigger_actors), has_checkpoints=has_cps, has_aggro_triggers=bool(aggro_actors))
@@ -606,8 +664,10 @@ def _bg_build_and_play(name, scene, depsgraph=None):
         state["status"] = "Writing level files..."
         base_id = int(_get_level_prop(scene, "og_base_id", 10000))
         aggro_actors = collect_aggro_triggers(scene)
-        write_jsonc(name, actors, ambients, cam_actors + trigger_actors + aggro_actors, base_id)
-        write_gd(name, ags, code_deps, tpages)
+        tpage_extra, combined_tpages = _run_tpage_combine(name, actors)
+        write_jsonc(name, actors, ambients, cam_actors + trigger_actors + aggro_actors, base_id,
+                    extra_fields=tpage_extra or None)
+        write_gd(name, ags, code_deps, combined_tpages if combined_tpages else tpages)
         navmesh_actors = _collect_navmesh_actors(scene)
         _lv_objs = _level_objects(scene)
         has_cps = bool([o for o in _lv_objs if o.name.startswith("CHECKPOINT_") and o.type == "EMPTY" and not o.name.endswith("_CAM")])

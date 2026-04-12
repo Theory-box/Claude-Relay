@@ -116,6 +116,16 @@ class OGProperties(PropertyGroup):
     show_platform_list:     BoolProperty(name="Show Platform List",     default=True)
     # Collection Properties panel
     selected_collection:    StringProperty(name="Selected Collection", default="")
+    # Tpage combine
+    combine_tpages:         BoolProperty(
+        name="Combine Entity Tpages",
+        default=True,
+        description=(
+            "When enemies from multiple source levels are placed, merge their textures "
+            "into a single combined tpage to save level heap memory (~2MB saved per "
+            "eliminated source tpage). Requires custom_tex_remap patch in build_level.cpp."
+        )
+    )
 
 
 # --- OGLumpRow ---

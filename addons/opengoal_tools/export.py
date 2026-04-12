@@ -1838,7 +1838,7 @@ def needed_code(actors):
 # FILE WRITERS
 # ---------------------------------------------------------------------------
 
-def write_jsonc(name, actors, ambients, camera_actors=None, base_id=10000):
+def write_jsonc(name, actors, ambients, camera_actors=None, base_id=10000, extra_fields=None):
     d = _ldir(name); d.mkdir(parents=True, exist_ok=True)
     all_actors = list(actors) + (camera_actors or [])
     ags = needed_ags(actors)  # camera-tracker has no art group, so only scan regular actors
@@ -1852,6 +1852,10 @@ def write_jsonc(name, actors, ambients, camera_actors=None, base_id=10000):
         "tex_remap": "village1", "sky": "village1", "tpages": [],
         "ambients": ambients, "actors": all_actors,
     }
+    # Merge tpage combine fields (tpages, custom_tex_remap, textures) if provided.
+    # These override the defaults above when mixing enemies from multiple source levels.
+    if extra_fields:
+        data.update(extra_fields)
     p = d / f"{name}.jsonc"
     new_text = f"// OpenGOAL custom level: {name}\n" + json.dumps(data, indent=2)
     if p.exists() and p.read_text() == new_text:

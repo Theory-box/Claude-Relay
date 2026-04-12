@@ -403,6 +403,84 @@ class OG_PT_CleanSub(Panel):
 
 
 # ---------------------------------------------------------------------------
+# Level > Texture Memory  (sub-panel)
+# ---------------------------------------------------------------------------
+
+class OG_PT_TextureMemorySub(Panel):
+    bl_label       = "🗜  Texture Memory"
+    bl_idname      = "OG_PT_texture_memory"
+    bl_space_type  = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category    = "OpenGOAL"
+    bl_parent_id   = "OG_PT_level"
+    bl_options     = {"DEFAULT_CLOSED"}
+
+    def draw(self, ctx):
+        layout = self.layout
+        props  = ctx.scene.og_props
+        scene  = ctx.scene
+
+        # Toggle
+        row = layout.row(align=True)
+        row.prop(props, "combine_tpages", text="Combine Entity Tpages", icon="LINKED")
+
+        layout.separator(factor=0.4)
+
+        # Live analysis — collect actors and show tpage group breakdown
+        try:
+            from .build import _data_root
+            from .tpage_combine import TpageCombiner, get_unique_tpage_groups, get_enemy_etypes_from_actors
+            from .export import collect_actors
+
+            actors = collect_actors(scene, None)
+            groups = get_unique_tpage_groups(actors)
+            etypes = get_enemy_etypes_from_actors(actors)
+
+            if not etypes:
+                layout.label(text="No enemy actors in scene", icon="INFO")
+                return
+
+            # Group count summary
+            n_groups = len(groups)
+            if n_groups <= 1:
+                row = layout.row()
+                row.label(text=f"1 tpage group — no combine needed", icon="CHECKMARK")
+            else:
+                box = layout.box()
+                saved_mb = max(0, (n_groups - 1) * 2)
+                header = box.row()
+                header.alert = True
+                header.label(text=f"{n_groups} tpage groups detected!", icon="ERROR")
+                box.label(text=f"Saving ~{saved_mb}MB heap with combine")
+
+                # Try to show per-group detail from tex-info
+                if props.combine_tpages:
+                    try:
+                        combiner = TpageCombiner(_data_root())
+                        analysis = combiner.analyse(etypes)
+                        for pid, info in sorted(analysis['pages'].items(),
+                                                 key=lambda x: x[1]['name']):
+                            row = box.row()
+                            row.label(text=f"  {info['name']}",
+                                      icon="TEXTURE_DATA")
+                            row.label(text=f"{info['count']} textures")
+                        box.separator(factor=0.3)
+                        box.label(text=f"→ Combined: {analysis['total_textures']} textures total")
+                    except FileNotFoundError:
+                        box.label(text="(run decompiler to see texture detail)", icon="INFO")
+                    except Exception:
+                        pass
+                else:
+                    for g in sorted(groups):
+                        box.label(text=f"  {g}", icon="TEXTURE_DATA")
+                    box.separator(factor=0.3)
+                    box.label(text="Enable toggle above to combine", icon="INFO")
+
+        except Exception as e:
+            layout.label(text=f"Analysis unavailable: {e}", icon="ERROR")
+
+
+# ---------------------------------------------------------------------------
 # Level > Light Baking  (sub-panel)
 # ---------------------------------------------------------------------------
 
