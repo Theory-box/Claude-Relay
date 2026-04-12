@@ -252,3 +252,28 @@ a bsphere that covers its full box or the process gets renderer-culled.
 - engine test: `dot(P, N) - d < 0` → outside (i.e. inside when `dot(P,N) >= d`)
 - all normals must point inward for convex hull
 
+
+---
+
+## Water System — COMPLETE (feature/water merged to main)
+
+**Status:** Working. Confirmed in-game via REPL debugging.
+
+**Two fixes required outside the addon:**
+1. `vol-h.gc` patch: change `'exact` → `'base` on lines ~50 and ~64 (lookup-tag-idx for 'vol and 'cutoutvol)
+2. User must recompile after applying the patch
+
+**Root causes found (in order of discovery):**
+1. `level_objs` scope — WATER_ block was in wrong function
+2. `o.dimensions = 0` for empties — switched to mesh approach  
+3. `bot_y` calculation wrong
+4. wade/swim stored as absolute Y — engine expects depths
+5. `wt02/wt03` never set — `logior! wt23` runs before `(zero? flags)` check
+6. `water.o` DGO injection — was `o_only`, should be `in_game_cgo`
+7. WATER_ mesh included in GLB geometry
+8. `SetWaterAttack` not registered
+9. WATER_ mesh block in wrong function (`collect_ambients` not `collect_actors`)
+10. `vol-h.gc` key-frame mismatch — `'exact 0.0` vs `DEFAULT_RES_TIME = -1e9` → `vol-count:0`
+11. Vol plane normals pointing inward — `point-in-vol?` requires outward normals
+
+**Addon version at merge:** v1.4.x (feature/water → main)
