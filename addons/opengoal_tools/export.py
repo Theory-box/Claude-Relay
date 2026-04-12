@@ -1345,16 +1345,71 @@ def collect_actors(scene, depsgraph=None):
                 lump["flags"] = ["uint32", flags]
                 log(f"  [eco-door flags] {o.name}  auto-close={auto_close}  one-way={one_way}")
 
-        # ── Water-vol: water-height multi-field lump ──────────────────────────
-        # water-vol reads a 5-field 'water-height lump:
-        # [surface_m, wade_m, swim_m, flags, bottom_m]
+        # ── Water-vol: water-height + vol lumps ───────────────────────────────
+        # water-vol needs two lumps to function:
+        #
+        # 1. 'water-height  — 5 floats: [surface, wade, swim, flags, bottom]
+        #    All in meters; C++ compiler multiplies by METER_LENGTH (4096).
+        #    The engine reads these to set Jak's wade/swim thresholds and the
+        #    kill-plane depth.
+        #
+        # 2. 'vol  — 6 "vector-vol" planes defining the activation AABB.
+        #    WITHOUT this lump vol-control.pos-vol-count = 0, point-in-vol?
+        #    always returns #f, and the zone NEVER activates (root cause of
+        #    water-vol appearing broken in custom levels before this fix).
+        #
+        #    Each plane = [nx, ny, nz, d_meters].  The engine stores planes as
+        #    (nx, ny, nz, d_raw) where d_raw = d_meters * 4096.  The C++ lump
+        #    compiler handles the × 4096 automatically for "vector-vol" type.
+        #    Plane equation: dot(normal, point) >= d  →  point is inside.
+        #
+        #    Box layout (game coords: X = Blender X, Y = Blender Z up,
+        #                             Z = Blender -Y):
+        #    All normals point INWARD.  Inside condition: dot(P,N) >= d.
+        #      top cap — normal ( 0, -1,  0), d = -surface_y
+        #      floor   — normal ( 0, +1,  0), d =  bot_y  (surface + bottom offset)
+        #      +X cap  — normal (-1,  0,  0), d = -(cx + hx)
+        #      -X cap  — normal (+1,  0,  0), d =  cx - hx
+        #      +Z cap  — normal ( 0,  0, -1), d = -(cz + hz)
+        #      -Z cap  — normal ( 0,  0, +1), d =  cz - hz
+        #
+        #    Scale: the empty's world scale sets the XZ half-extents.
+        #    The user sizes the empty to cover the water area.  Scale 1 = 1 m
+        #    half-extent (2 m total width) — scale up to cover the water mesh.
         if etype == "water-vol":
+            # Legacy ACTOR_ water-vol path (hidden from picker — use WATER_ mesh instead).
+            # wade/swim are depths below surface (positive meters); bottom is absolute Y.
             surface = float(o.get("og_water_surface", 0.0))
-            wade    = float(o.get("og_water_wade",   -0.5))
-            swim    = float(o.get("og_water_swim",   -1.0))
-            bottom  = float(o.get("og_water_bottom", -5.0))
-            lump["water-height"] = ["water-height", surface, wade, swim, "(water-flags)", bottom]
-            log(f"  [water-vol] {o.name}  surface={surface}m  wade={wade}m  swim={swim}m  bottom={bottom}m")
+            wade    = float(o.get("og_water_wade",    0.5))
+            swim    = float(o.get("og_water_swim",    1.0))
+            bottom  = float(o.get("og_water_bottom",  surface - 5.0))
+            lump["water-height"] = ["water-height", surface, wade, swim, "(water-flags wt02 wt03 wt05 wt22)", bottom]
+
+            # Build the 6-plane vol box from the empty's world scale.
+            # NOTE: o.dimensions returns (0,0,0) for empties (no mesh geometry).
+            # Use o.scale directly — actor empties are never parented or rotated
+            # in this addon, so local scale == world scale.
+            # Scale X → game X half-extent, Scale Y → game Z half-extent.
+            # Default scale is (1,1,1) = a 2m×2m box. User should scale the
+            # empty to match the water area before exporting.
+            hx    = abs(o.scale.x)         # game X half-extent (meters)
+            hz    = abs(o.scale.y)         # game Z half-extent (meters)
+            top_y = surface                # absolute Y of water surface
+            bot_y = bottom                 # absolute Y of kill floor (absolute, not relative)
+
+            lump["vol"] = [
+                "vector-vol",
+                # Normals point OUTWARD. Inside = negative side of each plane.
+                # point-in-vol? returns #f when dot(P,N) - w > 0
+                [ 0,  1,  0,   top_y      ],   # top:   P.y <= surface
+                [ 0, -1,  0,  -bot_y      ],   # floor: P.y >= bottom
+                [ 1,  0,  0,   gx + hx    ],   # +X:    P.x <= cx+hx
+                [-1,  0,  0, -(gx - hx)   ],   # -X:    P.x >= cx-hx
+                [ 0,  0,  1,   gz + hz    ],   # +Z:    P.z <= cz+hz
+                [ 0,  0, -1, -(gz - hz)   ],   # -Z:    P.z >= cz-hz
+            ]
+            log(f"  [water-vol] {o.name}  surface={surface}m  wade={wade}m  swim={swim}m  "
+                f"bottom={bottom}m  box={hx*2:.1f}x{hz*2:.1f}m")
 
         # ── Launcherdoor: continue-name lump ─────────────────────────────────
         # launcherdoor writes a continue-name string lump to set the active
@@ -1421,6 +1476,14 @@ def collect_actors(scene, depsgraph=None):
         info     = ENTITY_DEFS.get(etype, {})
         is_enemy = info.get("cat") in ("Enemies", "Bosses")
         bsph_r   = 10.0  # Rockpool uses 10m for all entities; 120m caused merc renderer crashes
+
+        # water-vol: bsphere must enclose the full activation box so the process
+        # isn't culled before it can run point-in-vol checks each frame.
+        # Use o.scale — empties have no dimensions, scale is the half-extent.
+        if etype == "water-vol":
+            hx     = abs(o.scale.x)
+            hz     = abs(o.scale.y)
+            bsph_r = max((hx ** 2 + hz ** 2) ** 0.5, 10.0)  # minimum 10m
 
         # Add vis-dist for enemies so they stay active at reasonable range.
         # og_vis_dist custom prop overrides; default 200m.
@@ -1724,6 +1787,69 @@ def collect_actors(scene, depsgraph=None):
         log(f"  [vertex-export] {o.name} → {len(verts)} × {etype} (modifiers applied)")
         o_eval.to_mesh_clear()  # free the temporary evaluated mesh
 
+    # ── WATER_ mesh volumes ───────────────────────────────────────────────────
+    # WATER_<name> meshes define swimmable water zones.  The mesh shape (any
+    # scaled / rotated cube) drives the vol-control activation AABB.
+    # Custom props on the mesh:
+    #   og_water_surface  — world Y of the water surface (auto-set by sync op)
+    #   og_water_wade     — depth in meters below surface (default 0.5)
+    #   og_water_swim     — depth in meters below surface (default 1.0)
+    #   og_water_bottom   — world Y of the kill floor
+    #   og_water_attack   — damage type symbol string (default: 'drown)
+    # All heights are absolute world Y (meters).  The vol planes are built from
+    # the mesh AABB so rotation and non-uniform scale are fully supported.
+    water_meshes = [o for o in level_objs
+                    if o.type == "MESH" and o.name.startswith("WATER_")]
+    for idx, o in enumerate(sorted(water_meshes, key=lambda x: x.name)):
+        xmin, xmax, ymin, ymax, zmin, zmax, cx, cy, cz, _ = _vol_aabb(o)
+
+        # Heights.
+        # og_water_surface = absolute world Y of the water surface (defaults to mesh top)
+        # og_water_wade    = depth in meters below surface where wading starts (default 0.5)
+        # og_water_swim    = depth in meters below surface where swimming starts (default 1.0)
+        # og_water_bottom  = absolute world Y of the kill floor (defaults to mesh bottom)
+        #
+        # Engine logic (water.gc):
+        #   wade triggers when: jak_foot_y <= (surface - wade_depth)
+        #   swim triggers when: jak_foot_y <= (surface - swim_depth)
+        # So wade/swim are DEPTHS subtracted from surface — small positive values.
+        surface    = float(o.get("og_water_surface", ymax))
+        wade_depth = float(o.get("og_water_wade",    0.5))
+        swim_depth = float(o.get("og_water_swim",    1.0))
+        bottom     = float(o.get("og_water_bottom",  ymin))
+        attack     = str(o.get("og_water_attack",    "drown"))
+
+        # bsphere: XZ half-diagonal + 5m padding so process is never culled
+        bsph_r = round((((xmax-xmin)/2)**2 + ((ymax-ymin)/2)**2 + ((zmax-zmin)/2)**2)**0.5 + 5.0, 2)
+
+        lump = {
+            "name":         f"water-vol-{idx}",
+            # 5-value form with explicit flags — REQUIRED because logior! wt23 always runs
+            # before the (zero? flags) auto-set check, so wt02/wt03 must be set explicitly.
+            "water-height": ["water-height", surface, wade_depth, swim_depth, "(water-flags wt02 wt03 wt05 wt22)"],
+            "attack-event": f"'{attack}",
+            "vol": [
+                "vector-vol",
+                # point-in-vol? returns #f when dot(P,N) - w > 0
+                # So normals must point OUTWARD. Inside = negative side of each plane.
+                [ 0,  1,  0,  surface ],   # top:   outward +Y, inside when P.y <= surface
+                [ 0, -1,  0, -bottom  ],   # floor: outward -Y, inside when P.y >= bottom
+                [ 1,  0,  0,  xmax    ],   # +X:    outward +X, inside when P.x <= xmax
+                [-1,  0,  0, -xmin    ],   # -X:    outward -X, inside when P.x >= xmin
+                [ 0,  0,  1,  zmax    ],   # +Z:    outward +Z, inside when P.z <= zmax
+                [ 0,  0, -1, -zmin    ],   # -Z:    outward -Z, inside when P.z >= zmin
+            ],
+        }
+        out.append({
+            "trans":     [cx, cy, cz],
+            "etype":     "water-vol",
+            "game_task": "(game-task none)",
+            "quat":      [0, 0, 0, 1],
+            "vis_id":    0,
+            "bsphere":   [cx, cy, cz, bsph_r],
+            "lump":      lump,
+        })
+        log(f"  [water] {o.name}  surface={surface:.2f}m  wade={wade_depth}m  swim={swim_depth}m  bottom={bottom:.2f}m  box={xmax-xmin:.1f}x{zmax-zmin:.1f}m")
     return out
 
 def collect_ambients(scene):
@@ -2258,9 +2384,12 @@ def export_glb(ctx, name):
             export_objs = _recursive_col_objects(geo_col, exclude_no_export=True)
             export_objs = [o for o in export_objs if o.type == "MESH"]
         else:
-            # No Geometry sub-collection yet — fall back to all meshes in the level
+            # No Geometry sub-collection yet — fall back to all meshes in the level.
+            # Exclude WATER_ volumes (invisible helpers, not renderable geometry).
+            _HELPER_PREFIXES = ("WATER_", "VOL_", "CPVOL_", "NAVMESH_")
             export_objs = [o for o in _recursive_col_objects(level_col, exclude_no_export=True)
-                           if o.type == "MESH"]
+                           if o.type == "MESH"
+                           and not any(o.name.startswith(p) for p in _HELPER_PREFIXES)]
 
         # Save selection state
         prev_active    = ctx.view_layer.objects.active
