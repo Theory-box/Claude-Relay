@@ -1821,11 +1821,13 @@ def collect_actors(scene, depsgraph=None):
         attack     = str(o.get("og_water_attack",    "drown"))
 
         # bsphere: XZ half-diagonal + 5m padding so process is never culled
-        bsph_r = round((((xmax - xmin) / 2) ** 2 + ((zmax - zmin) / 2) ** 2) ** 0.5 + 5.0, 2)
+        bsph_r = round((((xmax-xmin)/2)**2 + ((ymax-ymin)/2)**2 + ((zmax-zmin)/2)**2)**0.5 + 5.0, 2)
 
         lump = {
             "name":         f"water-vol-{idx}",
-            "water-height": ["water-height", surface, wade_depth, swim_depth, "(water-flags wt02 wt03 wt05 wt22)", bottom],
+            # Minimal 3-value form: engine auto-sets wt02/wt03 when flags==0 and wade/swim>0
+            # bottom omitted (defaults to 32768.0 = kill floor never triggers)
+            "water-height": ["water-height", surface, wade_depth, swim_depth],
             "attack-event": f"'{attack}",
             "vol": [
                 "vector-vol",
