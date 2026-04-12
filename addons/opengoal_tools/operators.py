@@ -573,7 +573,8 @@ class OG_OT_SpawnEntity(Operator):
             self.report({"INFO"}, f"Added {o.name}")
 
         # ---- Model preview ------------------------------------------------
-        if ctx.scene.og_props.preview_models:
+        _prefs = bpy.context.preferences.addons.get("opengoal_tools")
+        if _prefs and _prefs.preferences.preview_models:
             try:
                 _mp.attach_preview(ctx, etype, o)
             except Exception as e:

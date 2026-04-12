@@ -235,6 +235,7 @@ def attach_preview(ctx, etype: str, actor_empty: bpy.types.Object) -> bool:
         # ---- Display settings ----
         mesh_obj.show_in_front     = False
         mesh_obj.display_type      = "TEXTURED"
+        mesh_obj.hide_select       = True   # non-selectable — move the ACTOR empty instead
 
         attached = True
 
