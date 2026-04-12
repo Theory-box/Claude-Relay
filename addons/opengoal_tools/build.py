@@ -86,6 +86,38 @@ def _goalc():      return _exe_root() / f"goalc{_EXE}"
 def _data():       return _data_root() / "data"
 
 
+def _apply_engine_patches():
+    """Apply required engine source patches to vol-h.gc if not already applied.
+    These fix vol-control lookup for custom levels (vanilla uses 'exact 0.0 but
+    custom level builder stores tags at DEFAULT_RES_TIME = -1e9).
+    Safe for vanilla levels — 'base ignores timestamp, finds by name only.
+
+    TODO: NEEDS LIVE TEST — confirm vol-h.gc is found and patched correctly
+    on a fresh jak-project install. Verify water volumes still work after
+    a clean recompile triggered by this patch.
+    """
+    patched = []
+    vol_h = _data_root() / "goal_src" / "jak1" / "engine" / "geometry" / "vol-h.gc"
+    if not vol_h.exists():
+        return patched
+    text = vol_h.read_text(encoding="utf-8")
+    new_text = text
+    new_text = new_text.replace(
+        "(method-of-type res-lump lookup-tag-idx) (the-as entity-actor s5-1) 'vol 'exact 0.0",
+        "(method-of-type res-lump lookup-tag-idx) (the-as entity-actor s5-1) 'vol 'base 0.0"
+    )
+    new_text = new_text.replace(
+        "(method-of-type res-lump lookup-tag-idx) (the-as entity-actor s5-2) 'cutoutvol 'exact 0.0",
+        "(method-of-type res-lump lookup-tag-idx) (the-as entity-actor s5-2) 'cutoutvol 'base 0.0"
+    )
+    if new_text != text:
+        vol_h.write_text(new_text, encoding="utf-8")
+        patched.append("vol-h.gc")
+        log("  [patch] vol-h.gc patched: 'exact -> 'base for vol-control lookup")
+    return patched
+
+
+
 # ---------------------------------------------------------------------------
 # AUDIO ENUMS
 # ---------------------------------------------------------------------------
@@ -363,6 +395,10 @@ def _bg_build(name, scene, depsgraph=None):
     state = _BUILD_STATE
     try:
         state["status"] = "Collecting scene..."
+        # Apply engine patches (idempotent — only writes if needed)
+        patched = _apply_engine_patches()
+        if patched:
+            state["status"] = "Applied engine patches, compiling..."
         _clean_orphaned_vol_links(scene)
         actors    = collect_actors(scene, depsgraph)
         ambients  = collect_ambients(scene)

@@ -277,3 +277,18 @@ a bsphere that covers its full box or the process gets renderer-culled.
 11. Vol plane normals pointing inward — `point-in-vol?` requires outward normals
 
 **Addon version at merge:** v1.4.x (feature/water → main)
+
+---
+
+## feature/vol-patch — NEEDS LIVE TEST
+
+Auto-patches `vol-h.gc` on every export+build (idempotent). Added to `_bg_build` in `build.py`.
+
+**Test checklist:**
+- [ ] Fresh install — confirm `vol-h.gc` is found at expected path (`data_root/goal_src/jak1/engine/geometry/vol-h.gc`)
+- [ ] First export+build patches the file and logs `[patch] vol-h.gc patched`
+- [ ] Second export+build is silent (no re-patch, file already correct)
+- [ ] Water volumes still work after the auto-patch triggers a recompile
+- [ ] Confirm build doesn't fail if `vol-h.gc` path doesn't exist (graceful skip)
+
+**Branch:** feature/vol-patch — do NOT merge to main until tested.
