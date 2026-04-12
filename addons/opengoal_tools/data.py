@@ -254,12 +254,12 @@ ENTITY_DEFS = {
 }
 
 CRATE_ITEMS = [
-    ("steel",   "Steel",    "", 0),
-    ("wood",    "Wood",     "", 1),
-    ("iron",    "Iron",     "", 2),
-    ("darkeco", "Dark Eco", "", 3),
-    ("barrel",  "Barrel",   "", 4),
-    ("bucket",  "Bucket",   "", 5),
+    ("steel",   "Steel",    "", 0, ""),
+    ("wood",    "Wood",     "", 1, ""),
+    ("iron",    "Iron",     "", 2, ""),
+    ("darkeco", "Dark Eco", "", 3, ""),
+    ("barrel",  "Barrel",   "", 4, ""),
+    ("bucket",  "Bucket",   "", 5, ""),
 ]
 
 # Pickup types valid inside a crate. Maps (ui_id, label, pickup-type string, icon).
