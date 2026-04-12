@@ -862,10 +862,12 @@ class OG_PT_SpawnWater(Panel):
             for o in water_meshes:
                 row = box.row(align=True)
                 surface = float(o.get("og_water_surface", 0.0))
-                corners = [o.matrix_world @ v.co for v in o.data.vertices]
-                xs = [c.x for c in corners]; zs = [c.y for c in corners]
-                w = max(xs) - min(xs); d = max(zs) - min(zs)
-                row.label(text=f"{o.name}  {w:.1f}×{d:.1f}m  Y={surface:.1f}", icon="MOD_OCEAN")
+                # Use bound_box (8 corners, local space) + matrix for cheap world AABB
+                from mathutils import Vector
+                bb = [o.matrix_world @ Vector(o.bound_box[i]) for i in range(8)]
+                w = max(c.x for c in bb) - min(c.x for c in bb)
+                d = max(c.y for c in bb) - min(c.y for c in bb)
+                row.label(text=f"{o.name}  {w:.1f}×{d:.1f}m  surf={surface:.1f}m", icon="MOD_OCEAN")
 
 
 # ===========================================================================

@@ -1858,10 +1858,8 @@ def collect_ambients(scene):
         bottom  = float(o.get("og_water_bottom",  ymin))
         attack  = str(o.get("og_water_attack",    "drown"))
 
-        # bsphere: covers full XZ footprint + a little vertical headroom
-        bsph_r  = round(max(
-            ((xmax - xmin) / 2) ** 2 + ((zmax - zmin) / 2) ** 2
-        ) ** 0.5 + 5.0, 2)
+        # bsphere: XZ half-diagonal + 5m padding so process is never culled
+        bsph_r = round((((xmax - xmin) / 2) ** 2 + ((zmax - zmin) / 2) ** 2) ** 0.5 + 5.0, 2)
 
         lump = {
             "name":         f"water-vol-{idx}",

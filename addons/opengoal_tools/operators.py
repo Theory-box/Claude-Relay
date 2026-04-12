@@ -1916,7 +1916,7 @@ class OG_OT_SyncWaterFromMesh(Operator):
 
 
 
-class OG_OT_SetWaterAttack(bpy.types.Operator):
+class OG_OT_SetWaterAttack(Operator):
     """Set the damage type for this water volume."""
     bl_idname  = "og.set_water_attack"
     bl_label   = "Set Water Attack"
