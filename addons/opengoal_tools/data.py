@@ -226,7 +226,7 @@ ENTITY_DEFS = {
     "breakaway-right":  {"label":"Breakaway Plat (R)",   "cat":"Platforms", "tpage_group":"Misty",    "ag":"breakaway-right-ag.go",   "nav_safe":True,  "needs_path":False, "needs_sync":False, "needs_notice_dist":False, "color":(0.6,0.5,0.3,1.0), "shape":"CUBE"},
 
     # ---- OBJECTS / INTERACTABLES (NEW) ----
-    "water-vol":        {"label":"Water Volume",         "cat":"Objects",   "ag":None,                      "nav_safe":True,  "needs_path":False, "needs_pathb":False, "is_prop":False, "ai_type":"process-drawable", "color":(0.2,0.4,0.9,0.6), "shape":"CUBE"},
+    "water-vol":        {"label":"Water Volume (legacy)", "cat":"Hidden",    "ag":None,                      "nav_safe":True,  "needs_path":False, "needs_pathb":False, "is_prop":False, "ai_type":"process-drawable", "color":(0.2,0.4,0.9,0.6), "shape":"CUBE"},
     "swingpole":        {"label":"Swing Pole",           "cat":"Objects",   "ag":None,                      "nav_safe":True,  "needs_path":False, "needs_pathb":False, "is_prop":False, "ai_type":"process-drawable", "color":(0.8,0.6,0.2,1.0), "shape":"PLAIN_AXES"},
     "springbox":        {"label":"Bounce Pad (Bouncer)", "cat":"Objects",   "tpage_group":"Jungle",   "ag":"bouncer-ag.go",           "nav_safe":True,  "needs_path":False, "needs_pathb":False, "is_prop":False, "ai_type":"process-drawable", "color":(0.9,0.7,0.1,1.0), "shape":"CUBE"},
     "oracle":           {"label":"Oracle",               "cat":"NPCs",      "tpage_group":"Village1", "ag":"oracle-ag.go",            "nav_safe":True,  "needs_path":False, "needs_pathb":False, "is_prop":False, "ai_type":"process-drawable", "color":(0.9,0.8,0.5,1.0), "shape":"SPHERE"},
@@ -663,7 +663,7 @@ ETYPE_CODE = {
     "breakaway-mid":   {"o": "misty-obs.o",        "o_only": True},
     "breakaway-right": {"o": "misty-obs.o",        "o_only": True},
     # New objects / interactables
-    "water-vol":       {"o": "water.o",            "o_only": True},
+    "water-vol":       {"in_game_cgo": True},  # water.o is in GAME.CGO, always loaded
     "swingpole":       {"o": "generic-obs.o",      "o_only": True},
     "springbox":       {"o": "bouncer.o",          "o_only": True},
     "eco-door":        {"o": "baseplat.o",         "o_only": True},

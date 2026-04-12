@@ -381,3 +381,83 @@ Do you need electrified/hazard water that toggles on/off?
 1. Place the entity from the addon (gets you position/aid/bsphere)
 2. Open the generated `entity.jsonc` and manually add water-specific lumps
 3. Rebuild and test in-engine
+
+---
+
+## Custom Level Implementation (Blender Addon)
+
+### Working approach (confirmed working as of feature/water merge)
+
+Use `WATER_` prefixed mesh cubes. Place via **Spawn → Water Volumes → Add Water Volume**.
+
+**Key facts learned from debugging:**
+
+### 1. vol-h.gc engine patch required
+Vanilla `vol-h.gc` uses `'exact 0.0` to look up the `'vol` lump tag. The custom level C++ builder stores ALL tags at `DEFAULT_RES_TIME = -1000000000.0`. These never match, so `pos-vol-count` stays 0 and `point-in-vol?` always returns `#f`.
+
+**Fix:** Change two lines in `goal_src/jak1/engine/geometry/vol-h.gc`:
+```lisp
+; Line ~50 — change 'exact to 'base
+(s4-0 (-> ((method-of-type res-lump lookup-tag-idx) (the-as entity-actor s5-1) 'vol 'base 0.0) lo))
+; Line ~64 — same for cutoutvol
+(s4-1 (-> ((method-of-type res-lump lookup-tag-idx) (the-as entity-actor s5-2) 'cutoutvol 'base 0.0) lo))
+```
+This fix is also present in LuminarLight's LL-OpenGOAL-ModBase ("Hat Kid water hack").
+
+### 2. Vol plane normals must point OUTWARD
+`point-in-vol?` returns `#f` (outside) when `dot(P,N) - w > 0`. Normals must face away from the box centre. Inside = negative side of all planes.
+
+Correct plane format for an AABB (xmin/xmax in game metres):
+```json
+["vector-vol",
+  [0,  1, 0,  surface],   // top:   P.y <= surface
+  [0, -1, 0, -bottom],    // floor: P.y >= bottom
+  [1,  0, 0,  xmax],      // +X:    P.x <= xmax
+  [-1, 0, 0, -xmin],      // -X:    P.x >= xmin
+  [0,  0, 1,  zmax],      // +Z:    P.z <= zmax
+  [0,  0,-1, -zmin]       // -Z:    P.z >= zmin
+]
+```
+
+### 3. water-height lump flags must be explicit
+`logior! wt23` always runs unconditionally before the `(zero? flags)` auto-set check. So `wt02` (wade) and `wt03` (swim) must be set explicitly in the lump:
+```json
+["water-height", surface_m, wade_depth_m, swim_depth_m, "(water-flags wt02 wt03 wt05 wt22)"]
+```
+
+### 4. water.o is in GAME.CGO
+Do NOT inject `water.o` into the custom DGO — it's already always loaded. Use `in_game_cgo: True` in ETYPE_CODE.
+
+### 5. WATER_ mesh must be invisible
+Set `set_invisible = True` on the mesh object so the level builder skips it for geometry/collision export.
+
+### 6. wade/swim are depths, not absolute Y
+The engine computes: `surface - wade_lump >= jak_foot_y`
+So `wade_lump = 0.5` means "wade when 0.5m below surface". NOT an absolute world Y.
+
+### Debugging via REPL
+```lisp
+; Check process exists
+(process-by-name "water-vol-0" *active-pool*)
+
+; Check vol loaded correctly  
+(let ((w (the water-vol (process-by-name "water-vol-0" *active-pool*))))
+  (format #t "flags:~d vol-count:~d~%" (-> w flags) (-> w vol pos-vol-count)))
+; vol-count must be > 0. If 0 = vol-h.gc patch not applied.
+
+; Check point-in-vol directly
+(let ((w (the water-vol (process-by-name "water-vol-0" *active-pool*))))
+  (format #t "in-vol:~A~%" (point-in-vol? (-> w vol) (-> *target* control trans))))
+
+; Check if Jak has water volume assigned
+(format #t "volume:~A~%" (-> *target* water volume))
+
+; Get Jak's position
+(format #t "pos: ~m ~m ~m~%" (-> *target* control trans x) (-> *target* control trans y) (-> *target* control trans z))
+
+; List all lump tags on the entity
+(let ((w (the water-vol (process-by-name "water-vol-0" *active-pool*))))
+  (let ((e (-> w entity)))
+    (dotimes (i (-> (the res-lump e) length))
+      (format #t "tag~d: ~A key:~f~%" i (-> (the res-lump e) tag i name) (-> (the res-lump e) tag i key-frame)))))
+```
