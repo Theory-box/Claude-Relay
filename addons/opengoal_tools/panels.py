@@ -47,6 +47,7 @@ from .utils import (
     _draw_wiki_preview,
     _preview_collections, _load_previews, _unload_previews,
 )
+from . import model_preview as _mp
 
 class OG_PT_Level(Panel):
     bl_label       = "⚙  Level"
@@ -648,7 +649,23 @@ class OG_PT_SpawnEnemies(Panel):
     bl_options     = {"DEFAULT_CLOSED"}
 
     def draw(self, ctx):
-        _draw_entity_sub(self.layout, ctx, _ENEMY_CATS, nav_inline=True, prop_name="enemy_type")
+        layout = self.layout
+        props  = ctx.scene.og_props
+
+        # ---- Preview model toggle + status ----
+        row = layout.row(align=True)
+        row.prop(props, "preview_models", text="Preview Models", toggle=True,
+                 icon="OUTLINER_OB_MESH" if props.preview_models else "MESH_DATA")
+        if props.preview_models:
+            row.operator("og.clear_previews", text="", icon="TRASH")
+
+        if props.preview_models and not _mp.models_available():
+            box = layout.box()
+            box.label(text="No GLBs found — set rip_levels: true", icon="ERROR")
+            box.label(text="in jak1_config.jsonc and re-run extractor")
+
+        layout.separator(factor=0.3)
+        _draw_entity_sub(layout, ctx, _ENEMY_CATS, nav_inline=True, prop_name="enemy_type")
 
 
 # ---------------------------------------------------------------------------

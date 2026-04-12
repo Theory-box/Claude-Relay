@@ -56,6 +56,7 @@ from .utils import (
     _draw_platform_settings, _header_sep, _draw_entity_sub,
     _draw_wiki_preview,
 )
+from . import model_preview as _mp
 
 class OG_OT_CreateLevel(Operator):
     """Create a new level collection with default settings."""
@@ -570,7 +571,27 @@ class OG_OT_SpawnEntity(Operator):
             self.report({"INFO"}, f"Added {o.name}  (prop — idle animation only, no AI/combat)")
         else:
             self.report({"INFO"}, f"Added {o.name}")
+
+        # ---- Model preview ------------------------------------------------
+        if ctx.scene.og_props.preview_models:
+            try:
+                _mp.attach_preview(ctx, etype, o)
+            except Exception as e:
+                # Never crash the spawn operator over a preview failure
+                log(f"model_preview: {e}")
+
         return {"FINISHED"}
+
+class OG_OT_ClearPreviews(Operator):
+    bl_idname   = "og.clear_previews"
+    bl_label    = "Clear Preview Models"
+    bl_description = "Remove all enemy preview meshes from the scene"
+
+    def execute(self, ctx):
+        n = _mp.remove_all_previews(ctx.scene)
+        self.report({"INFO"}, f"Removed {n} preview mesh{'es' if n != 1 else ''}")
+        return {"FINISHED"}
+
 
 class OG_OT_MarkNavMesh(Operator):
     bl_idname = "og.mark_navmesh"

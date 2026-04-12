@@ -2290,14 +2290,33 @@ def export_glb(ctx, name):
         ctx.view_layer.objects.active = prev_active
 
     else:
-        # Fallback: v1.1.0 behaviour — export entire scene
+        # Fallback: v1.1.0 behaviour — export entire scene, but exclude preview meshes
+        prev_active   = ctx.view_layer.objects.active
+        prev_selected = [o for o in ctx.scene.objects if o.select_get()]
+
+        # Select everything except og_preview_mesh objects
+        for o in ctx.scene.objects:
+            o.select_set(False)
+        export_objs = [o for o in ctx.scene.objects
+                       if o.type == "MESH" and not o.get("og_preview_mesh")]
+        for o in export_objs:
+            o.select_set(True)
+        if export_objs:
+            ctx.view_layer.objects.active = export_objs[0]
+
         bpy.ops.export_scene.gltf(
             filepath=str(d / f"{name}.glb"), export_format="GLB",
             export_vertex_color="ACTIVE", export_normals=True,
             export_materials="EXPORT", export_texcoords=True,
-            export_apply=True, use_selection=False,
+            export_apply=True, use_selection=True,
             export_yup=True, export_skins=False, export_animations=False,
             export_extras=True)
+
+        for o in ctx.scene.objects:
+            o.select_set(False)
+        for o in prev_selected:
+            o.select_set(True)
+        ctx.view_layer.objects.active = prev_active
 
     log("Exported GLB")
 

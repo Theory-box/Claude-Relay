@@ -66,6 +66,11 @@ class OGProperties(PropertyGroup):
     entity_search:          StringProperty(name="", description="Search all spawnable objects by name", default="")
     entity_search_selected: StringProperty(name="", description="Currently selected search result", default="")
     show_search_results:    BoolProperty(name="Results", default=True)
+    preview_models:         BoolProperty(
+        name="Preview Models",
+        description="Automatically import the enemy's game model as a viewport stand-in when spawning",
+        default=True,
+    )
     entity_search_results:  EnumProperty(
                                 name="",
                                 description="Matching spawnable objects — select one then hit Spawn",
