@@ -1345,16 +1345,67 @@ def collect_actors(scene, depsgraph=None):
                 lump["flags"] = ["uint32", flags]
                 log(f"  [eco-door flags] {o.name}  auto-close={auto_close}  one-way={one_way}")
 
-        # ── Water-vol: water-height multi-field lump ──────────────────────────
-        # water-vol reads a 5-field 'water-height lump:
-        # [surface_m, wade_m, swim_m, flags, bottom_m]
+        # ── Water-vol: water-height + vol lumps ───────────────────────────────
+        # water-vol needs two lumps to function:
+        #
+        # 1. 'water-height  — 5 floats: [surface, wade, swim, flags, bottom]
+        #    All in meters; C++ compiler multiplies by METER_LENGTH (4096).
+        #    The engine reads these to set Jak's wade/swim thresholds and the
+        #    kill-plane depth.
+        #
+        # 2. 'vol  — 6 "vector-vol" planes defining the activation AABB.
+        #    WITHOUT this lump vol-control.pos-vol-count = 0, point-in-vol?
+        #    always returns #f, and the zone NEVER activates (root cause of
+        #    water-vol appearing broken in custom levels before this fix).
+        #
+        #    Each plane = [nx, ny, nz, d_meters].  The engine stores planes as
+        #    (nx, ny, nz, d_raw) where d_raw = d_meters * 4096.  The C++ lump
+        #    compiler handles the × 4096 automatically for "vector-vol" type.
+        #    Plane equation: dot(normal, point) >= d  →  point is inside.
+        #
+        #    Box layout (game coords: X = Blender X, Y = Blender Z up,
+        #                             Z = Blender -Y):
+        #    All normals point INWARD.  Inside condition: dot(P,N) >= d.
+        #      top cap — normal ( 0, -1,  0), d = -surface_y
+        #      floor   — normal ( 0, +1,  0), d =  bot_y  (surface + bottom offset)
+        #      +X cap  — normal (-1,  0,  0), d = -(cx + hx)
+        #      -X cap  — normal (+1,  0,  0), d =  cx - hx
+        #      +Z cap  — normal ( 0,  0, -1), d = -(cz + hz)
+        #      -Z cap  — normal ( 0,  0, +1), d =  cz - hz
+        #
+        #    Scale: the empty's world scale sets the XZ half-extents.
+        #    The user sizes the empty to cover the water area.  Scale 1 = 1 m
+        #    half-extent (2 m total width) — scale up to cover the water mesh.
         if etype == "water-vol":
             surface = float(o.get("og_water_surface", 0.0))
             wade    = float(o.get("og_water_wade",   -0.5))
             swim    = float(o.get("og_water_swim",   -1.0))
             bottom  = float(o.get("og_water_bottom", -5.0))
             lump["water-height"] = ["water-height", surface, wade, swim, "(water-flags)", bottom]
-            log(f"  [water-vol] {o.name}  surface={surface}m  wade={wade}m  swim={swim}m  bottom={bottom}m")
+
+            # Build the 6-plane vol box from the empty's world scale.
+            # Blender X → game X,  Blender Z → game Y (up),  Blender -Y → game Z.
+            # Scale is already in meters (1 Blender unit = 1 m in game).
+            ws = o.matrix_world.to_scale()
+            hx = abs(ws.x)                   # half-extent along game X
+            hz = abs(ws.y)                   # half-extent along game Z (Blender Y)
+            top_y   = surface
+            bot_y   = surface + bottom       # bottom is a negative offset, e.g. -5 → 5m below
+
+            lump["vol"] = [
+                "vector-vol",
+                # Each plane: [nx, ny, nz, d_meters]
+                # Inside condition: dot(P, N) >= d  for all planes.
+                # Normals point INWARD (toward centre of box).
+                [ 0, -1,  0,  -top_y      ],   # top cap:  P.y <= surface
+                [ 0,  1,  0,   bot_y      ],   # floor:    P.y >= surface+bottom
+                [-1,  0,  0, -(gx + hx)   ],   # +X cap:   P.x <= cx+hx
+                [ 1,  0,  0,   gx - hx    ],   # -X cap:   P.x >= cx-hx
+                [ 0,  0, -1, -(gz + hz)   ],   # +Z cap:   P.z <= cz+hz
+                [ 0,  0,  1,   gz - hz    ],   # -Z cap:   P.z >= cz-hz
+            ]
+            log(f"  [water-vol] {o.name}  surface={surface}m  wade={wade}m  swim={swim}m  "
+                f"bottom={bottom}m  box={hx*2:.1f}×{hz*2:.1f}m")
 
         # ── Launcherdoor: continue-name lump ─────────────────────────────────
         # launcherdoor writes a continue-name string lump to set the active
@@ -1421,6 +1472,15 @@ def collect_actors(scene, depsgraph=None):
         info     = ENTITY_DEFS.get(etype, {})
         is_enemy = info.get("cat") in ("Enemies", "Bosses")
         bsph_r   = 10.0  # Rockpool uses 10m for all entities; 120m caused merc renderer crashes
+
+        # water-vol: bsphere must enclose the full activation box so the process
+        # isn't culled before it can run point-in-vol checks each frame.
+        # Use the XZ half-diagonal so any position inside the box is within the sphere.
+        if etype == "water-vol":
+            ws     = o.matrix_world.to_scale()
+            hx     = abs(ws.x)
+            hz     = abs(ws.y)
+            bsph_r = (hx ** 2 + hz ** 2) ** 0.5
 
         # Add vis-dist for enemies so they stay active at reasonable range.
         # og_vis_dist custom prop overrides; default 200m.
