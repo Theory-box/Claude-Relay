@@ -125,9 +125,13 @@ def _strip_and_keep_mesh(new_objs: list) -> bpy.types.Object | None:
         if mod.type == "ARMATURE":
             mesh_obj.modifiers.remove(mod)
 
-    # ---- Unparent mesh (was parented to armature) ----
-    mesh_obj.parent = None
-    mesh_obj.matrix_parent_inverse = mathutils.Matrix()  # identity
+    # ---- Unparent mesh, preserving world transform ----
+    # Capture current world matrix, clear parent, reapply so the mesh
+    # stays at the same world position (bind pose = world origin for most models).
+    if mesh_obj.parent is not None:
+        world_mat = mesh_obj.matrix_world.copy()
+        mesh_obj.parent = None
+        mesh_obj.matrix_world = world_mat
 
     # ---- Delete armature and junk ----
     for obj in arm_objs + junk_objs:
@@ -196,7 +200,6 @@ def attach_preview(ctx, etype: str, actor_empty: bpy.types.Object) -> bool:
         glb_rels = list(glb_rel)
 
     preview_col = _ensure_preview_collection(ctx.scene)
-    cursor_loc  = ctx.scene.cursor.location.copy()
     attached    = False
 
     for rel in glb_rels:
@@ -207,12 +210,13 @@ def attach_preview(ctx, etype: str, actor_empty: bpy.types.Object) -> bool:
         if mesh_obj is None:
             continue
 
-        # ---- Place at cursor ----
-        mesh_obj.location = cursor_loc
-
-        # ---- Parent to actor empty (no world-space offset) ----
-        mesh_obj.parent                  = actor_empty
-        mesh_obj.matrix_parent_inverse   = mathutils.Matrix()  # identity — child at parent origin
+        # ---- Parent to actor empty ----
+        # The actor_empty is already at cursor_loc.
+        # Set mesh local position to (0,0,0) so it sits exactly at the empty,
+        # then use identity matrix_parent_inverse so no extra offset is applied.
+        mesh_obj.location              = (0.0, 0.0, 0.0)
+        mesh_obj.parent                = actor_empty
+        mesh_obj.matrix_parent_inverse = mathutils.Matrix()  # identity
 
         # ---- Tag as preview (export exclusion + identification) ----
         mesh_obj[_PREVIEW_PROP] = True
