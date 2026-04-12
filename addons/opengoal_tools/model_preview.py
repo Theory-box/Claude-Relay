@@ -30,20 +30,20 @@ def _data_root() -> Path:
 
 
 def _glb_path(glb_rel: str) -> Path:
-    """Resolve a relative glb path (e.g. 'levels/beach/babak-lod0-mg.glb')
+    """Resolve a relative glb path (e.g. 'levels/beach/babak-lod0.glb')
     against the decompiler output directory."""
     return _data_root() / "data" / "decompiler_out" / "jak1" / glb_rel
 
 
 def models_available() -> bool:
     """Return True if at least one enemy GLB exists (rip_levels was run)."""
-    probe = _glb_path("levels/beach/babak-lod0-mg.glb")
+    probe = _glb_path("levels/beach/babak-lod0.glb")
     return probe.exists()
 
 
 def models_probe_path() -> str:
     """Return the path being probed, for display in warning messages."""
-    return str(_glb_path("levels/beach/babak-lod0-mg.glb"))
+    return str(_glb_path("levels/beach/babak-lod0.glb"))
 
 
 def _get_viewport_override(ctx):
