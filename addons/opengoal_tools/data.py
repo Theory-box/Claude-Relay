@@ -2658,10 +2658,19 @@ def _parse_lump_row(key, ltype, value_str):
             return [ltype, s], None
 
         if ltype == "buzzer-info":
-            parts = s.split()
-            if len(parts) == 1:
-                return ["buzzer-info", parts[0], 1], None
-            return ["buzzer-info", parts[0], int(parts[1])], None
+            # Value format: "(game-task none) 1" or just "(game-task none)"
+            # Split after the closing paren so the GOAL expression isn't broken by spaces.
+            s_stripped = s.strip()
+            if ")" in s_stripped:
+                paren_end = s_stripped.index(")") + 1
+                task = s_stripped[:paren_end].strip()
+                remainder = s_stripped[paren_end:].strip()
+                index = int(remainder) if remainder else 1
+            else:
+                parts = s_stripped.split()
+                task = parts[0]
+                index = int(parts[1]) if len(parts) > 1 else 1
+            return ["buzzer-info", task, index], None
 
         if ltype == "eco-info":
             parts = s.split()
