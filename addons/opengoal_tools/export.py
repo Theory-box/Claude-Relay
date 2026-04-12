@@ -1189,9 +1189,25 @@ def collect_actors(scene, depsgraph=None):
         elif etype == "buzzer":
             lump["eco-info"] = ["buzzer-info", "(game-task none)", 1]
         elif etype == "crate":
-            ct = o.get("og_crate_type", "steel")
+            ct     = o.get("og_crate_type",          "steel")
+            pickup = o.get("og_crate_pickup",         "money")
+            amount = int(o.get("og_crate_pickup_amount", 1))
             lump["crate-type"] = f"'{ct}"
-            lump["eco-info"] = ["eco-info", "(pickup-type money)", 3]
+            _CRATE_PICKUP_ENGINE = {
+                "none":       "(pickup-type none)",
+                "money":      "(pickup-type money)",
+                "eco-yellow": "(pickup-type eco-yellow)",
+                "eco-red":    "(pickup-type eco-red)",
+                "eco-blue":   "(pickup-type eco-blue)",
+                "eco-green":  "(pickup-type eco-green)",
+                "buzzer":     "(pickup-type buzzer)",
+            }
+            eng_str = _CRATE_PICKUP_ENGINE.get(pickup, "(pickup-type money)")
+            if pickup == "buzzer":
+                amount = 1  # engine always spawns exactly 1 scout fly
+            if pickup != "none":
+                lump["eco-info"] = ["eco-info", eng_str, amount]
+            log(f"  [crate] {o.name}  type={ct}  pickup={pickup}  amount={amount}")
         elif etype == "money":
             lump["eco-info"] = ["eco-info", "(pickup-type money)", 1]
 

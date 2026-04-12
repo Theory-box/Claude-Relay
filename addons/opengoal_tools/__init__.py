@@ -19,6 +19,7 @@ from .data import (
     AGGRO_EVENT_ENUM_ITEMS,
     ALL_SFX_ITEMS,
     CRATE_ITEMS,
+    CRATE_PICKUP_ITEMS,
     ENEMY_ENUM_ITEMS,
     ENTITY_DEFS,
     ENTITY_ENUM_ITEMS,
@@ -122,7 +123,7 @@ from .operators import (
     OG_OT_NudgeFloatProp, OG_OT_NudgeIntProp,
     OG_OT_SetLauncherDest, OG_OT_ClearLauncherDest, OG_OT_AddLauncherDest,
     OG_OT_ToggleDoorFlag, OG_OT_SetDoorCP, OG_OT_ClearDoorCP,
-    OG_OT_SyncWaterFromObject, OG_OT_SetCrateType,
+    OG_OT_SyncWaterFromObject, OG_OT_SetCrateType, OG_OT_SetCratePickup, OG_OT_SetCrateAmount,
     OG_OT_ToggleCrystalUnderwater, OG_OT_ToggleCellSkipJump,
     OG_OT_SetBridgeVariant, OG_OT_ToggleTurbineParticles,
     OG_OT_SetElevatorMode, OG_OT_SetBoneBridgeAnim, OG_OT_SetAltTask,
@@ -200,6 +201,8 @@ classes = (
     OG_OT_ToggleDoorFlag, OG_OT_SetDoorCP, OG_OT_ClearDoorCP,
     OG_OT_SyncWaterFromObject,
     OG_OT_SetCrateType,
+    OG_OT_SetCratePickup,
+    OG_OT_SetCrateAmount,
     OG_OT_ToggleCrystalUnderwater, OG_OT_ToggleCellSkipJump,
     OG_OT_SetBridgeVariant, OG_OT_ToggleTurbineParticles,
     OG_OT_SetElevatorMode, OG_OT_SetBoneBridgeAnim, OG_OT_SetAltTask,
@@ -306,6 +309,10 @@ classes = (
 def register():
     _load_previews()
     for cls in classes:
+        try:
+            bpy.utils.unregister_class(cls)
+        except Exception:
+            pass
         bpy.utils.register_class(cls)
     bpy.types.Scene.og_props = PointerProperty(type=OGProperties)
 

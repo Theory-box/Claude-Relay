@@ -10,7 +10,7 @@ from bpy.props import (StringProperty, BoolProperty, IntProperty,
 from bpy.types import Operator
 from .data import (
     ENTITY_DEFS, ENTITY_ENUM_ITEMS, ENEMY_ENUM_ITEMS, PROP_ENUM_ITEMS,
-    NPC_ENUM_ITEMS, PICKUP_ENUM_ITEMS, PLATFORM_ENUM_ITEMS, CRATE_ITEMS,
+    NPC_ENUM_ITEMS, PICKUP_ENUM_ITEMS, PLATFORM_ENUM_ITEMS, CRATE_ITEMS, CRATE_PICKUP_ITEMS,
     ALL_SFX_ITEMS, SBK_SOUNDS, LEVEL_BANKS, LUMP_REFERENCE, ACTOR_LINK_DEFS,
     NAV_UNSAFE_TYPES, NEEDS_PATH_TYPES, NEEDS_PATHB_TYPES, IS_PROP_TYPES,
     ETYPE_AG, ETYPE_CODE,
@@ -550,7 +550,9 @@ class OG_OT_SpawnEntity(Operator):
         o.color = color
         _link_object_to_sub_collection(ctx.scene, o, *_col_path_for_entity(etype))
         if etype == "crate":
-            o["og_crate_type"] = ctx.scene.og_props.crate_type
+            o["og_crate_type"]          = ctx.scene.og_props.crate_type
+            o["og_crate_pickup"]        = "money"
+            o["og_crate_pickup_amount"] = 1
         if etype in NAV_UNSAFE_TYPES:
             o["og_nav_radius"] = ctx.scene.og_props.nav_radius
             self.report({"WARNING"},
@@ -1844,7 +1846,7 @@ class OG_OT_SyncWaterFromObject(Operator):
 
 
 class OG_OT_SetCrateType(Operator):
-    """Set the crate type on the selected crate actor."""
+    """Set the crate type (look/defense) on the selected crate actor."""
     bl_idname  = "og.set_crate_type"
     bl_label   = "Set Crate Type"
     bl_options = {"REGISTER", "UNDO"}
@@ -1853,8 +1855,60 @@ class OG_OT_SetCrateType(Operator):
 
     def execute(self, ctx):
         o = ctx.active_object
-        if o:
+        if not o:
+            return {"CANCELLED"}
+        pickup = o.get("og_crate_pickup", "money")
+        # Engine auto-upgrades wood→iron when a scout fly is inside.
+        # Mirror that logic: if user picks wood and there's a buzzer, force iron.
+        if self.crate_type == "wood" and pickup == "buzzer":
+            o["og_crate_type"] = "iron"
+            self.report({"WARNING"}, "Scout Fly requires Iron box — crate type set to Iron")
+        else:
             o["og_crate_type"] = self.crate_type
+        return {"FINISHED"}
+
+
+class OG_OT_SetCratePickup(Operator):
+    """Set what drops from this crate when broken."""
+    bl_idname  = "og.set_crate_pickup"
+    bl_label   = "Set Crate Pickup"
+    bl_options = {"REGISTER", "UNDO"}
+
+    pickup_id: bpy.props.StringProperty()
+
+    def execute(self, ctx):
+        o = ctx.active_object
+        if not o:
+            return {"CANCELLED"}
+        o["og_crate_pickup"] = self.pickup_id
+        # Scout fly always amount 1; reset amount to 1 when switching to buzzer
+        if self.pickup_id == "buzzer":
+            o["og_crate_pickup_amount"] = 1
+            # Enforce iron/steel — wood can't hold a scout fly
+            ct = o.get("og_crate_type", "steel")
+            if ct == "wood":
+                o["og_crate_type"] = "iron"
+                self.report({"WARNING"}, "Scout Fly requires Iron box — crate type set to Iron")
+        return {"FINISHED"}
+
+
+class OG_OT_SetCrateAmount(Operator):
+    """Set the pickup amount dropped by this crate."""
+    bl_idname  = "og.set_crate_amount"
+    bl_label   = "Set Crate Amount"
+    bl_options = {"REGISTER", "UNDO"}
+
+    delta: bpy.props.IntProperty(default=1)
+
+    def execute(self, ctx):
+        o = ctx.active_object
+        if not o:
+            return {"CANCELLED"}
+        # Scout fly is always 1 — don't allow changes
+        if o.get("og_crate_pickup", "money") == "buzzer":
+            return {"CANCELLED"}
+        current = int(o.get("og_crate_pickup_amount", 1))
+        o["og_crate_pickup_amount"] = max(1, min(5, current + self.delta))
         return {"FINISHED"}
 
 
