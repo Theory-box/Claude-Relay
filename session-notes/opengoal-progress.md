@@ -125,3 +125,84 @@ qx, qy, qz, qw = -gq.x, -gq.y, -gq.z, gq.w  # conjugate
 - `knowledge-base/opengoal/` — system reference docs
 - `session-notes/` — per-feature progress tracking
 
+
+---
+
+## Feature: Limit Search (planned, not yet built)
+
+### Goal
+Sub-panel under Quick Search in the Spawn Objects panel. User picks up to two tpage groups via dropdowns + a boolean to enable/disable the filter. All spawn sub-panels and Quick Search respect the filter.
+
+### Behaviour rules
+1. **Filter disabled** (default): everything visible, identical to today.
+2. **Filter enabled, tpage groups selected**: only entities whose `tpage_group` is in the selected set are shown. All other entities are hidden from Quick Search results and all sub-panel dropdowns.
+3. **No tpage concern — always visible regardless of filter**: entities with NO `tpage_group` field in ENTITY_DEFS. This covers all NPCs, most Pickups, most Platforms (plat, launcher, etc.), most Objects/Props. Full list below.
+4. **Globally-loaded tpage groups — always visible regardless of filter**: `Village1`, `Village2`, `Village3`, `Training`. These tpages are resident in memory at all times; they incur no heap cost. Entities: Ram, Villa Starfish, Pontoon (V2), Pontoon (Training), Oracle, Miner (Short/Tall), Ceiling Flag, Swamp Tether Rock, Fisherman's Boat.
+5. **Unknown tpage group — always visible regardless of filter**: Lightning Mole, Ice Cube, Fire Boulder. Their heap cost is unconfirmed; don't hide them, let user decide.
+6. **Scope**: filter applies only inside OG_PT_spawn and its children. No other panels affected.
+7. **Filter indicator**: if filter is enabled, parent OG_PT_spawn header shows a small note (e.g. `| Filtered: Jungle + Snow`).
+
+### Global tpage groups (never filtered)
+`GLOBAL_TPAGE_GROUPS = {"Village1", "Village2", "Village3", "Training"}`
+
+### Filter logic (central helper)
+```python
+GLOBAL_TPAGE_GROUPS = {"Village1", "Village2", "Village3", "Training"}
+
+def _entity_passes_filter(etype, props):
+    if not props.tpage_limit_enabled:
+        return True
+    info = ENTITY_DEFS.get(etype, {})
+    grp = info.get("tpage_group")          # None = no tpage concern
+    if grp is None:                         # no tpage field → always show
+        return True
+    if grp in GLOBAL_TPAGE_GROUPS:         # globally loaded → always show
+        return True
+    # Unknown → always show (unconfirmed cost)
+    if grp == "Unknown":
+        return True
+    # Check against active filters
+    g1 = props.tpage_filter_1   # "NONE" or group name string
+    g2 = props.tpage_filter_2
+    allowed = {g for g in (g1, g2) if g != "NONE"}
+    if not allowed:                         # filter on but no groups selected → show all
+        return True
+    return grp in allowed
+```
+
+### Properties to add (properties.py)
+```python
+tpage_limit_enabled: BoolProperty(name="Enable Limit Search", default=False)
+tpage_filter_1:      EnumProperty(name="Tpage Group 1", items=_tpage_group_items, default="NONE")
+tpage_filter_2:      EnumProperty(name="Tpage Group 2", items=_tpage_group_items, default="NONE")
+```
+Where `_tpage_group_items` is built from the unique `tpage_group` values in ENTITY_DEFS, minus global groups, plus a `("NONE","— None —","")` sentinel at the top.
+
+### Panel to add (panels.py)
+`OG_PT_SpawnLimitSearch` — child of `OG_PT_spawn_search`, `bl_order = -1` (renders above the search bar inside Quick Search).
+
+Draw:
+- Row: two dropdowns side by side (tpage_filter_1, tpage_filter_2) — greyed out if not enabled
+- Row: boolean toggle `tpage_limit_enabled`
+
+### Filter indicator in parent panel
+In `OG_PT_Spawn.draw()` (the parent), if `props.tpage_limit_enabled` and either filter is non-NONE:
+```python
+active = [g for g in (props.tpage_filter_1, props.tpage_filter_2) if g != "NONE"]
+if active:
+    row = layout.row()
+    row.alert = False
+    row.label(text="🔍 Filtered: " + " + ".join(active), icon="FILTER")
+```
+
+### Sub-panels that need filtering
+- OG_PT_SpawnSearch: filter `matches` list
+- OG_PT_SpawnEnemies: filter enemy enum items
+- OG_PT_SpawnProps: filter props enum items
+- OG_PT_SpawnNPCs: filter NPC enum items (most have no tpage_group → always pass)
+- OG_PT_SpawnPickups: filter pickup enum items (most have no tpage_group → always pass)
+- OG_PT_SpawnPlatforms: filter platform enum items
+
+### Future: Level Audit (wanted, not scoped yet)
+Under Level panel, sub-panel called "Level Audit". General-purpose scene checker. First intended use: scan all ACTOR_ empties in the scene, identify which tpage groups are represented, warn if > 2 non-global groups detected. Design to be generalised — not just tpages. Park until requested.
+
