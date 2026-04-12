@@ -234,53 +234,101 @@ The `dir-tpages.go` length entry for each page controls the size of the link tab
 
 ---
 
-## 10. Implementation Plan (Addon Side)
 
-### New addon functionality needed
+---
 
-**Step 1: Enemy texture analysis**
-- Read `tex-info.min.json` from the OpenGOAL data directory
-- Map each enemy type in the level to its source tpage(s) and texture indices
-- Detect when enemies cross tpage boundaries (warn user)
-- Show estimated heap usage
+## 10. Implementation — Completed (April 2026)
 
-**Step 2: Remap table generation**
-- For each enemy in the level, collect all texture entries from tex-info
-- Assign new sequential slot indices within the combined tpage
-- Build sorted remap table: `(orig_masked_goal_texid → new_goal_texid | 0x14)`
-- Emit into level JSON as `"texture_remap_table"` (needs build_level.cpp support, or emit as a separate file the BSP writer reads)
+The full tpage combine pipeline is implemented in `feature/tpage-combine` of the Claude-Relay addon repo.
 
-**Step 3: Skeleton tpage .go writer**
-- Pure Python, no C++ dependency
-- DataObjectGenerator class (already implemented and tested)
-- `write_skeleton_tpage(tpage_id, tpage_name, tex_count, output_path)`
-- Output goes to the custom level's obj/ directory alongside other .go files
+### Addon module: `addons/opengoal_tools/tpage_combine.py`
 
-**Step 4: DGO manifest update**  
-- Add `tpage-NNNN.go` to the level's DGO file (`.gd`)
-- Replace the multiple source tpage references with just the combined one
+**`_DataObjectGenerator`** — Python port of `goalc/data_compiler/DataObjectGenerator.cpp`. Writes GOAL v4 `.go` object files. Handles string pool, type tags, symbol links, pointer links, variable-length link table encoding.
 
-**Step 5: Level JSON generation**
-- `"tpages": [combined_id]` instead of multiple source IDs
-- `"textures": [[tpage_name, tex_name, ...], ...]` — selective per-enemy extraction
-- Emit remap table data (format TBD — may need build_level.cpp patch)
+**`build_skeleton_tpage_go(tpage_id, tpage_name, tex_count) → bytes`**
+Writes a minimal `texture-page` basic with all `data[]` slots = `#f`. No pixel data. Engine loads it, allocates link tables for the combined ID. PC renderer ignores it and uses FR3 textures instead.
 
-### Key open question
-The remap table in the BSP is currently only sourced by copying from an existing level's BSP (`"tex_remap": "level-name"`). To emit a custom remap table, either:
-- A) Add a `"custom_tex_remap"` JSON field to build_level.cpp that accepts the table directly (small C++ patch, clean)
-- B) Write a minimal custom BSP that has the remap table baked in (more work)
-- C) The addon writes the remap table into the `.go` BSP file directly (bypasses build_level.cpp entirely — most work but no engine changes)
+**`build_dir_tpages_go(id_to_length) → bytes`**
+Rebuilds the global `dir-tpages.go` from a `{tpage_id: tex_count}` dict. Covers IDs 0 to `max(id_to_length)` with zeros for gaps. Replaces `out/jak1/obj/dir-tpages.go` before DGO pack step.
 
-Option A is cleanest. The patch to `build_level.cpp` would be ~20 lines reading a JSON array of `[orig, new]` pairs into `file.texture_remap_table`.
+**`TpageCombiner(data_root)`**
+- `.get_textures_for_etypes(etypes)` — reads `tex-info.min.json`, returns all texture entries for the given enemy types, deduplicated by `(page, idx)`
+- `.analyse(etypes)` — returns heap analysis dict for UI display (no file writes)
+- `.build(etypes, combined_tpage_id=1610)` → `TpageCombineResult`
+
+**`ENEMY_TEX_SUBSTRINGS`** — dict mapping etype strings (e.g. `'kermit'`, `'lurkercrab'`) to texture name substrings used for `tex-info.min.json` lookup.
+
+**`write_tpage_combine_files(result, level_obj_dir, game_obj_dir)`** — writes `tpage-NNNN.go` and `dir-tpages.go` to disk.
+
+### Engine patch: `goalc/build_level/jak1/build_level.cpp`
+
+File: `scratch/build_level_patch.diff` — apply with `git apply` from jak-project root, then rebuild goalc.
+
+**Two changes, 25 lines total:**
+
+1. Line 133 — read new JSON field:
+```cpp
+auto custom_tex_remap = level_json.value("custom_tex_remap", std::vector<std::vector<u32>>({}));
+```
+
+2. Lines 251–268 — inject into `tex_remap` local **before** `extract_merc` (inside DGO loop):
+```cpp
+if (!custom_tex_remap.empty()) {
+    tex_remap.clear();
+    for (auto& pair : custom_tex_remap)
+        if (pair.size() >= 2) tex_remap.push_back({pair[0], pair[1]});
+    if (!tpages.empty() && file.texture_ids.empty()) {
+        file.texture_ids.resize(tpages.size());
+        for (size_t i = 0; i < tpages.size(); ++i)
+            file.texture_ids[i] = tpages[i] << 20;
+    }
+    file.texture_remap_table = tex_remap;
+}
+```
+
+**Critical placement note:** The inject must be inside the DGO loop, before the `extract_merc` call. `extract_merc` uses `tex_remap` to bake `tree_tex_id` into the FR3 at build time. If it runs with empty `tex_remap`, the FR3 bakes original tpage IDs — textures render wrong in-game even though the heap saving works correctly. The first version of this patch had this bug; it was caught by pipeline review before testing.
+
+### Addon integration
+
+**`build.py`** — `_run_tpage_combine(name, actors)` called in all 3 build paths. Checks `og_props.combine_tpages`. Returns `(extra_json_fields, combined_tpage_files)` or `({}, None)`.
+
+**`export.py`** — `write_jsonc()` accepts `extra_fields=` kwarg. Merges tpage fields over defaults.
+
+**`properties.py`** — `OGProperties.combine_tpages: BoolProperty` (default `True`).
+
+**`panels.py`** — `OG_PT_TextureMemorySub` under Level (DEFAULT_CLOSED). Live analysis at draw time. Falls back gracefully if tex-info not found.
+
+### Level JSON emitted when combining
+
+```json
+{
+  "tpages": [1610],
+  "custom_tex_remap": [[230735616, 1688539156], ...],
+  "textures": [
+    ["beach-vis-pris", "crab-belt", "crab-folds", ...],
+    ["swamp-vis-pris", "kermit-ankle", "kermit-back", ...]
+  ]
+}
+```
+
+### tex-info.min.json path
+
+The combiner searches:
+```
+<data_root>/decompiler/config/jak1/ntsc_v1/tex-info.min.json
+<data_root>/data/decompiler/config/jak1/ntsc_v1/tex-info.min.json
+```
+Generated by running the decompiler on the game ISO. If not found, combine silently skips — build continues normally with separate source tpages.
 
 ---
 
 ## 11. Files and IDs
 
-- `dir-tpages.go` — the texture-page-dir object, lives in `GAME.DGO`, loaded globally at startup
+- `dir-tpages.go` — global texture-page-dir, lives in `GAME.DGO`, loaded at engine startup
 - `tpage-NNN.go` — individual tpage objects, packed into level DGOs
-- Available combined tpage IDs: any integer not in the existing 126 tpage IDs. 1482 gaps exist below 1609. IDs 1610+ are all free.
-- Recommended: use IDs starting at 1610 for custom combined tpages (one per custom level)
+- Available combined tpage IDs: 1482 gaps below 1609, everything above 1609 is free
+- **Use IDs starting at 1610** for custom combined tpages (one per custom level)
+- Skeleton tpage size: ~480 bytes (vs ~2MB for a real vis-pris tpage)
 
 ---
 
@@ -293,14 +341,14 @@ Option A is cleanest. The patch to `build_level.cpp` would be ~20 lines reading 
 | `goal_src/jak1/engine/gfx/texture/texture-h.gc` | `texture-id` struct definition (bits 31:20=page, 19:8=index) |
 | `decompiler/data/tpage.cpp` | tpage .go binary decoder (read) |
 | `decompiler/data/TextureDB.h` | In-memory texture database |
-| `decompiler/level_extractor/extract_merc.cpp` | Applies remap at FR3 build time, bakes tree_tex_id |
+| `decompiler/level_extractor/extract_merc.cpp` | Applies remap at FR3 build time, bakes `tree_tex_id` — **must receive tex_remap before running** |
 | `decompiler/level_extractor/common_formats.h` | `TextureRemap` struct definition |
-| `goalc/build_level/jak1/build_level.cpp` | Level JSON → BSP pipeline, `tpages` and `textures` fields |
+| `goalc/build_level/jak1/build_level.cpp` | Level JSON → BSP pipeline — **patched for `custom_tex_remap`** |
 | `goalc/build_level/jak1/LevelFile.h` | `TexRemap`, `LevelFile` structs |
-| `goalc/data_compiler/DataObjectGenerator.h/.cpp` | .go file binary writer |
+| `goalc/data_compiler/DataObjectGenerator.h/.cpp` | .go file binary writer (ported to Python in `tpage_combine.py`) |
 | `goalc/data_compiler/dir_tpages.cpp` | dir-tpages.go writer (reference for format) |
 | `game/graphics/opengl_renderer/loader/LoaderStages.cpp` | `add_texture()` — FR3 → GPU upload |
-| `game/graphics/opengl_renderer/foreground/Merc2.cpp` | PC merc draw, texture binding |
+| `game/graphics/opengl_renderer/foreground/Merc2.cpp` | PC merc draw, `lev->textures[tree_tex_id]` direct GL bind |
 | `game/graphics/texture/TexturePool.cpp` | PC texture pool, VRAM simulation |
 | `game/graphics/texture/TextureID.h` | `PcTextureId` struct |
 | `common/texture/texture_conversion.h` | PS2 address functions (psmct32_addr, psmt8_addr, etc.) |

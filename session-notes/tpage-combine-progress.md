@@ -1,104 +1,105 @@
 # tpage-combine Session Progress
 
-## Status: Addon integration complete. C++ patch ready to apply.
+## Status: Implementation complete — awaiting test
 ## Branch: feature/tpage-combine
 
 ---
 
 ## What This Feature Does
 
-Solves the 10MB level heap limit when mixing enemies from multiple source levels.
-Each source vis-pris tpage is ~2MB. This replaces them all with a single skeleton
-tpage (~1KB) + remap table. Heap saving: ~2MB per eliminated source tpage group.
+Solves the 10MB GOAL level heap limit when mixing enemies from multiple source levels.
+Each source vis-pris tpage is ~2MB. Replaces them all with a single skeleton tpage
+(~480 bytes, no pixel data) + remap table in the BSP. Heap saving: ~2MB per eliminated
+source tpage group. PC renderer textures are served by FR3 (not heap-constrained).
 
 ---
 
-## Resolved Questions
+## Completion Status
 
-### Q1 dir-tpages: write directly in Python — no upstream changes needed
-### Q2 remap table: "custom_tex_remap" JSON field + 20-line C++ patch
+### Python (addon) — COMPLETE, syntax-checked, .go writer tested
+### C++ patch — READY TO APPLY (`scratch/build_level_patch.diff`)
+### Knowledge doc — UPDATED (`knowledge-base/opengoal/tpage-system.md`)
 
 ---
 
-## Implementation Status
-
-### Addon (Python) — COMPLETE
-All files syntax-checked and tested.
+## Modified Files
 
 | File | Change |
 |---|---|
-| `tpage_combine.py` | New module — DataObjectGenerator, skeleton tpage writer, dir-tpages writer, TpageCombiner, ENEMY_TEX_SUBSTRINGS |
-| `build.py` | Import wired, _run_tpage_combine() helper, all 3 build paths wired |
-| `export.py` | write_jsonc() gains extra_fields= kwarg |
-| `properties.py` | OGProperties.combine_tpages BoolProperty |
-| `panels.py` | OG_PT_TextureMemorySub — live analysis, toggle, per-group detail |
-| `__init__.py` | Import + registration of OG_PT_TextureMemorySub |
-
-### Engine (C++) — READY TO APPLY
-`scratch/build_level_patch.diff` — apply with `git apply` from jak-project root.
-Adds `custom_tex_remap` JSON field to `goalc/build_level/jak1/build_level.cpp`.
-~20 lines, no structural changes.
+| `addons/opengoal_tools/tpage_combine.py` | New — DataObjectGenerator, skeleton tpage writer, dir-tpages writer, TpageCombiner |
+| `addons/opengoal_tools/build.py` | _run_tpage_combine() + all 3 build paths wired |
+| `addons/opengoal_tools/export.py` | write_jsonc() gains extra_fields= kwarg |
+| `addons/opengoal_tools/properties.py` | combine_tpages BoolProperty |
+| `addons/opengoal_tools/panels.py` | OG_PT_TextureMemorySub under Level |
+| `addons/opengoal_tools/__init__.py` | Import + registration |
+| `scratch/build_level_patch.diff` | C++ patch — apply with git apply |
+| `scratch/build_level_patched.cpp` | Pre-patched file for reference |
 
 ---
 
-## Full Pipeline
+## C++ Patch
 
-```
-User places kermit (Swamp group) + lurkercrab (Beach group) in Blender
-        ↓
-On any build trigger:
-  _run_tpage_combine() detects 2 tpage groups
-  TpageCombiner reads tex-info.min.json
-  Assigns new sequential slots (kermit: 0-7, crab: 8-16)
-  Builds sorted remap table [(orig, new|0x14), ...]
-        ↓
-Writes to disk:
-  custom_assets/jak1/levels/<name>/tpage-1610.go  (~480 bytes, no pixel data)
-  data/out/jak1/obj/dir-tpages.go                 (rebuilt, includes ID 1610)
-        ↓
-Level JSON gets:
-  "tpages": [1610]
-  "custom_tex_remap": [[0x0D604F00, 0x64A00814], ...]   ← sorted
-  "textures": [["swamp-vis-pris","kermit-ankle",...], ...]
-        ↓
-build_level.cpp (patched):
-  Reads custom_tex_remap → file.texture_remap_table
-  extract_merc applies remap → bakes correct IDs into .fr3 MercDraw.tree_tex_id
-        ↓
-Runtime:
-  GOAL loads tpage-1610.go (skeleton, ~0 heap cost for pixels)
-  adgif-shader-login → level-remap-texture → maps orig IDs → combined slots
-  PC renderer: .fr3 textures at correct baked indices, direct GL bind
-  Result: ~4MB heap freed (2 groups eliminated)
+Apply to jak-project fork:
+```bash
+git apply scratch/build_level_patch.diff
+cmake --build build --target goalc -j$(nproc)
 ```
 
----
-
-## UI — OG_PT_TextureMemorySub
-
-Sub-panel under "Level" (DEFAULT_CLOSED):
-- "Combine Entity Tpages" toggle (BoolProperty)
-- Live analysis: reads actors from scene, shows tpage group count
-- If 1 group: "no combine needed" with checkmark
-- If >1 groups: red alert, estimated MB saved, per-tpage-name breakdown
-- Falls back gracefully if tex-info.min.json not yet extracted
+**What it does:** adds `custom_tex_remap` JSON field to `build_level.cpp`.
+Injects inside the DGO loop, before `extract_merc` — this is critical.
+`extract_merc` bakes `tree_tex_id` into the FR3 using `tex_remap`.
+If it runs with empty tex_remap, the FR3 gets wrong IDs (textures render wrong).
 
 ---
 
-## Next Steps (for testing)
+## Known Bug Fixed During Development
 
-1. Apply `scratch/build_level_patch.diff` to jak-project fork
-2. Rebuild jak-project (just goalc target, not full)
-3. Open a .blend with kermit + lurkercrab actors
-4. Verify "Texture Memory" sub-panel shows 2 groups detected
-5. Run "Export & Compile" — check log for [tpage-combine] lines
-6. Load level in game — verify textures visible on both enemy types
-7. Check heap usage hasn't crashed (watch for GOAL heap errors in terminal)
+The first version of the C++ patch placed the remap injection *after* the
+art_groups loop. `extract_merc` had already run by then with empty tex_remap.
+Caught by pipeline review before testing. Corrected patch injects inside the loop.
 
 ---
 
-## Key Source References
-- `knowledge-base/opengoal/tpage-system.md` — complete system reference
-- `scratch/build_level_patch.diff` — C++ patch to apply
-- `scratch/tpage_combine_full.py` — original prototype (superseded by module)
+## Testing Checklist
 
+1. Apply `scratch/build_level_patch.diff` to jak-project and rebuild goalc
+2. Install addon from `feature/tpage-combine`
+3. Place kermit + lurker crab in a level (different tpage groups)
+4. Open "Texture Memory" sub-panel — should show "2 tpage groups detected, ~2MB saved"
+5. Hit Export & Compile — watch Blender console for `[tpage-combine]` lines:
+   - `[tpage-combine] 2 tpage groups → 1 combined (id=1610, N textures, ~2MB freed)`
+   - `[tpage-combine] wrote .../tpage-1610.go`
+   - `[tpage-combine] wrote .../dir-tpages.go`
+6. Check level JSON has `"tpages": [1610]` and `"custom_tex_remap": [...]`
+7. Load level in game — both enemy types should have correct textures
+8. No GOAL heap overflow error in terminal
+
+---
+
+## Fallback Behaviour
+
+If tex-info.min.json is not found:
+- `_run_tpage_combine` logs a warning and returns `({}, None)`
+- Build continues normally — separate source tpages used as before
+- No crash, no broken level
+
+If only 1 tpage group (all enemies from same source level):
+- `_run_tpage_combine` returns `({}, None)` immediately
+- No combine, no overhead
+
+---
+
+## tex-info.min.json Location
+
+The combiner searches:
+```
+<data_root>/decompiler/config/jak1/ntsc_v1/tex-info.min.json
+<data_root>/data/decompiler/config/jak1/ntsc_v1/tex-info.min.json
+```
+Generated by running the decompiler on the game ISO (standard OpenGOAL setup step).
+
+---
+
+## Key Reference
+
+Full system documentation: `knowledge-base/opengoal/tpage-system.md` (on main)
