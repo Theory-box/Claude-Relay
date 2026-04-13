@@ -1184,6 +1184,18 @@ def collect_actors(scene, depsgraph=None):
         l = o.location
         gx, gy, gz = round(l.x, 4), round(l.z, 4), round(-l.y, 4)
 
+        # ── Facing quaternion ────────────────────────────────────────────────
+        # Remap Blender rotation into game space: game_rot = R @ bl_rot @ R^T
+        # where R maps Blender(x,y,z) → game(x,z,-y).
+        # The engine reads quaternions as the conjugate (negate xyz).
+        _R  = mathutils.Matrix(((1,0,0),(0,0,1),(0,-1,0)))
+        _m3 = o.matrix_world.to_3x3()
+        _gq = (_R @ _m3 @ _R.transposed()).to_quaternion()
+        aqx = round(-_gq.x, 6)
+        aqy = round(-_gq.y, 6)
+        aqz = round(-_gq.z, 6)
+        aqw = round( _gq.w, 6)
+
         lump = {"name": f"{etype}-{uid}"}
 
         if etype == "fuel-cell":
@@ -1693,7 +1705,7 @@ def collect_actors(scene, depsgraph=None):
             "trans":     [gx, gy, gz],
             "etype":     etype,
             "game_task": "(game-task none)",
-            "quat":      [0, 0, 0, 1],
+            "quat":      [aqx, aqy, aqz, aqw],
             "vis_id":    0,
             "bsphere":   [gx, gy, gz, bsph_r],
             "lump":      lump,

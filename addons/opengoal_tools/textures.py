@@ -11,6 +11,7 @@
 
 import bpy
 import bpy.utils.previews
+import bmesh
 from bpy.types import Panel, Operator
 from bpy.props import StringProperty, IntProperty, EnumProperty, CollectionProperty
 from pathlib import Path
@@ -199,21 +200,60 @@ class OG_OT_SelectTexture(Operator):
 
 
 class OG_OT_ApplyTexture(Operator):
-    """Apply the selected texture as a material to all selected mesh objects"""
+    """Apply the selected texture as a material.
+    Object mode: replaces material on all selected mesh objects.
+    Edit mode: assigns material to selected faces only (stacks materials per object)."""
     bl_idname  = "og.apply_texture"
     bl_label   = "Apply to Selected"
     bl_options = {"REGISTER", "UNDO"}
 
+    def _build_material(self, tex_name: str, png_path) -> bpy.types.Material:
+        """Return existing og_ material or create a new one from the PNG."""
+        mat_name = f"og_{tex_name}"
+        mat = bpy.data.materials.get(mat_name)
+        if mat is not None:
+            return mat
+
+        mat = bpy.data.materials.new(name=mat_name)
+        mat.use_nodes = True
+        nodes = mat.node_tree.nodes
+        links = mat.node_tree.links
+        nodes.clear()
+
+        out   = nodes.new("ShaderNodeOutputMaterial")
+        bsdf  = nodes.new("ShaderNodeBsdfPrincipled")
+        tex_n = nodes.new("ShaderNodeTexImage")
+        out.location   = (300, 0)
+        bsdf.location  = (0, 0)
+        tex_n.location = (-350, 0)
+
+        img = bpy.data.images.get(png_path.name)
+        if img is None:
+            img = bpy.data.images.load(str(png_path))
+        img.colorspace_settings.name = "sRGB"
+        tex_n.image = img
+
+        links.new(tex_n.outputs["Color"], bsdf.inputs["Base Color"])
+        links.new(bsdf.outputs["BSDF"],   out.inputs["Surface"])
+        return mat
+
+    def _ensure_slot(self, obj, mat) -> int:
+        """Add mat to obj's material slots if absent. Return its slot index."""
+        for i, slot in enumerate(obj.material_slots):
+            if slot.material and slot.material.name == mat.name:
+                return i
+        obj.data.materials.append(mat)
+        return len(obj.material_slots) - 1
+
     def execute(self, ctx):
-        props      = ctx.scene.og_props
-        tex_name   = props.tex_selected
-        group      = props.tex_group
+        props    = ctx.scene.og_props
+        tex_name = props.tex_selected
 
         if not tex_name:
             self.report({"WARNING"}, "No texture selected.")
             return {"CANCELLED"}
 
-        # Find the PNG path
+        # Locate the PNG on disk
         png_path = None
         tex_root = _tex_root()
         if tex_root.exists():
@@ -229,39 +269,38 @@ class OG_OT_ApplyTexture(Operator):
             self.report({"WARNING"}, f"PNG not found for '{tex_name}'.")
             return {"CANCELLED"}
 
+        mat = self._build_material(tex_name, png_path)
+
+        # ── Edit mode: assign to selected faces on the active object ──────
+        if ctx.mode == "EDIT_MESH":
+            obj = ctx.active_object
+            if obj is None or obj.type != "MESH":
+                self.report({"WARNING"}, "No active mesh object in Edit Mode.")
+                return {"CANCELLED"}
+
+            mat_index = self._ensure_slot(obj, mat)
+
+            bm = bmesh.from_edit_mesh(obj.data)
+            changed = 0
+            for face in bm.faces:
+                if face.select:
+                    face.material_index = mat_index
+                    changed += 1
+            bmesh.update_edit_mesh(obj.data)
+
+            if changed == 0:
+                self.report({"WARNING"}, "No faces selected.")
+                return {"CANCELLED"}
+
+            self.report({"INFO"}, f"Applied '{tex_name}' to {changed} face(s) (slot {mat_index}).")
+            return {"FINISHED"}
+
+        # ── Object mode: replace material on all selected mesh objects ────
         targets = [o for o in ctx.selected_objects if o.type == "MESH"]
         if not targets:
             self.report({"WARNING"}, "No mesh objects selected.")
             return {"CANCELLED"}
 
-        # Build or reuse material
-        mat_name = f"og_{tex_name}"
-        mat = bpy.data.materials.get(mat_name)
-        if mat is None:
-            mat = bpy.data.materials.new(name=mat_name)
-            mat.use_nodes = True
-            nodes = mat.node_tree.nodes
-            links = mat.node_tree.links
-            nodes.clear()
-
-            out   = nodes.new("ShaderNodeOutputMaterial")
-            bsdf  = nodes.new("ShaderNodeBsdfPrincipled")
-            tex_n = nodes.new("ShaderNodeTexImage")
-            out.location  = (300, 0)
-            bsdf.location = (0, 0)
-            tex_n.location = (-350, 0)
-
-            # Load image (reuse existing data block if already loaded)
-            img = bpy.data.images.get(png_path.name)
-            if img is None:
-                img = bpy.data.images.load(str(png_path))
-            img.colorspace_settings.name = "sRGB"
-            tex_n.image = img
-
-            links.new(tex_n.outputs["Color"], bsdf.inputs["Base Color"])
-            links.new(bsdf.outputs["BSDF"],   out.inputs["Surface"])
-
-        # Assign to all selected meshes
         for obj in targets:
             if obj.data.materials:
                 obj.data.materials[0] = mat
@@ -286,7 +325,10 @@ class OG_PT_Texturing(Panel):
 
     @classmethod
     def poll(cls, ctx):
-        # Show when at least one mesh is selected
+        # Show when at least one mesh is selected (object mode)
+        # or when editing a mesh (edit mode)
+        if ctx.mode == "EDIT_MESH":
+            return ctx.active_object is not None and ctx.active_object.type == "MESH"
         return any(o.type == "MESH" for o in ctx.selected_objects)
 
     def draw(self, ctx):
@@ -371,7 +413,10 @@ class OG_PT_Texturing(Panel):
                     box.label(text=f"Source: {tpage}", icon="TEXTURE")
                     break
 
-            box.operator("og.apply_texture", text="Apply to Selected", icon="CHECKMARK")
+            if ctx.mode == "EDIT_MESH":
+                box.operator("og.apply_texture", text="Apply to Selected Faces", icon="CHECKMARK")
+            else:
+                box.operator("og.apply_texture", text="Apply to Selected", icon="CHECKMARK")
         else:
             layout.label(text="Click a texture to select it.", icon="INFO")
 

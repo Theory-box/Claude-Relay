@@ -82,6 +82,15 @@ active/jak1/data/
 ### Coordinate system
 Blender Y-up → game Z-up. Addon converts: game `(x, y, z)` = Blender `(x, z, -y)`.
 
+### Actor rotation
+As of v1.9.0, actor rotation is correctly exported. Rotate an `ACTOR_` empty in Blender and it will spawn facing that direction in-game. No changes to existing actors needed — rotation is read live from `matrix_world` at export time; unrotated empties produce identity quaternion `[0,0,0,1]` as before.
+
+The remap formula used (same as spawn points, confirmed via nREPL):
+```
+game_rot = R @ bl_rot @ R^T      # R maps Blender(x,y,z) → game(x,z,-y)
+quat = conjugate(game_rot)        # engine reads quats as conjugate (negate xyz)
+```
+
 ### Entity categories
 The Spawn panel has separate sub-panels per category, each with its own filtered dropdown:
 
@@ -322,6 +331,7 @@ Selected Object panel now uses targeted sub-panels:
 | v1.6.0 | Collections as levels — multi-level .blend, sub-collection export control |
 | v1.7.0 | Door system — eco-door, basebutton, launcherdoor, sun-iris-door |
 | v1.8.0 | Level Audit panel, Texturing panel |
+| v1.9.0 | Texture apply to faces (Edit Mode), actor rotation export |
 
 ### Panel layout (v1.8.0)
 
@@ -397,9 +407,9 @@ Results are severity-sorted (ERROR → WARNING → INFO). Each result with an of
 
 **Audit contract:** Any session adding a new actor type must populate an `"audit"` block in its `ENTITY_DEFS` entry. Any new structural dependency must register a rule. See `CONTRIBUTING.md`.
 
-### Texturing panel (v1.8.0)
+### Texturing panel (v1.9.0)
 
-🎨 Texturing panel appears when a mesh object is selected.
+🎨 Texturing panel appears when a mesh object is selected (Object Mode) or active (Edit Mode).
 
 **Requirements:** Decompiler must have been run with `save_texture_pngs: true` in `jak1_config.jsonc`. All 4,002 textures from the diagnostic output are supported.
 
@@ -411,11 +421,15 @@ Results are severity-sorted (ERROR → WARNING → INFO). Each result with an of
 3. Press **Load** — fills a 4-column scrollable icon grid
 4. Use the search bar to filter by name (live, no reload)
 5. Click a texture to select it (20 per page, prev/next pagination)
-6. Press **Apply to Selected** — creates a Principled BSDF material with Image Texture node, assigns to all selected meshes
+6. Press **Apply to Selected** / **Apply to Selected Faces**
 
-Materials are named `og_<texture_name>` and reused if already created in the session.
+**Object Mode behaviour:** Creates a Principled BSDF material named `og_<tex_name>`, assigns it to slot 0 of all selected meshes (replaces existing).
 
-If textures aren't found, the panel shows a warning with extraction instructions.
+**Edit Mode behaviour (v1.9.0):** Assigns material to selected faces only. Materials stack up as additional slots on the object — one slot per unique texture applied. The same material is reused if it already exists on that object. Button label changes to "Apply to Selected Faces" as a mode hint.
+
+Materials are named `og_<texture_name>` and reused across the session if already created.
+
+If textures aren’t found, the panel shows a warning with extraction instructions.
 
 ### Object naming conventions (complete)
 
