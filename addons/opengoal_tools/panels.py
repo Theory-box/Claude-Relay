@@ -2239,7 +2239,8 @@ class OG_PT_ActorEcoDoor(Panel):
         sel = ctx.active_object
         if not sel or "_wp_" in sel.name: return False
         parts = sel.name.split("_", 2)
-        return len(parts) >= 3 and parts[0] == "ACTOR" and parts[1] == "eco-door"
+        ECO_DOOR_TYPES = {"eco-door", "jng-iris-door", "sidedoor", "rounddoor"}
+        return len(parts) >= 3 and parts[0] == "ACTOR" and parts[1] in ECO_DOOR_TYPES
 
     def draw(self, ctx):
         layout = self.layout

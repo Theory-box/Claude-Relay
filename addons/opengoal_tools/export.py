@@ -1337,7 +1337,7 @@ def collect_actors(scene, depsgraph=None):
         # ── Eco-door: flags lump ─────────────────────────────────────────────
         # eco-door reads a 'flags lump (eco-door-flags bitfield).
         # auto-close = bit 0, one-way = bit 1.
-        if etype == "eco-door":
+        if etype in ("eco-door", "jng-iris-door", "sidedoor", "rounddoor"):
             # eco-door-flags bitfield: ecdf00=1, ecdf01=2, auto-close=4, one-way=8
             auto_close  = bool(o.get("og_door_auto_close",  False))
             one_way     = bool(o.get("og_door_one_way",     False))
