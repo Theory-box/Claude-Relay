@@ -222,7 +222,7 @@ Power cells, scout flies, orb clusters, eco vents (all types), precursor orbs.
 ---
 
 ### Texture Tools (v1.9.0)
-- Replace textures on selected faces in Edit Mode
+- Replace textures on selected faces in Edit Mode, or on whole objects in Object Mode
 - Search textures by name; apply to selection
 
 ---
@@ -247,7 +247,6 @@ Power cells, scout flies, orb clusters, eco vents (all types), precursor orbs.
 | **Villa starfish** | Has no AG file (`ag: None`). Spawning works but the enemy's art group must already be loaded by the level's tpage group (Village1). Will not appear in levels outside Village1 tpage. |
 | **process-drawable enemies outside their tpage** | Any enemy whose `tpage_group` is not in the active level's tpage budget will fail to load art at runtime. The tpage filter UI helps prevent this but does not enforce it at export. |
 | **Look-At camera in orbit mode** | Combining orbit mode with a Look-At target is untested. The export writes both, but engine behaviour is unknown. |
-| **Texture edit mode** | Apply-to-face only works in Edit Mode with a face selection. Object-mode texture assignment not yet supported. |
 | **Multiple levels in one .blend** | Export always targets the active level. Exporting all levels in one pass is not supported. |
 | **Checkpoint native volumes** (`feature/native-checkpoints`) | Branch not yet merged. Existing checkpoint system uses a fallback sphere radius or a `VOL_` box volume — neither is a native GOAL polygon trigger. |
 | **Time-of-day editor** (`feature/lighting`) | Not yet merged to main. Lighting on main branch exports with default TOD values only. |
