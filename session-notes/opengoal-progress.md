@@ -435,3 +435,37 @@ calling Blender's addon operators — same code path as the user's real workflow
 - starts_open (perm-status lump may not be engine-readable)
 - Trigger volume → sun-iris-door (event name mismatch: notify vs trigger)
 - rounddoor, sidedoor live spawn test
+
+---
+
+## Level Audit — UPDATED for v1.7.0, 31/31 tests passing
+
+**Branch:** feature/level-audit @ e799f2d
+**Status:** Ready to merge when user approves
+
+### What changed this session
+- Merged main (v1.7.0 doors) into feature/level-audit
+- Added `check_doors()` — 9 door-specific rules covering:
+  - eco-door / jng-iris-door / sidedoor / rounddoor: state-actor target type check
+  - launcherdoor: continue-name required + existence check
+  - basebutton: warns if no door listens to it
+- Added `check_entity_defs_audit_blocks()` — data-driven runner for
+  `custom_checks` declared in ENTITY_DEFS `"audit"` blocks. Future
+  features declare their checks in data.py; this fires them automatically.
+- Added `_REGISTERED_CHECKS` list at bottom of audit.py — append here to add checks
+- Fixed `_actor_get_link` usage — returns OGActorLink object, not string
+- All objects.get() calls wrapped in try/except for Blender collection safety
+
+### Test results
+- 17 regression checks (original): all pass
+- 8 door-specific checks: all pass
+- 1 custom_block future-proof check: pass
+- 5 integration checks: pass
+- **Total: 31/31**
+
+### Pending: vis-blocker (feature/vis-blocker not yet merged to main)
+When vis-blocker merges, add to audit:
+- `VISMESH_` prefix objects: check they have valid mesh geometry (not zero-vert)
+- Add to `_REGISTERED_CHECKS` — no other changes needed if ENTITY_DEFS audit
+  block pattern is followed
+
