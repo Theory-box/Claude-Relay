@@ -1363,7 +1363,7 @@ def collect_actors(scene, depsgraph=None):
                 lump["flags"] = ["uint32", flags]
             # starts_open: pre-set perm-complete so door spawns already open
             if starts_open:
-                lump["perm-status"] = ["uint32", 4]
+                lump["perm-status"] = ["uint32", 64]  # entity-perm-status complete = bit 6
             log(f"  [eco-door flags] {o.name}  auto-close={auto_close}  one-way={one_way}  starts-open={starts_open}  state-actor-lock={bool(ecdf00)}  flags=0x{flags:02x}")
 
         # ── Sun-iris-door: proximity + timeout lumps ─────────────────────────
