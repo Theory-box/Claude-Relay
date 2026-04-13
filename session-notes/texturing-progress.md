@@ -173,3 +173,46 @@ The config file lives at: `<data_folder>/data/decompiler/config/jak1/jak1_config
 - [ ] Error handling / extraction button
 - [ ] Preview system
 - [ ] Apply operator
+
+---
+
+## Implementation Session — April 2026
+
+**Branch:** feature/texturing
+**Status:** Built, 35/35 tests passing — awaiting in-Blender test
+
+### What was built
+
+**textures.py** — new standalone module:
+- `OG_PT_Texturing` — panel in OpenGOAL tab, polls for mesh selection
+- 20 tpage groups matching diagnostic output (Beach, Jungle, Swamp, etc.)
+- `OG_OT_LoadTextures` — loads PNGs for selected group into preview collection
+- `OG_OT_TexPagePrev` / `OG_OT_TexPageNext` — pagination (20 per page)
+- `OG_OT_SelectTexture` — sets tex_selected on click
+- `OG_OT_ApplyTexture` — builds Principled BSDF material, assigns to selected meshes
+- `_load_group()` — lazy-loads PNGs per group, caches, clears on group change
+- Search bar filters loaded items live (no reload needed)
+- Graceful WARNING state when textures/ folder missing
+
+**properties.py** — 4 new fields on OGProperties:
+- `tex_group` — active tpage group (default: BEACH)
+- `tex_page` — current page index
+- `tex_search` — live search filter string
+- `tex_selected` — name of selected texture
+
+**__init__.py** — TEXTURING_CLASSES tuple, register/unregister_texturing()
+
+### Texture path (confirmed from diagnostic)
+`<data_path>/data/decompiler_out/jak1/textures/<tpage_name>/<tex_name>.png`
+
+### Test checklist (to run in real Blender)
+- [ ] Panel appears when a mesh is selected
+- [ ] Panel hidden when no mesh selected
+- [ ] Load button fills grid with texture previews
+- [ ] Search filters correctly
+- [ ] Pagination works (prev/next, page counter)
+- [ ] Click texture → highlights selected, shows name + source tpage below
+- [ ] Apply to Selected creates material and assigns it
+- [ ] Selecting a different group and pressing Load replaces previews
+- [ ] Warning state shown if data_path not set / textures not extracted
+
