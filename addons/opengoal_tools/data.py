@@ -234,6 +234,8 @@ ENTITY_DEFS = {
     "minertall":        {"label":"Miner (Tall)",         "cat":"NPCs",      "tpage_group":"Village3", "ag":"minertall-ag.go",         "nav_safe":True,  "needs_path":False, "needs_pathb":False, "is_prop":False, "ai_type":"process-drawable", "color":(0.5,0.45,0.3,1.0),"shape":"SPHERE", "glb": "levels/village3/minertall-lod0.glb"},
     "eco-door":         {"label":"Eco Door",             "cat":"Objects",   "ag":"eco-door-ag.go",          "nav_safe":True,  "needs_path":False, "needs_pathb":False, "is_prop":False, "ai_type":"process-drawable", "color":(0.3,0.6,0.8,1.0), "shape":"CUBE"},
     "launcherdoor":     {"label":"Launcher Door",        "cat":"Objects",   "ag":"launcherdoor-ag.go",      "nav_safe":True,  "needs_path":False, "needs_pathb":False, "is_prop":False, "ai_type":"process-drawable", "color":(0.4,0.5,0.7,1.0), "shape":"CUBE"},
+    "sun-iris-door":    {"label":"Iris Door (Sunken)",   "cat":"Objects",   "ag":"sun-iris-door-ag.go",     "nav_safe":True,  "needs_path":False, "needs_pathb":False, "is_prop":False, "ai_type":"process-drawable", "color":(0.6,0.5,0.2,1.0), "shape":"CUBE"},
+    "basebutton":       {"label":"Wall Button",          "cat":"Objects",   "ag":"generic-button-ag.go",    "nav_safe":True,  "needs_path":False, "needs_pathb":False, "is_prop":False, "ai_type":"process-drawable", "color":(0.7,0.3,0.3,1.0), "shape":"CUBE"},
     "shover":           {"label":"Shover Platform",      "cat":"Objects",   "tpage_group":"Sunken",   "ag":"shover-ag.go",            "nav_safe":True,  "needs_path":True,  "needs_pathb":False, "is_prop":False, "ai_type":"process-drawable", "color":(0.5,0.5,0.7,1.0), "shape":"CUBE"},
     "swampgate":        {"label":"Swamp Spike Gate",     "cat":"Objects",   "tpage_group":"Swamp",    "ag":"swamp-spike-gate-ag.go",  "nav_safe":True,  "needs_path":False, "needs_pathb":False, "is_prop":False, "ai_type":"process-drawable", "color":(0.4,0.5,0.2,1.0), "shape":"CUBE"},
     "ceilingflag":      {"label":"Ceiling Flag",         "cat":"Objects",   "tpage_group":"Village2", "ag":"ceilingflag-ag.go",       "nav_safe":True,  "needs_path":False, "needs_pathb":False, "is_prop":True,  "ai_type":"prop",             "color":(0.8,0.6,0.2,1.0), "shape":"SPHERE"},
@@ -668,6 +670,8 @@ ETYPE_CODE = {
     "springbox":       {"o": "bouncer.o",          "o_only": True},
     "eco-door":        {"o": "baseplat.o",         "o_only": True},
     "launcherdoor":    {"o": "launcherdoor.o",     "o_only": True},
+    "sun-iris-door":   {"o": "sun-iris-door.o",    "o_only": True},
+    "basebutton":      {"o": "basebutton.o",        "o_only": True},
     "shover":          {"o": "shover.o",           "o_only": True},
     "swampgate":       {"o": "swamp-obs.o",        "o_only": True},
     "ceilingflag":     {"o": "village2-obs.o",     "o_only": True},
@@ -2353,12 +2357,21 @@ LUMP_REFERENCE = {
         ("spring-height", "meters", "Launch height in meters. Default ~11m."),
     ],
     "eco-door": [
-        ("scale", "float",       "Uniform scale. Default 1.0."),
-        ("flags", "enum-uint32", "Behaviour flags. e.g. '(eco-door-flags auto-close)' or '(eco-door-flags one-way)'. Default 0."),
-        # state-actor link = optional entity whose perm status locks the door
+        ("scale", "float",   "Uniform scale. Default 1.0."),
+        ("flags", "uint32",  "Behaviour flags bitfield. auto-close=4, one-way=8. Managed by Door Settings panel."),
+        # state-actor = entity whose perm-complete status locks/unlocks the door (set via actor link UI)
     ],
     "launcherdoor": [
         ("continue-name", "string", "Level continue point name set when door is passed through. e.g. \"village1-hut\"."),
+    ],
+    "sun-iris-door": [
+        ("proximity",    "uint32", "Set to 1 to open by proximity (Jak walks near). Default 0 = event-triggered only."),
+        ("timeout",      "float",  "Seconds before door auto-closes after opening. 0 = stay open. Default 0."),
+        ("scale-factor", "float",  "Uniform scale multiplier. Default 1.0."),
+    ],
+    "basebutton": [
+        ("timeout", "float", "Seconds before button resets after being pressed. 0 = stays pressed. Default 0."),
+        # alt-actor = entity to send 'trigger event to (set via actor link UI)
     ],
     "shover": [
         ("shove",              "meters",  "Upward launch force when platform hits player. Default 3m."),
@@ -2608,7 +2621,18 @@ ACTOR_LINK_DEFS = {
 
     # ── Interactables / Doors ─────────────────────────────────────────────────
     "eco-door": [
-        ("state-actor", 0, "Lock controller (door locked until this entity's task completes)", ["any"], False),
+        # state-actor: optional entity whose perm-complete status controls lock state.
+        # If the state-actor's task is complete the door unlocks (ecdf01 path).
+        # If not complete it stays locked (ecdf00 path).  Leave unset for blue-eco only.
+        ("state-actor", 0, "Lock controller (door unlocks when this entity is activated)", ["basebutton", "any"], False),
+    ],
+    "sun-iris-door": [
+        # No actor links — opens by proximity or 'trigger event from a trigger volume.
+    ],
+    "basebutton": [
+        # alt-actor: the entity that receives a 'trigger event when the button is pressed.
+        # Typically a sun-iris-door or eco-door (via state-actor chain).
+        ("alt-actor", 0, "Target actor (receives 'trigger when pressed)", ["sun-iris-door", "eco-door", "any"], False),
     ],
     "helix-water": [
         ("alt-actor", 0, "Helix button 0",  ["helix-button"], True),

@@ -1338,12 +1338,36 @@ def collect_actors(scene, depsgraph=None):
         # eco-door reads a 'flags lump (eco-door-flags bitfield).
         # auto-close = bit 0, one-way = bit 1.
         if etype == "eco-door":
-            auto_close = bool(o.get("og_door_auto_close", False))
-            one_way    = bool(o.get("og_door_one_way",    False))
-            flags = (1 if auto_close else 0) | (2 if one_way else 0)
+            # eco-door-flags bitfield: ecdf00=1, ecdf01=2, auto-close=4, one-way=8
+            auto_close  = bool(o.get("og_door_auto_close",  False))
+            one_way     = bool(o.get("og_door_one_way",     False))
+            starts_open = bool(o.get("og_door_starts_open", False))
+            flags = (4 if auto_close else 0) | (8 if one_way else 0)
             if flags:
                 lump["flags"] = ["uint32", flags]
-                log(f"  [eco-door flags] {o.name}  auto-close={auto_close}  one-way={one_way}")
+            # starts_open: pre-set perm-complete so door spawns already open
+            if starts_open:
+                lump["perm-status"] = ["uint32", 4]
+            log(f"  [eco-door flags] {o.name}  auto-close={auto_close}  one-way={one_way}  starts-open={starts_open}  flags=0x{flags:02x}")
+
+        # ── Sun-iris-door: proximity + timeout lumps ─────────────────────────
+        # Without 'proximity' the door only opens via 'trigger event (trigger vol or button).
+        if etype == "sun-iris-door":
+            proximity = bool(o.get("og_door_proximity", False))
+            timeout   = float(o.get("og_door_timeout",  0.0))
+            if proximity:
+                lump["proximity"] = ["uint32", 1]
+            if timeout > 0.0:
+                lump["timeout"] = ["float", timeout]
+            log(f"  [sun-iris-door] {o.name}  proximity={proximity}  timeout={timeout}s")
+
+        # ── Basebutton: timeout lump ──────────────────────────────────────────
+        # On press sends 'trigger to notify-actor (the alt-actor link target).
+        if etype == "basebutton":
+            timeout = float(o.get("og_button_timeout", 0.0))
+            if timeout > 0.0:
+                lump["timeout"] = ["float", timeout]
+            log(f"  [basebutton] {o.name}  timeout={timeout}s")
 
         # ── Water-vol: water-height + vol lumps ───────────────────────────────
         # water-vol needs two lumps to function:

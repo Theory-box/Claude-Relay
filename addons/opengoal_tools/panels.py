@@ -2245,29 +2245,47 @@ class OG_PT_ActorEcoDoor(Panel):
         layout = self.layout
         sel    = ctx.active_object
 
+        # ── Open condition hint ───────────────────────────────────────────────
+        hint = layout.box()
+        hint.label(text="Opens when Jak is nearby AND one of:", icon="INFO")
+        col = hint.column(align=True)
+        col.enabled = False
+        col.label(text="• Jak has blue eco")
+        col.label(text="• Door was previously opened (perm-complete)")
+        col.label(text="• Linked button/lock controller is activated")
+        col.label(text="• One-way flag + Jak is on exit side")
+
+        # ── Behaviour flags ───────────────────────────────────────────────────
         box = layout.box()
         box.label(text="Door Behaviour", icon="SETTINGS")
 
-        auto_close = bool(sel.get("og_door_auto_close", False))
-        one_way    = bool(sel.get("og_door_one_way", False))
+        auto_close  = bool(sel.get("og_door_auto_close",  False))
+        one_way     = bool(sel.get("og_door_one_way",     False))
+        starts_open = bool(sel.get("og_door_starts_open", False))
 
         row = box.row()
         icon = "CHECKBOX_HLT" if auto_close else "CHECKBOX_DEHLT"
-        row.operator("og.toggle_door_flag", text="Auto Close", icon=icon).flag = "auto_close"
+        row.operator("og.toggle_door_flag", text="Auto Close",   icon=icon).flag = "auto_close"
 
         row2 = box.row()
         icon2 = "CHECKBOX_HLT" if one_way else "CHECKBOX_DEHLT"
-        row2.operator("og.toggle_door_flag", text="One Way", icon=icon2).flag = "one_way"
+        row2.operator("og.toggle_door_flag", text="One Way",     icon=icon2).flag = "one_way"
+
+        row3 = box.row()
+        icon3 = "CHECKBOX_HLT" if starts_open else "CHECKBOX_DEHLT"
+        row3.operator("og.toggle_door_flag", text="Starts Open", icon=icon3).flag = "starts_open"
 
         sub = box.row(); sub.enabled = False
-        if auto_close and one_way:
+        if starts_open:
+            sub.label(text="Door spawns already open (perm-complete set)", icon="CHECKMARK")
+        elif auto_close and one_way:
             sub.label(text="Closes after Jak passes, one direction only", icon="INFO")
         elif auto_close:
-            sub.label(text="Door closes automatically after Jak passes", icon="INFO")
+            sub.label(text="Closes automatically after Jak passes", icon="INFO")
         elif one_way:
-            sub.label(text="Door can only be opened from one side", icon="INFO")
+            sub.label(text="Can only be opened from one side", icon="INFO")
         else:
-            sub.label(text="Default: stays open, bidirectional", icon="INFO")
+            sub.label(text="Default: needs blue eco or button link", icon="INFO")
 
 
 class OG_PT_ActorWaterVol(Panel):
@@ -2483,6 +2501,108 @@ class OG_PT_ActorLauncherDoor(Panel):
         else:
             sub = box.row(); sub.enabled = False
             sub.label(text="No checkpoints in scene — add a CHECKPOINT_ empty", icon="INFO")
+
+
+class OG_PT_ActorSunIrisDoor(Panel):
+    bl_label       = "Iris Door Settings"
+    bl_idname      = "OG_PT_actor_sun_iris_door"
+    bl_space_type  = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category    = "OpenGOAL"
+    bl_parent_id   = "OG_PT_selected_object"
+    bl_options     = {"DEFAULT_CLOSED"}
+
+    @classmethod
+    def poll(cls, ctx):
+        sel = ctx.active_object
+        if not sel or "_wp_" in sel.name: return False
+        parts = sel.name.split("_", 2)
+        return len(parts) >= 3 and parts[0] == "ACTOR" and parts[1] == "sun-iris-door"
+
+    def draw(self, ctx):
+        layout = self.layout
+        sel    = ctx.active_object
+
+        # ── Open method ───────────────────────────────────────────────────────
+        hint = layout.box()
+        hint.label(text="Opens when it receives a 'trigger event", icon="INFO")
+        sub = hint.row(); sub.enabled = False
+        sub.label(text="Use a Trigger Volume or basebutton linked to this door")
+
+        # ── Proximity toggle ──────────────────────────────────────────────────
+        box = layout.box()
+        box.label(text="Proximity", icon="DRIVER_DISTANCE")
+        proximity = bool(sel.get("og_door_proximity", False))
+        row = box.row()
+        icon = "CHECKBOX_HLT" if proximity else "CHECKBOX_DEHLT"
+        row.operator("og.toggle_door_flag", text="Open by Proximity", icon=icon).flag = "proximity"
+        sub2 = box.row(); sub2.enabled = False
+        if proximity:
+            sub2.label(text="Also opens when Jak walks close", icon="CHECKMARK")
+        else:
+            sub2.label(text="Event-triggered only (default)", icon="INFO")
+
+        # ── Timeout ───────────────────────────────────────────────────────────
+        box2 = layout.box()
+        box2.label(text="Auto-Close Timeout", icon="TIME")
+        timeout = float(sel.get("og_door_timeout", 0.0))
+        row2 = box2.row(align=True)
+        op_m = row2.operator("og.nudge_float_prop", text="-1s", icon="REMOVE")
+        op_m.prop_name = "og_door_timeout"; op_m.delta = -1.0; op_m.val_min = 0.0
+        if timeout <= 0.0:
+            row2.label(text="No timeout (stays open)")
+        else:
+            row2.label(text=f"Closes after {timeout:.1f}s")
+        op_p = row2.operator("og.nudge_float_prop", text="+1s", icon="ADD")
+        op_p.prop_name = "og_door_timeout"; op_p.delta = 1.0; op_p.val_max = 60.0
+        if timeout > 0.0:
+            op_r = box2.operator("og.nudge_float_prop", text="Reset (no timeout)", icon="LOOP_BACK")
+            op_r.prop_name = "og_door_timeout"; op_r.delta = -999.0; op_r.val_min = 0.0
+
+
+class OG_PT_ActorBaseButton(Panel):
+    bl_label       = "Button Settings"
+    bl_idname      = "OG_PT_actor_basebutton"
+    bl_space_type  = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category    = "OpenGOAL"
+    bl_parent_id   = "OG_PT_selected_object"
+    bl_options     = {"DEFAULT_CLOSED"}
+
+    @classmethod
+    def poll(cls, ctx):
+        sel = ctx.active_object
+        if not sel or "_wp_" in sel.name: return False
+        parts = sel.name.split("_", 2)
+        return len(parts) >= 3 and parts[0] == "ACTOR" and parts[1] == "basebutton"
+
+    def draw(self, ctx):
+        layout = self.layout
+        sel    = ctx.active_object
+
+        # ── Info ──────────────────────────────────────────────────────────────
+        hint = layout.box()
+        hint.label(text="Flop-attack (ground pound) to press", icon="INFO")
+        sub = hint.row(); sub.enabled = False
+        sub.label(text="Sends 'trigger to linked target when pressed")
+
+        # ── Timeout ───────────────────────────────────────────────────────────
+        box = layout.box()
+        box.label(text="Reset Timeout", icon="TIME")
+        timeout = float(sel.get("og_button_timeout", 0.0))
+        row = box.row(align=True)
+        op_m = row.operator("og.nudge_float_prop", text="-1s", icon="REMOVE")
+        op_m.prop_name = "og_button_timeout"; op_m.delta = -1.0; op_m.val_min = 0.0
+        if timeout <= 0.0:
+            row.label(text="Stays pressed permanently")
+        else:
+            row.label(text=f"Resets after {timeout:.1f}s")
+        op_p = row.operator("og.nudge_float_prop", text="+1s", icon="ADD")
+        op_p.prop_name = "og_button_timeout"; op_p.delta = 1.0; op_p.val_max = 60.0
+        if timeout > 0.0:
+            op_r = box.operator("og.nudge_float_prop", text="Reset (permanent)", icon="LOOP_BACK")
+            op_r.prop_name = "og_button_timeout"; op_r.delta = -999.0; op_r.val_min = 0.0
+
 
 
 class OG_PT_ActorPlatFlip(Panel):
