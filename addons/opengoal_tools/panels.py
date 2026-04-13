@@ -2594,8 +2594,10 @@ class OG_PT_ActorBaseButton(Panel):
         # ── Info ──────────────────────────────────────────────────────────────
         hint = layout.box()
         hint.label(text="Flop-attack (ground pound) to press", icon="INFO")
-        sub = hint.row(); sub.enabled = False
-        sub.label(text="Sends 'trigger to linked target when pressed")
+        sub = hint.column(align=True); sub.enabled = False
+        sub.label(text="To control an Eco Door:")
+        sub.label(text="  Select the door → Actor Links → state-actor → this button")
+        sub.label(text="The door locks until this button is pressed.")
 
         # ── Timeout ───────────────────────────────────────────────────────────
         box = layout.box()

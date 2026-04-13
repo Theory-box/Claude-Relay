@@ -2662,9 +2662,10 @@ ACTOR_LINK_DEFS = {
         # No actor links — opens by proximity or 'trigger event from a trigger volume.
     ],
     "basebutton": [
-        # alt-actor: the entity that receives a 'trigger event when the button is pressed.
-        # Typically a sun-iris-door or eco-door (via state-actor chain).
-        ("alt-actor", 0, "Target actor (receives 'trigger when pressed)", ["sun-iris-door", "eco-door", "any"], False),
+        # basebutton controls eco-door via the door's state-actor link (door polls
+        # button's perm-complete each frame — no event needed from button side).
+        # alt-actor ('trigger dispatch) is only useful for sun-iris-door which
+        # actually opens on 'trigger. Add that slot when sun-iris-door is wired.
     ],
     "helix-water": [
         ("alt-actor", 0, "Helix button 0",  ["helix-button"], True),
