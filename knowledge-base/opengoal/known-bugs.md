@@ -68,3 +68,41 @@ Recompile after applying. The change is safe for vanilla levels — `'base` igno
 
 ---
 
+
+---
+
+## [AUTO-PATCHED] vol-h.gc patch applied automatically on export
+
+As of v1.5.0+ the addon auto-patches `vol-h.gc` on every Export & Build. The patch is idempotent — if already applied it silently skips. The first export after a fresh install will patch and trigger a recompile; subsequent exports are silent.
+
+**Manual patch still valid** if you want to apply it ahead of time or use the level without the addon.
+
+---
+
+## [COSMETIC] _user_dir PermissionError on addon reload with no level set
+
+**Symptom:** Python traceback in console on addon reload or Blender startup:
+```
+PermissionError: [WinError 5] Access is denied: 'data'
+FileNotFoundError: [WinError 3] The system cannot find the path specified: 'data\goal_src\user'
+```
+
+**Cause:** `_user_dir()` resolves to a relative `data\` path when `data_path` is not yet set in addon preferences (or before the preference is read). `Path.mkdir(parents=True)` fails trying to create folders relative to the Blender executable directory.
+
+**Impact:** None — cosmetic only. The addon loads and works correctly. The error only fires on the startup path before any level is set.
+
+**Fix:** Set `data_path` in addon preferences (Edit → Preferences → Add-ons → OpenGOAL Tools). Error will not reappear once a valid path is configured.
+
+**Status:** Known, low priority, not blocking any functionality.
+
+---
+
+## [CONFIRMED BROKEN] Bonelurker crash on level load
+
+**Symptom:** Level fails to load entirely when `ACTOR_bonelurker_0` is placed.
+
+**Likely cause:** Type redefinition at GOALC link time. `bonelurker.gc` may conflict with existing MIS.DGO build entries in `game.gp`, or requires `battlecontroller.o` as a compile-time dependency. Bonelurker is never spawned via `entity-actor` in vanilla — it's always spawned programmatically by `battlecontroller`.
+
+**Workaround:** Do not place bonelurker actors. All other enemy types work.
+
+**Status:** Under investigation. Remove bonelurker from ENTITY_DEFS spawn picker pending fix.
