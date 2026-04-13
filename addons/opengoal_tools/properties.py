@@ -144,6 +144,39 @@ class OGProperties(PropertyGroup):
     # Collection Properties panel
     selected_collection:    StringProperty(name="Selected Collection", default="")
 
+    # ── Texture browser ──────────────────────────────────────────────────────
+    tex_group:    EnumProperty(
+        name="Texture Group",
+        description="Filter textures by level/category",
+        items=[
+            ("ALL",         "All",          ""),
+            ("COMMON",      "Common",       ""),
+            ("EFFECTS",     "Effects",      ""),
+            ("CHARACTERS",  "Characters",   ""),
+            ("BEACH",       "Beach",        ""),
+            ("JUNGLE",      "Jungle",       ""),
+            ("SWAMP",       "Swamp",        ""),
+            ("MISTY",       "Misty",        ""),
+            ("SNOW",        "Snow",         ""),
+            ("FIRE_CANYON", "Fire Canyon",  ""),
+            ("LAVA_TUBE",   "Lava Tube",    ""),
+            ("OGRE",        "Ogre",         ""),
+            ("SUNKEN",      "Sunken",       ""),
+            ("ROLLING",     "Rolling",      ""),
+            ("CAVE",        "Cave",         ""),
+            ("VILLAGE",     "Village",      ""),
+            ("TRAINING",    "Training",     ""),
+            ("CITADEL",     "Citadel",      ""),
+            ("FINAL_BOSS",  "Final Boss",   ""),
+            ("HUD",         "HUD / UI",     ""),
+        ],
+        default="BEACH",
+    )
+    tex_page:     IntProperty(name="Texture Page", default=0, min=0)
+    tex_search:   StringProperty(name="Search", default="",
+                                 description="Filter textures by name")
+    tex_selected: StringProperty(name="Selected Texture", default="")
+
 
 # --- OGLumpRow ---
 class OGLumpRow(bpy.types.PropertyGroup):

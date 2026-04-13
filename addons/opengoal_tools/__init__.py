@@ -172,6 +172,10 @@ from .panels import (
 
 from .utils import _preview_collections, _load_previews, _unload_previews
 from . import model_preview as _mp
+from .textures import (
+    TEXTURING_CLASSES,
+    register_texturing, unregister_texturing,
+)
 
 # bpy.utils.previews is the correct Blender API for custom images in panels.
 # icon_id is just an integer texture lookup — zero overhead in draw().
@@ -316,11 +320,13 @@ classes = (
     OG_PT_BuildPlay,
     OG_PT_DevTools,
     OG_PT_Collision,
+    *TEXTURING_CLASSES,
 )
 
 def register():
     _load_previews()
     _mp.register_handler()
+    register_texturing()
     for cls in classes:
         try:
             bpy.utils.unregister_class(cls)
@@ -384,6 +390,7 @@ def register():
 def unregister():
     _unload_previews()
     _mp.unregister_handler()
+    unregister_texturing()
     bpy.types.MATERIAL_PT_custom_props.remove(_draw_mat)
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)
