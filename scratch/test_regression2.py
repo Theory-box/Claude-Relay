@@ -44,7 +44,7 @@ check("ETYPE_CODE mappings correct", test_etype_code)
 def test_links():
     from opengoal_tools.data import _actor_link_slots
     assert _actor_link_slots("orbit-plat")[0][0] == "alt-actor"   # old entry intact
-    assert _actor_link_slots("basebutton")[0][0] == "alt-actor"   # new entry
+    assert _actor_link_slots("basebutton") == []                   # intentionally empty — alt-actor removed (basebutton controls door via door's state-actor poll, not event dispatch)
     assert any(s[0]=="state-actor" for s in _actor_link_slots("eco-door"))
     assert any(s[0]=="state-actor" for s in _actor_link_slots("jng-iris-door"))
 check("ACTOR_LINK_DEFS: old+new correct", test_links)
