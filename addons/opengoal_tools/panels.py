@@ -2080,7 +2080,6 @@ class OG_PT_ActorCrate(Panel):
         sel    = ctx.active_object
         ct     = sel.get("og_crate_type",          "steel")
         pickup = sel.get("og_crate_pickup",         "money")
-        amount = int(sel.get("og_crate_pickup_amount", 1))
 
         # ── Crate Type ───────────────────────────────────────────────────
         box = layout.box()
@@ -2667,8 +2666,6 @@ class OG_PT_ActorPlatFlip(Panel):
         box = layout.box()
         box.label(text="Flip Timing", icon="TIME")
 
-        delay_down = float(sel.get("og_flip_delay_down", 2.0))
-        delay_up   = float(sel.get("og_flip_delay_up",   2.0))
         col = box.column(align=True)
         _prop_row(col, sel, "og_flip_delay_down", "Delay down (s):", 2.0)
         _prop_row(col, sel, "og_flip_delay_up",   "Delay up   (s):", 2.0)
