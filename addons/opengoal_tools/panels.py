@@ -4423,3 +4423,110 @@ class OG_PT_Collision(Panel):
 # Preview collection and wiki draw helper
 # ---------------------------------------------------------------------------
 
+
+# ---------------------------------------------------------------------------
+# GOAL Code Panel
+# ---------------------------------------------------------------------------
+
+class OG_PT_ActorGoalCode(Panel):
+    """Per-actor custom GOAL code injection.
+
+    Shown for any ACTOR_ empty (not waypoints).
+    Links a Blender text block to the actor; the block is appended verbatim
+    to *-obs.gc on export after the addon's own generated types.
+    Multiple actors can share the same text block — it is emitted only once.
+    """
+    bl_label       = "GOAL Code"
+    bl_idname      = "OG_PT_actor_goal_code"
+    bl_space_type  = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category    = "OpenGOAL"
+    bl_parent_id   = "OG_PT_selected_object"
+    bl_options     = {"DEFAULT_CLOSED"}
+
+    @classmethod
+    def poll(cls, ctx):
+        sel = ctx.active_object
+        if not sel or sel.type != "EMPTY" or "_wp_" in sel.name:
+            return False
+        parts = sel.name.split("_", 2)
+        return len(parts) >= 3 and parts[0] == "ACTOR"
+
+    def draw_header(self, ctx):
+        """Show a small indicator dot when a code block is active + enabled."""
+        sel = ctx.active_object
+        if sel and hasattr(sel, "og_goal_code_ref"):
+            ref = sel.og_goal_code_ref
+            if ref.text_block and ref.enabled:
+                self.layout.label(text="", icon="RADIOBUT_ON")
+
+    def draw(self, ctx):
+        layout = self.layout
+        sel    = ctx.active_object
+        ref    = sel.og_goal_code_ref
+
+        if ref.text_block is None:
+            # ── No block assigned ───────────────────────────────────────────
+            col = layout.column(align=True)
+            col.label(text="No GOAL code block assigned", icon="INFO")
+            col.separator(factor=0.5)
+            col.operator("og.create_goal_code_block",
+                         text="Create boilerplate block",
+                         icon="FILE_NEW")
+            col.separator(factor=0.5)
+            col.label(text="Or assign an existing text block:", icon="BLANK1")
+            col.prop(ref, "text_block", text="")
+        else:
+            # ── Block assigned ──────────────────────────────────────────────
+            txt = ref.text_block
+
+            # Header row: block name + enabled toggle
+            row = layout.row(align=True)
+            row.prop(ref, "enabled", text="")
+            row.prop(ref, "text_block", text="")
+            row.operator("og.clear_goal_code_block", text="", icon="X")
+
+            layout.separator(factor=0.3)
+
+            # Status line: line count + will/won't inject
+            line_count = len(txt.lines)
+            if ref.enabled:
+                status_icon = "CHECKMARK"
+                status_text = f"{line_count} lines — will inject on export"
+            else:
+                status_icon = "PAUSE"
+                status_text = f"{line_count} lines — disabled (won't export)"
+
+            row2 = layout.row()
+            row2.enabled = False
+            row2.label(text=status_text, icon=status_icon)
+
+            layout.separator(factor=0.3)
+
+            # Open in text editor button
+            row3 = layout.row(align=True)
+            op = row3.operator("og.create_goal_code_block",
+                               text="New block (replace)",
+                               icon="FILE_NEW")
+            # "Open in Text Editor" — switch to a text editor space if one exists,
+            # otherwise just report. We do this via a simple operator call pattern.
+            row3.operator("og.open_goal_code_in_editor",
+                          text="Open in Editor",
+                          icon="TEXT")
+
+            # Shared-block hint: warn if >1 object uses this same text block
+            users = [o for o in ctx.scene.objects
+                     if (o.type == "EMPTY"
+                         and hasattr(o, "og_goal_code_ref")
+                         and o.og_goal_code_ref.text_block is txt
+                         and o != sel)]
+            if users:
+                box = layout.box()
+                box.label(text=f"Shared with {len(users)} other actor(s):", icon="LINKED")
+                for u in users[:4]:
+                    box.label(text=f"  {u.name}", icon="BLANK1")
+                if len(users) > 4:
+                    box.label(text=f"  … and {len(users) - 4} more", icon="BLANK1")
+                note = box.row()
+                note.enabled = False
+                note.label(text="Shared blocks are emitted once in obs.gc")

@@ -2379,3 +2379,128 @@ class OG_OT_RefreshLevels(Operator):
 
 
 
+
+# ---------------------------------------------------------------------------
+# GOAL Code Block operators
+# ---------------------------------------------------------------------------
+
+_GOAL_BOILERPLATE = """\
+;;-*-Lisp-*-
+(in-package goal)
+;; {name}-obs.gc custom code — injected by OpenGOAL Level Tools
+;; Entity type: {etype}
+;;
+;; Replace this with your deftype + defstate + init-from-entity!
+;; See knowledge-base/opengoal/goal-scripting.md for reference.
+;;
+;; IMPORTANT:
+;;   • First field starts at offset-assert 176 (end of process-drawable base)
+;;   • Each state :code loop must call (suspend) or the game will freeze
+;;   • Compile errors appear in the goalc build log, not in Blender
+;;   • The entity type name in your deftype must match what you put in ACTOR_<name>_<uid>
+;;     i.e. ACTOR_{etype}_0 expects a (deftype {etype} (process-drawable) ...)
+
+(deftype {etype} (process-drawable)
+  ()   ;; add fields here starting at :offset-assert 176
+  (:states {etype}-idle))
+
+(defstate {etype}-idle ({etype})
+  :code
+    (behavior ()
+      (loop (suspend))))
+
+(defmethod init-from-entity! ((this {etype}) (arg0 entity-actor))
+  (set! (-> this root) (new 'process 'trsqv))
+  (process-drawable-from-entity! this arg0)
+  (go {etype}-idle)
+  (none))
+"""
+
+
+class OG_OT_CreateGoalCodeBlock(bpy.types.Operator):
+    """Create a new Blender text block pre-filled with GOAL boilerplate and assign it to this actor"""
+    bl_idname = "og.create_goal_code_block"
+    bl_label  = "Create GOAL Code Block"
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, ctx):
+        sel = ctx.active_object
+        if not sel or sel.type != "EMPTY":
+            return False
+        parts = sel.name.split("_", 2)
+        return len(parts) >= 3 and parts[0] == "ACTOR" and "_wp_" not in sel.name
+
+    def execute(self, ctx):
+        sel   = ctx.active_object
+        parts = sel.name.split("_", 2)
+        etype = parts[1]
+        uid   = parts[2] if len(parts) >= 3 else "0"
+
+        # Generate a unique text block name
+        block_name = f"{etype}-goal-code"
+        counter    = 0
+        base_name  = block_name
+        while block_name in bpy.data.texts:
+            counter   += 1
+            block_name = f"{base_name}-{counter}"
+
+        # Create and fill the text block
+        txt = bpy.data.texts.new(block_name)
+        txt.write(_GOAL_BOILERPLATE.format(name=etype, etype=etype, uid=uid))
+        txt.cursor_set(0)  # go to start
+
+        # Assign to this object
+        sel.og_goal_code_ref.text_block = txt
+        sel.og_goal_code_ref.enabled    = True
+
+        self.report({"INFO"}, f"Created GOAL code block '{block_name}' — open it in the Text Editor to edit")
+        return {"FINISHED"}
+
+
+class OG_OT_ClearGoalCodeBlock(bpy.types.Operator):
+    """Disconnect the GOAL code block from this actor (does not delete the text block)"""
+    bl_idname  = "og.clear_goal_code_block"
+    bl_label   = "Disconnect GOAL Code"
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, ctx):
+        sel = ctx.active_object
+        return (sel is not None
+                and sel.type == "EMPTY"
+                and hasattr(sel, "og_goal_code_ref")
+                and sel.og_goal_code_ref.text_block is not None)
+
+    def execute(self, ctx):
+        ctx.active_object.og_goal_code_ref.text_block = None
+        return {"FINISHED"}
+
+
+class OG_OT_OpenGoalCodeInEditor(bpy.types.Operator):
+    """Switch an open Text Editor area to show this actor's GOAL code block, or report instructions if none is open"""
+    bl_idname  = "og.open_goal_code_in_editor"
+    bl_label   = "Open in Text Editor"
+    bl_options = {"REGISTER"}
+
+    @classmethod
+    def poll(cls, ctx):
+        sel = ctx.active_object
+        return (sel is not None
+                and hasattr(sel, "og_goal_code_ref")
+                and sel.og_goal_code_ref.text_block is not None)
+
+    def execute(self, ctx):
+        txt = ctx.active_object.og_goal_code_ref.text_block
+        # Find the first TEXT_EDITOR area in any open window
+        for window in ctx.window_manager.windows:
+            for area in window.screen.areas:
+                if area.type == "TEXT_EDITOR":
+                    area.spaces.active.text = txt
+                    self.report({"INFO"}, f"Showing '{txt.name}' in Text Editor")
+                    return {"FINISHED"}
+        # No text editor open — guide the user
+        self.report({"INFO"},
+                    f"Open a Text Editor area (Shift+F11) then re-click. "
+                    f"Block name: '{txt.name}'")
+        return {"FINISHED"}

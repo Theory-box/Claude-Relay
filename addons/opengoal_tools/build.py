@@ -421,7 +421,7 @@ def _bg_build(name, scene, depsgraph=None):
         navmesh_actors = _collect_navmesh_actors(scene)
         _lv_objs = _level_objects(scene)
         has_cps = bool([o for o in _lv_objs if o.name.startswith("CHECKPOINT_") and o.type == "EMPTY" and not o.name.endswith("_CAM")])
-        write_gc(name, has_triggers=bool(trigger_actors), has_checkpoints=has_cps, has_aggro_triggers=bool(aggro_actors))
+        write_gc(name, has_triggers=bool(trigger_actors), has_checkpoints=has_cps, has_aggro_triggers=bool(aggro_actors), scene=scene)
         patch_entity_gc(navmesh_actors)
         patch_level_info(name, spawns, scene)
         patch_game_gp(name, code_deps)
@@ -575,7 +575,7 @@ def _bg_geo_rebuild(name, scene, depsgraph=None):
         write_gd(name, ags, code_deps, tpages)
         _lv_objs = _level_objects(scene)
         has_cps = bool([o for o in _lv_objs if o.name.startswith("CHECKPOINT_") and o.type == "EMPTY" and not o.name.endswith("_CAM")])
-        write_gc(name, has_triggers=bool(trigger_actors), has_checkpoints=has_cps, has_aggro_triggers=bool(aggro_actors))
+        write_gc(name, has_triggers=bool(trigger_actors), has_checkpoints=has_cps, has_aggro_triggers=bool(aggro_actors), scene=scene)
         patch_level_info(name, spawns, scene)  # update spawn continue-points if moved
 
         # Run (mi) — re-extracts GLB, repacks DGO, skips unchanged .gc files
@@ -647,7 +647,7 @@ def _bg_build_and_play(name, scene, depsgraph=None):
         navmesh_actors = _collect_navmesh_actors(scene)
         _lv_objs = _level_objects(scene)
         has_cps = bool([o for o in _lv_objs if o.name.startswith("CHECKPOINT_") and o.type == "EMPTY" and not o.name.endswith("_CAM")])
-        write_gc(name, has_triggers=bool(trigger_actors), has_checkpoints=has_cps, has_aggro_triggers=bool(aggro_actors))
+        write_gc(name, has_triggers=bool(trigger_actors), has_checkpoints=has_cps, has_aggro_triggers=bool(aggro_actors), scene=scene)
         patch_entity_gc(navmesh_actors)
         patch_level_info(name, spawns, scene)
         patch_game_gp(name, code_deps)

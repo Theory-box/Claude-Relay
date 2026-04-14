@@ -594,10 +594,12 @@ def collect_cameras(scene):
     return camera_actors, trigger_actors
 
 
-def write_gc(name, has_triggers=False, has_checkpoints=False, has_aggro_triggers=False):
+def write_gc(name, has_triggers=False, has_checkpoints=False, has_aggro_triggers=False, scene=None):
     """Write obs.gc: always emits camera-marker type; if has_triggers also
     emits camera-trigger type; if has_checkpoints emits checkpoint-trigger type;
     if has_aggro_triggers emits aggro-trigger type.
+    If scene is provided, any ACTOR_ empties with an og_goal_code_ref text block
+    assigned (and enabled) have their code appended after the addon's types.
     All types birth automatically via entity-actor.birth! — no nREPL needed.
     """
     d = _goal_src() / "levels" / name
@@ -877,6 +879,45 @@ def write_gc(name, has_triggers=False, has_checkpoints=False, has_aggro_triggers
             "",
         ]
         log(f"  [write_gc] aggro-trigger type embedded")
+
+    # ── Custom GOAL code injection ────────────────────────────────────────
+    # Scan all ACTOR_ empties in the scene for text blocks assigned via
+    # og_goal_code_ref.  Deduplicate by text block name so shared blocks are
+    # only emitted once.  Each block is appended verbatim after the addon's
+    # own generated types.
+    if scene is not None:
+        seen_blocks   = set()
+        custom_blocks = []
+        for obj in _level_objects(scene):
+            if not (obj.type == "EMPTY"
+                    and obj.name.startswith("ACTOR_")
+                    and "_wp_" not in obj.name):
+                continue
+            ref = getattr(obj, "og_goal_code_ref", None)
+            if ref is None:
+                continue
+            txt = ref.text_block
+            if txt is None or not ref.enabled:
+                continue
+            if txt.name in seen_blocks:
+                continue
+            seen_blocks.add(txt.name)
+            custom_blocks.append((txt.name, txt.as_string()))
+
+        if custom_blocks:
+            lines += [
+                "",
+                f";; --- custom GOAL code ({len(custom_blocks)} block(s)) ---",
+            ]
+            for block_name, block_code in custom_blocks:
+                lines += [
+                    "",
+                    f";; block: {block_name}",
+                    "",
+                ]
+                lines += block_code.splitlines()
+            log(f"  [write_gc] injected {len(custom_blocks)} custom GOAL code block(s): "
+                f"{', '.join(n for n, _ in custom_blocks)}")
 
     new_text = "\n".join(lines)
     if p.exists() and p.read_text() == new_text:

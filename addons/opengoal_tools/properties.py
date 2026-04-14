@@ -322,6 +322,26 @@ class OGVolLink(PropertyGroup):
     )
 
 
+class OGGoalCodeRef(bpy.types.PropertyGroup):
+    """Reference to a Blender text block containing custom GOAL code.
+
+    Stored as og_goal_code_ref PointerProperty on ACTOR_ empties.
+    On export, the referenced text block is appended verbatim to *-obs.gc
+    after the addon's generated types.  Multiple actors can share one block —
+    it will only be emitted once (deduplication by text block name).
+    """
+    text_block: bpy.props.PointerProperty(
+        name="GOAL Code",
+        description="Blender text block whose contents will be injected into the level's obs.gc on export",
+        type=bpy.types.Text,
+    )
+    enabled: bpy.props.BoolProperty(
+        name="Inject on Export",
+        description="When enabled this code block will be included in obs.gc. Disable to temporarily exclude it without deleting the block",
+        default=True,
+    )
+
+
 class OGAuditResult(PropertyGroup):
     """One issue produced by the Level Audit.
     Stored as og_audit_results CollectionProperty on the Scene.
