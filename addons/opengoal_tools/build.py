@@ -417,8 +417,9 @@ def _bg_build(name, scene, depsgraph=None):
         base_id = int(_get_level_prop(scene, "og_base_id", 10000))
         aggro_actors = collect_aggro_triggers(scene)
         effects = collect_effects(scene)
-        write_part_gc(name, effects)
-        has_fx = bool(effects)
+        part_status = write_part_gc(name, effects)
+        has_fx = part_status != "none"
+        force_restart = part_status in ("new", "updated")
         # Convert effect emitters to JSONC actor entries
         effect_actors = []
         for fx in effects:
@@ -448,13 +449,18 @@ def _bg_build(name, scene, depsgraph=None):
         patch_level_info(name, spawns, scene)
         patch_game_gp(name, code_deps, has_effects=has_fx)
 
-        if goalc_ok():
+        # If the part file is new or changed, (mi) won't find it in its dep graph.
+        # Force a full GOALC restart so it re-reads game.gp and picks up the new file.
+        if goalc_ok() and not force_restart:
             state["status"] = "Running (mi) via nREPL..."
             r = goalc_send("(mi)", timeout=GOALC_TIMEOUT)
             if r is not None:
                 state["ok"] = True; state["status"] = "Build complete!"; return
 
-        state["status"] = "Writing startup.gc..."
+        if force_restart:
+            state["status"] = "New part file — restarting GOALC to register it..."
+        else:
+            state["status"] = "Writing startup.gc..."
         write_startup_gc(["(mi)"])
         state["status"] = "Launching GOALC..."
         kill_goalc()
@@ -594,8 +600,9 @@ def _bg_geo_rebuild(name, scene, depsgraph=None):
         base_id = int(_get_level_prop(scene, "og_base_id", 10000))
         aggro_actors = collect_aggro_triggers(scene)
         effects = collect_effects(scene)
-        write_part_gc(name, effects)
-        has_fx = bool(effects)
+        part_status = write_part_gc(name, effects)
+        has_fx = part_status != "none"
+        force_restart = part_status in ("new", "updated")
         effect_actors = []
         for fx in effects:
             gx, gy, gz = fx["gx"], fx["gy"], fx["gz"]
@@ -675,8 +682,9 @@ def _bg_build_and_play(name, scene, depsgraph=None):
         base_id = int(_get_level_prop(scene, "og_base_id", 10000))
         aggro_actors = collect_aggro_triggers(scene)
         effects = collect_effects(scene)
-        write_part_gc(name, effects)
-        has_fx = bool(effects)
+        part_status = write_part_gc(name, effects)
+        has_fx = part_status != "none"
+        force_restart = part_status in ("new", "updated")
         # Convert effect emitters to JSONC actor entries
         effect_actors = []
         for fx in effects:

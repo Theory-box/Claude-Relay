@@ -2276,28 +2276,36 @@ def _part_lines(base_group, base_part, name, effects):
 
 
 def write_part_gc(name, effects):
-    """Write <name>-part.gc if there are any EFFECT_ empties.
+    """Write <n>-part.gc if there are any EFFECT_ empties.
 
-    Returns True if the file was written, False if no effects (file not needed).
-    The file is written idempotently — skipped if content is unchanged.
+    Returns:
+      "new"       -- file was created for the first time (force GOALC restart)
+      "updated"   -- file existed and content changed (force GOALC restart)
+      "unchanged" -- file existed and is identical ((mi) is fine)
+      "none"      -- no effects, file not written
     """
     if not effects:
-        return False
+        return "none"
 
     d = _goal_src() / "levels" / name
     d.mkdir(parents=True, exist_ok=True)
     p = d / f"{name}-part.gc"
 
-    lines = _part_lines(709, 2969, name, effects)
-    new_text = "\n".join(lines) + "\n"
+    fn_lines = _part_lines(709, 2969, name, effects)
+    new_text = "\n".join(fn_lines) + "\n"
 
-    if p.exists() and p.read_text() == new_text:
+    if not p.exists():
+        p.write_text(new_text)
+        log(f"Wrote {p}  (NEW - {len(effects)} effect emitter(s))")
+        return "new"
+
+    if p.read_text() == new_text:
         log(f"Skipped {p} (unchanged)")
-        return True
+        return "unchanged"
 
     p.write_text(new_text)
-    log(f"Wrote {p}  ({len(effects)} effect emitter(s))")
-    return True
+    log(f"Wrote {p}  (UPDATED - {len(effects)} effect emitter(s))")
+    return "updated"
 
 
 def collect_nav_mesh_geometry(scene, level_name):
