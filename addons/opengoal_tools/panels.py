@@ -1332,17 +1332,47 @@ def _draw_selected_checkpoint(layout, sel, scene):
 
 
 def _draw_selected_emitter(layout, sel):
-    """Draw settings for an AMBIENT_ sound emitter."""
-    snd  = sel.get("og_sound_name", "?")
-    mode = sel.get("og_sound_mode", "loop")
-    radius = float(sel.get("og_sound_radius", 15.0))
-
+    """Draw editable settings for an AMBIENT_snd* sound emitter."""
     layout.label(text=sel.name, icon="SPEAKER")
+    box = layout.box()
+    snd = sel.get("og_sound_name", "?")
+    box.label(text=f"Sound: {snd}", icon="PLAY")
+    _prop_row(box, sel, "og_sound_radius", "Radius (m):", 15.0)
+
+
+def _draw_selected_music_zone(layout, sel):
+    """Draw editable settings for an AMBIENT_mus* music zone."""
+    from .data import MUSIC_FLAVA_TABLE, LEVEL_BANKS
+    layout.label(text=sel.name, icon="SOUND")
 
     box = layout.box()
-    box.label(text=f"Sound: {snd}", icon="PLAY")
-    box.label(text=f"Mode: {mode}", icon="PREVIEW_RANGE" if mode == "loop" else "PLAYER")
-    box.label(text=f"Radius: {radius:.1f}m", icon="SPHERE")
+    bank = sel.get("og_music_bank", "village1")
+
+    # Bank — EnumProperty on the object itself doesn't exist, so draw as custom prop.
+    # We show the current value as a label then let user edit via the custom prop field.
+    row = box.row(align=True)
+    row.label(text="Music Bank:")
+    row.prop(sel, '["og_music_bank"]', text="")
+
+    # Flava — show current value as label (no dynamic enum on the object)
+    flava       = sel.get("og_music_flava", "default")
+    flava_list  = MUSIC_FLAVA_TABLE.get(bank, ["default"])
+    flava_label = flava if flava in flava_list else f"{flava} ⚠"
+    row2 = box.row(align=True)
+    row2.label(text="Flava:")
+    row2.prop(sel, '["og_music_flava"]', text="")
+    if flava not in flava_list:
+        box.label(text=f"⚠ '{flava}' not valid for {bank} — will export as default", icon="ERROR")
+
+    box.separator(factor=0.3)
+    _prop_row(box, sel, "og_music_priority", "Priority:",  10.0)
+    _prop_row(box, sel, "og_music_radius",   "Radius (m):", 40.0)
+
+    # Hint: valid flavas for this bank
+    sub = box.column(align=True)
+    sub.enabled = False
+    sub.label(text=f"Valid flavas for {bank}:", icon="INFO")
+    sub.label(text=", ".join(flava_list))
 
 
 def _draw_selected_volume(layout, sel, scene):
@@ -3390,10 +3420,31 @@ class OG_PT_AmbientEmitter(Panel):
     @classmethod
     def poll(cls, ctx):
         sel = ctx.active_object
-        return sel is not None and sel.name.startswith("AMBIENT_")
+        # Only sound emitters (AMBIENT_snd*), not music zones (AMBIENT_mus*)
+        return (sel is not None
+                and sel.name.startswith("AMBIENT_")
+                and not sel.name.startswith("AMBIENT_mus"))
 
     def draw(self, ctx):
         _draw_selected_emitter(self.layout, ctx.active_object)
+
+
+class OG_PT_MusicZone(Panel):
+    bl_label       = "Music Zone"
+    bl_idname      = "OG_PT_music_zone"
+    bl_space_type  = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category    = "OpenGOAL"
+    bl_parent_id   = "OG_PT_selected_object"
+    bl_options     = {"DEFAULT_CLOSED"}
+
+    @classmethod
+    def poll(cls, ctx):
+        sel = ctx.active_object
+        return sel is not None and sel.name.startswith("AMBIENT_mus")
+
+    def draw(self, ctx):
+        _draw_selected_music_zone(self.layout, ctx.active_object)
 
 
 # ── CAMERA sub-panels ───────────────────────────────────────────────────────
