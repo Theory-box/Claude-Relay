@@ -798,6 +798,20 @@ class OG_OT_AddWaypoint(Operator):
         # Route into Waypoints sub-collection under the active level
         _link_object_to_sub_collection(ctx.scene, empty, *_COL_PATH_WAYPOINTS)
 
+        # ---- Waypoint ghost preview ----------------------------------------
+        # Parse the entity type from the actor name (ACTOR_<etype>_<uid>)
+        # and attach a white, 50%-transparent ghost of its mesh so the user
+        # can see where the entity will stand at each waypoint.
+        _prefs = bpy.context.preferences.addons.get("opengoal_tools")
+        if _prefs and _prefs.preferences.preview_models:
+            parts = self.enemy_name.split("_")  # ["ACTOR", "<etype>", "<uid>"]
+            etype = parts[1] if len(parts) >= 3 else ""
+            if etype:
+                try:
+                    _mp.attach_waypoint_preview(ctx, etype, empty)
+                except Exception as e:
+                    log(f"waypoint model_preview: {e}")
+
         # Do NOT change active object — user needs to keep the actor selected
         # so they can quickly add more waypoints without re-selecting.
         self.report({"INFO"}, f"Added {wp_name} at cursor")
