@@ -252,7 +252,7 @@ class App(tk.Tk):
         canvas.bind_all("<MouseWheel>",
                         lambda e: canvas.yview_scroll(-1*(e.delta//120), "units"))
 
-        pad = {"padx": 18, "pady": 0}
+        pad = {"padx": 18}
 
         # ── packages section ──────────────────────────────────────────────────
         self._section(body, "1  Packages")
