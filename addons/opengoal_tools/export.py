@@ -2472,7 +2472,9 @@ def export_glb(ctx, name):
             _HELPER_PREFIXES = ("WATER_", "VOL_", "CPVOL_", "NAVMESH_")
             export_objs = [o for o in _recursive_col_objects(level_col, exclude_no_export=True)
                            if o.type == "MESH"
-                           and not any(o.name.startswith(p) for p in _HELPER_PREFIXES)]
+                           and not any(o.name.startswith(p) for p in _HELPER_PREFIXES)
+                           and not o.get("og_preview_mesh")
+                           and not o.get("og_waypoint_preview_mesh")]
 
         # Save selection state
         prev_active    = ctx.view_layer.objects.active

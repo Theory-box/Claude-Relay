@@ -90,8 +90,10 @@ def _active_level_col(scene):
 
 
 def _col_is_no_export(col):
-    """Check if a collection is marked as no-export."""
-    return bool(getattr(col, "og_no_export", False))
+    """Check if a collection is marked as no-export.
+    Custom properties (set via col["og_no_export"]=True) are not visible to
+    getattr — must use .get() on the ID object directly."""
+    return bool(col.get("og_no_export", False))
 
 
 def _recursive_col_objects(col, exclude_no_export=True):
@@ -201,7 +203,11 @@ def _classify_object(obj):
     # ── Meshes → Geometry/Solid (default) ───────────────────────────────────
     # VOL_ meshes are trigger volumes — they live in Triggers, not Geometry
     # NAVMESH_ meshes live in NavMeshes
+    # Preview/viz meshes (og_preview_mesh or og_waypoint_preview_mesh) are
+    # unselectable viewport helpers — leave them in their Preview collection.
     if otype == "MESH":
+        if obj.get("og_preview_mesh") or obj.get("og_waypoint_preview_mesh"):
+            return None  # unclassifiable — leave in place
         if name.startswith("VOL_"):
             return _COL_PATH_TRIGGERS
         if name.startswith("NAVMESH_") or obj.get("og_navmesh", False):
