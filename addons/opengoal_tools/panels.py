@@ -990,6 +990,44 @@ class OG_PT_SpawnSounds(Panel):
             layout.label(text="No emitters placed yet", icon="INFO")
 
 
+
+class OG_PT_SpawnEffects(Panel):
+    bl_label       = "✨  Particle Effects"
+    bl_idname      = "OG_PT_spawn_effects"
+    bl_space_type  = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category    = "OpenGOAL"
+    bl_parent_id   = "OG_PT_spawn"
+    bl_options     = {"DEFAULT_CLOSED"}
+
+    def draw(self, ctx):
+        layout = self.layout
+        props  = ctx.scene.og_props
+
+        col = layout.column(align=True)
+        col.prop(props, "effect_preset", text="Preset")
+        col.separator(factor=0.4)
+
+        row = col.row()
+        row.scale_y = 1.4
+        row.operator("og.add_effect", text="Add Effect at Cursor", icon="PARTICLES")
+
+        effects = [o for o in _level_objects(ctx.scene)
+                   if o.name.startswith("EFFECT_") and o.type == "EMPTY"]
+        if effects:
+            layout.separator(factor=0.3)
+            sub = layout.box()
+            sub.label(text=f"{len(effects)} effect(s) in scene:", icon="OUTLINER_OB_EMPTY")
+            for o in effects[:8]:
+                row = sub.row(align=True)
+                preset = o.get("og_effect_preset", "?")
+                row.label(text=f"{o.name}  →  {preset}", icon="PARTICLES")
+            if len(effects) > 8:
+                sub.label(text=f"… and {len(effects) - 8} more")
+        else:
+            layout.label(text="No effects placed yet", icon="INFO")
+
+
 class OG_PT_SpawnWater(Panel):
     bl_label       = "💧  Water Volumes"
     bl_idname      = "OG_PT_spawn_water"
@@ -1041,7 +1079,7 @@ def _og_managed_object(obj):
         return False
     n = obj.name
     if any(n.startswith(p) for p in ("ACTOR_", "SPAWN_", "CHECKPOINT_",
-                                      "AMBIENT_", "VOL_", "CAMERA_",
+                                      "AMBIENT_", "EFFECT_", "VOL_", "CAMERA_",
                                       "NAVMESH_")):
         return True
     if n.endswith("_CAM"):
@@ -1297,6 +1335,31 @@ def _draw_selected_emitter(layout, sel):
     box.label(text=f"Sound: {snd}", icon="PLAY")
     box.label(text=f"Mode: {mode}", icon="PREVIEW_RANGE" if mode == "loop" else "PLAYER")
     box.label(text=f"Radius: {radius:.1f}m", icon="SPHERE")
+
+
+def _draw_selected_effect(layout, sel):
+    """Draw settings for an EFFECT_ particle emitter."""
+    preset = sel.get("og_effect_preset", "campfire")
+    scale  = float(sel.get("og_effect_scale", 1.0))
+
+    PRESET_LABELS = {
+        "campfire":  "Campfire",
+        "torch":     "Torch",
+        "smoke":     "Smoke",
+        "sparkles":  "Sparkles",
+        "drip":      "Drip",
+        "waterfall": "Waterfall Mist",
+        "lava_glow": "Lava Glow",
+        "eco_blue":  "Blue Eco",
+    }
+
+    layout.label(text=sel.name, icon="PARTICLES")
+    box = layout.box()
+    box.label(text=f"Preset: {PRESET_LABELS.get(preset, preset)}", icon="PARTICLES")
+    box.label(text=f"Scale: {scale:.2f}x", icon="FULLSCREEN_ENTER")
+    box.separator(factor=0.3)
+    box.label(text="To change: delete and re-place", icon="INFO")
+    box.label(text="via Spawn → Particle Effects", icon="BLANK1")
 
 
 def _draw_selected_volume(layout, sel, scene):
@@ -1607,6 +1670,9 @@ class OG_PT_SelectedObject(Panel):
             layout.label(text=name, icon="EMPTY_ARROWS")
         elif name.startswith("CHECKPOINT_") and not name.endswith("_CAM"):
             layout.label(text=name, icon="EMPTY_SINGLE_ARROW")
+        elif name.startswith("EFFECT_"):
+            preset = sel.get("og_effect_preset", "")
+            layout.label(text=f"{name}  [{preset}]", icon="PARTICLES")
         elif name.startswith("AMBIENT_"):
             layout.label(text=name, icon="SPEAKER")
         elif name.startswith("CAMERA_") and sel.type == "CAMERA":
@@ -3592,6 +3658,27 @@ class OG_PT_AmbientEmitter(Panel):
 
     def draw(self, ctx):
         _draw_selected_emitter(self.layout, ctx.active_object)
+
+
+
+# ── EFFECT sub-panel ─────────────────────────────────────────────────────────
+
+class OG_PT_EffectEmitter(Panel):
+    bl_label       = "Particle Effect"
+    bl_idname      = "OG_PT_effect_emitter"
+    bl_space_type  = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category    = "OpenGOAL"
+    bl_parent_id   = "OG_PT_selected_object"
+    bl_options     = {"DEFAULT_CLOSED"}
+
+    @classmethod
+    def poll(cls, ctx):
+        sel = ctx.active_object
+        return sel is not None and sel.name.startswith("EFFECT_")
+
+    def draw(self, ctx):
+        _draw_selected_effect(self.layout, ctx.active_object)
 
 
 # ── CAMERA sub-panels ───────────────────────────────────────────────────────

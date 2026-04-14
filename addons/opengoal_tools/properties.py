@@ -115,6 +115,20 @@ class OGProperties(PropertyGroup):
                                          description="Second level sound bank (max 2 total)")
     music_bank:             EnumProperty(name="Music Bank", items=LEVEL_BANKS, default="none",
                                          description="Music bank to load for this level")
+    effect_preset:          EnumProperty(
+        name="Effect Preset",
+        items=[
+            ("campfire",   "Campfire",       "Orange flame and rising smoke"),
+            ("torch",      "Torch",          "Small upright flame, minimal smoke"),
+            ("smoke",      "Smoke",          "Rising grey smoke column"),
+            ("sparkles",   "Sparkles",       "Floating magical sparkle particles"),
+            ("drip",       "Drip",           "Falling water droplets (cave ceiling)"),
+            ("waterfall",  "Waterfall Mist", "Misty waterfall spray"),
+            ("lava_glow",  "Lava Glow",      "Hot orange ember glow"),
+            ("eco_blue",   "Blue Eco",       "Blue eco energy particles"),
+        ],
+        default="campfire",
+    )
     sfx_sound:              EnumProperty(name="Sound", items=ALL_SFX_ITEMS, default="waterfall",
                                          description="Currently selected sound for emitter placement")
     ambient_default_radius: FloatProperty(name="Default Emitter Radius (m)", default=15.0, min=1.0, max=200.0,

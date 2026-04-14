@@ -11,9 +11,9 @@ from .data import needed_tpages
 from .collections import _get_level_prop, _level_objects, _active_level_col
 from .export import (
     collect_actors, collect_ambients, collect_spawns, collect_cameras,
-    collect_nav_mesh_geometry, collect_aggro_triggers,
+    collect_nav_mesh_geometry, collect_aggro_triggers, collect_effects,
     needed_ags, needed_code, write_jsonc, write_gd, write_gc,
-    patch_level_info, patch_game_gp, export_glb,
+    patch_level_info, patch_game_gp, write_part_gc, export_glb,
     _collect_navmesh_actors, _canonical_actor_objects,
     _nick, _iso, _lname, _ldir, _goal_src, _level_info,
     _game_gp, _levels_dir, _entity_gc,
@@ -416,15 +416,37 @@ def _bg_build(name, scene, depsgraph=None):
         state["status"] = "Writing files..."
         base_id = int(_get_level_prop(scene, "og_base_id", 10000))
         aggro_actors = collect_aggro_triggers(scene)
-        write_jsonc(name, actors, ambients, cam_actors + trigger_actors + aggro_actors, base_id)
-        write_gd(name, ags, code_deps, tpages)
+        effects = collect_effects(scene)
+        write_part_gc(name, effects)
+        has_fx = bool(effects)
+        # Convert effect emitters to JSONC actor entries
+        effect_actors = []
+        for fx in effects:
+            gx, gy, gz = fx["gx"], fx["gy"], fx["gz"]
+            preset = fx["preset"]
+            fx_name = fx["name"]
+            group_name = f"group-{name}-{preset.replace('_', '-')}"
+            effect_actors.append({
+                "trans":   [gx, gy, gz],
+                "etype":   f"{name}-part",
+                "game_task": "(game-task none)",
+                "quat":    [0, 0, 0, 1],
+                "vis_id":  0,
+                "bsphere": [gx, gy, gz, 30.0],
+                "lump": {
+                    "name":     f"{name}-part-{fx_name}",
+                    "art-name": ["string", group_name],
+                },
+            })
+        write_jsonc(name, actors, ambients, cam_actors + trigger_actors + aggro_actors + effect_actors, base_id)
+        write_gd(name, ags, code_deps, tpages, has_effects=has_fx)
         navmesh_actors = _collect_navmesh_actors(scene)
         _lv_objs = _level_objects(scene)
         has_cps = bool([o for o in _lv_objs if o.name.startswith("CHECKPOINT_") and o.type == "EMPTY" and not o.name.endswith("_CAM")])
         write_gc(name, has_triggers=bool(trigger_actors), has_checkpoints=has_cps, has_aggro_triggers=bool(aggro_actors))
         patch_entity_gc(navmesh_actors)
         patch_level_info(name, spawns, scene)
-        patch_game_gp(name, code_deps)
+        patch_game_gp(name, code_deps, has_effects=has_fx)
 
         if goalc_ok():
             state["status"] = "Running (mi) via nREPL..."
@@ -571,8 +593,18 @@ def _bg_geo_rebuild(name, scene, depsgraph=None):
         state["status"] = "Writing level files..."
         base_id = int(_get_level_prop(scene, "og_base_id", 10000))
         aggro_actors = collect_aggro_triggers(scene)
-        write_jsonc(name, actors, ambients, cam_actors + trigger_actors + aggro_actors, base_id)
-        write_gd(name, ags, code_deps, tpages)
+        effects = collect_effects(scene)
+        write_part_gc(name, effects)
+        has_fx = bool(effects)
+        effect_actors = []
+        for fx in effects:
+            gx, gy, gz = fx["gx"], fx["gy"], fx["gz"]
+            preset = fx["preset"]
+            fx_name = fx["name"]
+            group_name = f"group-{name}-{preset.replace('_', '-')}"
+            effect_actors.append({"trans": [gx, gy, gz], "etype": f"{name}-part", "game_task": "(game-task none)", "quat": [0, 0, 0, 1], "vis_id": 0, "bsphere": [gx, gy, gz, 30.0], "lump": {"name": f"{name}-part-{fx_name}", "art-name": ["string", group_name]}})
+        write_jsonc(name, actors, ambients, cam_actors + trigger_actors + aggro_actors + effect_actors, base_id)
+        write_gd(name, ags, code_deps, tpages, has_effects=has_fx)
         _lv_objs = _level_objects(scene)
         has_cps = bool([o for o in _lv_objs if o.name.startswith("CHECKPOINT_") and o.type == "EMPTY" and not o.name.endswith("_CAM")])
         write_gc(name, has_triggers=bool(trigger_actors), has_checkpoints=has_cps, has_aggro_triggers=bool(aggro_actors))
@@ -642,15 +674,37 @@ def _bg_build_and_play(name, scene, depsgraph=None):
         state["status"] = "Writing level files..."
         base_id = int(_get_level_prop(scene, "og_base_id", 10000))
         aggro_actors = collect_aggro_triggers(scene)
-        write_jsonc(name, actors, ambients, cam_actors + trigger_actors + aggro_actors, base_id)
-        write_gd(name, ags, code_deps, tpages)
+        effects = collect_effects(scene)
+        write_part_gc(name, effects)
+        has_fx = bool(effects)
+        # Convert effect emitters to JSONC actor entries
+        effect_actors = []
+        for fx in effects:
+            gx, gy, gz = fx["gx"], fx["gy"], fx["gz"]
+            preset = fx["preset"]
+            fx_name = fx["name"]
+            group_name = f"group-{name}-{preset.replace('_', '-')}"
+            effect_actors.append({
+                "trans":   [gx, gy, gz],
+                "etype":   f"{name}-part",
+                "game_task": "(game-task none)",
+                "quat":    [0, 0, 0, 1],
+                "vis_id":  0,
+                "bsphere": [gx, gy, gz, 30.0],
+                "lump": {
+                    "name":     f"{name}-part-{fx_name}",
+                    "art-name": ["string", group_name],
+                },
+            })
+        write_jsonc(name, actors, ambients, cam_actors + trigger_actors + aggro_actors + effect_actors, base_id)
+        write_gd(name, ags, code_deps, tpages, has_effects=has_fx)
         navmesh_actors = _collect_navmesh_actors(scene)
         _lv_objs = _level_objects(scene)
         has_cps = bool([o for o in _lv_objs if o.name.startswith("CHECKPOINT_") and o.type == "EMPTY" and not o.name.endswith("_CAM")])
         write_gc(name, has_triggers=bool(trigger_actors), has_checkpoints=has_cps, has_aggro_triggers=bool(aggro_actors))
         patch_entity_gc(navmesh_actors)
         patch_level_info(name, spawns, scene)
-        patch_game_gp(name, code_deps)
+        patch_game_gp(name, code_deps, has_effects=has_fx)
 
         # ── Phase 2: Compile ──────────────────────────────────────────────────
         # Kill GK first — game must not be running during compile.

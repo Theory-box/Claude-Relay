@@ -29,7 +29,7 @@ from .collections import (
     _COL_PATH_SOUND_EMITTERS, _COL_PATH_SPAWNABLE_ENEMIES,
     _COL_PATH_SPAWNABLE_PLATFORMS, _COL_PATH_SPAWNABLE_PROPS,
     _COL_PATH_SPAWNABLE_NPCS, _COL_PATH_SPAWNABLE_PICKUPS,
-    _COL_PATH_GEO_SOLID, _COL_PATH_WATER,
+    _COL_PATH_GEO_SOLID, _COL_PATH_WATER, _COL_PATH_EFFECTS,
     _set_blender_active_collection, _LEVEL_COL_DEFAULTS,
 )
 from .export import (
@@ -1128,6 +1128,45 @@ class OG_OT_AddSoundEmitter(Operator):
 
         _link_object_to_sub_collection(ctx.scene, o, *_COL_PATH_SOUND_EMITTERS)
         self.report({"INFO"}, f"Added '{name}' → {snd}")
+        return {"FINISHED"}
+
+
+
+class OG_OT_AddEffect(Operator):
+    """Add a particle effect emitter empty at the 3D cursor"""
+    bl_idname  = "og.add_effect"
+    bl_label   = "Add Effect at Cursor"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, ctx):
+        props  = ctx.scene.og_props
+        preset = props.effect_preset
+        existing = [o for o in _level_objects(ctx.scene) if o.name.startswith("EFFECT_")]
+        idx  = len(existing) + 1
+        name = f"EFFECT_{preset}_{idx:03d}"
+
+        bpy.ops.object.empty_add(type="PLAIN_AXES", location=ctx.scene.cursor.location)
+        o = ctx.active_object
+        o.name        = name
+        o.show_name   = True
+        o.empty_display_size = 0.5
+        # Color-code by preset family
+        color_map = {
+            "campfire":  (1.0, 0.4, 0.0, 1.0),
+            "torch":     (1.0, 0.6, 0.1, 1.0),
+            "smoke":     (0.6, 0.6, 0.6, 1.0),
+            "sparkles":  (0.4, 0.4, 1.0, 1.0),
+            "drip":      (0.2, 0.6, 1.0, 1.0),
+            "waterfall": (0.1, 0.7, 1.0, 1.0),
+            "lava_glow": (1.0, 0.2, 0.0, 1.0),
+            "eco_blue":  (0.0, 0.5, 1.0, 1.0),
+        }
+        o.color = color_map.get(preset, (0.8, 0.8, 0.0, 1.0))
+        o["og_effect_preset"] = preset
+        o["og_effect_scale"]  = 1.0
+
+        _link_object_to_sub_collection(ctx.scene, o, *_COL_PATH_EFFECTS)
+        self.report({"INFO"}, f"Added '{name}' ({preset})")
         return {"FINISHED"}
 
 

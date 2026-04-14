@@ -1952,6 +1952,354 @@ def collect_ambients(scene):
             })
     return out
 
+def collect_effects(scene):
+    """Collect EFFECT_ empties and return a list of effect dicts.
+
+    Each dict has:
+      name    - uid string (e.g. "campfire-001")
+      preset  - effect preset id (e.g. "campfire")
+      gx/gy/gz - game-space position
+      scale   - float scale multiplier (default 1.0)
+    """
+    out = []
+    for o in _level_objects(scene):
+        if not (o.name.startswith("EFFECT_") and o.type == "EMPTY"):
+            continue
+        l = o.location
+        gx, gy, gz = round(l.x, 4), round(l.z, 4), round(-l.y, 4)
+        preset = str(o.get("og_effect_preset", "campfire"))
+        scale  = float(o.get("og_effect_scale", 1.0))
+        uid    = o.name[7:].lower().replace("_", "-") or "fx"
+        out.append({"name": uid, "preset": preset, "gx": gx, "gy": gy, "gz": gz, "scale": scale})
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Particle effect preset definitions
+# Each preset: list of (group_id_offset, part_id_offset, defpart_lines, defpartgroup_lines)
+# IDs are relative — the caller resolves absolute IDs from the safe base ranges.
+# group base: 709, part base: 2969
+# ---------------------------------------------------------------------------
+
+def _part_lines(base_group, base_part, name, effects):
+    """Generate GOAL source lines for all effect groups used in this level."""
+    lines = []
+    used_presets = set(e["preset"] for e in effects)
+
+    # Map preset -> (group_id_offset, [part_id_offsets], defparts, defpartgroup)
+    # All offsets are relative to base_group/base_part
+    PRESETS = {
+        "campfire": {
+            "group_off": 0, "part_offs": [0, 1],
+            "group": lambda gid, p0, p1, sc: [
+                f"(defpartgroup group-{name}-campfire",
+                f"  :id {gid}",
+                f"  :bounds (static-bspherem 0 {round(2*sc,2)} 0 {round(3*sc,2)})",
+                "  :parts",
+                f"  ((sp-item {p0} :fade-after (meters {round(40*sc)}) :falloff-to (meters {round(60*sc)}))",
+                f"   (sp-item {p1} :fade-after (meters {round(30*sc)}) :falloff-to (meters {round(50*sc)}))))",
+            ],
+            "parts": lambda p0, p1, sc: [
+                f"(defpart {p0}",
+                "  :init-specs",
+                "  ((:texture (hotdot effects))",
+                f"   (:num {round(2.0*sc, 1)})",
+                "   (:y (meters 0))",
+                f"   (:scale-x (meters {round(0.25*sc,3)}) (meters {round(0.12*sc,3)}))",
+                "   (:scale-y :copy scale-x)",
+                "   (:r 255.0) (:g 110.0 60.0) (:b 0.0) (:a 210.0)",
+                f"   (:vel-y (meters {round(0.018*sc,4)}) (meters {round(0.01*sc,4)}))",
+                "   (:fade-a -2.5)",
+                f"   (:accel-y (meters {round(-0.0002*sc,5)}))",
+                "   (:timer (seconds 0.3))",
+                "   (:flags (bit2 bit3))",
+                "   (:conerot-x (degrees 80))",
+                "   (:conerot-y (degrees -180) (degrees 360))",
+                f"   (:conerot-radius (meters 0) (meters {round(0.1*sc,3)}))))",
+                "",
+                f"(defpart {p1}",
+                "  :init-specs",
+                "  ((:texture (bigpuff effects))",
+                f"   (:num {round(0.08*sc, 3)})",
+                f"   (:y (meters {round(0.8*sc, 2)}))",
+                f"   (:scale-x (meters {round(0.5*sc,3)}) (meters {round(0.25*sc,3)}))",
+                "   (:rot-z (degrees 0) (degrees 360))",
+                "   (:scale-y :copy scale-x)",
+                "   (:r 75.0) (:g 75.0) (:b 75.0) (:a 55.0)",
+                f"   (:vel-y (meters {round(0.007*sc,4)}) (meters {round(0.003*sc,4)}))",
+                "   (:rotvel-z (degrees -0.1) (degrees 0.2))",
+                f"   (:scalevel-x (meters {round(0.002*sc,4)}))",
+                "   (:scalevel-y :copy scalevel-x)",
+                "   (:fade-a -0.12)",
+                f"   (:accel-y (meters {round(-0.00004*sc,6)}))",
+                "   (:timer (seconds 3))",
+                "   (:flags (bit2 bit3))",
+                "   (:conerot-x (degrees 90))",
+                "   (:conerot-y (degrees -180) (degrees 360))",
+                f"   (:conerot-radius (meters 0) (meters {round(0.2*sc,3)}))))",
+            ],
+        },
+        "torch": {
+            "group_off": 2, "part_offs": [2],
+            "group": lambda gid, p0, sc: [
+                f"(defpartgroup group-{name}-torch",
+                f"  :id {gid}",
+                f"  :bounds (static-bspherem 0 {round(1.5*sc,2)} 0 {round(1.5*sc,2)})",
+                "  :parts",
+                f"  ((sp-item {p0} :fade-after (meters {round(30*sc)}) :falloff-to (meters {round(50*sc)}))))",
+            ],
+            "parts": lambda p0, sc: [
+                f"(defpart {p0}",
+                "  :init-specs",
+                "  ((:texture (hotdot effects))",
+                f"   (:num {round(1.5*sc, 1)})",
+                "   (:y (meters 0))",
+                f"   (:scale-x (meters {round(0.15*sc,3)}) (meters {round(0.08*sc,3)}))",
+                "   (:scale-y :copy scale-x)",
+                "   (:r 255.0) (:g 140.0 60.0) (:b 10.0) (:a 220.0)",
+                f"   (:vel-y (meters {round(0.025*sc,4)}) (meters {round(0.01*sc,4)}))",
+                "   (:fade-a -3.0)",
+                f"   (:accel-y (meters {round(-0.00015*sc,6)}))",
+                "   (:timer (seconds 0.25))",
+                "   (:flags (bit2 bit3))",
+                "   (:conerot-x (degrees 85))",
+                "   (:conerot-y (degrees -180) (degrees 360))",
+                f"   (:conerot-radius (meters 0) (meters {round(0.05*sc,3)}))))",
+            ],
+        },
+        "smoke": {
+            "group_off": 3, "part_offs": [3],
+            "group": lambda gid, p0, sc: [
+                f"(defpartgroup group-{name}-smoke",
+                f"  :id {gid}",
+                f"  :bounds (static-bspherem 0 {round(3*sc,2)} 0 {round(4*sc,2)})",
+                "  :parts",
+                f"  ((sp-item {p0} :fade-after (meters {round(50*sc)}) :falloff-to (meters {round(80*sc)}))))",
+            ],
+            "parts": lambda p0, sc: [
+                f"(defpart {p0}",
+                "  :init-specs",
+                "  ((:texture (bigpuff effects))",
+                f"   (:num {round(0.15*sc, 3)})",
+                f"   (:y (meters {round(0.5*sc,2)}))",
+                f"   (:scale-x (meters {round(0.6*sc,3)}) (meters {round(0.3*sc,3)}))",
+                "   (:rot-z (degrees 0) (degrees 360))",
+                "   (:scale-y :copy scale-x)",
+                "   (:r 90.0) (:g 90.0) (:b 90.0) (:a 70.0)",
+                f"   (:vel-y (meters {round(0.006*sc,4)}) (meters {round(0.003*sc,4)}))",
+                "   (:rotvel-z (degrees -0.15) (degrees 0.3))",
+                f"   (:scalevel-x (meters {round(0.0025*sc,4)}))",
+                "   (:scalevel-y :copy scalevel-x)",
+                "   (:fade-a -0.1)",
+                "   (:timer (seconds 5))",
+                "   (:flags (bit2 bit3))",
+                "   (:conerot-x (degrees 90))",
+                "   (:conerot-y (degrees -180) (degrees 360))",
+                f"   (:conerot-radius (meters 0) (meters {round(0.3*sc,3)}))))",
+            ],
+        },
+        "sparkles": {
+            "group_off": 4, "part_offs": [4],
+            "group": lambda gid, p0, sc: [
+                f"(defpartgroup group-{name}-sparkles",
+                f"  :id {gid}",
+                f"  :bounds (static-bspherem 0 {round(1*sc,2)} 0 {round(3*sc,2)})",
+                "  :parts",
+                f"  ((sp-item {p0} :fade-after (meters {round(30*sc)}) :falloff-to (meters {round(50*sc)}))))",
+            ],
+            "parts": lambda p0, sc: [
+                f"(defpart {p0}",
+                "  :init-specs",
+                "  ((:texture (starflash effects))",
+                f"   (:num {round(0.3*sc, 2)})",
+                f"   (:y (meters {round(0.5*sc,2)}) (meters {round(0.5*sc,2)}))",
+                f"   (:scale-x (meters {round(0.1*sc,3)}) (meters {round(0.07*sc,3)}))",
+                "   (:rot-z (degrees 0) (degrees 360))",
+                "   (:scale-y :copy scale-x)",
+                "   (:r 100.0 155.0) (:g 200.0 55.0) (:b 255.0) (:a 200.0)",
+                f"   (:vel-y (meters {round(0.005*sc,4)}) (meters {round(0.005*sc,4)}))",
+                "   (:rotvel-z (degrees 0.5) (degrees -1.0))",
+                "   (:fade-a -1.5)",
+                "   (:timer (seconds 1.5))",
+                "   (:flags (bit2 bit3))",
+                "   (:conerot-x (degrees -180) (degrees 360))",
+                "   (:conerot-y (degrees -180) (degrees 360))",
+                f"   (:conerot-radius (meters 0) (meters {round(1.0*sc,3)}))))",
+            ],
+        },
+        "drip": {
+            "group_off": 5, "part_offs": [5],
+            "group": lambda gid, p0, sc: [
+                f"(defpartgroup group-{name}-drip",
+                f"  :id {gid}",
+                f"  :bounds (static-bspherem 0 0 0 {round(2*sc,2)})",
+                "  :parts",
+                f"  ((sp-item {p0} :fade-after (meters {round(20*sc)}) :falloff-to (meters {round(30*sc)}))))",
+            ],
+            "parts": lambda p0, sc: [
+                f"(defpart {p0}",
+                "  :init-specs",
+                "  ((:texture (lakedrop effects))",
+                f"   (:num {round(0.06*sc, 3)})",
+                f"   (:scale-x (meters {round(0.05*sc,3)}) (meters {round(0.02*sc,3)}))",
+                f"   (:scale-y (meters {round(0.18*sc,3)}) (meters {round(0.06*sc,3)}))",
+                "   (:r 100.0) (:g 150.0) (:b 200.0) (:a 180.0)",
+                f"   (:vel-y (meters {round(-0.05*sc,4)}) (meters {round(-0.02*sc,4)}))",
+                "   (:fade-a -3.0)",
+                f"   (:accel-y (meters {round(-0.003*sc,4)}))",
+                "   (:timer (seconds 0.8))",
+                "   (:flags (bit2))",
+                f"   (:conerot-radius (meters 0) (meters {round(0.05*sc,3)}))))",
+            ],
+        },
+        "waterfall": {
+            "group_off": 6, "part_offs": [6],
+            "group": lambda gid, p0, sc: [
+                f"(defpartgroup group-{name}-waterfall",
+                f"  :id {gid}",
+                f"  :bounds (static-bspherem 0 {round(1*sc,2)} 0 {round(4*sc,2)})",
+                "  :parts",
+                f"  ((sp-item {p0} :fade-after (meters {round(40*sc)}) :falloff-to (meters {round(60*sc)}))))",
+            ],
+            "parts": lambda p0, sc: [
+                f"(defpart {p0}",
+                "  :init-specs",
+                "  ((:texture (falls-particle effects))",
+                f"   (:num {round(3.0*sc, 1)})",
+                f"   (:scale-x (meters {round(0.15*sc,3)}) (meters {round(0.1*sc,3)}))",
+                "   (:scale-y :copy scale-x)",
+                "   (:r 200.0) (:g 220.0) (:b 255.0) (:a 160.0)",
+                f"   (:vel-y (meters {round(-0.04*sc,4)}) (meters {round(-0.02*sc,4)}))",
+                "   (:fade-a -1.5)",
+                f"   (:accel-y (meters {round(-0.001*sc,4)}))",
+                "   (:timer (seconds 0.5))",
+                "   (:flags (bit2 bit3))",
+                "   (:conerot-x (degrees 90))",
+                "   (:conerot-y (degrees -180) (degrees 360))",
+                f"   (:conerot-radius (meters 0) (meters {round(1.5*sc,3)}))))",
+            ],
+        },
+        "lava_glow": {
+            "group_off": 7, "part_offs": [7],
+            "group": lambda gid, p0, sc: [
+                f"(defpartgroup group-{name}-lava-glow",
+                f"  :id {gid}",
+                f"  :bounds (static-bspherem 0 {round(1*sc,2)} 0 {round(3*sc,2)})",
+                "  :parts",
+                f"  ((sp-item {p0} :fade-after (meters {round(35*sc)}) :falloff-to (meters {round(55*sc)}))))",
+            ],
+            "parts": lambda p0, sc: [
+                f"(defpart {p0}",
+                "  :init-specs",
+                "  ((:texture (lava-part-01 effects))",
+                f"   (:num {round(1.0*sc, 1)})",
+                f"   (:y (meters {round(0.2*sc,2)}))",
+                f"   (:scale-x (meters {round(0.2*sc,3)}) (meters {round(0.1*sc,3)}))",
+                "   (:scale-y :copy scale-x)",
+                "   (:r 255.0) (:g 80.0 60.0) (:b 0.0) (:a 180.0)",
+                f"   (:vel-y (meters {round(0.01*sc,4)}) (meters {round(0.008*sc,4)}))",
+                "   (:fade-a -1.8)",
+                f"   (:accel-y (meters {round(-0.0001*sc,5)}))",
+                "   (:timer (seconds 0.6))",
+                "   (:flags (bit2 bit3))",
+                "   (:conerot-x (degrees -180) (degrees 360))",
+                "   (:conerot-y (degrees -180) (degrees 360))",
+                f"   (:conerot-radius (meters 0) (meters {round(1.0*sc,3)}))))",
+            ],
+        },
+        "eco_blue": {
+            "group_off": 8, "part_offs": [8],
+            "group": lambda gid, p0, sc: [
+                f"(defpartgroup group-{name}-eco-blue",
+                f"  :id {gid}",
+                f"  :bounds (static-bspherem 0 {round(1*sc,2)} 0 {round(2*sc,2)})",
+                "  :parts",
+                f"  ((sp-item {p0} :fade-after (meters {round(25*sc)}) :falloff-to (meters {round(40*sc)}))))",
+            ],
+            "parts": lambda p0, sc: [
+                f"(defpart {p0}",
+                "  :init-specs",
+                "  ((:texture (starflash effects))",
+                f"   (:num {round(0.5*sc, 1)})",
+                f"   (:y (meters {round(0.3*sc,2)}) (meters {round(0.3*sc,2)}))",
+                f"   (:scale-x (meters {round(0.12*sc,3)}) (meters {round(0.05*sc,3)}))",
+                "   (:rot-z (degrees 0) (degrees 360))",
+                "   (:scale-y :copy scale-x)",
+                "   (:r 0.0) (:g 180.0 75.0) (:b 255.0) (:a 220.0)",
+                f"   (:vel-y (meters {round(0.008*sc,4)}) (meters {round(0.005*sc,4)}))",
+                "   (:rotvel-z (degrees 1.0) (degrees -2.0))",
+                "   (:fade-a -1.8)",
+                "   (:timer (seconds 1.0))",
+                "   (:flags (bit2 bit3))",
+                "   (:conerot-x (degrees -180) (degrees 360))",
+                "   (:conerot-y (degrees -180) (degrees 360))",
+                f"   (:conerot-radius (meters 0) (meters {round(0.6*sc,3)}))))",
+            ],
+        },
+    }
+
+    PART_GROUP_BASE = 709
+    PART_BASE       = 2969
+
+    lines.append(";;-*-Lisp-*-")
+    lines.append("(in-package goal)")
+    lines.append(f";; {name}-part.gc -- auto-generated by OpenGOAL Level Tools")
+    lines.append("")
+    lines.append('(require "engine/gfx/sprite/sparticle/sparticle.gc")')
+    lines.append('(require "engine/common-obs/generic-obs-h.gc")')
+    lines.append("")
+    lines.append(f";; Part spawner subtype for {name}")
+    lines.append(f"(deftype {name}-part (part-spawner) ())")
+    lines.append("")
+
+    for preset_id, pdef in PRESETS.items():
+        if preset_id not in used_presets:
+            continue
+        sc   = 1.0  # scale baked per-preset; individual actor scale done via bsphere
+        goff = pdef["group_off"]
+        gid  = PART_GROUP_BASE + goff
+        poffs = pdef["part_offs"]
+        pids  = [PART_BASE + po for po in poffs]
+
+        lines.append(f";; --- {preset_id} ---")
+        if len(pids) == 1:
+            lines.extend(pdef["parts"](pids[0], sc))
+            lines.append("")
+            lines.extend(pdef["group"](gid, pids[0], sc))
+        else:
+            lines.extend(pdef["parts"](*pids, sc))
+            lines.append("")
+            lines.extend(pdef["group"](gid, *pids, sc))
+        lines.append("")
+
+    return lines
+
+
+def write_part_gc(name, effects):
+    """Write <name>-part.gc if there are any EFFECT_ empties.
+
+    Returns True if the file was written, False if no effects (file not needed).
+    The file is written idempotently — skipped if content is unchanged.
+    """
+    if not effects:
+        return False
+
+    d = _goal_src() / "levels" / name
+    d.mkdir(parents=True, exist_ok=True)
+    p = d / f"{name}-part.gc"
+
+    lines = _part_lines(709, 2969, name, effects)
+    new_text = "\n".join(lines) + "\n"
+
+    if p.exists() and p.read_text() == new_text:
+        log(f"Skipped {p} (unchanged)")
+        return True
+
+    p.write_text(new_text)
+    log(f"Wrote {p}  ({len(effects)} effect emitter(s))")
+    return True
+
+
 def collect_nav_mesh_geometry(scene, level_name):
     """Collect geometry tagged og_navmesh=True for future navmesh generation.
 
@@ -2038,7 +2386,7 @@ def write_jsonc(name, actors, ambients, camera_actors=None, base_id=10000):
         p.write_text(new_text)
         log(f"Wrote {p}  ({len(actors)} actors + {len(camera_actors or [])} cameras)")
 
-def write_gd(name, ags, code_deps, tpages=None):
+def write_gd(name, ags, code_deps, tpages=None, has_effects=False):
     """Write .gd file.
 
     code_deps is a list of (o_file, gc_path, dep) from needed_code().
@@ -2057,8 +2405,10 @@ def write_gd(name, ags, code_deps, tpages=None):
                    '  "tpage-401.go"', '  "tpage-1470.go"']
     extra_tpages = [f'  "{tp}"' for tp in (tpages or [])
                     if f'  "{tp}"' not in base_tpages]
+    part_o = [f'  "{name}-part.o"'] if has_effects else []
     files = (
         [f'  "{name}-obs.o"']
+        + part_o
         + code_o
         + base_tpages
         + extra_tpages
@@ -2215,7 +2565,7 @@ def patch_level_info(name, spawns, scene=None):
     else:
         log("Skipped level-info.gc (unchanged)")
 
-def patch_game_gp(name, code_deps=None):
+def patch_game_gp(name, code_deps=None, has_effects=False):
     """Patch game.gp to build our custom level and compile enemy code files.
 
     code_deps: list of (o_file, gc_path, dep) from needed_code().
@@ -2243,10 +2593,15 @@ def patch_game_gp(name, code_deps=None):
                 seen_gc.add(gc)
                 extra_goal_src += f'(goal-src "{gc}" "{dep}")\n'
 
+    part_src = (
+        f'(goal-src "levels/{name}/{name}-part.gc" "process-drawable")\n'
+        if has_effects else ""
+    )
     correct_block = (
         f'(build-custom-level "{name}")\n'
         f'(custom-level-cgo "{dgo}" "{name}/{nick}.gd")\n'
         f'(goal-src "levels/{name}/{name}-obs.gc" "process-drawable")\n'
+        + part_src
         + extra_goal_src
     )
 
