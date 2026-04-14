@@ -419,3 +419,38 @@ Ready to test.
 - notes: music ambient zone session notes  
 - fix: music ambient export + doc correction (effect-name + lump-system.md)
 - fix: reset og_music_amb_flava to default when bank changes
+
+---
+
+## Selected Object Panel Fix (April 14 2026)
+
+### Issues from screenshots
+1. `AMBIENT_mus002` was showing the **Sound Emitter** inspector (wrong panel)
+   with `Sound: ?` — because OG_PT_AmbientEmitter polled for all `AMBIENT_*`
+2. Selected Object panel fields were all read-only labels, not editable
+
+### Fixes
+- `OG_PT_AmbientEmitter.poll` now excludes `AMBIENT_mus*`
+- New `OG_PT_MusicZone` panel polls for `AMBIENT_mus*` specifically
+- `_draw_selected_music_zone()` uses `_prop_row()` for live editable fields:
+  - og_music_bank (text field — user types bank name)
+  - og_music_flava (text field + warning if invalid for bank + valid flavas hint)
+  - og_music_priority (float)
+  - og_music_radius (float)
+- `_draw_selected_emitter` also updated: radius is now editable via _prop_row
+
+### Branch state
+feature/music-ambient — 6 commits ahead of main. Ready to test.
+
+### What to test
+1. Place a Music Zone (Spawn > Music Zones > Add Music Zone at Cursor)
+2. Select the placed AMBIENT_mus* empty
+3. Selected Object panel should show "Music Zone" sub-panel (not Sound Emitter)
+4. Edit bank/flava/priority/radius inline — values should persist
+5. Export & compile — check generated JSONC has correct music ambient entry
+6. Play level — music should start when entering the zone bsphere
+
+### If music still doesn't play
+See audit notes — one remaining uncertainty:
+`"music": ["symbol", "village1"]` may need to be `["float", <bank_index>]`
+Bank indices (0=none, 1=beach, ..., 17=village1) from LEVEL_BANKS.
