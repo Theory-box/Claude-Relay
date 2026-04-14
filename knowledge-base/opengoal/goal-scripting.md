@@ -60,16 +60,48 @@ The addon already generates this file. Custom code is appended to it.
 
 ## How Code Gets Into the Game
 
-The addon writes `goal_src/levels/<name>/<name>-obs.gc` on every export.
-Custom GOAL code blocks (from Blender text blocks) are appended verbatim after the
-addon's own generated types. The file is compiled by `goalc` as part of the normal
-build, so syntax errors show up in the build log.
+### Addon workflow (feature/goal-code)
 
-Entity types defined in obs.gc are auto-born when the level loads via `entity-actor.birth!`.
-The entity name in the JSONC must match the `deftype` name exactly.
+The addon handles all injection automatically. You never edit `obs.gc` directly.
+
+**Step-by-step:**
+
+1. **Spawn your custom actor** — Spawn panel → ⚙ Custom Types → enter your type name (e.g. `spin-prop`) → Spawn. Places `ACTOR_spin-prop_0` at the 3D cursor.
+
+2. **Attach a code block** — Select the empty → Selected Object panel → **GOAL Code** sub-panel → **Create boilerplate block**. Creates a Blender text block pre-filled with correct boilerplate for that etype.
+
+3. **Write your code** — Open a Text Editor area (Shift+F11) → **Open in Editor** in the GOAL Code panel. Edit the block. The `deftype` name must match the etype exactly.
+
+4. **Export+Build** — Build log shows:
+   ```
+   [write_gc] injected 1 custom GOAL code block(s): spin-prop-goal-code
+   ```
+   And `goal_src/levels/<n>/<n>-obs.gc` has your code at the bottom.
+
+5. **In-game** — Entity spawns via `entity-actor.birth!` automatically. No nREPL call needed.
+
+### What obs.gc always contains
+
+The addon generates this file every export. Custom blocks come after:
+- `camera-marker` deftype (always present)
+- `camera-trigger` deftype (if trigger volumes exist)
+- `checkpoint-trigger` deftype (if checkpoints exist)
+- `aggro-trigger` deftype (if aggro trigger volumes exist)
+- **Your custom code blocks**, in order, if any ACTOR_ empty has an enabled block assigned
+
+### Multiple actors, one block
+
+Multiple actors can share the same text block — it is emitted only once (deduplicated by text block name). Useful for placing several instances of the same type.
+
+### Entity name matching
+
+`ACTOR_spin-prop_0` → entity lump name `spin-prop-0` → requires `(deftype spin-prop ...)` in the code block. The uid suffix is stripped; the etype is the middle segment.
+
+### Compile errors
+
+Errors appear in the goalc build log, not in Blender. See [Limitations](#limitations) for the most common causes.
 
 ---
-
 ## Language Fundamentals
 
 GOAL is a Lisp. Everything is an expression. Key syntax:

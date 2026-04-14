@@ -32,7 +32,7 @@ The addon stores two paths in preferences:
 1. Exports scene to `.glb`
 2. Writes `<n>.jsonc` (actor/ambient placement)
 3. Writes `<nick>.gd` (DGO file list — includes enemy `.o` files)
-4. Writes `<n>-obs.gc` (stub GOAL source)
+4. Writes `<n>-obs.gc` (GOAL source — contains addon-generated types + any custom GOAL code blocks)
 5. Patches `level-info.gc` (registers level with continue points)
 6. Patches `game.gp` (adds build-custom-level, custom-level-cgo, goal-src lines)
 7. Runs `(mi)` in GOALC via nREPL if available, otherwise launches fresh GOALC with startup.gc
@@ -57,7 +57,7 @@ active/jak1/data/
     <nick>.gd            ← DGO definition (enemy .o + art groups)
   goal_src/jak1/
     levels/<n>/
-      <n>-obs.gc         ← stub GOAL source (currently empty)
+      <n>-obs.gc         ← GOAL source: addon types + injected custom GOAL code blocks
     engine/level/
       level-info.gc      ← patched to register level + continue points
     game.gp              ← patched with build/compile entries
@@ -346,8 +346,9 @@ Selected Object panel now uses targeted sub-panels:
 | └ 🔍 Level Audit | sub, collapsed | Scene health checker (see below) |
 | ➕ Spawn Objects | parent, collapsed | Entity placement |
 | └ Quick Search | sub | Name search + tpage filter |
-| └ ⚔ Enemies / 🟦 Platforms / 📦 Props / 🧍 NPCs / ⭐ Pickups / 🔊 Sound / 💧 Water | subs | Per-category spawners |
+| └ ⚔ Enemies / 🟦 Platforms / 📦 Props / 🧍 NPCs / ⭐ Pickups / 🔊 Sound / 💧 Water / ⚙ Custom Types | subs | Per-category spawners + custom GOAL type spawner |
 | 🔍 Selected Object | standalone, poll-gated | Context-aware settings hub |
+| └ GOAL Code | sub, DEFAULT_CLOSED, polls ACTOR_ | Attach + inject custom GOAL code blocks |
 | 〰 Waypoints | standalone, poll-gated | Path waypoints |
 | 🔗 Triggers | standalone | Volume linking |
 | 📷 Camera | standalone, collapsed | Camera list + settings |
@@ -458,6 +459,62 @@ If textures aren’t found, the panel shows a warning with extraction instructio
 - **Crate contents** — `og_crate_type` → `crate-type` lump confirmed working
 - **Entity links (alt-actor, state-actor, water-actor)** — working for 23+ etypes
 - **Doors** — eco-door family + basebutton confirmed working in-game (v1.7.0)
+
+### GOAL Code panel (feature/goal-code)
+
+Allows attaching arbitrary GOAL source code to any `ACTOR_` empty. The code is appended verbatim to `<n>-obs.gc` on every export, compiled with the level as part of the normal build.
+
+**Where it appears:** Selected Object panel → **GOAL Code** sub-panel (DEFAULT_CLOSED). Polls any `ACTOR_` empty that is not a waypoint.
+
+**Workflow:**
+1. Select an `ACTOR_` empty
+2. GOAL Code sub-panel → **Create boilerplate block** — creates a Blender text block pre-filled with `deftype` / `defstate` / `init-from-entity!` boilerplate matching the actor's etype
+3. Open Text Editor area (Shift+F11) → click **Open in Editor** to switch it to the new block
+4. Write or replace the code
+5. Export+Build — build log shows `[write_gc] injected N custom GOAL code block(s): <name>`
+6. Code compiles with the level; entity types become available in-game
+
+**Key properties:**
+- `text_block` — pointer to a `bpy.types.Text` (Blender text block)
+- `enabled` — toggle to include/exclude from export without deleting the block
+- Shared blocks: multiple actors can reference the same text block — it is emitted only once (deduplicated by name)
+- Panel shows line count, enabled/disabled status, and a shared-block warning listing other actors using the same text
+
+**What obs.gc currently contains (always):**
+- `camera-marker` deftype (inert camera position holder)
+- `camera-trigger` deftype — only if trigger volumes exist
+- `checkpoint-trigger` deftype — only if checkpoints exist
+- `aggro-trigger` deftype — only if nav-enemy aggro trigger volumes exist
+- All enabled custom GOAL code blocks, in order, after the above
+
+**Compile errors** appear in the goalc build log (not in Blender). Common causes: mismatched `:offset-assert` values, missing `(none)` return, `(loop ...)` without `(suspend)`.
+
+**Reference:** `knowledge-base/opengoal/goal-scripting.md` — full language reference, unit system, entity patterns, 5 complete working examples.
+
+---
+
+### Custom Type spawner (feature/goal-code)
+
+Enables placing `ACTOR_` empties for user-defined GOAL types that are not in the addon's built-in entity list.
+
+**Where it appears:** Spawn panel → **⚙ Custom Types** sub-panel (DEFAULT_CLOSED).
+
+**Workflow:**
+1. Enter a type name (e.g. `spin-prop`) — must be lowercase + hyphens, not already a built-in
+2. Click **Spawn ACTOR_<typename>_N** — places a yellow-green SPHERE empty at the 3D cursor
+3. Select the empty → GOAL Code panel → Create/assign a code block
+4. In the code block, define `deftype <typename>`, states, and `init-from-entity!`
+5. Export+Build — the type definition and the entity actor both go into the level
+
+**How collect_actors handles custom types:** Any `ACTOR_<etype>_<uid>` empty with an etype not in `ENTITY_DEFS` falls through all etype-specific guards in `collect_actors`. It gets a minimal lump dict (`name`, `trans`, `quat`, `bsphere`) and is exported to the JSONC like any other actor. No special DGO wiring needed — `obs.gc` is always compiled into the level DGO.
+
+**Additional lumps:** Use the **Custom Lumps** panel (Selected Object → Lumps) to add any lumps your deftype reads via `res-lump-float` / `res-lump-struct` etc.
+
+**Scene inventory:** The sub-panel lists all custom-type actors in the scene with a ✓/✗ showing whether each has an enabled code block assigned.
+
+**Naming rule:** Type name must match the `deftype` name exactly (`ACTOR_spin-prop_0` → `(deftype spin-prop ...)`).
+
+---
 
 ### Still open
 

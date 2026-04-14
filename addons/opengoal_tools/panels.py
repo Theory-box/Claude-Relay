@@ -44,7 +44,7 @@ from .utils import (
     _is_linkable, _is_aggro_target, _vol_for_target,
     _ENEMY_CATS, _NPC_CATS, _PICKUP_CATS, _PROP_CATS,
     _draw_platform_settings, _header_sep, _draw_entity_sub,
-    _draw_wiki_preview,
+    _draw_wiki_preview, _prop_row,
     _preview_collections, _load_previews, _unload_previews,
 )
 from . import model_preview as _mp
@@ -1159,13 +1159,7 @@ def _draw_selected_actor(layout, sel, scene):
     if _actor_is_enemy(etype):
         box = layout.box()
         box.label(text="Activation", icon="RADIOBUT_ON")
-        idle_d = float(sel.get("og_idle_distance", 80.0))
-        row = box.row(align=True)
-        op = row.operator("og.nudge_float_prop", text="-5m", icon="REMOVE")
-        op.prop_name = "og_idle_distance"; op.delta = -5.0; op.val_min = 0.0
-        row.label(text=f"Idle Distance: {idle_d:.0f}m")
-        op = row.operator("og.nudge_float_prop", text="+5m", icon="ADD")
-        op.prop_name = "og_idle_distance"; op.delta = 5.0; op.val_max = 500.0
+        _prop_row(box, sel, "og_idle_distance", "Idle Distance (m):", 80.0)
         sub = box.row()
         sub.enabled = False
         sub.label(text="Player must be closer than this to wake the enemy", icon="INFO")
@@ -1447,8 +1441,6 @@ def _draw_selected_camera(layout, sel, scene):
     layout.label(text=sel.name, icon="CAMERA_DATA")
 
     mode   = sel.get("og_cam_mode",   "fixed")
-    interp = float(sel.get("og_cam_interp", 1.0))
-    fov    = float(sel.get("og_cam_fov",    0.0))
 
     # ── Mode selector ────────────────────────────────────────────────────
     box = layout.box()
@@ -1459,20 +1451,10 @@ def _draw_selected_camera(layout, sel, scene):
         op.cam_name = sel.name; op.prop_name = "og_cam_mode"; op.str_val = m
 
     # ── Blend time ───────────────────────────────────────────────────────
-    brow = box.row(align=True)
-    brow.label(text=f"Blend: {interp:.1f}s")
-    op = brow.operator("og.nudge_cam_float", text="-")
-    op.cam_name = sel.name; op.prop_name = "og_cam_interp"; op.delta = -0.5
-    op = brow.operator("og.nudge_cam_float", text="+")
-    op.cam_name = sel.name; op.prop_name = "og_cam_interp"; op.delta = 0.5
+    _prop_row(box, sel, "og_cam_interp", "Blend (s):", 0.5)
 
     # ── FOV ──────────────────────────────────────────────────────────────
-    frow = box.row(align=True)
-    frow.label(text=f"FOV: {'default' if fov <= 0 else f'{fov:.0f}°'}")
-    op = frow.operator("og.nudge_cam_float", text="-")
-    op.cam_name = sel.name; op.prop_name = "og_cam_fov"; op.delta = -5.0
-    op = frow.operator("og.nudge_cam_float", text="+")
-    op.cam_name = sel.name; op.prop_name = "og_cam_fov"; op.delta = 5.0
+    _prop_row(box, sel, "og_cam_fov", "FOV (0=default):", 0.0)
 
     # ── Mode-specific helpers ────────────────────────────────────────────
     if mode == "standoff":
@@ -1927,13 +1909,7 @@ class OG_PT_ActorActivation(Panel):
     def draw(self, ctx):
         layout = self.layout
         sel    = ctx.active_object
-        idle_d = float(sel.get("og_idle_distance", 80.0))
-        row = layout.row(align=True)
-        op = row.operator("og.nudge_float_prop", text="-5m", icon="REMOVE")
-        op.prop_name = "og_idle_distance"; op.delta = -5.0; op.val_min = 0.0
-        row.label(text=f"Idle Distance: {idle_d:.0f}m")
-        op = row.operator("og.nudge_float_prop", text="+5m", icon="ADD")
-        op.prop_name = "og_idle_distance"; op.delta = 5.0; op.val_max = 500.0
+        _prop_row(layout, sel, "og_idle_distance", "Idle Distance (m):", 80.0)
         sub = layout.row(); sub.enabled = False
         sub.label(text="Player must be closer than this to wake the enemy", icon="INFO")
 
@@ -2186,7 +2162,6 @@ class OG_PT_ActorCrate(Panel):
         sel    = ctx.active_object
         ct     = sel.get("og_crate_type",          "steel")
         pickup = sel.get("og_crate_pickup",         "money")
-        amount = int(sel.get("og_crate_pickup_amount", 1))
 
         # ── Crate Type ───────────────────────────────────────────────────
         box = layout.box()
@@ -2216,16 +2191,10 @@ class OG_PT_ActorCrate(Panel):
             op = sub.operator("og.set_crate_pickup", text=label, icon=btn_icon)
             op.pickup_id = uid
 
-        # ── Amount stepper (only for orbs) ────────────────────────────────
+        # ── Amount input (only for orbs) ──────────────────────────────────
         _supports_multi = {uid: sm for (uid, _, _, _, sm) in CRATE_PICKUP_ITEMS}
         if _supports_multi.get(pickup, False):
-            row = box2.row(align=True)
-            row.label(text="Amount:")
-            op = row.operator("og.set_crate_amount", text="", icon="REMOVE")
-            op.delta = -1
-            row.label(text=str(amount))
-            op2 = row.operator("og.set_crate_amount", text="", icon="ADD")
-            op2.delta = 1
+            _prop_row(box2, sel, "og_crate_pickup_amount", "Amount (1–5):", 1)
         elif pickup == "buzzer":
             box2.label(text="Amount: 1  (fixed)", icon="INFO")
 
@@ -2319,16 +2288,8 @@ class OG_PT_ActorLauncher(Panel):
         # ── Spring Height ─────────────────────────────────────────────────────
         box = layout.box()
         box.label(text="Launch Height", icon="TRIA_UP")
+        _prop_row(box, sel, "og_spring_height", "Height (m, -1=default):", -1.0)
         height = float(sel.get("og_spring_height", -1.0))
-        row = box.row(align=True)
-        op = row.operator("og.nudge_float_prop", text="-2m", icon="REMOVE")
-        op.prop_name = "og_spring_height"; op.delta = -2.0; op.val_min = 0.0
-        if height < 0:
-            row.label(text="Default (~40m)")
-        else:
-            row.label(text=f"{height:.1f}m")
-        op = row.operator("og.nudge_float_prop", text="+2m", icon="ADD")
-        op.prop_name = "og_spring_height"; op.delta = 2.0; op.val_max = 200.0
         if height >= 0:
             op2 = box.operator("og.nudge_float_prop", text="Reset to Default", icon="LOOP_BACK")
             op2.prop_name = "og_spring_height"; op2.delta = -9999.0; op2.val_min = -1.0
@@ -2376,15 +2337,7 @@ class OG_PT_ActorLauncher(Panel):
             box3 = layout.box()
             box3.label(text="Fly Time (optional)", icon="TIME")
             fly_time = float(sel.get("og_launcher_fly_time", -1.0))
-            row3 = box3.row(align=True)
-            op = row3.operator("og.nudge_float_prop", text="-0.2s", icon="REMOVE")
-            op.prop_name = "og_launcher_fly_time"; op.delta = -0.2; op.val_min = 0.1
-            if fly_time < 0:
-                row3.label(text="Default")
-            else:
-                row3.label(text=f"{fly_time:.1f}s")
-            op = row3.operator("og.nudge_float_prop", text="+0.2s", icon="ADD")
-            op.prop_name = "og_launcher_fly_time"; op.delta = 0.2; op.val_max = 30.0
+            _prop_row(box3, sel, "og_launcher_fly_time", "Fly Time (s, -1=default):", -1.0)
             if fly_time >= 0:
                 op2 = box3.operator("og.nudge_float_prop", text="Reset to Default", icon="LOOP_BACK")
                 op2.prop_name = "og_launcher_fly_time"; op2.delta = -9999.0; op2.val_min = -1.0
@@ -2426,15 +2379,7 @@ class OG_PT_ActorSpawner(Panel):
         default_str, hint = defaults.get(etype, ("auto", ""))
 
         count = int(sel.get("og_num_lurkers", -1))
-        row = box.row(align=True)
-        op = row.operator("og.nudge_int_prop", text="-1", icon="REMOVE")
-        op.prop_name = "og_num_lurkers"; op.delta = -1; op.val_min = 1
-        if count < 0:
-            row.label(text=f"Default ({default_str})")
-        else:
-            row.label(text=f"{count}")
-        op = row.operator("og.nudge_int_prop", text="+1", icon="ADD")
-        op.prop_name = "og_num_lurkers"; op.delta = 1; op.val_max = 16
+        _prop_row(box, sel, "og_num_lurkers", f"Count (-1=default {default_str}):", -1)
 
         if count >= 0:
             op2 = box.operator("og.nudge_int_prop", text="Reset to Default", icon="LOOP_BACK")
@@ -2555,19 +2500,10 @@ class OG_PT_ActorWaterVol(Panel):
         bottom_y = float(sel.get("og_water_bottom",  water_y - 5.0))
 
         col = box.column(align=True)
-        for label, prop, val in [
-            ("Surface Y:",  "og_water_surface", water_y),
-            ("Wade Y:",     "og_water_wade",    wade_y),
-            ("Swim Y:",     "og_water_swim",    swim_y),
-            ("Bottom Y:",   "og_water_bottom",  bottom_y),
-        ]:
-            row = col.row(align=True)
-            row.label(text=label)
-            op = row.operator("og.nudge_float_prop", text="-0.5m", icon="REMOVE")
-            op.prop_name = prop; op.delta = -0.5; op.val_min = -9999.0
-            row.label(text=f"{val:.1f}m")
-            op = row.operator("og.nudge_float_prop", text="+0.5m", icon="ADD")
-            op.prop_name = prop; op.delta = 0.5; op.val_max = 9999.0
+        _prop_row(col, sel, "og_water_surface", "Surface Y:",  water_y)
+        _prop_row(col, sel, "og_water_wade",    "Wade Y:",     wade_y)
+        _prop_row(col, sel, "og_water_swim",    "Swim Y:",     swim_y)
+        _prop_row(col, sel, "og_water_bottom",  "Bottom Y:",   bottom_y)
 
         # Show computed depths relative to surface so user can sanity-check
         sub = box.column(align=True)
@@ -2613,42 +2549,10 @@ class OG_PT_WaterMesh(Panel):
         bottom  = float(sel.get("og_water_bottom",  surface - 5.0))
 
         col = box.column(align=True)
-
-        # Surface Y — large nudge makes sense
-        row = col.row(align=True)
-        row.label(text="Surface Y:")
-        op = row.operator("og.nudge_float_prop", text="-0.5m", icon="REMOVE")
-        op.prop_name = "og_water_surface"; op.delta = -0.5; op.val_min = -9999.0
-        row.label(text=f"{surface:.2f}m")
-        op = row.operator("og.nudge_float_prop", text="+0.5m", icon="ADD")
-        op.prop_name = "og_water_surface"; op.delta = 0.5; op.val_max = 9999.0
-
-        # Wade depth — small nudge, stays positive
-        row = col.row(align=True)
-        row.label(text="Wade depth:")
-        op = row.operator("og.nudge_float_prop", text="-0.1m", icon="REMOVE")
-        op.prop_name = "og_water_wade"; op.delta = -0.1; op.val_min = 0.1
-        row.label(text=f"{wade:.2f}m below")
-        op = row.operator("og.nudge_float_prop", text="+0.1m", icon="ADD")
-        op.prop_name = "og_water_wade"; op.delta = 0.1; op.val_max = 20.0
-
-        # Swim depth
-        row = col.row(align=True)
-        row.label(text="Swim depth:")
-        op = row.operator("og.nudge_float_prop", text="-0.1m", icon="REMOVE")
-        op.prop_name = "og_water_swim"; op.delta = -0.1; op.val_min = 0.1
-        row.label(text=f"{swim:.2f}m below")
-        op = row.operator("og.nudge_float_prop", text="+0.1m", icon="ADD")
-        op.prop_name = "og_water_swim"; op.delta = 0.1; op.val_max = 20.0
-
-        # Bottom Y — absolute, same as surface
-        row = col.row(align=True)
-        row.label(text="Bottom Y:")
-        op = row.operator("og.nudge_float_prop", text="-0.5m", icon="REMOVE")
-        op.prop_name = "og_water_bottom"; op.delta = -0.5; op.val_min = -9999.0
-        row.label(text=f"{bottom:.2f}m")
-        op = row.operator("og.nudge_float_prop", text="+0.5m", icon="ADD")
-        op.prop_name = "og_water_bottom"; op.delta = 0.5; op.val_max = 9999.0
+        _prop_row(col, sel, "og_water_surface", "Surface Y:",          surface)
+        _prop_row(col, sel, "og_water_wade",    "Wade depth (m below):", wade)
+        _prop_row(col, sel, "og_water_swim",    "Swim depth (m below):", swim)
+        _prop_row(col, sel, "og_water_bottom",  "Bottom Y:",             bottom)
 
         # Sanity readout
         sub = box.column(align=True)
@@ -2776,15 +2680,7 @@ class OG_PT_ActorSunIrisDoor(Panel):
         box2 = layout.box()
         box2.label(text="Auto-Close Timeout", icon="TIME")
         timeout = float(sel.get("og_door_timeout", 0.0))
-        row2 = box2.row(align=True)
-        op_m = row2.operator("og.nudge_float_prop", text="-1s", icon="REMOVE")
-        op_m.prop_name = "og_door_timeout"; op_m.delta = -1.0; op_m.val_min = 0.0
-        if timeout <= 0.0:
-            row2.label(text="No timeout (stays open)")
-        else:
-            row2.label(text=f"Closes after {timeout:.1f}s")
-        op_p = row2.operator("og.nudge_float_prop", text="+1s", icon="ADD")
-        op_p.prop_name = "og_door_timeout"; op_p.delta = 1.0; op_p.val_max = 60.0
+        _prop_row(box2, sel, "og_door_timeout", "Timeout (s, 0=stays open):", 0.0)
         if timeout > 0.0:
             op_r = box2.operator("og.nudge_float_prop", text="Reset (no timeout)", icon="LOOP_BACK")
             op_r.prop_name = "og_door_timeout"; op_r.delta = -999.0; op_r.val_min = 0.0
@@ -2822,15 +2718,7 @@ class OG_PT_ActorBaseButton(Panel):
         box = layout.box()
         box.label(text="Reset Timeout", icon="TIME")
         timeout = float(sel.get("og_button_timeout", 0.0))
-        row = box.row(align=True)
-        op_m = row.operator("og.nudge_float_prop", text="-1s", icon="REMOVE")
-        op_m.prop_name = "og_button_timeout"; op_m.delta = -1.0; op_m.val_min = 0.0
-        if timeout <= 0.0:
-            row.label(text="Stays pressed permanently")
-        else:
-            row.label(text=f"Resets after {timeout:.1f}s")
-        op_p = row.operator("og.nudge_float_prop", text="+1s", icon="ADD")
-        op_p.prop_name = "og_button_timeout"; op_p.delta = 1.0; op_p.val_max = 60.0
+        _prop_row(box, sel, "og_button_timeout", "Timeout (s, 0=permanent):", 0.0)
         if timeout > 0.0:
             op_r = box.operator("og.nudge_float_prop", text="Reset (permanent)", icon="LOOP_BACK")
             op_r.prop_name = "og_button_timeout"; op_r.delta = -999.0; op_r.val_min = 0.0
@@ -2860,21 +2748,9 @@ class OG_PT_ActorPlatFlip(Panel):
         box = layout.box()
         box.label(text="Flip Timing", icon="TIME")
 
-        delay_down = float(sel.get("og_flip_delay_down", 2.0))
-        delay_up   = float(sel.get("og_flip_delay_up",   2.0))
-
         col = box.column(align=True)
-        for label, prop, val in [
-            ("Delay down (s):", "og_flip_delay_down", delay_down),
-            ("Delay up   (s):", "og_flip_delay_up",   delay_up),
-        ]:
-            row = col.row(align=True)
-            row.label(text=label)
-            op = row.operator("og.nudge_float_prop", text="-0.5", icon="REMOVE")
-            op.prop_name = prop; op.delta = -0.5; op.val_min = 0.1
-            row.label(text=f"{val:.1f}s")
-            op = row.operator("og.nudge_float_prop", text="+0.5", icon="ADD")
-            op.prop_name = prop; op.delta = 0.5; op.val_max = 30.0
+        _prop_row(col, sel, "og_flip_delay_down", "Delay down (s):", 2.0)
+        _prop_row(col, sel, "og_flip_delay_up",   "Delay up   (s):", 2.0)
 
         sub = box.row(); sub.enabled = False
         sub.label(text="Time before flipping down / recovering up", icon="INFO")
@@ -2882,13 +2758,7 @@ class OG_PT_ActorPlatFlip(Panel):
         # Sync percent — phase offset so multiple flip platforms don't sync
         box2 = layout.box()
         box2.label(text="Phase Offset", icon="TIME")
-        sync_pct = float(sel.get("og_flip_sync_pct", 0.0))
-        row = box2.row(align=True)
-        op = row.operator("og.nudge_float_prop", text="-0.1", icon="REMOVE")
-        op.prop_name = "og_flip_sync_pct"; op.delta = -0.1; op.val_min = 0.0
-        row.label(text=f"{sync_pct:.2f}")
-        op = row.operator("og.nudge_float_prop", text="+0.1", icon="ADD")
-        op.prop_name = "og_flip_sync_pct"; op.delta = 0.1; op.val_max = 1.0
+        _prop_row(box2, sel, "og_flip_sync_pct", "Phase (0.0–1.0):", 0.0)
         sub2 = box2.row(); sub2.enabled = False
         sub2.label(text="0.0–1.0. Staggers multiple flip platforms.", icon="INFO")
 
@@ -2915,13 +2785,7 @@ class OG_PT_ActorOrbCache(Panel):
 
         box = layout.box()
         box.label(text="Orb Count", icon="SPHERE")
-        count = int(sel.get("og_orb_count", 20))
-        row = box.row(align=True)
-        op = row.operator("og.nudge_int_prop", text="-5", icon="REMOVE")
-        op.prop_name = "og_orb_count"; op.delta = -5; op.val_min = 1
-        row.label(text=f"{count} orbs")
-        op = row.operator("og.nudge_int_prop", text="+5", icon="ADD")
-        op.prop_name = "og_orb_count"; op.delta = 5; op.val_max = 200
+        _prop_row(box, sel, "og_orb_count", "Count:", 20)
         sub = box.row(); sub.enabled = False
         sub.label(text="Default 20. Orbs release when cache is opened.", icon="INFO")
 
@@ -2948,20 +2812,9 @@ class OG_PT_ActorWhirlpool(Panel):
 
         box = layout.box()
         box.label(text="Rotation Speed", icon="FORCE_VORTEX")
-        speed     = float(sel.get("og_whirl_speed", 0.3))
-        variation = float(sel.get("og_whirl_var",   0.1))
         col = box.column(align=True)
-        for label, prop, val in [
-            ("Base speed:", "og_whirl_speed", speed),
-            ("Variation:", "og_whirl_var",   variation),
-        ]:
-            row = col.row(align=True)
-            row.label(text=label)
-            op = row.operator("og.nudge_float_prop", text="-0.05", icon="REMOVE")
-            op.prop_name = prop; op.delta = -0.05; op.val_min = 0.0
-            row.label(text=f"{val:.2f}")
-            op = row.operator("og.nudge_float_prop", text="+0.05", icon="ADD")
-            op.prop_name = prop; op.delta = 0.05; op.val_max = 5.0
+        _prop_row(col, sel, "og_whirl_speed", "Base speed:", 0.3)
+        _prop_row(col, sel, "og_whirl_var",   "Variation:",  0.1)
         sub = box.row(); sub.enabled = False
         sub.label(text="Internal units. Default ~0.3 / 0.1.", icon="INFO")
 
@@ -3024,22 +2877,11 @@ class OG_PT_ActorOrbitPlat(Panel):
     def draw(self, ctx):
         layout = self.layout
         sel    = ctx.active_object
-        scale   = float(sel.get("og_orbit_scale",   1.0))
-        timeout = float(sel.get("og_orbit_timeout", 10.0))
         box = layout.box()
         box.label(text="Orbit Settings", icon="DRIVER_ROTATIONAL_DIFFERENCE")
         col = box.column(align=True)
-        for (lbl, prop, val, d, mn, mx) in [
-            ("Scale:",   "og_orbit_scale",   scale,   0.1, 0.1, 10.0),
-            ("Timeout:", "og_orbit_timeout", timeout, 1.0, 0.0, 60.0),
-        ]:
-            row = col.row(align=True)
-            row.label(text=lbl)
-            op = row.operator("og.nudge_float_prop", text=f"-{d}", icon="REMOVE")
-            op.prop_name = prop; op.delta = -d; op.val_min = mn
-            row.label(text=f"{val:.1f}")
-            op = row.operator("og.nudge_float_prop", text=f"+{d}", icon="ADD")
-            op.prop_name = prop; op.delta = d; op.val_max = mx
+        _prop_row(col, sel, "og_orbit_scale",   "Scale:",   1.0)
+        _prop_row(col, sel, "og_orbit_timeout", "Timeout:", 10.0)
         sub = box.row(); sub.enabled = False
         sub.label(text="Requires Entity Link → center actor", icon="INFO")
 
@@ -3063,22 +2905,11 @@ class OG_PT_ActorSquarePlatform(Panel):
     def draw(self, ctx):
         layout = self.layout
         sel    = ctx.active_object
-        down_m = float(sel.get("og_sq_down", -2.0))
-        up_m   = float(sel.get("og_sq_up",    4.0))
         box = layout.box()
         box.label(text="Travel Range", icon="MOVE_DOWN_VEC")
         col = box.column(align=True)
-        for (lbl, prop, val) in [
-            ("Down (m):", "og_sq_down", down_m),
-            ("Up   (m):", "og_sq_up",   up_m),
-        ]:
-            row = col.row(align=True)
-            row.label(text=lbl)
-            op = row.operator("og.nudge_float_prop", text="-0.5m", icon="REMOVE")
-            op.prop_name = prop; op.delta = -0.5; op.val_min = -20.0
-            row.label(text=f"{val:.1f}m")
-            op = row.operator("og.nudge_float_prop", text="+0.5m", icon="ADD")
-            op.prop_name = prop; op.delta = 0.5; op.val_max = 20.0
+        _prop_row(col, sel, "og_sq_down", "Down (m):", -2.0)
+        _prop_row(col, sel, "og_sq_up",   "Up   (m):",  4.0)
         sub = box.row(); sub.enabled = False
         sub.label(text="Default: 2m down, 4m up", icon="INFO")
 
@@ -3102,35 +2933,16 @@ class OG_PT_ActorCaveFlamePots(Panel):
     def draw(self, ctx):
         layout = self.layout
         sel    = ctx.active_object
-        shove    = float(sel.get("og_flame_shove",   2.0))
-        period   = float(sel.get("og_flame_period",  4.0))
-        phase    = float(sel.get("og_flame_phase",   0.0))
-        pause    = float(sel.get("og_flame_pause",   2.0))
-
         box = layout.box()
         box.label(text="Launch Force", icon="TRIA_UP")
-        row = box.row(align=True)
-        op = row.operator("og.nudge_float_prop", text="-0.5m", icon="REMOVE")
-        op.prop_name = "og_flame_shove"; op.delta = -0.5; op.val_min = 0.0
-        row.label(text=f"{shove:.1f}m")
-        op = row.operator("og.nudge_float_prop", text="+0.5m", icon="ADD")
-        op.prop_name = "og_flame_shove"; op.delta = 0.5; op.val_max = 20.0
+        _prop_row(box, sel, "og_flame_shove", "Shove (m):", 2.0)
 
         box2 = layout.box()
         box2.label(text="Cycle Timing", icon="TIME")
         col = box2.column(align=True)
-        for (lbl, prop, val, d) in [
-            ("Period (s):", "og_flame_period", period, 0.5),
-            ("Phase:",      "og_flame_phase",  phase,  0.1),
-            ("Pause  (s):", "og_flame_pause",  pause,  0.5),
-        ]:
-            row = col.row(align=True)
-            row.label(text=lbl)
-            op = row.operator("og.nudge_float_prop", text=f"-{d}", icon="REMOVE")
-            op.prop_name = prop; op.delta = -d; op.val_min = 0.0
-            row.label(text=f"{val:.2f}")
-            op = row.operator("og.nudge_float_prop", text=f"+{d}", icon="ADD")
-            op.prop_name = prop; op.delta = d; op.val_max = 30.0
+        _prop_row(col, sel, "og_flame_period", "Period (s):", 4.0)
+        _prop_row(col, sel, "og_flame_phase",  "Phase:",      0.0)
+        _prop_row(col, sel, "og_flame_pause",  "Pause  (s):", 2.0)
         sub = box2.row(); sub.enabled = False
         sub.label(text="Phase 0–1 staggers multiple pots", icon="INFO")
 
@@ -3154,25 +2966,13 @@ class OG_PT_ActorShover(Panel):
     def draw(self, ctx):
         layout = self.layout
         sel    = ctx.active_object
-        shove  = float(sel.get("og_shover_force",  3.0))
-        rot    = float(sel.get("og_shover_rot",    0.0))
         box = layout.box()
         box.label(text="Shove Force", icon="TRIA_UP")
-        row = box.row(align=True)
-        op = row.operator("og.nudge_float_prop", text="-0.5m", icon="REMOVE")
-        op.prop_name = "og_shover_force"; op.delta = -0.5; op.val_min = 0.0
-        row.label(text=f"{shove:.1f}m")
-        op = row.operator("og.nudge_float_prop", text="+0.5m", icon="ADD")
-        op.prop_name = "og_shover_force"; op.delta = 0.5; op.val_max = 30.0
+        _prop_row(box, sel, "og_shover_force", "Force (m):", 3.0)
 
         box2 = layout.box()
         box2.label(text="Rotation Offset", icon="CON_ROTLIKE")
-        row2 = box2.row(align=True)
-        op = row2.operator("og.nudge_float_prop", text="-15°", icon="REMOVE")
-        op.prop_name = "og_shover_rot"; op.delta = -15.0; op.val_min = -360.0
-        row2.label(text=f"{rot:.0f}°")
-        op = row2.operator("og.nudge_float_prop", text="+15°", icon="ADD")
-        op.prop_name = "og_shover_rot"; op.delta = 15.0; op.val_max = 360.0
+        _prop_row(box2, sel, "og_shover_rot", "Rotation (°):", 0.0)
 
 
 class OG_PT_ActorLavaMoving(Panel):
@@ -3197,16 +2997,10 @@ class OG_PT_ActorLavaMoving(Panel):
         layout = self.layout
         sel    = ctx.active_object
         etype  = sel.name.split("_", 2)[1]
-        speed  = float(sel.get("og_move_speed", 3.0 if etype == "lavaballoon" else 15.0))
-
+        default_speed = 3.0 if etype == "lavaballoon" else 15.0
         box = layout.box()
         box.label(text="Speed", icon="DRIVER_DISTANCE")
-        row = box.row(align=True)
-        op = row.operator("og.nudge_float_prop", text="-1m/s", icon="REMOVE")
-        op.prop_name = "og_move_speed"; op.delta = -1.0; op.val_min = 0.1
-        row.label(text=f"{speed:.1f}m/s")
-        op = row.operator("og.nudge_float_prop", text="+1m/s", icon="ADD")
-        op.prop_name = "og_move_speed"; op.delta = 1.0; op.val_max = 60.0
+        _prop_row(box, sel, "og_move_speed", "Speed (m/s):", default_speed)
         sub = box.row(); sub.enabled = False
         default = "~3m/s" if etype == "lavaballoon" else "~15m/s"
         sub.label(text=f"Default {default}. Needs waypoints.", icon="INFO")
@@ -3260,7 +3054,6 @@ class OG_PT_ActorCaveElevator(Panel):
         layout = self.layout
         sel    = ctx.active_object
         mode   = int(sel.get("og_elevator_mode", 0))
-        rot    = float(sel.get("og_elevator_rot", 0.0))
 
         box = layout.box()
         box.label(text="Mode", icon="SETTINGS")
@@ -3273,12 +3066,7 @@ class OG_PT_ActorCaveElevator(Panel):
 
         box2 = layout.box()
         box2.label(text="Rotation Offset", icon="CON_ROTLIKE")
-        row2 = box2.row(align=True)
-        op = row2.operator("og.nudge_float_prop", text="-15°", icon="REMOVE")
-        op.prop_name = "og_elevator_rot"; op.delta = -15.0; op.val_min = -360.0
-        row2.label(text=f"{rot:.0f}°")
-        op = row2.operator("og.nudge_float_prop", text="+15°", icon="ADD")
-        op.prop_name = "og_elevator_rot"; op.delta = 15.0; op.val_max = 360.0
+        _prop_row(box2, sel, "og_elevator_rot", "Rotation (°):", 0.0)
 
 
 class OG_PT_ActorMisBoneBridge(Panel):
@@ -3339,23 +3127,11 @@ class OG_PT_ActorBreakaway(Panel):
     def draw(self, ctx):
         layout = self.layout
         sel    = ctx.active_object
-        h1 = float(sel.get("og_breakaway_h1", 0.0))
-        h2 = float(sel.get("og_breakaway_h2", 0.0))
-
         box = layout.box()
         box.label(text="Fall Height Offsets", icon="MOVE_DOWN_VEC")
         col = box.column(align=True)
-        for (lbl, prop, val) in [
-            ("H1:", "og_breakaway_h1", h1),
-            ("H2:", "og_breakaway_h2", h2),
-        ]:
-            row = col.row(align=True)
-            row.label(text=lbl)
-            op = row.operator("og.nudge_float_prop", text="-0.5", icon="REMOVE")
-            op.prop_name = prop; op.delta = -0.5; op.val_min = -20.0
-            row.label(text=f"{val:.1f}")
-            op = row.operator("og.nudge_float_prop", text="+0.5", icon="ADD")
-            op.prop_name = prop; op.delta = 0.5; op.val_max = 20.0
+        _prop_row(col, sel, "og_breakaway_h1", "H1:", 0.0)
+        _prop_row(col, sel, "og_breakaway_h2", "H2:", 0.0)
         sub = box.row(); sub.enabled = False
         sub.label(text="Controls breakaway platform fall animation heights", icon="INFO")
 
@@ -3379,15 +3155,9 @@ class OG_PT_ActorSunkenFish(Panel):
     def draw(self, ctx):
         layout = self.layout
         sel    = ctx.active_object
-        count  = int(sel.get("og_fish_count", 1))
         box = layout.box()
         box.label(text="School Size", icon="COMMUNITY")
-        row = box.row(align=True)
-        op = row.operator("og.nudge_int_prop", text="-1", icon="REMOVE")
-        op.prop_name = "og_fish_count"; op.delta = -1; op.val_min = 1
-        row.label(text=f"{count} fish")
-        op = row.operator("og.nudge_int_prop", text="+1", icon="ADD")
-        op.prop_name = "og_fish_count"; op.delta = 1; op.val_max = 16
+        _prop_row(box, sel, "og_fish_count", "Count:", 1)
         sub = box.row(); sub.enabled = False
         sub.label(text="Spawns count−1 extra child fish. Default 1.", icon="INFO")
 
@@ -3411,27 +3181,13 @@ class OG_PT_ActorSharkey(Panel):
     def draw(self, ctx):
         layout = self.layout
         sel    = ctx.active_object
-        scale    = float(sel.get("og_shark_scale",    1.0))
-        delay    = float(sel.get("og_shark_delay",    1.0))
-        distance = float(sel.get("og_shark_distance", 30.0))
-        speed    = float(sel.get("og_shark_speed",    12.0))
-
         box = layout.box()
         box.label(text="Shark Properties", icon="FORCE_FORCE")
         col = box.column(align=True)
-        for (lbl, prop, val, d, mn, mx) in [
-            ("Scale:",    "og_shark_scale",    scale,    0.1,  0.1, 5.0),
-            ("Delay (s):", "og_shark_delay",   delay,    0.5,  0.0, 30.0),
-            ("Range (m):", "og_shark_distance",distance, 5.0,  5.0, 200.0),
-            ("Speed (m/s):", "og_shark_speed", speed,    1.0,  1.0, 50.0),
-        ]:
-            row = col.row(align=True)
-            row.label(text=lbl)
-            op = row.operator("og.nudge_float_prop", text=f"-{d}", icon="REMOVE")
-            op.prop_name = prop; op.delta = -d; op.val_min = mn
-            row.label(text=f"{val:.1f}")
-            op = row.operator("og.nudge_float_prop", text=f"+{d}", icon="ADD")
-            op.prop_name = prop; op.delta = d; op.val_max = mx
+        _prop_row(col, sel, "og_shark_scale",    "Scale:",       1.0)
+        _prop_row(col, sel, "og_shark_delay",    "Delay (s):",   1.0)
+        _prop_row(col, sel, "og_shark_distance", "Range (m):",  30.0)
+        _prop_row(col, sel, "og_shark_speed",    "Speed (m/s):", 12.0)
 
         sub = box.row(); sub.enabled = False
         sub.label(text="Needs water-height set via lump panel", icon="INFO")
@@ -3537,13 +3293,7 @@ class OG_PT_ActorVisibility(Panel):
 
         box = layout.box()
         box.label(text="Vis Distance", icon="HIDE_OFF")
-        vis = float(sel.get("og_vis_dist", 200.0))
-        row = box.row(align=True)
-        op = row.operator("og.nudge_float_prop", text="-25m", icon="REMOVE")
-        op.prop_name = "og_vis_dist"; op.delta = -25.0; op.val_min = 10.0
-        row.label(text=f"{vis:.0f}m")
-        op = row.operator("og.nudge_float_prop", text="+25m", icon="ADD")
-        op.prop_name = "og_vis_dist"; op.delta = 25.0; op.val_max = 500.0
+        _prop_row(box, sel, "og_vis_dist", "Distance (m):", 200.0)
         sub = box.row(); sub.enabled = False
         sub.label(text="Default 200m. Reduce for distant background enemies.", icon="INFO")
 
@@ -4173,8 +3923,6 @@ class OG_PT_Camera(Panel):
             op.obj_name = cam_obj.name
 
             mode   = cam_obj.get("og_cam_mode",   "fixed")
-            interp = float(cam_obj.get("og_cam_interp", 1.0))
-            fov    = float(cam_obj.get("og_cam_fov",    0.0))
 
             mrow = box.row(align=True)
             mrow.label(text="Mode:")
@@ -4182,14 +3930,8 @@ class OG_PT_Camera(Panel):
                 op = mrow.operator("og.set_cam_prop", text=lbl, depress=(mode == m))
                 op.cam_name = cam_obj.name; op.prop_name = "og_cam_mode"; op.str_val = m
 
-            brow = box.row(align=True)
-            brow.label(text=f"Blend: {interp:.1f}s")
-            op = brow.operator("og.nudge_cam_float", text="-"); op.cam_name=cam_obj.name; op.prop_name="og_cam_interp"; op.delta=-0.5
-            op = brow.operator("og.nudge_cam_float", text="+"); op.cam_name=cam_obj.name; op.prop_name="og_cam_interp"; op.delta=0.5
-            frow = box.row(align=True)
-            frow.label(text=f"FOV: {'default' if fov<=0 else f'{fov:.0f}°'}")
-            op = frow.operator("og.nudge_cam_float", text="-"); op.cam_name=cam_obj.name; op.prop_name="og_cam_fov"; op.delta=-5.0
-            op = frow.operator("og.nudge_cam_float", text="+"); op.cam_name=cam_obj.name; op.prop_name="og_cam_fov"; op.delta=5.0
+            _prop_row(box, cam_obj, "og_cam_interp", "Blend (s):", 0.5)
+            _prop_row(box, cam_obj, "og_cam_fov",    "FOV (0=default):", 0.0)
 
             if mode == "standoff":
                 align_name = cam_obj.name + "_ALIGN"

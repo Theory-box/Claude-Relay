@@ -93,45 +93,11 @@ def _draw_platform_settings(layout, sel, scene):
 
         col = box.column(align=True)
 
-        # Period
-        row = col.row(align=True)
-        row.label(text="Period (s):")
-        period = float(sel.get("og_sync_period", 4.0))
-        op = row.operator("og.nudge_float_prop", text="-0.5", icon="REMOVE")
-        op.prop_name = "og_sync_period"; op.delta = -0.5; op.val_min = 0.5
-        row.label(text=f"{period:.1f}s")
-        op = row.operator("og.nudge_float_prop", text="+0.5", icon="ADD")
-        op.prop_name = "og_sync_period"; op.delta = 0.5; op.val_max = 300.0
-
-        # Phase
-        row = col.row(align=True)
-        row.label(text="Phase (0–1):")
-        phase = float(sel.get("og_sync_phase", 0.0))
-        op = row.operator("og.nudge_float_prop", text="-0.1", icon="REMOVE")
-        op.prop_name = "og_sync_phase"; op.delta = -0.1; op.val_min = 0.0
-        row.label(text=f"{phase:.2f}")
-        op = row.operator("og.nudge_float_prop", text="+0.1", icon="ADD")
-        op.prop_name = "og_sync_phase"; op.delta = 0.1; op.val_max = 0.9
-
-        # Ease out
-        row = col.row(align=True)
-        row.label(text="Ease Out:")
-        ease_out = float(sel.get("og_sync_ease_out", 0.15))
-        op = row.operator("og.nudge_float_prop", text="-0.05", icon="REMOVE")
-        op.prop_name = "og_sync_ease_out"; op.delta = -0.05; op.val_min = 0.0
-        row.label(text=f"{ease_out:.2f}")
-        op = row.operator("og.nudge_float_prop", text="+0.05", icon="ADD")
-        op.prop_name = "og_sync_ease_out"; op.delta = 0.05; op.val_max = 0.5
-
-        # Ease in
-        row = col.row(align=True)
-        row.label(text="Ease In:")
-        ease_in = float(sel.get("og_sync_ease_in", 0.15))
-        op = row.operator("og.nudge_float_prop", text="-0.05", icon="REMOVE")
-        op.prop_name = "og_sync_ease_in"; op.delta = -0.05; op.val_min = 0.0
-        row.label(text=f"{ease_in:.2f}")
-        op = row.operator("og.nudge_float_prop", text="+0.05", icon="ADD")
-        op.prop_name = "og_sync_ease_in"; op.delta = 0.05; op.val_max = 0.5
+        # Period / Phase / Ease — use _prop_row (safe: no writes in draw)
+        _prop_row(col, sel, "og_sync_period",   "Period (s):",  4.0)
+        _prop_row(col, sel, "og_sync_phase",    "Phase (0–1):", 0.0)
+        _prop_row(col, sel, "og_sync_ease_out", "Ease Out:",    0.15)
+        _prop_row(col, sel, "og_sync_ease_in",  "Ease In:",     0.15)
 
         # Wrap phase toggle
         wrap = bool(sel.get("og_sync_wrap", 0))
@@ -163,21 +129,13 @@ def _draw_platform_settings(layout, sel, scene):
         box = layout.box()
         box.label(text="Eco Notice Distance", icon="RADIOBUT_ON")
         notice = float(sel.get("og_notice_dist", -1.0))
-        row = box.row(align=True)
-        op = row.operator("og.nudge_float_prop", text="-5m", icon="REMOVE")
-        op.prop_name = "og_notice_dist"; op.delta = -5.0; op.val_min = 0.0
-        if notice < 0:
-            row.label(text="∞ (always active)")
-        else:
-            row.label(text=f"{notice:.0f}m")
-        op = row.operator("og.nudge_float_prop", text="+5m", icon="ADD")
-        op.prop_name = "og_notice_dist"; op.delta = 5.0; op.val_max = 500.0
+        _prop_row(box, sel, "og_notice_dist", "Distance (m, -1=always):", -1.0)
         toggle_row = box.row()
-        if notice < 0:
-            toggle_row.label(text="Moves without eco — click +5m to set range", icon="INFO")
-        else:
+        if notice >= 0:
             op = toggle_row.operator("og.nudge_float_prop", text="Set Always Active", icon="RADIOBUT_ON")
             op.prop_name = "og_notice_dist"; op.delta = -999.0; op.val_min = -1.0
+        else:
+            toggle_row.label(text="Moves without eco — set value above to limit range", icon="INFO")
 
 
 # ===========================================================================
@@ -368,3 +326,22 @@ def _draw_wiki_preview(layout, etype: str, ctx=None):
             out.append(' '.join(line))
         for ln in out:
             col.label(text=ln)
+
+# ---------------------------------------------------------------------------
+# Safe UI helper — never writes to object during draw()
+# ---------------------------------------------------------------------------
+
+def _prop_row(layout, obj, key, label, default):
+    """Draw a labelled input row for a custom property.
+
+    Ensures the key exists on obj (writing the default if missing), then
+    draws a layout.prop() input field. Writing custom ID properties in
+    draw() is safe in Blender — only registered bpy.props cause issues.
+    The real crash risk was calling layout.prop on a missing key, which
+    throws an exception and silently kills the rest of the panel draw.
+    """
+    if key not in obj:
+        obj[key] = default
+    row = layout.row(align=True)
+    row.label(text=label)
+    row.prop(obj, f'["{key}"]', text="")

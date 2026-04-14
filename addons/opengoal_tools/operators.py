@@ -572,6 +572,19 @@ class OG_OT_SpawnEntity(Operator):
         else:
             self.report({"INFO"}, f"Added {o.name}")
 
+        # ---- Set default custom props so UI fields render immediately ------
+        if _actor_is_enemy(etype):
+            o["og_idle_distance"] = 80.0
+            o["og_vis_dist"]      = 200.0
+        if _actor_is_spawner(etype):
+            o["og_num_lurkers"] = -1
+        if etype == "orb-cache-top":
+            o["og_orb_count"] = 20
+        if etype == "sunkenfisha":
+            o["og_fish_count"] = 1
+        if etype in {"lavaballoon", "darkecobarrel"}:
+            o["og_move_speed"] = 3.0 if etype == "lavaballoon" else 15.0
+
         # ---- Model preview ------------------------------------------------
         _prefs = bpy.context.preferences.addons.get("opengoal_tools")
         if _prefs and _prefs.preferences.preview_models:
@@ -797,6 +810,20 @@ class OG_OT_AddWaypoint(Operator):
 
         # Route into Waypoints sub-collection under the active level
         _link_object_to_sub_collection(ctx.scene, empty, *_COL_PATH_WAYPOINTS)
+
+        # ---- Waypoint ghost preview ----------------------------------------
+        # Parse the entity type from the actor name (ACTOR_<etype>_<uid>)
+        # and attach a white, 50%-transparent ghost of its mesh so the user
+        # can see where the entity will stand at each waypoint.
+        _prefs = bpy.context.preferences.addons.get("opengoal_tools")
+        if _prefs and _prefs.preferences.preview_models:
+            parts = self.enemy_name.split("_")  # ["ACTOR", "<etype>", "<uid>"]
+            etype = parts[1] if len(parts) >= 3 else ""
+            if etype:
+                try:
+                    _mp.attach_waypoint_preview(ctx, etype, empty)
+                except Exception as e:
+                    log(f"waypoint model_preview: {e}")
 
         # Do NOT change active object — user needs to keep the actor selected
         # so they can quickly add more waypoints without re-selecting.
@@ -2179,6 +2206,17 @@ class OG_OT_SpawnPlatform(Operator):
         if hasattr(o, "show_in_front"):
             o.show_in_front = True
         _link_object_to_sub_collection(ctx.scene, o, *_COL_PATH_SPAWNABLE_PLATFORMS)
+
+        # ---- Set default custom props so UI fields render immediately ------
+        if einfo.get("needs_sync"):
+            o["og_sync_period"]   = 4.0
+            o["og_sync_phase"]    = 0.0
+            o["og_sync_ease_out"] = 0.15
+            o["og_sync_ease_in"]  = 0.15
+            o["og_sync_wrap"]     = 0
+        if einfo.get("needs_notice_dist"):
+            o["og_notice_dist"] = -1.0
+
         self.report({"INFO"}, f"Added {o.name}")
 
         # ---- Model preview ------------------------------------------------
