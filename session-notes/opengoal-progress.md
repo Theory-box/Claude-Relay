@@ -520,3 +520,11 @@ When vis-blocker merges, add to audit:
 - collect_actors falls through all etype-specific guards for custom types — this is correct
 - Custom types get a minimal lump dict (name/trans/quat/bsphere) — no special lumps
 - Any lumps needed (e.g. 'spin-rate') must be added via the Custom Lumps panel
+
+### Knowledge docs updated (on main)
+- `knowledge-base/opengoal/goal-scripting.md` — full GOAL language reference, unit system,
+  entity patterns, 5 complete working examples, addon workflow section (How Code Gets Into the Game)
+  https://github.com/Theory-box/Claude-Relay/blob/main/knowledge-base/opengoal/goal-scripting.md
+- `knowledge-base/opengoal/modding-addon.md` — GOAL Code panel section + Custom Type spawner
+  section added; panel reference table updated; obs.gc stale references fixed
+  https://github.com/Theory-box/Claude-Relay/blob/main/knowledge-base/opengoal/modding-addon.md
