@@ -367,3 +367,55 @@ Flava index looked up from `MUSIC_FLAVA_TABLE` at export time (engine takes floa
 - [ ] Test in-game
 - [ ] Consider adding "Select Zone" button in list (click to select the empty)
 - [ ] If approved: merge feature/music-ambient to main
+
+---
+
+## Pre-test Audit Session (April 13 2026)
+
+### Two-pass audit — 20 issues checked, 3 fixed
+
+**Pass 1 — doc conflict resolved:**
+lump-system.md had `music → ResFloat ["float", value]` which contradicted
+audio-system.md `music → ["symbol", "village1"]`. The float version is a doc error —
+`set-setting! 'music` takes a symbol, so the ResSymbol format is logically correct.
+Fixed lump-system.md. Confidence: 85% symbol format is right.
+
+**Pass 2 — 3 fixes applied:**
+
+1. `effect-name` added to music zone export — listed in lump quick-ref as required
+   for 'music type. Was absent from initial export. Added defensively as `["symbol", bank]`.
+   Worst case if not needed: silently ignored. No crash risk.
+
+2. `og_music_amb_bank` now has an `update` callback that resets `og_music_amb_flava`
+   to `"default"` when the bank changes. Prevents stale flava string being held
+   internally when the user switches banks in the panel.
+
+3. lump-system.md `music` entry corrected from ResFloat to ResSymbol.
+
+**All 20 checks passed with no remaining bugs:**
+- trans/bsphere radius units: meters, matches working sound emitter path ✓
+- `none` bank filter: not exported ✓  
+- empty string bank: not exported ✓
+- unknown bank/flava: safe fallback to index 0 ✓
+- name slicing `[8:]`: produces correct short name ✓
+- sound/music prop collision: impossible (different custom prop keys) ✓
+- validate_ambients: passes (trans/bsphere both have 4 elements) ✓
+- write_jsonc: passes ambients straight to json.dumps, no transformation ✓
+- All 19 LEVEL_BANKS entries have MUSIC_FLAVA_TABLE coverage ✓
+- Coexistence with sound emitters + hint ambients ✓
+- EnumProperty callback: None-safe with getattr fallback ✓
+
+**One remaining uncertainty (won't know until in-game test):**
+music lump type: ["symbol", "village1"] vs ["float", float_index]
+If music doesn't play after zone placement, try swapping to:
+  "music": ["float", <index_of_bank_in_LEVEL_BANKS>]
+where index = LEVEL_BANKS.index(bank) - 1 (skipping 'none' at 0)
+
+**Branch state:** feature/music-ambient, 4 commits since branch from main.
+Ready to test.
+
+### Commits in this branch
+- feat: add music ambient zone system
+- notes: music ambient zone session notes  
+- fix: music ambient export + doc correction (effect-name + lump-system.md)
+- fix: reset og_music_amb_flava to default when bank changes
