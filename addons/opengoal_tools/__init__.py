@@ -331,6 +331,8 @@ classes = (
     OG_PT_BuildPlay,
     OG_PT_DevTools,
     OG_PT_Collision,
+    OG_PT_SpawnCustomTypes,
+    OG_PT_ActorGoalCode,
     *TEXTURING_CLASSES,
 )
 
