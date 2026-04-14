@@ -528,3 +528,38 @@ When vis-blocker merges, add to audit:
 - `knowledge-base/opengoal/modding-addon.md` — GOAL Code panel section + Custom Type spawner
   section added; panel reference table updated; obs.gc stale references fixed
   https://github.com/Theory-box/Claude-Relay/blob/main/knowledge-base/opengoal/modding-addon.md
+
+---
+
+## feature/goal-code — VOL_ → custom actor wiring + duplicate panel fix
+
+### Session additions (April 2026)
+
+#### Bug fixed: duplicate OG_PT_SpawnCustomTypes registration
+- `__init__.py` had the class listed twice in the `classes` tuple
+- Blender silently fails on duplicate registration, killing everything after it
+- This also suppressed OG_PT_ActorGoalCode from appearing
+- Fix: removed second instance at line 177
+
+#### New: VOL_ trigger volumes now wire to custom GOAL actors
+- `_classify_target` now returns `'custom'` for non-built-in ACTOR_ targets
+- `collect_custom_triggers(scene)` — mirrors collect_aggro_triggers, emits
+  `vol-trigger` actors with AABB bounds + target-name lump
+- `write_gc` gains `has_custom_triggers` flag, emits `vol-trigger` deftype
+  which sends `'trigger` on enter, `'untrigger` on exit
+- All 3 build.py call sites updated
+
+#### vol-trigger workflow
+1. Place `VOL_` mesh, size it as the trigger zone
+2. In volume's links panel, target any `ACTOR_<custom-type>_N` empty
+3. The custom actor's GOAL code handles `'trigger` in its `:event` handler
+4. Export — vol-trigger is auto-emitted in JSONC + obs.gc, no manual lumps needed
+
+#### die-relay test case (for first goal-code test)
+- Place `ACTOR_eco-platform` (or any platform)
+- Spawn custom type `die-relay`
+- Attach GOAL code block to die-relay with `'trigger` → kill target → deactivate self
+- Add `target-name` custom lump pointing at platform entity lump name (e.g. `eco-platform-0`)
+- Place VOL_ mesh, link it to `ACTOR_die-relay_0`
+- Export+build — walk into zone, platform dies, relay dies
+- Watch for `[vol-trigger] armed`, `[die-relay] armed`, `[vol-trigger] enter`, `[die-relay] killing`
