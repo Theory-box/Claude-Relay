@@ -303,3 +303,67 @@ Commit: `8e2eb13` on main
 All sounds work as looping emitters regardless of whether they were "one-shot"
 in the original game. Short sounds (explosions, jumps etc.) just loop continuously.
 This is fine — use with appropriate radius so it doesn't sound ridiculous.
+
+---
+
+## Music Ambient Zone System (April 13 2026)
+
+### Root cause of music not playing
+`:music-bank` in `level-load-info` does NOT trigger music on level load.
+It only resets music after player death. Music requires an active `set-setting! 'music`
+call, which is done by a `type='music` ambient entity when the player enters its bsphere.
+Vanilla levels all have a large music zone covering the entire level.
+
+### What was built — branch: feature/music-ambient
+
+**New panel:** `Spawn > 🎵 Music Zones` (mirrors Sound Emitters panel)
+- Music Bank dropdown (all 19 banks)
+- Flava dropdown — **dynamically filtered** to selected bank's variants only
+- Priority float (10.0 default; vanilla boss/race zones use 40.0)
+- Zone Radius (40m default — large, should cover whole level)
+- "Add Music Zone at Cursor" button
+- List of placed zones shown below
+
+**New operator:** `OG_OT_AddMusicZone` (`og.add_music_zone`)
+- Spawns `AMBIENT_mus001` empty (gold colour, distinct from cyan sound emitters)
+- Stores `og_music_bank`, `og_music_flava`, `og_music_priority`, `og_music_radius` as custom props
+- Placed into Sound Emitters collection (same as sound empties)
+
+**Export:** `collect_ambients()` now handles `og_music_bank` empties:
+```json
+{
+  "trans": [x, y, z, radius],
+  "bsphere": [x, y, z, radius],
+  "lump": {
+    "name": "mus001",
+    "type": "'music",
+    "music": ["symbol", "village1"],
+    "flava": ["float", 0.0],
+    "priority": ["float", 10.0]
+  }
+}
+```
+Flava index looked up from `MUSIC_FLAVA_TABLE` at export time (engine takes float index).
+
+**New data:** `MUSIC_FLAVA_TABLE` dict in `data.py` — all 19 banks → flava variant lists.
+
+### Files changed
+- `data.py` — `MUSIC_FLAVA_TABLE`, `_music_flava_items_cb`
+- `properties.py` — `og_music_amb_bank/flava/priority/radius` scene props
+- `operators.py` — `OG_OT_AddMusicZone`
+- `panels.py` — `OG_PT_SpawnMusicZones`
+- `export.py` — `collect_ambients()` music zone branch
+- `__init__.py` — registrations
+
+### How to use
+1. Install from `feature/music-ambient`
+2. Set your level's Music Bank in the Audio panel (e.g. `village1`)
+3. Go to Spawn > 🎵 Music Zones
+4. Set Music Bank to `village1`, Flava to `default`, Radius large enough to cover level
+5. Click "Add Music Zone at Cursor" — place it roughly in the centre of your level
+6. Export & compile — music should now play on entry
+
+### Next steps
+- [ ] Test in-game
+- [ ] Consider adding "Select Zone" button in list (click to select the empty)
+- [ ] If approved: merge feature/music-ambient to main
