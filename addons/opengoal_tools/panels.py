@@ -1251,9 +1251,9 @@ def _draw_selected_actor(layout, sel, scene):
                 op = row.operator("og.delete_waypoint", text="", icon="X")
                 op.wp_name = wp.name
 
-        op = box.operator("og.add_waypoint", text="Add Waypoint at Cursor", icon="PLUS")
-        op.enemy_name = sel.name
-        op.pathb_mode = False
+        row = box.row(align=True)
+        row.operator("og.add_waypoint", text="Spawn Waypoint", icon="PLUS").enemy_name = sel.name
+        row.prop(scene.og_props, "waypoint_spawn_at_actor", text="Spawn at Position", toggle=False)
 
         if einfo.get("needs_path") and len(wps) < 1:
             box.label(text="⚠ Needs ≥ 1 waypoint or will crash", icon="ERROR")
@@ -1277,9 +1277,10 @@ def _draw_selected_actor(layout, sel, scene):
                     op = row.operator("og.delete_waypoint", text="", icon="X")
                     op.wp_name = wp.name
 
-            op = box2.operator("og.add_waypoint", text="Add Path B Waypoint", icon="PLUS")
-            op.enemy_name = sel.name
-            op.pathb_mode = True
+            row2 = box2.row(align=True)
+            op2b = row2.operator("og.add_waypoint", text="Spawn Path B Waypoint", icon="PLUS")
+            op2b.enemy_name = sel.name; op2b.pathb_mode = True
+            row2.prop(scene.og_props, "waypoint_spawn_at_actor", text="Spawn at Position", toggle=False)
 
             if len(wpsb) < 1:
                 box2.label(text="⚠ swamp-bat crashes without Path B", icon="ERROR")
@@ -1682,6 +1683,8 @@ class OG_PT_SelectedObject(Panel):
         row = layout.row(align=True)
         op = row.operator("og.select_and_frame", text="Frame", icon="VIEWZOOM")
         op.obj_name = name
+        if name.startswith("ACTOR_") and "_wp_" not in name:
+            row.operator("og.duplicate_entity", text="Duplicate", icon="COPYDOWN")
         op = row.operator("og.delete_object", text="Delete", icon="TRASH")
         op.obj_name = name
 
@@ -3329,8 +3332,9 @@ class OG_PT_ActorWaypoints(Panel):
                 row.label(text=wp.name, icon="EMPTY_AXIS")
                 op = row.operator("og.select_and_frame", text="", icon="VIEWZOOM"); op.obj_name = wp.name
                 op = row.operator("og.delete_waypoint",  text="", icon="X");        op.wp_name  = wp.name
-        op = layout.operator("og.add_waypoint", text="Add Waypoint at Cursor", icon="PLUS")
-        op.enemy_name = sel.name; op.pathb_mode = False
+        row = layout.row(align=True)
+        row.operator("og.add_waypoint", text="Spawn Waypoint", icon="PLUS").enemy_name = sel.name
+        row.prop(ctx.scene.og_props, "waypoint_spawn_at_actor", text="Spawn at Position", toggle=False)
         if einfo.get("needs_path") and len(wps) < 1:
             layout.label(text="⚠ Needs ≥ 1 waypoint or will crash", icon="ERROR")
 
@@ -3349,8 +3353,10 @@ class OG_PT_ActorWaypoints(Panel):
                     row.label(text=wp.name, icon="EMPTY_AXIS")
                     op = row.operator("og.select_and_frame", text="", icon="VIEWZOOM"); op.obj_name = wp.name
                     op = row.operator("og.delete_waypoint",  text="", icon="X");        op.wp_name  = wp.name
-            op = layout.operator("og.add_waypoint", text="Add Path B Waypoint", icon="PLUS")
-            op.enemy_name = sel.name; op.pathb_mode = True
+            row2 = layout.row(align=True)
+            op2b = row2.operator("og.add_waypoint", text="Spawn Path B Waypoint", icon="PLUS")
+            op2b.enemy_name = sel.name; op2b.pathb_mode = True
+            row2.prop(ctx.scene.og_props, "waypoint_spawn_at_actor", text="Spawn at Position", toggle=False)
             if len(wpsb) < 1:
                 layout.label(text="⚠ swamp-bat crashes without Path B", icon="ERROR")
 
@@ -3722,9 +3728,9 @@ class OG_PT_Waypoints(Panel):
         else:
             layout.label(text="No waypoints yet", icon="INFO")
 
-        op = layout.operator("og.add_waypoint", text="Add Waypoint at Cursor", icon="PLUS")
-        op.enemy_name = sel.name
-        op.pathb_mode = False
+        row = layout.row(align=True)
+        row.operator("og.add_waypoint", text="Spawn Waypoint", icon="PLUS").enemy_name = sel.name
+        row.prop(ctx.scene.og_props, "waypoint_spawn_at_actor", text="Spawn at Position", toggle=False)
 
         if einfo.get("needs_path") and len(wps) < 1:
             layout.label(text="⚠ Needs ≥ 1 waypoint or will crash", icon="ERROR")
@@ -3747,9 +3753,10 @@ class OG_PT_Waypoints(Panel):
             else:
                 layout.label(text="No Path B waypoints yet", icon="INFO")
 
-            op3 = layout.operator("og.add_waypoint", text="Add Path B Waypoint at Cursor", icon="PLUS")
-            op3.enemy_name = sel.name
-            op3.pathb_mode = True
+            row3 = layout.row(align=True)
+            op3 = row3.operator("og.add_waypoint", text="Spawn Path B Waypoint", icon="PLUS")
+            op3.enemy_name = sel.name; op3.pathb_mode = True
+            row3.prop(ctx.scene.og_props, "waypoint_spawn_at_actor", text="Spawn at Position", toggle=False)
 
             if len(wpsb) < 1:
                 layout.label(text="⚠ swamp-bat crashes without Path B", icon="ERROR")

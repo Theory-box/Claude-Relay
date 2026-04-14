@@ -102,6 +102,11 @@ class OGProperties(PropertyGroup):
                                  description="Select an NPC to place")
     pickup_type:    EnumProperty(name="Pickup Type",  items=_pickup_enum_cb,
                                  description="Select a pickup to place")
+    waypoint_spawn_at_actor: BoolProperty(
+        name="Spawn at Position",
+        default=False,
+        description="Spawn waypoint at the actor current position instead of the 3D cursor",
+    )
     nav_radius:  FloatProperty(name="Nav Sphere Radius (m)", default=6.0, min=0.5, max=50.0,
                                description="Fallback navmesh sphere radius for nav-unsafe enemies")
     base_id:     IntProperty(name="Base Actor ID", default=10000, min=1000, max=60000,

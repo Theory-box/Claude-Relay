@@ -176,6 +176,26 @@ def _reuse_or_import(ctx, glb_path: Path, mesh_name: str) -> bpy.types.Object | 
     return _strip_and_keep_mesh(new_objs, glb_stem=mesh_name)
 
 
+
+def _fit_empty_to_mesh(actor_empty: bpy.types.Object, mesh_obj: bpy.types.Object) -> None:
+    """Resize the actor empty so its display gizmo wraps the viz mesh bounds.
+    Uses the mesh local bounding box (8 corners) to find the largest half-extent
+    across all axes, then sets empty_display_size to that value.
+    No-ops if the mesh has zero-size bounds (degenerate geometry)."""
+    corners = [mathutils.Vector(c) for c in mesh_obj.bound_box]
+    if not corners:
+        return
+    # Find min/max per axis
+    xs = [c.x for c in corners]
+    ys = [c.y for c in corners]
+    zs = [c.z for c in corners]
+    half_x = (max(xs) - min(xs)) * 0.5
+    half_y = (max(ys) - min(ys)) * 0.5
+    half_z = (max(zs) - min(zs)) * 0.5
+    size = max(half_x, half_y, half_z)
+    if size > 0.001:  # guard against degenerate/empty mesh
+        actor_empty.empty_display_size = size
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -234,6 +254,10 @@ def attach_preview(ctx, etype: str, actor_empty: bpy.types.Object) -> bool:
         mesh_obj.show_in_front     = False
         mesh_obj.display_type      = "TEXTURED"
         mesh_obj.hide_select       = True   # non-selectable — move the ACTOR empty instead
+
+        # ---- Fit empty display size to mesh bounds (first GLB only) ----
+        if not attached:  # only on the first mesh so double-lurker doesn't overwrite
+            _fit_empty_to_mesh(actor_empty, mesh_obj)
 
         attached = True
 

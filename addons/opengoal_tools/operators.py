@@ -599,6 +599,67 @@ class OG_OT_SpawnEntity(Operator):
 
         return {"FINISHED"}
 
+
+class OG_OT_DuplicateEntity(Operator):
+    """Duplicate the selected ACTOR empty and re-attach its preview mesh."""
+    bl_idname   = "og.duplicate_entity"
+    bl_label    = "Duplicate Entity"
+    bl_description = "Duplicate this entity and carry its preview mesh to the copy"
+    bl_options  = {"UNDO"}
+
+    def execute(self, ctx):
+        src = ctx.active_object
+        if src is None or not src.name.startswith("ACTOR_"):
+            self.report({"ERROR"}, "Select an ACTOR_ empty first")
+            return {"CANCELLED"}
+
+        # Parse entity type from name: ACTOR_<etype>_<uid>
+        parts = src.name.split("_", 2)
+        if len(parts) < 3:
+            self.report({"ERROR"}, f"Cannot parse entity type from {src.name!r}")
+            return {"CANCELLED"}
+        etype = parts[1]
+
+        # --- Duplicate just the empty (no children) via ops ---
+        # Deselect all, select only the source, then duplicate
+        bpy.ops.object.select_all(action="DESELECT")
+        src.select_set(True)
+        ctx.view_layer.objects.active = src
+        bpy.ops.object.duplicate(linked=False, mode="TRANSLATION")
+        new_empty = ctx.active_object
+
+        # Give it a fresh unique name (Blender appends .001 etc automatically,
+        # but we want to follow the ACTOR_<etype>_<n> convention)
+        prefix = f"ACTOR_{etype}_"
+        # Use bpy.data.objects (not just level objects) so we avoid collisions
+        # with the freshly duplicated object which may not yet be in the level col
+        existing = {o.name for o in bpy.data.objects}
+        n = 0
+        while f"{prefix}{n}" in existing:
+            n += 1
+        new_empty.name = f"{prefix}{n}"
+
+        # --- Strip any preview children the duplicate inherited ---
+        # bpy.ops.object.duplicate copies children too; remove them so we
+        # can attach a fresh independent preview below.
+        _mp.remove_preview(new_empty)
+
+        # Also unlink any child objects Blender may have copied
+        for child in list(new_empty.children):
+            if child.get(_mp._PREVIEW_PROP) or child.get(_mp._WAYPOINT_PREVIEW_PROP):
+                bpy.data.objects.remove(child, do_unlink=True)
+
+        # --- Re-attach a fresh preview mesh ---
+        _prefs = bpy.context.preferences.addons.get("opengoal_tools")
+        if _prefs and _prefs.preferences.preview_models:
+            try:
+                _mp.attach_preview(ctx, etype, new_empty)
+            except Exception as e:
+                log(f"duplicate_entity model_preview: {e}")
+
+        self.report({"INFO"}, f"Duplicated as {new_empty.name}")
+        return {"FINISHED"}
+
 class OG_OT_ClearPreviews(Operator):
     bl_idname   = "og.clear_previews"
     bl_label    = "Clear Preview Models"
@@ -773,7 +834,7 @@ class OG_OT_ExportBuild(Operator):
 # ---------------------------------------------------------------------------
 
 class OG_OT_AddWaypoint(Operator):
-    """Add a waypoint empty at the 3D cursor, linked to the selected enemy."""
+    """Add a waypoint empty linked to the selected enemy. Spawns at the 3D cursor, or at the actor position if Spawn at Position is enabled."""
     bl_idname = "og.add_waypoint"
     bl_label  = "Add Waypoint"
 
@@ -797,11 +858,15 @@ class OG_OT_AddWaypoint(Operator):
 
         wp_name = f"{prefix}{idx:02d}"
 
-        # Create empty at 3D cursor
+        # Create empty — at actor position or 3D cursor depending on user preference
+        actor_obj = bpy.data.objects.get(self.enemy_name)
+        use_actor_pos = ctx.scene.og_props.waypoint_spawn_at_actor and actor_obj is not None
+        spawn_loc = actor_obj.location.copy() if use_actor_pos else ctx.scene.cursor.location.copy()
+
         empty = bpy.data.objects.new(wp_name, None)
         empty.empty_display_type = "PLAIN_AXES"
         empty.empty_display_size = 0.5
-        empty.location = ctx.scene.cursor.location.copy()
+        empty.location = spawn_loc
 
         # Custom property to link back to enemy
         empty["og_waypoint_for"] = self.enemy_name
@@ -828,7 +893,8 @@ class OG_OT_AddWaypoint(Operator):
 
         # Do NOT change active object — user needs to keep the actor selected
         # so they can quickly add more waypoints without re-selecting.
-        self.report({"INFO"}, f"Added {wp_name} at cursor")
+        loc_desc = "actor position" if use_actor_pos else "cursor"
+        self.report({"INFO"}, f"Added {wp_name} at {loc_desc}")
         return {"FINISHED"}
 
 
