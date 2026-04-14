@@ -139,6 +139,7 @@ from .operators import (
     OG_OT_RemoveLevel, OG_OT_RefreshLevels,
     OG_OT_CreateGoalCodeBlock, OG_OT_ClearGoalCodeBlock,
     OG_OT_OpenGoalCodeInEditor,
+    OG_OT_SpawnCustomType,
 )
 from .panels import (
     OG_OT_ReloadAddon, OG_OT_CleanLevelFiles,
@@ -151,6 +152,7 @@ from .panels import (
     OG_PT_VertexExport, OG_OT_AssignVertexExport, OG_OT_ClearVertexExport,
     OG_PT_SpawnEnemies, OG_PT_SpawnPlatforms,
     OG_PT_SpawnProps, OG_PT_SpawnNPCs, OG_PT_SpawnPickups, OG_PT_SpawnSounds,
+    OG_PT_SpawnCustomTypes,
     OG_PT_Camera, OG_PT_Triggers,
     OG_PT_SelectedObject, OG_PT_SelectedCollision,
     OG_PT_SelectedLightBaking, OG_PT_SelectedNavMeshTag,
@@ -172,6 +174,7 @@ from .panels import (
     OG_PT_SelectedLumps, OG_PT_SelectedLumpReference,
     OG_PT_Waypoints, OG_PT_BuildPlay, OG_PT_DevTools, OG_PT_Collision,
     OG_PT_ActorGoalCode,
+    OG_PT_SpawnCustomTypes,
 )
 
 from .utils import _preview_collections, _load_previews, _unload_previews
@@ -235,6 +238,7 @@ classes = (
     OG_OT_CreateGoalCodeBlock,
     OG_OT_ClearGoalCodeBlock,
     OG_OT_OpenGoalCodeInEditor,
+    OG_OT_SpawnCustomType,
     # ── Collection system operators ──────────────────────────────────────
     OG_OT_CreateLevel, OG_OT_AssignCollectionAsLevel,
     OG_OT_SetActiveLevel, OG_OT_NudgeLevelProp,

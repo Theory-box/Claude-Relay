@@ -469,3 +469,54 @@ When vis-blocker merges, add to audit:
 - Add to `_REGISTERED_CHECKS` — no other changes needed if ENTITY_DEFS audit
   block pattern is followed
 
+
+
+---
+
+## feature/goal-code — GOAL Code Panel + Custom Type Spawner
+
+### Status: feature/goal-code — active, not yet merged
+### Branch: feature/goal-code
+
+---
+
+### What was built
+
+#### GOAL Code Panel (Level 3 text-block injection)
+- `OGGoalCodeRef` PropertyGroup: `text_block` (PointerProperty→bpy.types.Text) + `enabled` bool
+- Registered as `bpy.types.Object.og_goal_code_ref` on every object
+- `OG_PT_ActorGoalCode`: sub-panel of Selected Object, polls any ACTOR_ empty (not wp)
+  - Header dot lights when block is active+enabled
+  - No block: Create boilerplate button + manual picker
+  - Block assigned: name picker, enabled toggle, X disconnect, line count status,
+    Create/Open in Editor buttons, shared-block warning
+- `OG_OT_CreateGoalCodeBlock`: creates text block with etype-specific boilerplate
+- `OG_OT_ClearGoalCodeBlock`: disconnects without deleting
+- `OG_OT_OpenGoalCodeInEditor`: switches first open Text Editor area to the block
+- `write_gc()` now accepts `scene=None`, scans ACTOR_ empties, deduplicates by
+  text block name, appends enabled blocks verbatim to *-obs.gc after addon types
+- All 3 `write_gc()` call sites in build.py updated to pass `scene=scene`
+
+#### Custom Type Spawner
+- `_is_custom_type(etype)` helper in data.py: returns True for any etype not in ENTITY_DEFS
+- `custom_type_name: StringProperty` on OGProperties for the spawn panel input
+- `OG_OT_SpawnCustomType`: validates name (lowercase+hyphens, not built-in), places
+  ACTOR_<name>_N empty at cursor, yellow-green colour to distinguish from built-ins
+- `OG_PT_SpawnCustomTypes`: Spawn sub-panel "⚙ Custom Types"
+  - Type name input + live-updating spawn button label
+  - How-it-works hint box (6-step workflow)
+  - Lists existing custom actors in scene with code-block status (✓ or ✗)
+
+### Workflow to test
+1. Spawn sub-panel → ⚙ Custom Types → type `spin-prop` → Spawn
+2. Select the empty → Selected Object → GOAL Code → Create boilerplate block
+3. Open Text Editor (Shift+F11) → GOAL Code panel → Open in Editor
+4. Replace boilerplate with spin-prop code from knowledge-base/opengoal/goal-scripting.md
+5. Export+Build → check build log for "[write_gc] injected 1 custom GOAL code block"
+6. Open goal_src/levels/<n>/<n>-obs.gc — custom code at bottom
+7. In-game: ACTOR_spin-prop_0 spawns and its transform rotates
+
+### Known gap (no blocker)
+- collect_actors falls through all etype-specific guards for custom types — this is correct
+- Custom types get a minimal lump dict (name/trans/quat/bsphere) — no special lumps
+- Any lumps needed (e.g. 'spin-rate') must be added via the Custom Lumps panel

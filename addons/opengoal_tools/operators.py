@@ -18,7 +18,7 @@ from .data import (
     _actor_links, _actor_get_link, _actor_set_link, _actor_remove_link,
     _build_actor_link_lumps, _parse_lump_row, _LUMP_HARDCODED_KEYS,
     _aggro_event_id, AGGRO_EVENT_ENUM_ITEMS, LUMP_TYPE_ITEMS,
-    UNIVERSAL_LUMPS,
+    UNIVERSAL_LUMPS, _is_custom_type,
 )
 from .collections import (
     _get_level_prop, _set_level_prop, _level_objects, _active_level_col,
@@ -2503,4 +2503,76 @@ class OG_OT_OpenGoalCodeInEditor(bpy.types.Operator):
         self.report({"INFO"},
                     f"Open a Text Editor area (Shift+F11) then re-click. "
                     f"Block name: '{txt.name}'")
+        return {"FINISHED"}
+
+
+# ---------------------------------------------------------------------------
+# Custom GOAL Type spawn operator
+# ---------------------------------------------------------------------------
+
+import re as _re
+
+_VALID_ETYPE_RE = _re.compile(r'^[a-z][a-z0-9\-]*$')
+
+class OG_OT_SpawnCustomType(bpy.types.Operator):
+    """Spawn an ACTOR_ empty for a user-defined GOAL type.
+
+    The type name must:
+      • be lowercase letters, digits, and hyphens only
+      • not already exist in the addon's built-in entity list
+      • match the deftype name written in your GOAL code block exactly
+
+    The empty is placed at the 3D cursor and named ACTOR_<typename>_<n>.
+    Attach a GOAL code block via the GOAL Code sub-panel to define its behaviour.
+    """
+    bl_idname  = "og.spawn_custom_type"
+    bl_label   = "Spawn Custom Type"
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, ctx):
+        name = (ctx.scene.og_props.custom_type_name or "").strip()
+        return bool(name)
+
+    def execute(self, ctx):
+        etype = (ctx.scene.og_props.custom_type_name or "").strip().lower()
+
+        # Validation
+        if not etype:
+            self.report({"ERROR"}, "Enter a type name first")
+            return {"CANCELLED"}
+
+        if not _VALID_ETYPE_RE.match(etype):
+            self.report({"ERROR"},
+                f"'{etype}' is not a valid type name. "
+                "Use lowercase letters, digits, and hyphens only (e.g. 'spin-prop').")
+            return {"CANCELLED"}
+
+        if not _is_custom_type(etype):
+            self.report({"ERROR"},
+                f"'{etype}' is already a built-in entity type. "
+                "Use the normal Spawn sub-panels to place it, or choose a different name.")
+            return {"CANCELLED"}
+
+        # Count existing actors of this type to build the uid
+        n = len([o for o in _level_objects(ctx.scene)
+                 if o.name.startswith(f"ACTOR_{etype}_")])
+
+        # Place empty at cursor
+        bpy.ops.object.empty_add(type="SPHERE", location=ctx.scene.cursor.location)
+        o = ctx.active_object
+        o.name               = f"ACTOR_{etype}_{n}"
+        o.show_name          = True
+        o.empty_display_size = 0.5
+        # Distinctive yellow-green colour so custom types stand out from built-ins
+        o.color = (0.6, 1.0, 0.2, 1.0)
+
+        # Link into the level collection (Props sub-collection is the best fit
+        # for a generic unknown type — no AI, no navmesh assumed)
+        _link_object_to_sub_collection(
+            ctx.scene, o, *_col_path_for_entity("evilplant"))  # reuse Props path
+
+        self.report({"INFO"},
+            f"Spawned '{o.name}' — open the GOAL Code panel to assign a code block, "
+            f"then define 'deftype {etype}' in that block.")
         return {"FINISHED"}

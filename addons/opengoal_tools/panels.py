@@ -990,6 +990,88 @@ class OG_PT_SpawnSounds(Panel):
             layout.label(text="No emitters placed yet", icon="INFO")
 
 
+class OG_PT_SpawnCustomTypes(Panel):
+    """Spawn panel for user-defined GOAL types.
+
+    Place a plain ACTOR_ empty for any custom deftype written in a GOAL code block.
+    The type name must match the deftype name in obs.gc exactly.
+    """
+    bl_label       = "⚙  Custom Types"
+    bl_idname      = "OG_PT_spawn_custom_types"
+    bl_space_type  = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category    = "OpenGOAL"
+    bl_parent_id   = "OG_PT_spawn"
+    bl_options     = {"DEFAULT_CLOSED"}
+
+    def draw(self, ctx):
+        layout = self.layout
+        props  = ctx.scene.og_props
+
+        # ── Type name input + spawn button ───────────────────────────────────
+        col = layout.column(align=True)
+        col.label(text="GOAL deftype name:", icon="SCRIPT")
+        row = col.row(align=True)
+        row.prop(props, "custom_type_name", text="")
+        row.scale_x = 0.9
+
+        col.separator(factor=0.4)
+        spawn_row = col.row()
+        spawn_row.scale_y = 1.4
+        name_val = (props.custom_type_name or "").strip()
+        spawn_row.enabled = bool(name_val)
+        spawn_row.operator("og.spawn_custom_type",
+                           text=f"Spawn  ACTOR_{name_val}_N" if name_val else "Enter a type name first",
+                           icon="ADD")
+
+        # ── Hint box ────────────────────────────────────────────────────────
+        layout.separator(factor=0.5)
+        box = layout.box()
+        box.label(text="How it works:", icon="INFO")
+        col2 = box.column(align=True)
+        col2.scale_y = 0.85
+        col2.label(text="1. Enter a type name (e.g. spin-prop)")
+        col2.label(text="2. Spawn the empty at the 3D cursor")
+        col2.label(text="3. Select it → GOAL Code panel")
+        col2.label(text="4. Create / assign a code block")
+        col2.label(text="5. Write deftype + defstate + init")
+        col2.label(text="6. Export & Build — type compiles")
+        col2.separator(factor=0.3)
+        col2.label(text="Name must be lowercase + hyphens,")
+        col2.label(text="matching your deftype exactly.")
+
+        # ── Existing custom-type actors in scene ─────────────────────────────
+        custom_actors = [
+            o for o in _level_objects(ctx.scene)
+            if (o.name.startswith("ACTOR_")
+                and o.type == "EMPTY"
+                and "_wp_" not in o.name)
+        ]
+        # Filter to only unknown (custom) types
+        from .data import _is_custom_type as _ict
+        custom_actors = [o for o in custom_actors
+                         if _ict(o.name.split("_", 2)[1]
+                                 if len(o.name.split("_", 2)) >= 3 else "")]
+        if custom_actors:
+            layout.separator(factor=0.3)
+            sub = layout.box()
+            sub.label(text=f"{len(custom_actors)} custom actor(s) in scene:", icon="OUTLINER_OB_EMPTY")
+            for o in custom_actors[:8]:
+                parts = o.name.split("_", 2)
+                etype = parts[1] if len(parts) >= 3 else "?"
+                ref   = getattr(o, "og_goal_code_ref", None)
+                has_code = ref is not None and ref.text_block is not None and ref.enabled
+                icon  = "CHECKMARK" if has_code else "ERROR"
+                tip   = ref.text_block.name if has_code else "no code block"
+                row   = sub.row(align=True)
+                row.label(text=f"{o.name}", icon=icon)
+                sub2  = row.row()
+                sub2.enabled = False
+                sub2.label(text=f"[{tip}]")
+            if len(custom_actors) > 8:
+                sub.label(text=f"… and {len(custom_actors) - 8} more")
+
+
 class OG_PT_SpawnWater(Panel):
     bl_label       = "💧  Water Volumes"
     bl_idname      = "OG_PT_spawn_water"
