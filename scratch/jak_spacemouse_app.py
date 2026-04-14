@@ -10,11 +10,10 @@ import json, math, os, subprocess, sys, threading, time, importlib
 # ── Windows: re-launch inside a console window if opened by double-click ──────
 # Without this, double-clicking a .py silently crashes with no visible error.
 if sys.platform == "win32" and "SPACEMOUSE_LAUNCHED" not in os.environ:
-    import ctypes
     env = os.environ.copy()
     env["SPACEMOUSE_LAUNCHED"] = "1"
     subprocess.Popen(
-        ["cmd", "/c", "python", os.path.abspath(__file__), "&", "pause"],
+        ["cmd", "/c", sys.executable, os.path.abspath(__file__), "&", "pause"],
         creationflags=subprocess.CREATE_NEW_CONSOLE,
         env=env,
     )
