@@ -72,12 +72,12 @@ def _ensure_preview_collection(scene) -> bpy.types.Collection:
         if col is None:
             col = bpy.data.collections.new(col_name)
             scene.collection.children.link(col)
-        col["og_no_export"] = True
+        col.og_no_export = True
         return col
 
     # Use _ensure_sub_collection so the name is level-prefixed (e.g. my-level.Preview Meshes)
     col = _ensure_sub_collection(level_col, _PREVIEW_COL)
-    col["og_no_export"] = True
+    col.og_no_export = True
     return col
 
 

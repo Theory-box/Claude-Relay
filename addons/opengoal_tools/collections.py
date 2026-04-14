@@ -91,9 +91,10 @@ def _active_level_col(scene):
 
 def _col_is_no_export(col):
     """Check if a collection is marked as no-export.
-    Custom properties (set via col["og_no_export"]=True) are not visible to
-    getattr — must use .get() on the ID object directly."""
-    return bool(col.get("og_no_export", False))
+    og_no_export is a registered RNA BoolProperty on bpy.types.Collection,
+    so getattr reads it correctly. Custom prop dict access col.get() would
+    read a separate shadow key and should NOT be used here."""
+    return bool(getattr(col, "og_no_export", False))
 
 
 def _recursive_col_objects(col, exclude_no_export=True):
