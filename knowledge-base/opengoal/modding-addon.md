@@ -523,3 +523,22 @@ Enables placing `ACTOR_` empties for user-defined GOAL types that are not in the
 - **NPCs with game-task** — dialogue/mission behavior with `(game-task none)` unconfirmed
 - **Sky/mood** — hardcoded to village1; other moods documented but untested
 - **VISMESH_ vis-blocker** — built on feature/vis-blocker, not yet merged to main
+
+---
+
+## Music Zones (added April 2026)
+
+Music zones are ambient entities (`type='music`) that trigger `set-setting! 'music`
+when the player enters their bsphere. Required for level music — `:music-bank` in
+`level-load-info` alone does not start music on first load.
+
+**Panel:** Spawn > 🎵 Music Zones
+**Selected Object:** Music Zone sub-panel with searchable bank/flava pickers
+
+Exported as `AMBIENT_mus*` empties with custom props:
+- `og_music_bank` — bank name string (e.g. "village1")
+- `og_music_flava` — flava name string (e.g. "default", "sage")
+- `og_music_priority` — float, default 10.0
+- `og_music_radius` — float meters, default 40.0
+
+See `knowledge-base/opengoal/audio-system.md` for full format and flava table.

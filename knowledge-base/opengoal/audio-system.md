@@ -307,3 +307,47 @@ Sounds safe to use in any custom level (always in `common`): `waterfall`, `water
 - `ambient-sounds` list in level-load-info is unused by all vanilla levels — ignore it
 - `effect-name` lump must use `["symbol", ...]` array format, not a bare string
 - Sound names must exist in a loaded bank — `common` bank always loaded (461 sounds)
+
+---
+
+## Blender Addon — Music Zone System (confirmed working April 2026)
+
+### How to trigger music in a custom level
+
+`:music-bank` in `level-load-info` alone does NOT start music. It only resets
+music after player death. Music requires a `type='music` ambient entity — when
+the player enters its bsphere the engine calls `set-setting! 'music '<bank>`.
+
+**Standard setup:** one large music zone covering the whole level.
+
+### Placing a music zone (Blender addon)
+
+1. **Spawn > 🎵 Music Zones** — set bank, flava (optional), priority, radius
+2. Click **Add Music Zone at Cursor** — places a gold `AMBIENT_mus001` sphere
+3. Select the empty → **Selected Object > Music Zone** — edit any field:
+   - Click **Bank** button → searchable popup of all 19 banks
+   - Click **Flava** button → searchable popup filtered to that bank's variants
+   - **Priority** / **Radius** — direct number inputs
+4. Export & build — the zone appears in the level JSONC `ambients` array
+
+### Exported JSONC format (confirmed working)
+
+```jsonc
+{
+  "trans":   [x, y, z, radius],
+  "bsphere": [x, y, z, radius],
+  "lump": {
+    "name":        "mus001",
+    "type":        "'music",
+    "music":       ["symbol", "village1"],
+    "flava":       ["float", 0.0],
+    "priority":    ["float", 10.0],
+    "effect-name": ["symbol", "village1"]
+  }
+}
+```
+
+`music` is a ResSymbol — the GOAL symbol `'village1` passed to `set-setting!`.
+`flava` is a ResFloat — the integer index into `*flava-table*` for that bank (0 = default).
+`effect-name` is included defensively (listed in the lump quick-ref for music ambients).
+`priority` — vanilla normal zones use 10.0, boss/race overrides use 40.0.

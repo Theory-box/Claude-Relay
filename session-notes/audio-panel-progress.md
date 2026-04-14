@@ -454,3 +454,29 @@ feature/music-ambient — 6 commits ahead of main. Ready to test.
 See audit notes — one remaining uncertainty:
 `"music": ["symbol", "village1"]` may need to be `["float", <bank_index>]`
 Bank indices (0=none, 1=beach, ..., 17=village1) from LEVEL_BANKS.
+
+---
+
+## ✅ MERGED TO MAIN — April 14 2026
+
+Music zone system confirmed working in-game.
+All functionality audited, docs updated, branch merged and deleted.
+
+### Summary of everything added in feature/music-ambient
+
+**Core fix:** music now plays on level load via `type='music` ambient zone.
+`:music-bank` alone was never enough — this was the root cause.
+
+**New panel:** Spawn > 🎵 Music Zones
+**New selected-object panel:** Music Zone (bank/flava pickers + priority/radius)
+**New operators:** add_music_zone, set_music_zone_bank, set_music_zone_flava
+**Export:** collect_ambients handles AMBIENT_mus* → type='music lump
+**Data:** MUSIC_FLAVA_TABLE (19 banks → flava variants), _music_flava_items_cb
+
+### Files changed from main
+- data.py — MUSIC_FLAVA_TABLE, _music_flava_items_cb
+- properties.py — og_music_amb_bank/flava/priority/radius scene props
+- operators.py — AddMusicZone, SetMusicZoneBank, SetMusicZoneFlava
+- panels.py — OG_PT_SpawnMusicZones, OG_PT_MusicZone, fixed AmbientEmitter poll
+- export.py — music zone branch in collect_ambients
+- __init__.py — registrations
