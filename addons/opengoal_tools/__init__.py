@@ -134,7 +134,7 @@ from .operators import (
     OG_OT_ExportBuild, OG_OT_GeoRebuild, OG_OT_Play, OG_OT_PlayAutoLoad,
     OG_OT_ExportBuildPlay,
     OG_OT_OpenFolder, OG_OT_OpenFile,
-    OG_OT_BakeLighting, OG_OT_PickSound, OG_OT_AddSoundEmitter,
+    OG_OT_BakeLighting, OG_OT_PickSound, OG_OT_AddSoundEmitter, OG_OT_AddMusicZone,
     OG_OT_RemoveLevel, OG_OT_RefreshLevels,
 )
 from .panels import (
@@ -147,7 +147,7 @@ from .panels import (
     OG_PT_Spawn, OG_PT_SpawnSearch, OG_PT_SpawnLimitSearch, OG_OT_SearchSelectEntity,
     OG_PT_VertexExport, OG_OT_AssignVertexExport, OG_OT_ClearVertexExport,
     OG_PT_SpawnEnemies, OG_PT_SpawnPlatforms,
-    OG_PT_SpawnProps, OG_PT_SpawnNPCs, OG_PT_SpawnPickups, OG_PT_SpawnSounds,
+    OG_PT_SpawnProps, OG_PT_SpawnNPCs, OG_PT_SpawnPickups, OG_PT_SpawnSounds, OG_PT_SpawnMusicZones,
     OG_PT_Camera, OG_PT_Triggers,
     OG_PT_SelectedObject, OG_PT_SelectedCollision,
     OG_PT_SelectedLightBaking, OG_PT_SelectedNavMeshTag,
@@ -225,6 +225,7 @@ classes = (
     OG_OT_BakeLighting,
     OG_OT_PickSound,
     OG_OT_AddSoundEmitter,
+    OG_OT_AddMusicZone,
     OG_OT_RemoveLevel,
     OG_OT_RefreshLevels,
     # ── Collection system operators ──────────────────────────────────────
@@ -259,6 +260,7 @@ classes = (
     OG_PT_SpawnNPCs,
     OG_PT_SpawnPickups,
     OG_PT_SpawnSounds,
+    OG_PT_SpawnMusicZones,
     OG_PT_SpawnLevelFlow,
     OG_PT_Camera,
     OG_PT_Triggers,

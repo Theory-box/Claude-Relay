@@ -12,7 +12,7 @@ from .data import (
     ENTITY_ENUM_ITEMS, PLATFORM_ENUM_ITEMS, CRATE_ITEMS,
     ENEMY_ENUM_ITEMS, PROP_ENUM_ITEMS, NPC_ENUM_ITEMS, PICKUP_ENUM_ITEMS,
     LUMP_TYPE_ITEMS, AGGRO_EVENT_ENUM_ITEMS, ALL_SFX_ITEMS,
-    LEVEL_BANKS, SBK_SOUNDS,
+    LEVEL_BANKS, SBK_SOUNDS, MUSIC_FLAVA_TABLE, _music_flava_items_cb,
     TPAGE_FILTER_ITEMS, GLOBAL_TPAGE_GROUPS,
     _enemy_enum_cb, _prop_enum_cb, _npc_enum_cb, _pickup_enum_cb, _platform_enum_cb,
     _search_results_cb,
@@ -119,6 +119,15 @@ class OGProperties(PropertyGroup):
                                          description="Currently selected sound for emitter placement")
     ambient_default_radius: FloatProperty(name="Default Emitter Radius (m)", default=15.0, min=1.0, max=200.0,
                                           description="Bsphere radius for new sound emitter empties")
+    # Music zone emitter props
+    og_music_amb_bank:     EnumProperty(name="Music Bank", items=LEVEL_BANKS, default="village1",
+                                        description="Music bank this zone will activate when the player enters")
+    og_music_amb_flava:    EnumProperty(name="Flava", items=_music_flava_items_cb,
+                                        description="Music variant/sub-track for this zone (filtered by selected bank)")
+    og_music_amb_priority: FloatProperty(name="Priority", default=10.0, min=0.0, max=100.0,
+                                         description="Zone priority — higher value wins when zones overlap. Vanilla uses 10.0 normal, 40.0 boss/race")
+    og_music_amb_radius:   FloatProperty(name="Zone Radius (m)", default=40.0, min=1.0, max=500.0,
+                                         description="Bsphere radius of this music zone")
     # Level flow spawn type picker
     spawn_flow_type: EnumProperty(
         name="Type",

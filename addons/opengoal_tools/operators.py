@@ -1158,6 +1158,42 @@ class OG_OT_AddSoundEmitter(Operator):
         return {"FINISHED"}
 
 
+class OG_OT_AddMusicZone(Operator):
+    """Add a music ambient zone (sphere) at the 3D cursor.
+    When the player enters the bsphere the engine calls set-setting! 'music.
+    One large zone covering the whole level is the standard setup."""
+    bl_idname  = "og.add_music_zone"
+    bl_label   = "Add Music Zone"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, ctx):
+        props = ctx.scene.og_props
+        bank     = props.og_music_amb_bank
+        flava    = props.og_music_amb_flava
+        priority = props.og_music_amb_priority
+        radius   = props.og_music_amb_radius
+
+        existing = [o for o in _level_objects(ctx.scene) if o.name.startswith("AMBIENT_mus")]
+        idx  = len(existing) + 1
+        name = f"AMBIENT_mus{idx:03d}"
+
+        bpy.ops.object.empty_add(type="SPHERE", location=ctx.scene.cursor.location)
+        o = ctx.active_object
+        o.name = name
+        o.show_name = True
+        o.empty_display_size = max(0.3, radius * 0.04)
+        o.color = (1.0, 0.85, 0.1, 1.0)   # gold — distinct from sound emitters (cyan)
+
+        o["og_music_bank"]     = bank
+        o["og_music_flava"]    = flava
+        o["og_music_priority"] = priority
+        o["og_music_radius"]   = radius
+
+        _link_object_to_sub_collection(ctx.scene, o, *_COL_PATH_SOUND_EMITTERS)
+        self.report({"INFO"}, f"Added '{name}' → music:{bank} flava:{flava}")
+        return {"FINISHED"}
+
+
 class OG_OT_SpawnCamera(Operator):
     bl_idname = "og.spawn_camera"
     bl_label  = "Add Camera"

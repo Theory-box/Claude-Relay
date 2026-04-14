@@ -990,6 +990,58 @@ class OG_PT_SpawnSounds(Panel):
             layout.label(text="No emitters placed yet", icon="INFO")
 
 
+class OG_PT_SpawnMusicZones(Panel):
+    bl_label       = "🎵  Music Zones"
+    bl_idname      = "OG_PT_spawn_music"
+    bl_space_type  = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category    = "OpenGOAL"
+    bl_parent_id   = "OG_PT_spawn"
+    bl_options     = {"DEFAULT_CLOSED"}
+
+    def draw(self, ctx):
+        layout = self.layout
+        props  = ctx.scene.og_props
+
+        col = layout.column(align=True)
+        col.label(text="New Zone Settings:", icon="SETTINGS")
+        col.prop(props, "og_music_amb_bank",     text="Music Bank")
+        col.prop(props, "og_music_amb_flava",    text="Flava")
+        col.prop(props, "og_music_amb_priority", text="Priority")
+        col.prop(props, "og_music_amb_radius",   text="Radius (m)")
+
+        col.separator(factor=0.6)
+        row = col.row()
+        row.scale_y = 1.4
+        row.operator("og.add_music_zone", text="Add Music Zone at Cursor", icon="ADD")
+
+        # List existing music zones
+        zones = [o for o in _level_objects(ctx.scene)
+                 if o.name.startswith("AMBIENT_mus") and o.type == "EMPTY"
+                 and o.get("og_music_bank")]
+        if zones:
+            layout.separator(factor=0.3)
+            sub = layout.box()
+            sub.label(text=f"{len(zones)} zone(s) in scene:", icon="OUTLINER_OB_EMPTY")
+            for o in zones[:8]:
+                row = sub.row(align=True)
+                bank  = o.get("og_music_bank", "?")
+                flava = o.get("og_music_flava", "default")
+                pri   = o.get("og_music_priority", 10.0)
+                label = f"{o.name}  →  {bank}"
+                if flava and flava != "default":
+                    label += f"  [{flava}]"
+                label += f"  pri:{pri:.0f}"
+                row.label(text=label, icon="SOUND")
+            if len(zones) > 8:
+                sub.label(text=f"… and {len(zones) - 8} more")
+        else:
+            layout.separator(factor=0.3)
+            layout.label(text="No music zones placed yet", icon="INFO")
+            layout.label(text="Tip: one large zone covering the", icon="BLANK1")
+            layout.label(text="whole level is usually enough.",  icon="BLANK1")
+
+
 class OG_PT_SpawnWater(Panel):
     bl_label       = "💧  Water Volumes"
     bl_idname      = "OG_PT_spawn_water"

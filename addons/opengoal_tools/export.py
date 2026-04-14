@@ -1938,6 +1938,30 @@ def collect_ambients(scene):
                     "cycle-speed": cycle_speed,
                 },
             })
+
+        elif o.get("og_music_bank"):
+            # Music zone — placed via the Music Zones panel
+            bank     = str(o["og_music_bank"]).lower().strip()
+            flava    = str(o.get("og_music_flava", "default")).lower().strip()
+            priority = float(o.get("og_music_priority", 10.0))
+            radius   = float(o.get("og_music_radius", 40.0))
+
+            # flava index: look up position in MUSIC_FLAVA_TABLE for this bank
+            from .data import MUSIC_FLAVA_TABLE
+            flava_list  = MUSIC_FLAVA_TABLE.get(bank, ["default"])
+            flava_index = float(flava_list.index(flava) if flava in flava_list else 0)
+
+            out.append({
+                "trans":   [gx, gy, gz, radius],
+                "bsphere": [gx, gy, gz, radius],
+                "lump": {
+                    "name":     o.name[8:].lower() or "music-zone",
+                    "type":     "'music",
+                    "music":    ["symbol", bank],
+                    "flava":    ["float", flava_index],
+                    "priority": ["float", priority],
+                },
+            })
         else:
             # Legacy hint emitter — unchanged behaviour
             out.append({
