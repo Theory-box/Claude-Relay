@@ -200,7 +200,7 @@ classes = (
     OG_OT_RemoveVolLink, OG_OT_AddLinkFromSelection, OG_OT_SpawnAggroTrigger,
     OG_OT_SetActorLink, OG_OT_ClearActorLink,
     OG_OT_SelectAndFrame, OG_OT_DeleteObject,
-    OG_OT_SpawnEntity, OG_OT_ClearPreviews,
+    OG_OT_SpawnEntity, OG_OT_DuplicateEntity, OG_OT_ClearPreviews,
     OG_OT_SpawnCamera, OG_OT_SpawnCamAlign, OG_OT_SpawnCamPivot,
     OG_OT_SpawnCamLookAt,
     OG_OT_SetCamProp, OG_OT_NudgeCamFloat,

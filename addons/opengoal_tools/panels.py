@@ -1684,7 +1684,7 @@ class OG_PT_SelectedObject(Panel):
         op = row.operator("og.select_and_frame", text="Frame", icon="VIEWZOOM")
         op.obj_name = name
         if name.startswith("ACTOR_") and "_wp_" not in name:
-            row.operator("og.duplicate_entity", text="Duplicate", icon="DUPLICATE")
+            row.operator("og.duplicate_entity", text="Duplicate", icon="COPYDOWN")
         op = row.operator("og.delete_object", text="Delete", icon="TRASH")
         op.obj_name = name
 
