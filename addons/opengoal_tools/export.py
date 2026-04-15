@@ -376,6 +376,61 @@ def _vol_aabb(vol_obj):
             cx, cy, cz, rad)
 
 
+def _vol_planes(vol_obj):
+    """Convert a VOL_ mesh to a list of half-space plane equations for point-in-vol?.
+
+    Ports the mesh-to-VOL.py Blender script into the exporter.  Each face of
+    the mesh yields one plane [nx, ny, nz, d] in game space.  A point P is
+    inside the convex volume when dot(P,N) <= d for ALL planes.
+
+    Coordinate transform: Blender(X,Y,Z) → Game(X,Z,-Y).
+    The dot product is preserved under this orthogonal transform, so d can be
+    computed in Blender world space and used directly.
+
+    Normals face OUTWARD (Blender face normals on a properly oriented mesh).
+    point-in-vol? checks: dot(P,N) - d > 0  →  outside.  ✓
+
+    Returns:
+        planes  — list of [nx, ny, nz, d] rounded to 4 dp
+        sphere  — (cx, cy, cz, radius) bounding sphere in game space
+
+    NOTE: mesh should be convex and have correct outward normals (Ctrl+N in
+    Blender).  Non-convex meshes will produce planes that exclude interior
+    regions of the shape — use the bounding convex hull instead.
+    NOTE: non-uniform scale is not handled (normals transform as
+    inverse-transpose).  Keep VOL_ meshes at uniform scale or apply scale
+    (Ctrl+A) before export.
+    """
+    import mathutils
+    mesh        = vol_obj.data
+    global_mat  = vol_obj.matrix_world
+    rot_mat     = global_mat.to_3x3()   # rotation+scale part for normals
+
+    planes = []
+    for face in mesh.polygons:
+        # World-space normal (rotation+scale), then normalize
+        n = rot_mat @ face.normal
+        n.normalize()
+        # Coord transform: Blender → Game
+        gn = mathutils.Vector((n.x, n.z, -n.y))
+        # Face centre in Blender world space
+        fc_bl = global_mat @ face.center
+        # d is preserved under the orthogonal Blender→Game transform
+        d = fc_bl.dot(n)
+        planes.append([round(gn.x, 4), round(gn.y, 4), round(gn.z, 4), round(d, 4)])
+
+    # Bounding sphere from AABB of world-space vertices (game coords)
+    corners = [global_mat @ v.co for v in mesh.vertices]
+    gc = [(c.x, c.z, -c.y) for c in corners]
+    xs = [c[0] for c in gc]; ys = [c[1] for c in gc]; zs = [c[2] for c in gc]
+    cx  = round((min(xs) + max(xs)) / 2, 4)
+    cy  = round((min(ys) + max(ys)) / 2, 4)
+    cz  = round((min(zs) + max(zs)) / 2, 4)
+    rad = round(max(max(xs)-min(xs), max(ys)-min(ys), max(zs)-min(zs)) / 2 + 5.0, 2)
+
+    return planes, (cx, cy, cz, rad)
+
+
 def collect_aggro_triggers(scene):
     """Build aggro-trigger actor list from VOL_ meshes whose og_vol_links
     contain at least one nav-enemy ACTOR_ target.
@@ -418,7 +473,7 @@ def collect_aggro_triggers(scene):
                 log(f"  [WARNING] aggro-trigger {vol.name}: malformed target name '{entry.target_name}' — skipped")
                 continue
             target_lump_name = f"{parts[1]}-{parts[2]}"
-            xmin, xmax, ymin, ymax, zmin, zmax, cx, cy, cz, rad = _vol_aabb(vol)
+            planes, (cx, cy, cz, rad) = _vol_planes(vol)
             event_id = _aggro_event_id(entry.behaviour)
             uid = counter
             counter += 1
@@ -430,15 +485,11 @@ def collect_aggro_triggers(scene):
                 "vis_id":    0,
                 "bsphere":   [cx, cy, cz, rad],
                 "lump": {
-                    "name":        f"aggrotrig-{uid}",
-                    "target-name": target_lump_name,
-                    "event-id":    ["uint32", event_id],
-                    "bound-xmin":  ["meters", xmin],
-                    "bound-xmax":  ["meters", xmax],
-                    "bound-ymin":  ["meters", ymin],
-                    "bound-ymax":  ["meters", ymax],
-                    "bound-zmin":  ["meters", zmin],
-                    "bound-zmax":  ["meters", zmax],
+                    "name":         f"aggrotrig-{uid}",
+                    "target-name":  target_lump_name,
+                    "event-id":     ["uint32", event_id],
+                    "cull-radius":  ["meters", rad],
+                    "vol":          ["vector-vol"] + planes,
                 },
             })
             log(f"  [aggro-trigger] {vol.name} → {entry.target_name} (lump: {target_lump_name}, {entry.behaviour})")
@@ -474,7 +525,7 @@ def collect_custom_triggers(scene):
                 log(f"  [WARNING] vol-trigger {vol.name}: malformed target name '{entry.target_name}' — skipped")
                 continue
             target_lump_name = f"{parts[1]}-{parts[2]}"
-            xmin, xmax, ymin, ymax, zmin, zmax, cx, cy, cz, rad = _vol_aabb(vol)
+            planes, (cx, cy, cz, rad) = _vol_planes(vol)
             uid = counter
             counter += 1
             out.append({
@@ -487,12 +538,8 @@ def collect_custom_triggers(scene):
                 "lump": {
                     "name":        f"voltrig-{uid}",
                     "target-name": target_lump_name,
-                    "bound-xmin":  ["meters", xmin],
-                    "bound-xmax":  ["meters", xmax],
-                    "bound-ymin":  ["meters", ymin],
-                    "bound-ymax":  ["meters", ymax],
-                    "bound-zmin":  ["meters", zmin],
-                    "bound-zmax":  ["meters", zmax],
+                    "cull-radius": ["meters", rad],
+                    "vol":         ["vector-vol"] + planes,
                 },
             })
             log(f"  [vol-trigger] {vol.name} → {entry.target_name} (lump: {target_lump_name})")
@@ -622,7 +669,7 @@ def collect_cameras(scene):
         vol_list = vols_by_cam.get(cam_name, [])
         if vol_list:
             for vol_obj in vol_list:
-                xmin, xmax, ymin, ymax, zmin, zmax, cx, cy, cz, rad = _vol_aabb(vol_obj)
+                planes, (cx, cy, cz, rad) = _vol_planes(vol_obj)
                 trigger_actors.append({
                     "trans":     [cx, cy, cz],
                     "etype":     "camera-trigger",
@@ -631,14 +678,10 @@ def collect_cameras(scene):
                     "vis_id":    0,
                     "bsphere":   [cx, cy, cz, rad],
                     "lump": {
-                        "name":       f"camtrig-{cam_name.lower()}-{vol_obj.get('og_vol_id', 0)}",
-                        "cam-name":   cam_name,
-                        "bound-xmin": ["meters", xmin],
-                        "bound-xmax": ["meters", xmax],
-                        "bound-ymin": ["meters", ymin],
-                        "bound-ymax": ["meters", ymax],
-                        "bound-zmin": ["meters", zmin],
-                        "bound-zmax": ["meters", zmax],
+                        "name":        f"camtrig-{cam_name.lower()}-{vol_obj.get('og_vol_id', 0)}",
+                        "cam-name":    cam_name,
+                        "cull-radius": ["meters", rad],
+                        "vol":         ["vector-vol"] + planes,
                     },
                 })
                 log(f"  [camera] {cam_name} + trigger {vol_obj.name}")
@@ -684,21 +727,17 @@ def write_gc(name, has_triggers=False, has_checkpoints=False, has_aggro_triggers
 
     if has_triggers:
         lines += [
-            ";; camera-trigger: AABB volume entity that switches the active camera.",
-            ";; Reads bounds from meters lumps; reads cam-name string lump.",
-            ";; No nREPL call needed -- births automatically on level load.",
+            ";; camera-trigger: convex-volume entity that switches the active camera.",
+            ";; Uses native vol-control / point-in-vol? for exact per-face plane testing.",
+            ";; 'vol lump holds per-face half-space planes exported by the addon.",
+            ";; 'cull-radius lump is the bounding-sphere radius used as a fast pre-check.",
             "(deftype camera-trigger (process-drawable)",
-            "  ((cam-name    string  :offset-assert 176)",
-            "   (cull-radius float   :offset-assert 180)",
-            "   (xmin        float   :offset-assert 184)",
-            "   (xmax        float   :offset-assert 188)",
-            "   (ymin        float   :offset-assert 192)",
-            "   (ymax        float   :offset-assert 196)",
-            "   (zmin        float   :offset-assert 200)",
-            "   (zmax        float   :offset-assert 204)",
-            "   (inside      symbol  :offset-assert 208))",
+            "  ((cam-name    string      :offset-assert 176)",
+            "   (cull-radius float       :offset-assert 180)",
+            "   (inside      symbol      :offset-assert 184)",
+            "   (vol         vol-control :offset-assert 188))",
             "  :heap-base #x70",
-            "  :size-assert #xd4",
+            "  :size-assert #xc0",
             "  (:states camera-trigger-active))",
             "",
             "(defstate camera-trigger-active (camera-trigger)",
@@ -706,16 +745,14 @@ def write_gc(name, has_triggers=False, has_checkpoints=False, has_aggro_triggers
             "  (behavior ()",
             "    (loop",
             "      (when (and *target* (zero? (mod (-> *display* base-frame-counter) 4)))",
-            "        (let* ((pos  (-> *target* control trans))",
-            "               (dx   (- (-> pos x) (-> self root trans x)))",
-            "               (dy   (- (-> pos y) (-> self root trans y)))",
-            "               (dz   (- (-> pos z) (-> self root trans z)))",
-            "               (cr   (-> self cull-radius))",
+            "        (let* ((pos    (-> *target* control trans))",
+            "               (dx     (- (-> pos x) (-> self root trans x)))",
+            "               (dy     (- (-> pos y) (-> self root trans y)))",
+            "               (dz     (- (-> pos z) (-> self root trans z)))",
+            "               (cr     (-> self cull-radius))",
             "               (in-vol (and",
             "                 (< (+ (* dx dx) (* dy dy) (* dz dz)) (* cr cr))",
-            "                 (< (-> self xmin) (-> pos x)) (< (-> pos x) (-> self xmax))",
-            "                 (< (-> self ymin) (-> pos y)) (< (-> pos y) (-> self ymax))",
-            "                 (< (-> self zmin) (-> pos z)) (< (-> pos z) (-> self zmax)))))",
+            "                 (point-in-vol? (-> self vol) pos))))",
             "          (cond",
             "            ((and in-vol (not (-> self inside)))",
             "             (set! (-> self inside) #t)",
@@ -728,21 +765,14 @@ def write_gc(name, has_triggers=False, has_checkpoints=False, has_aggro_triggers
             "      (suspend))))",
             "",
             "(defmethod init-from-entity! ((this camera-trigger) (arg0 entity-actor))",
-            "  (set! (-> this root) (new (quote process) (quote trsqv)))",
+            "  (set! (-> this root)        (new (quote process) (quote trsqv)))",
             "  (process-drawable-from-entity! this arg0)",
-            "  (set! (-> this cam-name) (res-lump-struct arg0 (quote cam-name) string))",
-            "  (set! (-> this xmin) (res-lump-float arg0 (quote bound-xmin)))",
-            "  (set! (-> this xmax) (res-lump-float arg0 (quote bound-xmax)))",
-            "  (set! (-> this ymin) (res-lump-float arg0 (quote bound-ymin)))",
-            "  (set! (-> this ymax) (res-lump-float arg0 (quote bound-ymax)))",
-            "  (set! (-> this zmin) (res-lump-float arg0 (quote bound-zmin)))",
-            "  (set! (-> this zmax) (res-lump-float arg0 (quote bound-zmax)))",
-            "  (let* ((hx (* 0.5 (- (-> this xmax) (-> this xmin))))",
-            "         (hy (* 0.5 (- (-> this ymax) (-> this ymin))))",
-            "         (hz (* 0.5 (- (-> this zmax) (-> this zmin)))))",
-            "    (set! (-> this cull-radius) (sqrtf (+ (* hx hx) (* hy hy) (* hz hz)))))",
-            "  (set! (-> this inside) #f)",
-            "  (format 0 \"[cam-trigger] armed: ~A cull-r ~M~%\" (-> this cam-name) (-> this cull-radius))",
+            "  (set! (-> this cam-name)    (res-lump-struct arg0 (quote cam-name) string))",
+            "  (set! (-> this cull-radius) (res-lump-float  arg0 (quote cull-radius) :default 20480.0))",
+            "  (set! (-> this inside)      #f)",
+            "  (set! (-> this vol)         (new (quote process) (quote vol-control) (the-as entity arg0)))",
+            "  (format 0 \"[cam-trigger] armed: ~A cull-r ~M planes ~D~%\"",
+            "    (-> this cam-name) (-> this cull-radius) (-> this vol pos-vol-count))",
             "  (go camera-trigger-active)",
             "  (none))",
             "",
@@ -752,23 +782,18 @@ def write_gc(name, has_triggers=False, has_checkpoints=False, has_aggro_triggers
     if has_checkpoints:
         lines += [
             ";; checkpoint-trigger: sets continue point when Jak enters the volume.",
-            ";; After firing it enters a 5-second cooldown then re-arms automatically,",
-            ";; so if the player dies and respawns in the same zone it fires again.",
-            ";; Two modes: sphere (default) or AABB (has-volume lump = 1).",
+            ";; After firing it waits for the player to exit before re-arming,",
+            ";; so dying in the same zone re-fires cleanly.",
+            ";; Two modes: vol (has-volume lump = 1, uses point-in-vol?) or sphere (radius lump).",
             "(deftype checkpoint-trigger (process-drawable)",
-            "  ((cp-name     string  :offset-assert 176)",
-            "   (cull-radius float   :offset-assert 180)",
-            "   (radius      float   :offset-assert 184)",
-            "   (use-vol     symbol  :offset-assert 188)",
-            "   (was-near    symbol  :offset-assert 192)",
-            "   (xmin        float   :offset-assert 196)",
-            "   (xmax        float   :offset-assert 200)",
-            "   (ymin        float   :offset-assert 204)",
-            "   (ymax        float   :offset-assert 208)",
-            "   (zmin        float   :offset-assert 212)",
-            "   (zmax        float   :offset-assert 216))",
+            "  ((cp-name     string      :offset-assert 176)",
+            "   (cull-radius float       :offset-assert 180)",
+            "   (radius      float       :offset-assert 184)",
+            "   (use-vol     symbol      :offset-assert 188)",
+            "   (was-near    symbol      :offset-assert 192)",
+            "   (vol         vol-control :offset-assert 196))",
             "  :heap-base #x70",
-            "  :size-assert #xdc",
+            "  :size-assert #xc8",
             "  (:states checkpoint-trigger-active checkpoint-trigger-wait-exit))",
             "",
             ";; Wait-for-exit state: fired, now waiting for player to leave the volume.",
@@ -779,18 +804,15 @@ def write_gc(name, has_triggers=False, has_checkpoints=False, has_aggro_triggers
             "  (behavior ()",
             "    (loop",
             "      (when (and *target* (zero? (mod (-> *display* base-frame-counter) 4)))",
-            "        (let* ((pos  (-> *target* control trans))",
-            "               (dx   (- (-> pos x) (-> self root trans x)))",
-            "               (dy   (- (-> pos y) (-> self root trans y)))",
-            "               (dz   (- (-> pos z) (-> self root trans z)))",
-            "               (cr   (-> self cull-radius))",
+            "        (let* ((pos         (-> *target* control trans))",
+            "               (dx          (- (-> pos x) (-> self root trans x)))",
+            "               (dy          (- (-> pos y) (-> self root trans y)))",
+            "               (dz          (- (-> pos z) (-> self root trans z)))",
+            "               (cr          (-> self cull-radius))",
             "               (still-inside (and",
             "                 (< (+ (* dx dx) (* dy dy) (* dz dz)) (* cr cr))",
             "                 (if (-> self use-vol)",
-            "                   (and",
-            "                     (< (-> self xmin) (-> pos x)) (< (-> pos x) (-> self xmax))",
-            "                     (< (-> self ymin) (-> pos y)) (< (-> pos y) (-> self ymax))",
-            "                     (< (-> self zmin) (-> pos z)) (< (-> pos z) (-> self zmax)))",
+            "                   (point-in-vol? (-> self vol) pos)",
             "                   (let ((r (-> self radius)))",
             "                     (< (+ (* dx dx) (* dy dy) (* dz dz)) (* r r)))))))",
             "          (when (not still-inside)",
@@ -803,22 +825,17 @@ def write_gc(name, has_triggers=False, has_checkpoints=False, has_aggro_triggers
             "  (behavior ()",
             "    (loop",
             "      (when (and *target* (zero? (mod (-> *display* base-frame-counter) 4)))",
-            "        (let* ((pos  (-> *target* control trans))",
-            "               (dx   (- (-> pos x) (-> self root trans x)))",
-            "               (dy   (- (-> pos y) (-> self root trans y)))",
-            "               (dz   (- (-> pos z) (-> self root trans z)))",
-            "               (cr   (-> self cull-radius))",
-            "               (near (< (+ (* dx dx) (* dy dy) (* dz dz)) (* cr cr)))",
+            "        (let* ((pos    (-> *target* control trans))",
+            "               (dx     (- (-> pos x) (-> self root trans x)))",
+            "               (dy     (- (-> pos y) (-> self root trans y)))",
+            "               (dz     (- (-> pos z) (-> self root trans z)))",
+            "               (cr     (-> self cull-radius))",
+            "               (near   (< (+ (* dx dx) (* dy dy) (* dz dz)) (* cr cr)))",
             "               (inside (and near",
             "                 (if (-> self use-vol)",
-            "                   (and",
-            "                     (< (-> self xmin) (-> pos x)) (< (-> pos x) (-> self xmax))",
-            "                     (< (-> self ymin) (-> pos y)) (< (-> pos y) (-> self ymax))",
-            "                     (< (-> self zmin) (-> pos z)) (< (-> pos z) (-> self zmax)))",
+            "                   (point-in-vol? (-> self vol) pos)",
             "                   (let ((r (-> self radius)))",
             "                     (< (+ (* dx dx) (* dy dy) (* dz dz)) (* r r)))))))",
-            "          (when (and near (not inside) (not (-> self was-near)))",
-            "            (format 0 \"[cp-trigger] ~A sphere-hit AABB-miss~%\" (-> self cp-name)))",
             "          (set! (-> self was-near) near)",
             "          (when inside",
             "            (format 0 \"[cp-trigger] fired -> ~A~%\" (-> self cp-name))",
@@ -827,36 +844,26 @@ def write_gc(name, has_triggers=False, has_checkpoints=False, has_aggro_triggers
             "      (suspend))))",
             "",
             "(defmethod init-from-entity! ((this checkpoint-trigger) (arg0 entity-actor))",
-            "  (set! (-> this root) (new (quote process) (quote trsqv)))",
+            "  (set! (-> this root)     (new (quote process) (quote trsqv)))",
             "  (process-drawable-from-entity! this arg0)",
             "  (set! (-> this cp-name)  (res-lump-struct arg0 (quote continue-name) string))",
             "  (set! (-> this radius)   (res-lump-float  arg0 (quote radius) :default 12288.0))",
             "  (set! (-> this use-vol)  (!= 0 (the int (res-lump-value arg0 (quote has-volume) uint128))))",
             "  (set! (-> this was-near) #f)",
-            "  (set! (-> this xmin)     (res-lump-float arg0 (quote bound-xmin)))",
-            "  (set! (-> this xmax)     (res-lump-float arg0 (quote bound-xmax)))",
-            "  (set! (-> this ymin)     (res-lump-float arg0 (quote bound-ymin)))",
-            "  (set! (-> this ymax)     (res-lump-float arg0 (quote bound-ymax)))",
-            "  (set! (-> this zmin)     (res-lump-float arg0 (quote bound-zmin)))",
-            "  (set! (-> this zmax)     (res-lump-float arg0 (quote bound-zmax)))",
-            "  (let* ((hx (* 0.5 (- (-> this xmax) (-> this xmin))))",
-            "         (hy (* 0.5 (- (-> this ymax) (-> this ymin))))",
-            "         (hz (* 0.5 (- (-> this zmax) (-> this zmin))))",
-            "         (r  (-> this radius)))",
-            "    (set! (-> this cull-radius)",
-            "      (if (-> this use-vol)",
-            "        (sqrtf (+ (* hx hx) (* hy hy) (* hz hz)))",
-            "        (* r 1.2))))",
-            "  (format 0 \"[cp-trigger] armed: ~A~%\" (-> this cp-name))",
+            "  (set! (-> this cull-radius)",
+            "    (res-lump-float arg0 (quote cull-radius) :default (* (-> this radius) 1.2)))",
+            "  (when (-> this use-vol)",
+            "    (set! (-> this vol) (new (quote process) (quote vol-control) (the-as entity arg0))))",
+            "  (format 0 \"[cp-trigger] armed: ~A use-vol:~A~%\" (-> this cp-name) (-> this use-vol))",
             "  (go checkpoint-trigger-active)",
             "  (none))",
             "",
         ]
         log(f"  [write_gc] checkpoint-trigger type embedded")
-
     if has_aggro_triggers:
         lines += [
-            ";; aggro-trigger: AABB volume entity that sends a wakeup event to a target enemy.",
+            ";; aggro-trigger: convex-volume entity that sends a wakeup event to a target enemy.",
+            ";; Uses native vol-control / point-in-vol? for exact per-face plane testing.",
             ";; On rising edge (player enters volume), looks up target enemy by name via",
             ";; (process-by-ename ...) and sends one of three quoted symbols based on event-id:",
             ";;   0 = 'cue-chase        — wake enemy + chase player",
@@ -865,18 +872,13 @@ def write_gc(name, has_triggers=False, has_checkpoints=False, has_aggro_triggers
             ";; Re-fires every time the player re-enters (inside flag clears on exit).",
             ";; Only nav-enemies respond to these events (engine: nav-enemy.gc line 142).",
             "(deftype aggro-trigger (process-drawable)",
-            "  ((target-name string  :offset-assert 176)",
-            "   (cull-radius float   :offset-assert 180)",
-            "   (event-id    int32   :offset-assert 184)",
-            "   (xmin        float   :offset-assert 188)",
-            "   (xmax        float   :offset-assert 192)",
-            "   (ymin        float   :offset-assert 196)",
-            "   (ymax        float   :offset-assert 200)",
-            "   (zmin        float   :offset-assert 204)",
-            "   (zmax        float   :offset-assert 208)",
-            "   (inside      symbol  :offset-assert 212))",
+            "  ((target-name string      :offset-assert 176)",
+            "   (cull-radius float       :offset-assert 180)",
+            "   (event-id    int32       :offset-assert 184)",
+            "   (inside      symbol      :offset-assert 188)",
+            "   (vol         vol-control :offset-assert 192))",
             "  :heap-base #x70",
-            "  :size-assert #xd8",
+            "  :size-assert #xc4",
             "  (:states aggro-trigger-active))",
             "",
             "(defstate aggro-trigger-active (aggro-trigger)",
@@ -884,16 +886,14 @@ def write_gc(name, has_triggers=False, has_checkpoints=False, has_aggro_triggers
             "  (behavior ()",
             "    (loop",
             "      (when (and *target* (zero? (mod (-> *display* base-frame-counter) 4)))",
-            "        (let* ((pos  (-> *target* control trans))",
-            "               (dx   (- (-> pos x) (-> self root trans x)))",
-            "               (dy   (- (-> pos y) (-> self root trans y)))",
-            "               (dz   (- (-> pos z) (-> self root trans z)))",
-            "               (cr   (-> self cull-radius))",
+            "        (let* ((pos    (-> *target* control trans))",
+            "               (dx     (- (-> pos x) (-> self root trans x)))",
+            "               (dy     (- (-> pos y) (-> self root trans y)))",
+            "               (dz     (- (-> pos z) (-> self root trans z)))",
+            "               (cr     (-> self cull-radius))",
             "               (in-vol (and",
             "                 (< (+ (* dx dx) (* dy dy) (* dz dz)) (* cr cr))",
-            "                 (< (-> self xmin) (-> pos x)) (< (-> pos x) (-> self xmax))",
-            "                 (< (-> self ymin) (-> pos y)) (< (-> pos y) (-> self ymax))",
-            "                 (< (-> self zmin) (-> pos z)) (< (-> pos z) (-> self zmax)))))",
+            "                 (point-in-vol? (-> self vol) pos))))",
             "          (cond",
             "            ((and in-vol (not (-> self inside)))",
             "             (set! (-> self inside) #t)",
@@ -913,22 +913,15 @@ def write_gc(name, has_triggers=False, has_checkpoints=False, has_aggro_triggers
             "      (suspend))))",
             "",
             "(defmethod init-from-entity! ((this aggro-trigger) (arg0 entity-actor))",
-            "  (set! (-> this root) (new (quote process) (quote trsqv)))",
+            "  (set! (-> this root)        (new (quote process) (quote trsqv)))",
             "  (process-drawable-from-entity! this arg0)",
             "  (set! (-> this target-name) (res-lump-struct arg0 (quote target-name) string))",
             "  (set! (-> this event-id)    (the int (res-lump-value arg0 (quote event-id) uint128)))",
-            "  (set! (-> this xmin)        (res-lump-float arg0 (quote bound-xmin)))",
-            "  (set! (-> this xmax)        (res-lump-float arg0 (quote bound-xmax)))",
-            "  (set! (-> this ymin)        (res-lump-float arg0 (quote bound-ymin)))",
-            "  (set! (-> this ymax)        (res-lump-float arg0 (quote bound-ymax)))",
-            "  (set! (-> this zmin)        (res-lump-float arg0 (quote bound-zmin)))",
-            "  (set! (-> this zmax)        (res-lump-float arg0 (quote bound-zmax)))",
             "  (set! (-> this inside)      #f)",
-            "  (let* ((hx (* 0.5 (- (-> this xmax) (-> this xmin))))",
-            "         (hy (* 0.5 (- (-> this ymax) (-> this ymin))))",
-            "         (hz (* 0.5 (- (-> this zmax) (-> this zmin)))))",
-            "    (set! (-> this cull-radius) (sqrtf (+ (* hx hx) (* hy hy) (* hz hz)))))",
-            "  (format 0 \"[aggro-trigger] armed: ~A cull-r ~M~%\" (-> this target-name) (-> this cull-radius))",
+            "  (set! (-> this cull-radius) (res-lump-float arg0 (quote cull-radius) :default 20480.0))",
+            "  (set! (-> this vol)         (new (quote process) (quote vol-control) (the-as entity arg0)))",
+            "  (format 0 \"[aggro-trigger] armed: ~A cull-r ~M planes ~D~%\"",
+            "    (-> this target-name) (-> this cull-radius) (-> this vol pos-vol-count))",
             "  (go aggro-trigger-active)",
             "  (none))",
             "",
@@ -937,23 +930,18 @@ def write_gc(name, has_triggers=False, has_checkpoints=False, has_aggro_triggers
 
     if has_custom_triggers:
         lines += [
-            ";; vol-trigger: AABB volume entity that sends 'trigger/'untrigger to a custom actor.",
+            ";; vol-trigger: convex-volume entity that sends 'trigger/'untrigger to a custom actor.",
+            ";; Uses native vol-control / point-in-vol? for exact per-face plane testing.",
             ";; On rising edge (player enters volume), sends 'trigger to target by name.",
             ";; On falling edge (player exits volume), sends 'untrigger to target by name.",
             ";; Target is looked up each poll via process-by-ename — safe if target dies.",
-            ";; Mirrors the aggro-trigger pattern (proven working): *target* guard + frame throttle.",
             "(deftype vol-trigger (process-drawable)",
-            "  ((target-name string  :offset-assert 176)",
-            "   (cull-radius float   :offset-assert 180)",
-            "   (xmin        float   :offset-assert 184)",
-            "   (xmax        float   :offset-assert 188)",
-            "   (ymin        float   :offset-assert 192)",
-            "   (ymax        float   :offset-assert 196)",
-            "   (zmin        float   :offset-assert 200)",
-            "   (zmax        float   :offset-assert 204)",
-            "   (inside      symbol  :offset-assert 208))",
+            "  ((target-name string      :offset-assert 176)",
+            "   (cull-radius float       :offset-assert 180)",
+            "   (inside      symbol      :offset-assert 184)",
+            "   (vol         vol-control :offset-assert 188))",
             "  :heap-base #x70",
-            "  :size-assert #xd4",
+            "  :size-assert #xc0",
             "  (:states vol-trigger-active))",
             "",
             "(defstate vol-trigger-active (vol-trigger)",
@@ -961,16 +949,14 @@ def write_gc(name, has_triggers=False, has_checkpoints=False, has_aggro_triggers
             "  (behavior ()",
             "    (loop",
             "      (when (and *target* (zero? (mod (-> *display* base-frame-counter) 4)))",
-            "        (let* ((pos  (-> *target* control trans))",
-            "               (dx   (- (-> pos x) (-> self root trans x)))",
-            "               (dy   (- (-> pos y) (-> self root trans y)))",
-            "               (dz   (- (-> pos z) (-> self root trans z)))",
-            "               (cr   (-> self cull-radius))",
+            "        (let* ((pos    (-> *target* control trans))",
+            "               (dx     (- (-> pos x) (-> self root trans x)))",
+            "               (dy     (- (-> pos y) (-> self root trans y)))",
+            "               (dz     (- (-> pos z) (-> self root trans z)))",
+            "               (cr     (-> self cull-radius))",
             "               (in-vol (and",
             "                 (< (+ (* dx dx) (* dy dy) (* dz dz)) (* cr cr))",
-            "                 (< (-> self xmin) (-> pos x)) (< (-> pos x) (-> self xmax))",
-            "                 (< (-> self ymin) (-> pos y)) (< (-> pos y) (-> self ymax))",
-            "                 (< (-> self zmin) (-> pos z)) (< (-> pos z) (-> self zmax)))))",
+            "                 (point-in-vol? (-> self vol) pos))))",
             "          (cond",
             "            ((and in-vol (not (-> self inside)))",
             "             (set! (-> self inside) #t)",
@@ -985,21 +971,14 @@ def write_gc(name, has_triggers=False, has_checkpoints=False, has_aggro_triggers
             "      (suspend))))",
             "",
             "(defmethod init-from-entity! ((this vol-trigger) (arg0 entity-actor))",
-            "  (set! (-> this root) (new (quote process) (quote trsqv)))",
+            "  (set! (-> this root)        (new (quote process) (quote trsqv)))",
             "  (process-drawable-from-entity! this arg0)",
             "  (set! (-> this target-name) (res-lump-struct arg0 (quote target-name) string))",
-            "  (set! (-> this xmin)        (res-lump-float arg0 (quote bound-xmin)))",
-            "  (set! (-> this xmax)        (res-lump-float arg0 (quote bound-xmax)))",
-            "  (set! (-> this ymin)        (res-lump-float arg0 (quote bound-ymin)))",
-            "  (set! (-> this ymax)        (res-lump-float arg0 (quote bound-ymax)))",
-            "  (set! (-> this zmin)        (res-lump-float arg0 (quote bound-zmin)))",
-            "  (set! (-> this zmax)        (res-lump-float arg0 (quote bound-zmax)))",
             "  (set! (-> this inside)      #f)",
-            "  (let* ((hx (* 0.5 (- (-> this xmax) (-> this xmin))))",
-            "         (hy (* 0.5 (- (-> this ymax) (-> this ymin))))",
-            "         (hz (* 0.5 (- (-> this zmax) (-> this zmin)))))",
-            "    (set! (-> this cull-radius) (sqrtf (+ (* hx hx) (* hy hy) (* hz hz)))))",
-            "  (format 0 \"[vol-trigger] armed -> ~A~%\" (-> this target-name))",
+            "  (set! (-> this cull-radius) (res-lump-float arg0 (quote cull-radius) :default 20480.0))",
+            "  (set! (-> this vol)         (new (quote process) (quote vol-control) (the-as entity arg0)))",
+            "  (format 0 \"[vol-trigger] armed -> ~A planes ~D~%\"",
+            "    (-> this target-name) (-> this vol pos-vol-count))",
             "  (go vol-trigger-active)",
             "  (none))",
             "",
@@ -1926,17 +1905,12 @@ def collect_actors(scene, depsgraph=None):
 
         vol_obj = vol_by_cp.get(o.name)
         if vol_obj:
-            # AABB mode — derive bounds from volume mesh world-space verts
-            xmin, xmax, ymin, ymax, zmin, zmax, cx, cy, cz, rad = _vol_aabb(vol_obj)
-            # Slightly tighter padding for checkpoints (matches old behaviour)
-            rad = round(max(xmax - xmin, ymax - ymin, zmax - zmin) / 2 + 2.0, 2)
-            lump["has-volume"]  = ["uint32", 1]
-            lump["bound-xmin"]  = ["meters", xmin]
-            lump["bound-xmax"]  = ["meters", xmax]
-            lump["bound-ymin"]  = ["meters", ymin]
-            lump["bound-ymax"]  = ["meters", ymax]
-            lump["bound-zmin"]  = ["meters", zmin]
-            lump["bound-zmax"]  = ["meters", zmax]
+            # Native vol-control mode — derive planes from volume mesh faces.
+            planes, (cx, cy, cz, rad) = _vol_planes(vol_obj)
+            rad = round(rad - 5.0 + 2.0, 2)  # re-pad: strip generic +5, add tighter +2
+            lump["has-volume"]   = ["uint32", 1]
+            lump["cull-radius"]  = ["meters", rad]
+            lump["vol"]          = ["vector-vol"] + planes
             out.append({
                 "trans":     [cx, cy, cz],
                 "etype":     "checkpoint-trigger",
@@ -1946,7 +1920,7 @@ def collect_actors(scene, depsgraph=None):
                 "bsphere":   [cx, cy, cz, rad],
                 "lump":      lump,
             })
-            log(f"  [checkpoint] {o.name} → '{cp_name}'  AABB vol={vol_obj.name}")
+            log(f"  [checkpoint] {o.name} → '{cp_name}'  vol={vol_obj.name} ({len(planes)} planes)")
         else:
             # Sphere mode — use og_checkpoint_radius
             lump["radius"] = ["meters", r]
