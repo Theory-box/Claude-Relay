@@ -580,17 +580,6 @@ NEEDS_PATHB_TYPES = {e for e, info in ENTITY_DEFS.items() if info.get("needs_pat
 IS_PROP_TYPES     = {e for e, info in ENTITY_DEFS.items() if info.get("is_prop", False)}
 ETYPE_AG          = {e: [info["ag"]] for e, info in ENTITY_DEFS.items() if info.get("ag")}
 
-
-def _is_custom_type(etype):
-    """Return True if etype is not a known ENTITY_DEFS entry.
-
-    Custom types are user-defined GOAL deftypes that the addon doesn't know about.
-    They are defined in obs.gc via the GOAL Code panel and spawn as plain
-    process-drawable entities.  collect_actors handles them transparently —
-    they just get a minimal lump dict with name/trans/quat/bsphere.
-    """
-    return etype not in ENTITY_DEFS
-
 # ---------------------------------------------------------------------------
 # ENTITY CODE DEPENDENCIES
 # ---------------------------------------------------------------------------
@@ -1008,6 +997,40 @@ ETYPE_TPAGES = {
     # Firecanyon (fic.gd)
     "spike":           FIRECANYON_TPAGES,
 }
+
+# ---------------------------------------------------------------------------
+# Music flava table — maps music bank → list of flava variant names.
+# Sourced from *flava-table* in goal_src/jak1/engine/sound/sound.gc
+# ---------------------------------------------------------------------------
+MUSIC_FLAVA_TABLE = {
+    "village1":   ["default", "sage", "assistant", "birdlady", "farmer", "mayor",
+                   "sculptor", "explorer", "dock", "sage-hut"],
+    "jungle":     ["default", "jungle-temple-exit", "jungle-lurkerm", "jungle-temple-top"],
+    "firecanyon": ["default", "racer"],
+    "jungleb":    ["default", "jungleb-eggtop"],
+    "beach":      ["default", "birdlady", "beach-sentinel", "beach-cannon", "beach-grotto"],
+    "misty":      ["default", "racer", "misty-boat", "misty-battle"],
+    "village2":   ["default", "sage", "assistant", "warrior", "geologist", "gambler", "levitator"],
+    "swamp":      ["default", "flutflut", "swamp-launcher", "swamp-battle"],
+    "rolling":    ["default", "rolling-gorge"],
+    "ogre":       ["default", "ogre-middle", "ogre-end"],
+    "village3":   ["default", "to-maincave", "to-snow", "sage", "assistant", "miners"],
+    "maincave":   ["default", "robocave", "robocave-top", "maincave", "darkcave"],
+    "snow":       ["default", "flutflut", "snow-battle", "snow-cave", "snow-fort", "snow-balls"],
+    "lavatube":   ["default", "lavatube-middle", "lavatube-end"],
+    "citadel":    ["default", "sage", "assistant", "sage-yellow", "sage-red", "sage-blue", "citadel-center"],
+    "finalboss":  ["default", "finalboss-middle", "finalboss-end"],
+    "darkcave":   ["default"],
+    "robocave":   ["default"],
+    "sunken":     ["default"],
+}
+
+def _music_flava_items_cb(self, context):
+    """Dynamic enum callback: returns flava variants for the selected music bank."""
+    bank = getattr(self, "og_music_amb_bank", "none") if self else "none"
+    flavas = MUSIC_FLAVA_TABLE.get(bank, ["default"])
+    return [(f, f, "", i) for i, f in enumerate(flavas)]
+
 
 def needed_tpages(actors):
     """Return de-duplicated ordered list of tpage .go files needed for placed entities."""
@@ -2975,5 +2998,16 @@ def _aggro_event_id(name):
         if n == name:
             return i
     return 0
+
+
+def _is_custom_type(etype):
+    """Return True if etype is not a known ENTITY_DEFS entry.
+
+    Custom types are user-defined GOAL deftypes that the addon doesn't know about.
+    They are defined in obs.gc via the GOAL Code panel and spawn as plain
+    process-drawable entities.  collect_actors handles them transparently —
+    they just get a minimal lump dict with name/trans/quat/bsphere.
+    """
+    return etype not in ENTITY_DEFS
 
 

@@ -15,8 +15,7 @@ from .data import (
     _lump_ref_for_etype, _actor_link_slots, _actor_has_links,
     _actor_links, _actor_get_link, AGGRO_TRIGGER_EVENTS,
     _parse_lump_row, _LUMP_HARDCODED_KEYS,
-    GLOBAL_TPAGE_GROUPS,
-    _is_custom_type,
+    GLOBAL_TPAGE_GROUPS, _is_custom_type,
 )
 from .collections import (
     _get_level_prop, _set_level_prop, _level_objects, _active_level_col,
@@ -991,14 +990,9 @@ class OG_PT_SpawnSounds(Panel):
             layout.label(text="No emitters placed yet", icon="INFO")
 
 
-class OG_PT_SpawnCustomTypes(Panel):
-    """Spawn panel for user-defined GOAL types.
-
-    Place a plain ACTOR_ empty for any custom deftype written in a GOAL code block.
-    The type name must match the deftype name in obs.gc exactly.
-    """
-    bl_label       = "⚙  Custom Types"
-    bl_idname      = "OG_PT_spawn_custom_types"
+class OG_PT_SpawnMusicZones(Panel):
+    bl_label       = "🎵  Music Zones"
+    bl_idname      = "OG_PT_spawn_music"
     bl_space_type  = "VIEW_3D"
     bl_region_type = "UI"
     bl_category    = "OpenGOAL"
@@ -1009,67 +1003,43 @@ class OG_PT_SpawnCustomTypes(Panel):
         layout = self.layout
         props  = ctx.scene.og_props
 
-        # ── Type name input + spawn button ───────────────────────────────────
         col = layout.column(align=True)
-        col.label(text="GOAL deftype name:", icon="SCRIPT")
-        row = col.row(align=True)
-        row.prop(props, "custom_type_name", text="")
-        row.scale_x = 0.9
+        col.label(text="New Zone Settings:", icon="SETTINGS")
+        col.prop(props, "og_music_amb_bank",     text="Music Bank")
+        col.prop(props, "og_music_amb_flava",    text="Flava")
+        col.prop(props, "og_music_amb_priority", text="Priority")
+        col.prop(props, "og_music_amb_radius",   text="Radius (m)")
 
-        col.separator(factor=0.4)
-        spawn_row = col.row()
-        spawn_row.scale_y = 1.4
-        name_val = (props.custom_type_name or "").strip()
-        spawn_row.enabled = bool(name_val)
-        spawn_row.operator("og.spawn_custom_type",
-                           text=f"Spawn  ACTOR_{name_val}_N" if name_val else "Enter a type name first",
-                           icon="ADD")
+        col.separator(factor=0.6)
+        row = col.row()
+        row.scale_y = 1.4
+        row.operator("og.add_music_zone", text="Add Music Zone at Cursor", icon="ADD")
 
-        # ── Hint box ────────────────────────────────────────────────────────
-        layout.separator(factor=0.5)
-        box = layout.box()
-        box.label(text="How it works:", icon="INFO")
-        col2 = box.column(align=True)
-        col2.scale_y = 0.85
-        col2.label(text="1. Enter a type name (e.g. spin-prop)")
-        col2.label(text="2. Spawn the empty at the 3D cursor")
-        col2.label(text="3. Select it → GOAL Code panel")
-        col2.label(text="4. Create / assign a code block")
-        col2.label(text="5. Write deftype + defstate + init")
-        col2.label(text="6. Export & Build — type compiles")
-        col2.separator(factor=0.3)
-        col2.label(text="Name must be lowercase + hyphens,")
-        col2.label(text="matching your deftype exactly.")
-
-        # ── Existing custom-type actors in scene ─────────────────────────────
-        custom_actors = [
-            o for o in _level_objects(ctx.scene)
-            if (o.name.startswith("ACTOR_")
-                and o.type == "EMPTY"
-                and "_wp_" not in o.name)
-        ]
-        # Filter to only unknown (custom) types
-        custom_actors = [o for o in custom_actors
-                         if _is_custom_type(o.name.split("_", 2)[1])
-                         if len(o.name.split("_", 2)) >= 3]
-        if custom_actors:
+        # List existing music zones
+        zones = [o for o in _level_objects(ctx.scene)
+                 if o.name.startswith("AMBIENT_mus") and o.type == "EMPTY"
+                 and o.get("og_music_bank")]
+        if zones:
             layout.separator(factor=0.3)
             sub = layout.box()
-            sub.label(text=f"{len(custom_actors)} custom actor(s) in scene:", icon="OUTLINER_OB_EMPTY")
-            for o in custom_actors[:8]:
-                parts = o.name.split("_", 2)
-                etype = parts[1] if len(parts) >= 3 else "?"
-                ref   = getattr(o, "og_goal_code_ref", None)
-                has_code = ref is not None and ref.text_block is not None and ref.enabled
-                icon  = "CHECKMARK" if has_code else "ERROR"
-                tip   = ref.text_block.name if has_code else "no code block"
-                row   = sub.row(align=True)
-                row.label(text=f"{o.name}", icon=icon)
-                sub2  = row.row()
-                sub2.enabled = False
-                sub2.label(text=f"[{tip}]")
-            if len(custom_actors) > 8:
-                sub.label(text=f"… and {len(custom_actors) - 8} more")
+            sub.label(text=f"{len(zones)} zone(s) in scene:", icon="OUTLINER_OB_EMPTY")
+            for o in zones[:8]:
+                row = sub.row(align=True)
+                bank  = o.get("og_music_bank", "?")
+                flava = o.get("og_music_flava", "default")
+                pri   = o.get("og_music_priority", 10.0)
+                label = f"{o.name}  →  {bank}"
+                if flava and flava != "default":
+                    label += f"  [{flava}]"
+                label += f"  pri:{pri:.0f}"
+                row.label(text=label, icon="SOUND")
+            if len(zones) > 8:
+                sub.label(text=f"… and {len(zones) - 8} more")
+        else:
+            layout.separator(factor=0.3)
+            layout.label(text="No music zones placed yet", icon="INFO")
+            layout.label(text="Tip: one large zone covering the", icon="BLANK1")
+            layout.label(text="whole level is usually enough.",  icon="BLANK1")
 
 
 class OG_PT_SpawnWater(Panel):
@@ -1281,9 +1251,9 @@ def _draw_selected_actor(layout, sel, scene):
                 op = row.operator("og.delete_waypoint", text="", icon="X")
                 op.wp_name = wp.name
 
-        op = box.operator("og.add_waypoint", text="Add Waypoint at Cursor", icon="PLUS")
-        op.enemy_name = sel.name
-        op.pathb_mode = False
+        row = box.row(align=True)
+        row.operator("og.add_waypoint", text="Spawn Waypoint", icon="PLUS").enemy_name = sel.name
+        row.prop(scene.og_props, "waypoint_spawn_at_actor", text="Spawn at Position", toggle=False)
 
         if einfo.get("needs_path") and len(wps) < 1:
             box.label(text="⚠ Needs ≥ 1 waypoint or will crash", icon="ERROR")
@@ -1307,9 +1277,10 @@ def _draw_selected_actor(layout, sel, scene):
                     op = row.operator("og.delete_waypoint", text="", icon="X")
                     op.wp_name = wp.name
 
-            op = box2.operator("og.add_waypoint", text="Add Path B Waypoint", icon="PLUS")
-            op.enemy_name = sel.name
-            op.pathb_mode = True
+            row2 = box2.row(align=True)
+            op2b = row2.operator("og.add_waypoint", text="Spawn Path B Waypoint", icon="PLUS")
+            op2b.enemy_name = sel.name; op2b.pathb_mode = True
+            row2.prop(scene.og_props, "waypoint_spawn_at_actor", text="Spawn at Position", toggle=False)
 
             if len(wpsb) < 1:
                 box2.label(text="⚠ swamp-bat crashes without Path B", icon="ERROR")
@@ -1362,17 +1333,40 @@ def _draw_selected_checkpoint(layout, sel, scene):
 
 
 def _draw_selected_emitter(layout, sel):
-    """Draw settings for an AMBIENT_ sound emitter."""
-    snd  = sel.get("og_sound_name", "?")
-    mode = sel.get("og_sound_mode", "loop")
-    radius = float(sel.get("og_sound_radius", 15.0))
-
+    """Draw editable settings for an AMBIENT_snd* sound emitter."""
     layout.label(text=sel.name, icon="SPEAKER")
+    box = layout.box()
+    snd = sel.get("og_sound_name", "?")
+    box.label(text=f"Sound: {snd}", icon="PLAY")
+    _prop_row(box, sel, "og_sound_radius", "Radius (m):", 15.0)
+
+
+def _draw_selected_music_zone(layout, sel):
+    """Draw editable settings for an AMBIENT_mus* music zone."""
+    from .data import MUSIC_FLAVA_TABLE
+    layout.label(text=sel.name, icon="SOUND")
 
     box = layout.box()
-    box.label(text=f"Sound: {snd}", icon="PLAY")
-    box.label(text=f"Mode: {mode}", icon="PREVIEW_RANGE" if mode == "loop" else "PLAYER")
-    box.label(text=f"Radius: {radius:.1f}m", icon="SPHERE")
+    bank  = sel.get("og_music_bank",  "village1")
+    flava = sel.get("og_music_flava", "default")
+    flava_list = MUSIC_FLAVA_TABLE.get(bank, ["default"])
+
+    # Bank picker
+    row = box.row(align=True)
+    row.label(text="Bank:")
+    op = row.operator("og.set_music_zone_bank", text=bank, icon="SOUND")
+
+    # Flava picker — button label shows current value
+    row2 = box.row(align=True)
+    row2.label(text="Flava:")
+    flava_display = flava if flava in flava_list else f"{flava} ⚠"
+    op2 = row2.operator("og.set_music_zone_flava", text=flava_display, icon="ALIGN_JUSTIFY")
+    if flava not in flava_list:
+        box.label(text=f"⚠ '{flava}' not in {bank} — exports as default", icon="ERROR")
+
+    box.separator(factor=0.3)
+    _prop_row(box, sel, "og_music_priority", "Priority:",  10.0)
+    _prop_row(box, sel, "og_music_radius",   "Radius (m):", 40.0)
 
 
 def _draw_selected_volume(layout, sel, scene):
@@ -1689,6 +1683,8 @@ class OG_PT_SelectedObject(Panel):
         row = layout.row(align=True)
         op = row.operator("og.select_and_frame", text="Frame", icon="VIEWZOOM")
         op.obj_name = name
+        if name.startswith("ACTOR_") and "_wp_" not in name:
+            row.operator("og.duplicate_entity", text="Duplicate", icon="COPYDOWN")
         op = row.operator("og.delete_object", text="Delete", icon="TRASH")
         op.obj_name = name
 
@@ -3336,8 +3332,9 @@ class OG_PT_ActorWaypoints(Panel):
                 row.label(text=wp.name, icon="EMPTY_AXIS")
                 op = row.operator("og.select_and_frame", text="", icon="VIEWZOOM"); op.obj_name = wp.name
                 op = row.operator("og.delete_waypoint",  text="", icon="X");        op.wp_name  = wp.name
-        op = layout.operator("og.add_waypoint", text="Add Waypoint at Cursor", icon="PLUS")
-        op.enemy_name = sel.name; op.pathb_mode = False
+        row = layout.row(align=True)
+        row.operator("og.add_waypoint", text="Spawn Waypoint", icon="PLUS").enemy_name = sel.name
+        row.prop(ctx.scene.og_props, "waypoint_spawn_at_actor", text="Spawn at Position", toggle=False)
         if einfo.get("needs_path") and len(wps) < 1:
             layout.label(text="⚠ Needs ≥ 1 waypoint or will crash", icon="ERROR")
 
@@ -3356,8 +3353,10 @@ class OG_PT_ActorWaypoints(Panel):
                     row.label(text=wp.name, icon="EMPTY_AXIS")
                     op = row.operator("og.select_and_frame", text="", icon="VIEWZOOM"); op.obj_name = wp.name
                     op = row.operator("og.delete_waypoint",  text="", icon="X");        op.wp_name  = wp.name
-            op = layout.operator("og.add_waypoint", text="Add Path B Waypoint", icon="PLUS")
-            op.enemy_name = sel.name; op.pathb_mode = True
+            row2 = layout.row(align=True)
+            op2b = row2.operator("og.add_waypoint", text="Spawn Path B Waypoint", icon="PLUS")
+            op2b.enemy_name = sel.name; op2b.pathb_mode = True
+            row2.prop(ctx.scene.og_props, "waypoint_spawn_at_actor", text="Spawn at Position", toggle=False)
             if len(wpsb) < 1:
                 layout.label(text="⚠ swamp-bat crashes without Path B", icon="ERROR")
 
@@ -3420,10 +3419,31 @@ class OG_PT_AmbientEmitter(Panel):
     @classmethod
     def poll(cls, ctx):
         sel = ctx.active_object
-        return sel is not None and sel.name.startswith("AMBIENT_")
+        # Only sound emitters (AMBIENT_snd*), not music zones (AMBIENT_mus*)
+        return (sel is not None
+                and sel.name.startswith("AMBIENT_")
+                and not sel.name.startswith("AMBIENT_mus"))
 
     def draw(self, ctx):
         _draw_selected_emitter(self.layout, ctx.active_object)
+
+
+class OG_PT_MusicZone(Panel):
+    bl_label       = "Music Zone"
+    bl_idname      = "OG_PT_music_zone"
+    bl_space_type  = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category    = "OpenGOAL"
+    bl_parent_id   = "OG_PT_selected_object"
+    bl_options     = {"DEFAULT_CLOSED"}
+
+    @classmethod
+    def poll(cls, ctx):
+        sel = ctx.active_object
+        return sel is not None and sel.name.startswith("AMBIENT_mus")
+
+    def draw(self, ctx):
+        _draw_selected_music_zone(self.layout, ctx.active_object)
 
 
 # ── CAMERA sub-panels ───────────────────────────────────────────────────────
@@ -3708,9 +3728,9 @@ class OG_PT_Waypoints(Panel):
         else:
             layout.label(text="No waypoints yet", icon="INFO")
 
-        op = layout.operator("og.add_waypoint", text="Add Waypoint at Cursor", icon="PLUS")
-        op.enemy_name = sel.name
-        op.pathb_mode = False
+        row = layout.row(align=True)
+        row.operator("og.add_waypoint", text="Spawn Waypoint", icon="PLUS").enemy_name = sel.name
+        row.prop(ctx.scene.og_props, "waypoint_spawn_at_actor", text="Spawn at Position", toggle=False)
 
         if einfo.get("needs_path") and len(wps) < 1:
             layout.label(text="⚠ Needs ≥ 1 waypoint or will crash", icon="ERROR")
@@ -3733,9 +3753,10 @@ class OG_PT_Waypoints(Panel):
             else:
                 layout.label(text="No Path B waypoints yet", icon="INFO")
 
-            op3 = layout.operator("og.add_waypoint", text="Add Path B Waypoint at Cursor", icon="PLUS")
-            op3.enemy_name = sel.name
-            op3.pathb_mode = True
+            row3 = layout.row(align=True)
+            op3 = row3.operator("og.add_waypoint", text="Spawn Path B Waypoint", icon="PLUS")
+            op3.enemy_name = sel.name; op3.pathb_mode = True
+            row3.prop(ctx.scene.og_props, "waypoint_spawn_at_actor", text="Spawn at Position", toggle=False)
 
             if len(wpsb) < 1:
                 layout.label(text="⚠ swamp-bat crashes without Path B", icon="ERROR")
@@ -4249,6 +4270,86 @@ class OG_PT_Collision(Panel):
 
 
 # ---------------------------------------------------------------------------
+# Custom GOAL Type spawner panel
+# ---------------------------------------------------------------------------
+
+class OG_PT_SpawnCustomTypes(Panel):
+    """Spawn panel for user-defined GOAL types.
+
+    Place a plain ACTOR_ empty for any custom deftype written in a GOAL code block.
+    The type name must match the deftype name in obs.gc exactly.
+    """
+    bl_label       = "⚙  Custom Types"
+    bl_idname      = "OG_PT_spawn_custom_types"
+    bl_space_type  = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category    = "OpenGOAL"
+    bl_parent_id   = "OG_PT_spawn"
+    bl_options     = {"DEFAULT_CLOSED"}
+
+    def draw(self, ctx):
+        layout = self.layout
+        props  = ctx.scene.og_props
+        col    = layout.column(align=True)
+
+        # ── Type name input + spawn button ───────────────────────────────────
+        col.label(text="GOAL deftype name:", icon="SCRIPT")
+        row = col.row(align=True)
+        row.prop(props, "custom_type_name", text="")
+        row.scale_x = 0.9
+        col.separator(factor=0.4)
+        spawn_row = col.row()
+        spawn_row.scale_y = 1.4
+        name_val = (props.custom_type_name or "").strip()
+        spawn_row.enabled = bool(name_val)
+        spawn_row.operator("og.spawn_custom_type",
+                           text=f"Spawn  ACTOR_{name_val}_N" if name_val else "Enter a type name first",
+                           icon="ADD")
+
+        # ── Hint box ────────────────────────────────────────────────────────
+        layout.separator(factor=0.5)
+        box = layout.box()
+        box.label(text="How it works:", icon="INFO")
+        col2 = box.column(align=True)
+        col2.scale_y = 0.85
+        col2.label(text="1. Enter a type name (e.g. spin-prop)")
+        col2.label(text="2. Spawn the empty at the 3D cursor")
+        col2.label(text="3. Select it → GOAL Code panel")
+        col2.label(text="4. Create / assign a code block")
+        col2.label(text="5. Write deftype + defstate + init")
+        col2.label(text="6. Export & Build — type compiles")
+        col2.separator(factor=0.3)
+        col2.label(text="Name must be lowercase + hyphens,")
+        col2.label(text="matching your deftype exactly.")
+
+        # ── Existing custom-type actors in scene ─────────────────────────────
+        custom_actors = [
+            o for o in _level_objects(ctx.scene)
+            if (o.name.startswith("ACTOR_")
+                and o.type == "EMPTY"
+                and "_wp_" not in o.name
+                and len(o.name.split("_", 2)) >= 3
+                and _is_custom_type(o.name.split("_", 2)[1]))
+        ]
+        if custom_actors:
+            layout.separator(factor=0.3)
+            sub = layout.column(align=True)
+            sub.label(text=f"{len(custom_actors)} custom actor(s) in scene:", icon="OUTLINER_OB_EMPTY")
+            for o in custom_actors[:8]:
+                ref      = getattr(o, "og_goal_code_ref", None)
+                has_code = ref is not None and ref.text_block is not None and ref.enabled
+                icon     = "CHECKMARK" if has_code else "ERROR"
+                tip      = ref.text_block.name if has_code else "no code block"
+                row      = sub.row(align=True)
+                row.label(text=o.name, icon=icon)
+                sub2 = row.row()
+                sub2.enabled = False
+                sub2.label(text=f"[{tip}]")
+            if len(custom_actors) > 8:
+                sub.label(text=f"… and {len(custom_actors) - 8} more")
+
+
+# ---------------------------------------------------------------------------
 # GOAL Code Panel
 # ---------------------------------------------------------------------------
 
@@ -4271,7 +4372,7 @@ class OG_PT_ActorGoalCode(Panel):
     @classmethod
     def poll(cls, ctx):
         sel = ctx.active_object
-        if not sel or sel.type != "EMPTY" or "_wp_" in sel.name:
+        if not sel or sel.type != "EMPTY" or "_wp_" in sel.name or "_wpb_" in sel.name:
             return False
         parts = sel.name.split("_", 2)
         return len(parts) >= 3 and parts[0] == "ACTOR"
@@ -4304,7 +4405,7 @@ class OG_PT_ActorGoalCode(Panel):
             # ── Block assigned ──────────────────────────────────────────────
             txt = ref.text_block
 
-            # Header row: block name + enabled toggle
+            # Header row: enabled toggle + block name picker + disconnect X
             row = layout.row(align=True)
             row.prop(ref, "enabled", text="")
             row.prop(ref, "text_block", text="")
@@ -4327,18 +4428,16 @@ class OG_PT_ActorGoalCode(Panel):
 
             layout.separator(factor=0.3)
 
-            # Open in text editor button
+            # Action buttons: new block (replaces) + open in editor
             row3 = layout.row(align=True)
-            op = row3.operator("og.create_goal_code_block",
-                               text="New block (replace)",
-                               icon="FILE_NEW")
-            # "Open in Text Editor" — switch to a text editor space if one exists,
-            # otherwise just report. We do this via a simple operator call pattern.
+            row3.operator("og.create_goal_code_block",
+                          text="New block (replace)",
+                          icon="FILE_NEW")
             row3.operator("og.open_goal_code_in_editor",
                           text="Open in Editor",
                           icon="TEXT")
 
-            # Shared-block hint: warn if >1 object uses this same text block
+            # Shared-block warning: list other actors using the same text block
             users = [o for o in ctx.scene.objects
                      if (o.type == "EMPTY"
                          and hasattr(o, "og_goal_code_ref")

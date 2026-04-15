@@ -11,7 +11,6 @@ from .data import (
     PROP_ENUM_ITEMS, NPC_ENUM_ITEMS, PICKUP_ENUM_ITEMS, PLATFORM_ENUM_ITEMS,
     LUMP_REFERENCE, LUMP_TYPE_ITEMS, NAV_UNSAFE_TYPES, IS_PROP_TYPES,
     _actor_has_links, _actor_link_slots, _lump_ref_for_etype,
-    _is_custom_type,
 )
 from .collections import (
     _get_level_prop, _level_objects, _col_path_for_entity,
@@ -26,8 +25,7 @@ from .properties import OGProperties
 
 def _is_linkable(obj):
     """True if this object type can accept a trigger volume link.
-    Cameras, checkpoints, player spawns, nav-enemy actors, and custom
-    GOAL actors are linkable.
+    Cameras, checkpoints, player spawns, and nav-enemy actors are linkable.
     Process-drawable enemies (Yeti, Bully, etc.) are NOT linkable because
     they don't respond to 'cue-chase events.
     """
@@ -43,11 +41,8 @@ def _is_linkable(obj):
             return True
         if n.startswith("ACTOR_") and "_wp_" not in n and "_wpb_" not in n:
             parts = n.split("_", 2)
-            if len(parts) >= 3:
-                if _actor_supports_aggro_trigger(parts[1]):
-                    return True
-                if _is_custom_type(parts[1]):
-                    return True
+            if len(parts) >= 3 and _actor_supports_aggro_trigger(parts[1]):
+                return True
     return False
 
 
@@ -339,14 +334,31 @@ def _draw_wiki_preview(layout, etype: str, ctx=None):
 def _prop_row(layout, obj, key, label, default):
     """Draw a labelled input row for a custom property.
 
-    Ensures the key exists on obj (writing the default if missing), then
-    draws a layout.prop() input field. Writing custom ID properties in
-    draw() is safe in Blender — only registered bpy.props cause issues.
-    The real crash risk was calling layout.prop on a missing key, which
-    throws an exception and silently kills the rest of the panel draw.
+    Safe for use inside draw(): never writes to the object.
+    If the key is missing, schedules a one-shot timer to write the default
+    outside of the draw context, and shows a greyed placeholder meanwhile.
+    On the next redraw the key exists and layout.prop() renders normally.
+
+    Blender 4.4+ raises AttributeError on any ID property write inside draw(),
+    including custom dict properties (obj[key] = val). Only operator execute()
+    or timer callbacks are safe write contexts.
     """
     if key not in obj:
-        obj[key] = default
+        # Schedule write outside draw — timer fires after current redraw
+        obj_name = obj.name
+        def _init(name=obj_name, k=key, v=default):
+            o = bpy.data.objects.get(name)
+            if o is not None and k not in o:
+                o[k] = v
+            return None  # don't repeat
+        bpy.app.timers.register(_init, first_interval=0.0)
+        # Show greyed placeholder this frame
+        row = layout.row(align=True)
+        row.label(text=label)
+        sub = row.row()
+        sub.enabled = False
+        sub.label(text=str(default))
+        return
     row = layout.row(align=True)
     row.label(text=label)
     row.prop(obj, f'["{key}"]', text="")

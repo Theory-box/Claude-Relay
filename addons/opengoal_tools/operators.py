@@ -12,6 +12,7 @@ from .data import (
     ENTITY_DEFS, ENTITY_ENUM_ITEMS, ENEMY_ENUM_ITEMS, PROP_ENUM_ITEMS,
     NPC_ENUM_ITEMS, PICKUP_ENUM_ITEMS, PLATFORM_ENUM_ITEMS, CRATE_ITEMS, CRATE_PICKUP_ITEMS,
     ALL_SFX_ITEMS, SBK_SOUNDS, LEVEL_BANKS, LUMP_REFERENCE, ACTOR_LINK_DEFS,
+    MUSIC_FLAVA_TABLE,
     NAV_UNSAFE_TYPES, NEEDS_PATH_TYPES, NEEDS_PATHB_TYPES, IS_PROP_TYPES,
     ETYPE_AG, ETYPE_CODE,
     needed_tpages, _lump_ref_for_etype, _actor_link_slots, _actor_has_links,
@@ -598,6 +599,67 @@ class OG_OT_SpawnEntity(Operator):
 
         return {"FINISHED"}
 
+
+class OG_OT_DuplicateEntity(Operator):
+    """Duplicate the selected ACTOR empty and re-attach its preview mesh."""
+    bl_idname   = "og.duplicate_entity"
+    bl_label    = "Duplicate Entity"
+    bl_description = "Duplicate this entity and carry its preview mesh to the copy"
+    bl_options  = {"UNDO"}
+
+    def execute(self, ctx):
+        src = ctx.active_object
+        if src is None or not src.name.startswith("ACTOR_"):
+            self.report({"ERROR"}, "Select an ACTOR_ empty first")
+            return {"CANCELLED"}
+
+        # Parse entity type from name: ACTOR_<etype>_<uid>
+        parts = src.name.split("_", 2)
+        if len(parts) < 3:
+            self.report({"ERROR"}, f"Cannot parse entity type from {src.name!r}")
+            return {"CANCELLED"}
+        etype = parts[1]
+
+        # --- Duplicate just the empty (no children) via ops ---
+        # Deselect all, select only the source, then duplicate
+        bpy.ops.object.select_all(action="DESELECT")
+        src.select_set(True)
+        ctx.view_layer.objects.active = src
+        bpy.ops.object.duplicate(linked=False, mode="TRANSLATION")
+        new_empty = ctx.active_object
+
+        # Give it a fresh unique name (Blender appends .001 etc automatically,
+        # but we want to follow the ACTOR_<etype>_<n> convention)
+        prefix = f"ACTOR_{etype}_"
+        # Use bpy.data.objects (not just level objects) so we avoid collisions
+        # with the freshly duplicated object which may not yet be in the level col
+        existing = {o.name for o in bpy.data.objects}
+        n = 0
+        while f"{prefix}{n}" in existing:
+            n += 1
+        new_empty.name = f"{prefix}{n}"
+
+        # --- Strip any preview children the duplicate inherited ---
+        # bpy.ops.object.duplicate copies children too; remove them so we
+        # can attach a fresh independent preview below.
+        _mp.remove_preview(new_empty)
+
+        # Also unlink any child objects Blender may have copied
+        for child in list(new_empty.children):
+            if child.get(_mp._PREVIEW_PROP) or child.get(_mp._WAYPOINT_PREVIEW_PROP):
+                bpy.data.objects.remove(child, do_unlink=True)
+
+        # --- Re-attach a fresh preview mesh ---
+        _prefs = bpy.context.preferences.addons.get("opengoal_tools")
+        if _prefs and _prefs.preferences.preview_models:
+            try:
+                _mp.attach_preview(ctx, etype, new_empty)
+            except Exception as e:
+                log(f"duplicate_entity model_preview: {e}")
+
+        self.report({"INFO"}, f"Duplicated as {new_empty.name}")
+        return {"FINISHED"}
+
 class OG_OT_ClearPreviews(Operator):
     bl_idname   = "og.clear_previews"
     bl_label    = "Clear Preview Models"
@@ -772,7 +834,7 @@ class OG_OT_ExportBuild(Operator):
 # ---------------------------------------------------------------------------
 
 class OG_OT_AddWaypoint(Operator):
-    """Add a waypoint empty at the 3D cursor, linked to the selected enemy."""
+    """Add a waypoint empty linked to the selected enemy. Spawns at the 3D cursor, or at the actor position if Spawn at Position is enabled."""
     bl_idname = "og.add_waypoint"
     bl_label  = "Add Waypoint"
 
@@ -796,11 +858,15 @@ class OG_OT_AddWaypoint(Operator):
 
         wp_name = f"{prefix}{idx:02d}"
 
-        # Create empty at 3D cursor
+        # Create empty — at actor position or 3D cursor depending on user preference
+        actor_obj = bpy.data.objects.get(self.enemy_name)
+        use_actor_pos = ctx.scene.og_props.waypoint_spawn_at_actor and actor_obj is not None
+        spawn_loc = actor_obj.location.copy() if use_actor_pos else ctx.scene.cursor.location.copy()
+
         empty = bpy.data.objects.new(wp_name, None)
         empty.empty_display_type = "PLAIN_AXES"
         empty.empty_display_size = 0.5
-        empty.location = ctx.scene.cursor.location.copy()
+        empty.location = spawn_loc
 
         # Custom property to link back to enemy
         empty["og_waypoint_for"] = self.enemy_name
@@ -827,7 +893,8 @@ class OG_OT_AddWaypoint(Operator):
 
         # Do NOT change active object — user needs to keep the actor selected
         # so they can quickly add more waypoints without re-selecting.
-        self.report({"INFO"}, f"Added {wp_name} at cursor")
+        loc_desc = "actor position" if use_actor_pos else "cursor"
+        self.report({"INFO"}, f"Added {wp_name} at {loc_desc}")
         return {"FINISHED"}
 
 
@@ -1156,6 +1223,105 @@ class OG_OT_AddSoundEmitter(Operator):
         _link_object_to_sub_collection(ctx.scene, o, *_COL_PATH_SOUND_EMITTERS)
         self.report({"INFO"}, f"Added '{name}' → {snd}")
         return {"FINISHED"}
+
+
+class OG_OT_AddMusicZone(Operator):
+    """Add a music ambient zone (sphere) at the 3D cursor.
+    When the player enters the bsphere the engine calls set-setting! 'music.
+    One large zone covering the whole level is the standard setup."""
+    bl_idname  = "og.add_music_zone"
+    bl_label   = "Add Music Zone"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, ctx):
+        props = ctx.scene.og_props
+        bank     = props.og_music_amb_bank
+        flava    = props.og_music_amb_flava
+        priority = props.og_music_amb_priority
+        radius   = props.og_music_amb_radius
+
+        existing = [o for o in _level_objects(ctx.scene) if o.name.startswith("AMBIENT_mus")]
+        idx  = len(existing) + 1
+        name = f"AMBIENT_mus{idx:03d}"
+
+        bpy.ops.object.empty_add(type="SPHERE", location=ctx.scene.cursor.location)
+        o = ctx.active_object
+        o.name = name
+        o.show_name = True
+        o.empty_display_size = max(0.3, radius * 0.04)
+        o.color = (1.0, 0.85, 0.1, 1.0)   # gold — distinct from sound emitters (cyan)
+
+        o["og_music_bank"]     = bank
+        o["og_music_flava"]    = flava
+        o["og_music_priority"] = priority
+        o["og_music_radius"]   = radius
+
+        _link_object_to_sub_collection(ctx.scene, o, *_COL_PATH_SOUND_EMITTERS)
+        self.report({"INFO"}, f"Added '{name}' → music:{bank} flava:{flava}")
+        return {"FINISHED"}
+
+
+# --- Bank enum items (static — all valid banks) ---
+_MUSIC_BANK_ITEMS = [(b[0], b[1], b[2], b[3]) for b in LEVEL_BANKS if b[0] != "none"]
+
+
+class OG_OT_SetMusicZoneBank(bpy.types.Operator):
+    """Pick a music bank for the selected music zone"""
+    bl_idname   = "og.set_music_zone_bank"
+    bl_label    = "Set Music Bank"
+    bl_property = "bank"
+
+    bank: bpy.props.EnumProperty(
+        name="Music Bank",
+        description="Select music bank for this zone",
+        items=_MUSIC_BANK_ITEMS,
+    )
+
+    def execute(self, ctx):
+        sel = ctx.active_object
+        if sel and sel.name.startswith("AMBIENT_mus"):
+            sel["og_music_bank"]  = self.bank
+            sel["og_music_flava"] = "default"   # reset flava when bank changes
+        return {"FINISHED"}
+
+    def invoke(self, ctx, event):
+        sel = ctx.active_object
+        cur = sel.get("og_music_bank", "village1") if sel else "village1"
+        if cur in [b[0] for b in _MUSIC_BANK_ITEMS]:
+            self.bank = cur
+        ctx.window_manager.invoke_search_popup(self)
+        return {"RUNNING_MODAL"}
+
+
+def _flava_items_for_active(self, context):
+    """Dynamic items callback — flavas for whatever bank the selected object has."""
+    sel  = context.active_object if context else None
+    bank = sel.get("og_music_bank", "village1") if sel else "village1"
+    flavas = MUSIC_FLAVA_TABLE.get(bank, ["default"])
+    return [(f, f, "", i) for i, f in enumerate(flavas)]
+
+
+class OG_OT_SetMusicZoneFlava(bpy.types.Operator):
+    """Pick a flava variant for the selected music zone"""
+    bl_idname   = "og.set_music_zone_flava"
+    bl_label    = "Set Music Flava"
+    bl_property = "flava"
+
+    flava: bpy.props.EnumProperty(
+        name="Flava",
+        description="Select music variant for this zone",
+        items=_flava_items_for_active,
+    )
+
+    def execute(self, ctx):
+        sel = ctx.active_object
+        if sel and sel.name.startswith("AMBIENT_mus"):
+            sel["og_music_flava"] = self.flava
+        return {"FINISHED"}
+
+    def invoke(self, ctx, event):
+        ctx.window_manager.invoke_search_popup(self)
+        return {"RUNNING_MODAL"}
 
 
 class OG_OT_SpawnCamera(Operator):
@@ -2435,7 +2601,7 @@ _GOAL_BOILERPLATE = """\
 ;;   • First field starts at offset-assert 176 (end of process-drawable base)
 ;;   • Each state :code loop must call (suspend) or the game will freeze
 ;;   • Compile errors appear in the goalc build log, not in Blender
-;;   • The entity type name in your deftype must match what you put in ACTOR_<name>_<uid>
+;;   • The entity type name in your deftype must match what you put in ACTOR_<n>_<uid>
 ;;     i.e. ACTOR_{etype}_0 expects a (deftype {etype} (process-drawable) ...)
 
 (deftype {etype} (process-drawable)
@@ -2486,7 +2652,7 @@ class OG_OT_CreateGoalCodeBlock(bpy.types.Operator):
         # Create and fill the text block
         txt = bpy.data.texts.new(block_name)
         txt.write(_GOAL_BOILERPLATE.format(name=etype, etype=etype, uid=uid))
-        txt.cursor_set(0)  # go to start
+        txt.cursor_set(0)
 
         # Assign to this object
         sel.og_goal_code_ref.text_block = txt
@@ -2530,14 +2696,12 @@ class OG_OT_OpenGoalCodeInEditor(bpy.types.Operator):
 
     def execute(self, ctx):
         txt = ctx.active_object.og_goal_code_ref.text_block
-        # Find the first TEXT_EDITOR area in any open window
         for window in ctx.window_manager.windows:
             for area in window.screen.areas:
                 if area.type == "TEXT_EDITOR":
                     area.spaces.active.text = txt
                     self.report({"INFO"}, f"Showing '{txt.name}' in Text Editor")
                     return {"FINISHED"}
-        # No text editor open — guide the user
         self.report({"INFO"},
                     f"Open a Text Editor area (Shift+F11) then re-click. "
                     f"Block name: '{txt.name}'")
@@ -2551,6 +2715,7 @@ class OG_OT_OpenGoalCodeInEditor(bpy.types.Operator):
 import re as _re
 
 _VALID_ETYPE_RE = _re.compile(r'^[a-z][a-z0-9\-]*$')
+
 
 class OG_OT_SpawnCustomType(bpy.types.Operator):
     """Spawn an ACTOR_ empty for a user-defined GOAL type.
@@ -2575,7 +2740,6 @@ class OG_OT_SpawnCustomType(bpy.types.Operator):
     def execute(self, ctx):
         etype = (ctx.scene.og_props.custom_type_name or "").strip().lower()
 
-        # Validation
         if not etype:
             self.report({"ERROR"}, "Enter a type name first")
             return {"CANCELLED"}
@@ -2592,11 +2756,9 @@ class OG_OT_SpawnCustomType(bpy.types.Operator):
                 "Use the normal Spawn sub-panels to place it, or choose a different name.")
             return {"CANCELLED"}
 
-        # Count existing actors of this type to build the uid
         n = len([o for o in _level_objects(ctx.scene)
                  if o.name.startswith(f"ACTOR_{etype}_")])
 
-        # Place empty at cursor
         bpy.ops.object.empty_add(type="SPHERE", location=ctx.scene.cursor.location)
         o = ctx.active_object
         o.name               = f"ACTOR_{etype}_{n}"

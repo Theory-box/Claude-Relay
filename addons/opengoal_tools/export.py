@@ -942,26 +942,22 @@ def write_gc(name, has_triggers=False, has_checkpoints=False, has_aggro_triggers
             ";; On falling edge (player exits volume), sends 'untrigger to target by name.",
             ";; Target is looked up each frame via process-by-ename — safe if target dies.",
             "(deftype vol-trigger (process-drawable)",
-            "  ((target-name string  :offset-assert 176)",
-            "   (cull-radius float   :offset-assert 180)",
-            "   (xmin        float   :offset-assert 184)",
-            "   (xmax        float   :offset-assert 188)",
-            "   (ymin        float   :offset-assert 192)",
-            "   (ymax        float   :offset-assert 196)",
-            "   (zmin        float   :offset-assert 200)",
-            "   (zmax        float   :offset-assert 204)",
-            "   (inside      symbol  :offset-assert 208))",
-            "  :heap-base #x70",
-            "  :size-assert #xd4",
+            "  ((xmin       float)",
+            "   (xmax       float)",
+            "   (ymin       float)",
+            "   (ymax       float)",
+            "   (zmin       float)",
+            "   (zmax       float)",
+            "   (target-name string)",
+            "   (inside      symbol))",
             "  (:states vol-trigger-active))",
             "",
             "(defstate vol-trigger-active (vol-trigger)",
             "  :code",
-            "  (behavior ()",
-            "    (loop",
-            "      (when (and *target* (zero? (mod (-> *display* base-frame-counter) 4)))",
-            "        (let* ((pos  (-> *target* control trans))",
-            "               (in-vol (and",
+            "    (behavior ()",
+            "      (loop",
+            "        (let ((pos (-> self root trans)))",
+            "          (let ((in-vol (and",
             "                 (< (-> self xmin) (-> pos x)) (< (-> pos x) (-> self xmax))",
             "                 (< (-> self ymin) (-> pos y)) (< (-> pos y) (-> self ymax))",
             "                 (< (-> self zmin) (-> pos z)) (< (-> pos z) (-> self zmax)))))",
@@ -2102,6 +2098,37 @@ def collect_ambients(scene):
                     "cycle-speed": cycle_speed,
                 },
             })
+
+        elif o.get("og_music_bank"):
+            # Music zone — placed via the Music Zones panel
+            bank     = str(o["og_music_bank"]).lower().strip()
+            flava    = str(o.get("og_music_flava", "default")).lower().strip()
+            priority = float(o.get("og_music_priority", 10.0))
+            radius   = float(o.get("og_music_radius", 40.0))
+
+            # flava index: look up position in MUSIC_FLAVA_TABLE for this bank
+            from .data import MUSIC_FLAVA_TABLE
+            flava_list  = MUSIC_FLAVA_TABLE.get(bank, ["default"])
+            flava_index = float(flava_list.index(flava) if flava in flava_list else 0)
+
+            out.append({
+                "trans":   [gx, gy, gz, radius],
+                "bsphere": [gx, gy, gz, radius],
+                "lump": {
+                    "name":        o.name[8:].lower() or "music-zone",
+                    "type":        "'music",
+                    # 'music' lump: the engine reads this as a symbol (e.g. 'village1)
+                    # and passes it to (set-setting! 'music <symbol> 0.0 0).
+                    # ["symbol", bank] is correct — ResSymbol stores the GOAL symbol ptr.
+                    "music":       ["symbol", bank],
+                    "flava":       ["float", flava_index],
+                    "priority":    ["float", priority],
+                    # effect-name is listed in the lump quick-ref for music ambients.
+                    # Some vanilla ambient code reads it. Include defensively as a no-op
+                    # symbol — ambient-type-music ignores it but it won't cause a crash.
+                    "effect-name": ["symbol", bank],
+                },
+            })
         else:
             # Legacy hint emitter — unchanged behaviour
             out.append({
@@ -2605,7 +2632,9 @@ def export_glb(ctx, name):
             _HELPER_PREFIXES = ("WATER_", "VOL_", "CPVOL_", "NAVMESH_")
             export_objs = [o for o in _recursive_col_objects(level_col, exclude_no_export=True)
                            if o.type == "MESH"
-                           and not any(o.name.startswith(p) for p in _HELPER_PREFIXES)]
+                           and not any(o.name.startswith(p) for p in _HELPER_PREFIXES)
+                           and not o.get("og_preview_mesh")
+                           and not o.get("og_waypoint_preview_mesh")]
 
         # Save selection state
         prev_active    = ctx.view_layer.objects.active
