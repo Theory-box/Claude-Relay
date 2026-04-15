@@ -1543,8 +1543,9 @@ class ATTRTOOL_PT_panel(bpy.types.Panel):
 # ─────────────────────────────────────────────
 
 class SceneAuditResult(bpy.types.PropertyGroup):
-    """Stores a single object name for an audit result entry."""
+    """Stores a single object name (and optional extra info) for an audit result entry."""
     object_name: bpy.props.StringProperty(name="Object Name", default="")
+    extra_info:  bpy.props.StringProperty(name="Extra Info",  default="")
 
 
 class SceneAuditProps(bpy.types.PropertyGroup):
@@ -1564,18 +1565,46 @@ class SceneAuditProps(bpy.types.PropertyGroup):
         description="List all light objects in the scene",
         default=True
     )
+    check_unapplied_scale: BoolProperty(
+        name="Unapplied Scale",
+        description="Find mesh objects whose scale is not (1, 1, 1)",
+        default=True
+    )
+    check_no_uvs: BoolProperty(
+        name="No UV Maps",
+        description="Find mesh objects with no UV layers",
+        default=True
+    )
+    check_high_poly: BoolProperty(
+        name="High Poly",
+        description="Find mesh objects exceeding the face count threshold",
+        default=True
+    )
+    high_poly_threshold: IntProperty(
+        name="Face Threshold",
+        description="Flag meshes with more faces than this value",
+        default=5000,
+        min=1,
+        soft_max=500000
+    )
 
     # ── Results (populated by the audit operator) ──────────────────────────
     results_missing_materials: CollectionProperty(type=SceneAuditResult)
     results_modifiers:         CollectionProperty(type=SceneAuditResult)
     results_lights:            CollectionProperty(type=SceneAuditResult)
+    results_unapplied_scale:   CollectionProperty(type=SceneAuditResult)
+    results_no_uvs:            CollectionProperty(type=SceneAuditResult)
+    results_high_poly:         CollectionProperty(type=SceneAuditResult)
 
     # ── UI state ───────────────────────────────────────────────────────────
     has_results: BoolProperty(default=False)
-    show_options:           BoolProperty(name="Audit Options",       default=True)
-    show_missing_materials: BoolProperty(name="Missing Materials",   default=True)
-    show_modifiers:         BoolProperty(name="Objects w/ Modifiers",default=True)
-    show_lights:            BoolProperty(name="Lights",              default=True)
+    show_options:           BoolProperty(name="Audit Options",        default=True)
+    show_missing_materials: BoolProperty(name="Missing Materials",    default=True)
+    show_modifiers:         BoolProperty(name="Objects w/ Modifiers", default=True)
+    show_lights:            BoolProperty(name="Lights",               default=True)
+    show_unapplied_scale:   BoolProperty(name="Unapplied Scale",      default=True)
+    show_no_uvs:            BoolProperty(name="No UV Maps",           default=True)
+    show_high_poly:         BoolProperty(name="High Poly",            default=True)
 
 
 class SCENEAUDIT_OT_select_object(Operator):
@@ -1616,6 +1645,9 @@ class SCENEAUDIT_OT_run_audit(Operator):
         audit.results_missing_materials.clear()
         audit.results_modifiers.clear()
         audit.results_lights.clear()
+        audit.results_unapplied_scale.clear()
+        audit.results_no_uvs.clear()
+        audit.results_high_poly.clear()
 
         for obj in scene.objects:
 
@@ -1637,11 +1669,35 @@ class SCENEAUDIT_OT_run_audit(Operator):
                 r = audit.results_lights.add()
                 r.object_name = obj.name
 
+            # ── Unapplied scale (mesh only) ────────────────────────────────
+            if audit.check_unapplied_scale and obj.type == 'MESH':
+                if any(abs(s - 1.0) > 1e-5 for s in obj.scale):
+                    r = audit.results_unapplied_scale.add()
+                    r.object_name = obj.name
+                    r.extra_info  = f"({obj.scale.x:.3f}, {obj.scale.y:.3f}, {obj.scale.z:.3f})"
+
+            # ── No UV maps (mesh only) ─────────────────────────────────────
+            if audit.check_no_uvs and obj.type == 'MESH':
+                if len(obj.data.uv_layers) == 0:
+                    r = audit.results_no_uvs.add()
+                    r.object_name = obj.name
+
+            # ── High poly (mesh only) ──────────────────────────────────────
+            if audit.check_high_poly and obj.type == 'MESH':
+                face_count = len(obj.data.polygons)
+                if face_count > audit.high_poly_threshold:
+                    r = audit.results_high_poly.add()
+                    r.object_name = obj.name
+                    r.extra_info  = f"{face_count:,} faces"
+
         audit.has_results = True
 
         total = (len(audit.results_missing_materials) +
                  len(audit.results_modifiers) +
-                 len(audit.results_lights))
+                 len(audit.results_lights) +
+                 len(audit.results_unapplied_scale) +
+                 len(audit.results_no_uvs) +
+                 len(audit.results_high_poly))
         self.report({'INFO'}, f"Scene audit complete — {total} item(s) flagged")
         return {'FINISHED'}
 
@@ -1676,9 +1732,11 @@ class SCENEAUDIT_PT_panel(Panel):
         else:
             col = box.column(align=True)
             for r in results:
+                # Show extra_info (e.g. face count, scale values) as a suffix if present
+                label_text = f"{r.object_name}  {r.extra_info}" if r.extra_info else r.object_name
                 op = col.operator(
                     "sceneaudit.select_object",
-                    text=r.object_name,
+                    text=label_text,
                     icon=icon
                 )
                 op.object_name = r.object_name
@@ -1702,6 +1760,15 @@ class SCENEAUDIT_PT_panel(Panel):
             opt_box.prop(audit, "check_missing_materials")
             opt_box.prop(audit, "check_modifiers")
             opt_box.prop(audit, "check_lights")
+            opt_box.prop(audit, "check_unapplied_scale")
+            opt_box.prop(audit, "check_no_uvs")
+
+            # High poly with inline threshold field
+            hp_row = opt_box.row(align=True)
+            hp_row.prop(audit, "check_high_poly")
+            sub = hp_row.row(align=True)
+            sub.enabled = audit.check_high_poly
+            sub.prop(audit, "high_poly_threshold", text="")
 
         # ── Run button ────────────────────────────────────────────────────
         run_row = layout.row()
@@ -1736,6 +1803,30 @@ class SCENEAUDIT_PT_panel(Panel):
                 label="Lights", icon='LIGHT',
                 results=audit.results_lights,
                 show_attr="show_lights"
+            )
+
+        if audit.check_unapplied_scale:
+            self._draw_result_section(
+                layout, audit,
+                label="Unapplied Scale", icon='OBJECT_ORIGIN',
+                results=audit.results_unapplied_scale,
+                show_attr="show_unapplied_scale"
+            )
+
+        if audit.check_no_uvs:
+            self._draw_result_section(
+                layout, audit,
+                label="No UV Maps", icon='UV',
+                results=audit.results_no_uvs,
+                show_attr="show_no_uvs"
+            )
+
+        if audit.check_high_poly:
+            self._draw_result_section(
+                layout, audit,
+                label="High Poly", icon='MESH_DATA',
+                results=audit.results_high_poly,
+                show_attr="show_high_poly"
             )
 
 
