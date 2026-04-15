@@ -92,9 +92,13 @@ def _apply_engine_patches():
     custom level builder stores tags at DEFAULT_RES_TIME = -1e9).
     Safe for vanilla levels — 'base ignores timestamp, finds by name only.
 
-    TODO: NEEDS LIVE TEST — confirm vol-h.gc is found and patched correctly
-    on a fresh jak-project install. Verify water volumes still work after
-    a clean recompile triggered by this patch.
+    This patch is critical for ALL four trigger types (camera-trigger,
+    checkpoint-trigger, aggro-trigger, vol-trigger) — they all use vol-control
+    and point-in-vol? which reads the 'vol lump via this code path.
+    Without the patch, pos-vol-count stays 0 and no trigger ever fires.
+
+    Idempotent — reads the file first and only writes if the patch strings are
+    found. Called at the start of all three build paths.
     """
     patched = []
     vol_h = _data_root() / "goal_src" / "jak1" / "engine" / "geometry" / "vol-h.gc"
@@ -560,6 +564,12 @@ def _bg_geo_rebuild(name, scene, depsgraph=None):
     state = _GEO_REBUILD_STATE
     try:
         state["status"] = "Collecting scene..."
+        # Apply engine patches (idempotent — only writes if needed).
+        # Required: vol-h.gc 'exact→'base so vol-control finds 'vol lumps in
+        # custom levels. All 4 trigger types now depend on this.
+        patched = _apply_engine_patches()
+        if patched:
+            log(f"  [geo-rebuild] engine patches applied: {patched}")
         _clean_orphaned_vol_links(scene)
         actors   = collect_actors(scene, depsgraph)
         ambients = collect_ambients(scene)
@@ -632,6 +642,12 @@ def _bg_build_and_play(name, scene, depsgraph=None):
     try:
         # ── Phase 1: Build ────────────────────────────────────────────────────
         state["status"] = "Collecting scene..."
+        # Apply engine patches (idempotent — only writes if needed).
+        # Required: vol-h.gc 'exact→'base so vol-control finds 'vol lumps in
+        # custom levels. All 4 trigger types now depend on this.
+        patched = _apply_engine_patches()
+        if patched:
+            state["status"] = "Applied engine patches, compiling..."
         _clean_orphaned_vol_links(scene)
         actors    = collect_actors(scene, depsgraph)
         ambients  = collect_ambients(scene)
