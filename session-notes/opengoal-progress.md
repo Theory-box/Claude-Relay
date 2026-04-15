@@ -2,79 +2,103 @@
 
 ---
 
-## ✅ Dev Build Path Bug — FIXED (research/community-feedback-apr15, commit 2bc1234)
+## Current Branch: `research/community-feedback-apr15`
 
-**Root cause confirmed.** Both `export.py:35` and `build.py:86` define:
-```python
-def _data(): return _data_root() / "data"
-```
-
-For release builds, `data/` is a real subfolder — works. For dev env (jak-project clone),
-there is NO `data/` subfolder. The addon creates it on first write, placing files at
-`jak-project/data/custom_assets/...` instead of `jak-project/custom_assets/...`.
-
-Consequence: `game.gp` and `level-info.gc` never patched → level never builds.
-Also causes "Missing paths — open Developer Tools" in Build & Play panel (game.gp not found).
-Also breaks enemy model previews (model_preview.py has same `/data` bug).
-Also breaks `--proj-path` passed to gk/goalc.
-
-**Full research in:** `scratch/research-community-feedback-apr15.md`
-
-**Fix (one helper function, applied across 3 files):**
-```python
-def _data():
-    root = _data_root()
-    data_sub = root / "data"
-    # Release: data/goal_src exists — use data_sub
-    if (data_sub / "goal_src").exists() or (data_sub / "custom_assets").exists():
-        return data_sub
-    # Dev env: goal_src is at root — use root directly
-    return root
-```
-
-Files to update: `export.py`, `build.py`, `model_preview.py`
-
-**Also fix inverse bug:** `build.py:100` uses `_data_root() / "goal_src"` (vol-h.gc patch)
-which WORKS on dev but BREAKS on release. Change to `_data() / "goal_src"`.
+All active work from tester feedback is on this branch. Not yet merged to main.
 
 ---
 
-## Other Issues Found (same research session)
+## ✅ COMPLETED THIS SESSION SERIES
 
-- **"Level Flow" rename:** trivial — `panels.py:112` `bl_label = "🗺  Level Flow"` → "🚩  Checkpoints"
-- **Spawn vs Checkpoint confusion:** SPAWN_ = level-entry continue-point only. CHECKPOINT_ = continue-point + checkpoint-trigger actor. Both needed. Just need better labels.
-- **lev1/disp1 per checkpoint:** engine supports it, addon hardcodes `lev1 #f`. Low effort to expose.
-- **Debug spawn ordering:** reorder `:continues` list so chosen SPAWN_ is first — works for both vanilla and mod-base.
-- **mod-settings.gc patch (mod-base):** bonus feature — detect and patch `*debug-continue-point*` on export.
-- **Extracted models folder:** medium effort, decompiler_out GLBs already used for enemy previews.
+### Path Bug (Critical)
+- `_data()` auto-detect via `(root / "goal_src" / "jak1").exists()` in `export.py`, `build.py`
+- Cached result per unique data_path — no repeated stat() on panel redraws
+- Vol-h.gc inverse bug fixed (was working on dev, broken on release)
+- `_user_base()`, `model_preview.py`, `textures.py`, `panels.py` Game logs button all fixed
+- Preferences UI shows detected path with `✓ goal_src found here/in data/` label
+- Dev Tools panel shows `resolved: /path/` line
+
+### Build Pipeline Fixes
+- `patch_level_info`, `patch_game_gp`, `patch_entity_gc` now raise instead of silently skipping
+- Build & Play panel: specific per-path error messages, buttons properly disabled
+- `_bg_build_and_play` was missing `_apply_engine_patches()` call — added
+- REPL warning "Compilation generated code, but wasn't supposed to" — fixed by removing
+  `define-extern` from `user.gc` (compiled with allow_emit=false)
+- Vol-h patch gated by `patch_vol_h: BoolProperty` in OGPreferences
+
+### og_no_export Bug
+- `_level_objects` / `_recursive_col_objects` defaults changed to `exclude_no_export=False`
+- No-export flag now ONLY affects GLB geometry export
+- Was silently dropping checkpoints, triggers, actors from entire collections
+
+### Level Name Validation
+- Min 3 chars (DGO nickname needs 3), max 10, `^[a-z][a-z0-9-]*$` regex
+- `export_build_play` operator was missing the check entirely
+- Duplicate len>10 check removed from two operators
+- `vis_nick_override` and spawn/checkpoint uid sanitised before GOAL output
+
+### Object Naming
+- All 9 object-spawning operators now use scene-wide counters (not level-scoped)
+- Prevents Blender .001/.002 auto-suffix collisions in multi-level .blend files
+
+### Checkpoints / Spawns UX
+- "Level Flow" → "🚩 Checkpoints"
+- "Player Spawn" → "Entry Spawn" throughout (labels, audit, enum descriptions)
+- Checkpoint empty: `SINGLE_ARROW` → `ARROWS` display
+- `spawn_cam_anchor` now parents camera to spawn/checkpoint empty
+- `collect_spawns` uses `matrix_world.translation` for spawn and camera positions
+- Multiple-spawn audit downgraded from WARNING to INFO (multiple entry spawns is valid)
+
+### Misc
+- `_apply_engine_patches()` missing from `_bg_build_and_play` — added
+- Silent-fail → raise in all patch functions (level-info, game.gp, entity.gc)
+- `_data_cache` in export.py and build.py prevents repeated stat() calls
+- `user.gc` cleaned up (no more `define-extern` generating code in allow_emit=false context)
 
 ---
 
-## Current State (merged to main)
-All features below are live on main.
+## 🔴 OPEN — NEXT PRIORITY
 
-## Features Shipped
+### 1. Checkpoint Quaternion Rotation Bug
+Tester reports rotation only works on global-axis alignment.
+- Math verified correct for single-axis rotations
+- May be combined-axis issue or user expectation (green +Y = forward, not blue +Z)
+- Need tester to provide a specific reproducible case
+- **Ask tester:** rotate 90° around global Z and around global X simultaneously — does it break?
 
-### Waypoint Spawn Controls
-- All "Add Waypoint at Cursor" buttons → "Spawn Waypoint"
-- "Add Path B Waypoint" → "Spawn Path B Waypoint"  
-- New "Spawn at Position" checkbox (waypoint_spawn_at_actor BoolProperty)
-  - When checked: waypoint spawns at actor's world location
-  - When unchecked (default): spawns at 3D cursor
-  - Shared across all 6 waypoint buttons in 3 panels
+### 2. Checkpoint Radius Verification
+Almost certainly masked by the og_no_export bug. Verify after that fix is deployed.
+Code looks correct: `["meters", r]` lump → `res-lump-float` with `:default 12288.0`.
 
-### Duplicate Entity
-- "Duplicate" button in Selected Object panel (ACTOR empties only)
-- Operator: og.duplicate_entity
-- Duplicates empty, strips inherited preview children, re-attaches fresh preview
-- Inherits level collection membership from source (export-safe)
-- Names follow ACTOR_<etype>_<n> convention
+### 3. Per-Checkpoint lev1/disp1 Exposure
+Low effort. Add `og_lev1` / `og_disp1` to SPAWN_/CHECKPOINT_ empties.
+Read in `_make_continues()`. Needed for levels adjacent to vanilla geometry.
 
-### Empty Fits to Viz Mesh Bounds
-- On spawn, empty_display_size auto-set to largest bounding box half-extent
-- Only runs on first GLB (double-lurker uses first mesh to size)
-- Guarded: no-ops if mesh is degenerate (size <= 0.001)
-- Purely cosmetic — never touches .scale, children unaffected
+### 4. Debug Spawn Selector
+Low–medium effort. Expose a "Default Spawn" dropdown. Reorder `:continues` list at export.
+Bonus: patch `mod-settings.gc` for mod-base users.
 
-## Bug Fixed
-- ctx->scene in _draw_selected_actor (standalone function, no ctx param)
+---
+
+## 🏗 FUTURE WORK (significant scope)
+
+### Native Volume System
+Replace AABB-only triggers with game's native vol-control system.
+Tester Discord script: https://discord.com/channels/967812267351605298/973327696459358218/1280548232283557938
+Required for: water volumes, concave trigger shapes, vol-mark debug display.
+
+### Per-Blend Path Override
+`data_path_override: StringProperty` on `OGProperties` (scene-level override).
+Needed for multi-project workflows.
+
+### Extracted Game Models Folder  
+Third preference pointing to decompiler output.
+Infrastructure already exists in `model_preview.py` for enemy GLBs.
+
+---
+
+## Features Shipped (on main before this branch)
+- Waypoint Spawn Controls
+- Duplicate Entity operator
+- Empty fits to viz mesh bounds
+- All previously documented features

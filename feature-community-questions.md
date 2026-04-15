@@ -1,367 +1,160 @@
-# Community Feedback & Future Features — Jak 1 Addon
+# Community Feedback & Feature Tracking — Jak 1 Addon
 
-Collected for future documentation, FAQ coverage, and feature planning.
-Source: community feedback on the addon + internal research leads.
-
----
-
-## Feedback Entry — 15/04/2026
-
-**Environment:** Blender 5.0.1 · mod-base commit `5599be3` · addon commit `b0577ea`
+Collected from community testing. Last updated 15/04/2026.
 
 ---
 
-### 🔴 CRITICAL — Dev Build Path Bug (Priority #1)
-
-The addon creates a `data/` folder **inside** the project root when exporting, which is incorrect for dev environment setups. Files land at:
-
-```
-OG-Mod-Base\data\custom_assets\jak1\levels\
-```
-
-Instead of the correct location:
-
-```
-OG-Mod-Base\custom_assets\jak1\levels\
-```
-
-This causes the export to **never patch `game.gp` or `level-info.gc`**, meaning the level never builds. Users on dev builds are completely blocked by this until it's fixed. Release builds (which have a `data/` folder) will work as-is, but dev environments are the primary workflow for most modders who want to see file diffs and test changes.
-
-**This should be the next thing addressed.**
+## Status Key
+- ✅ Fixed / implemented
+- 🔬 Researched, documented, not yet in code
+- 🏗 Future work (significant scope)
+- ❌ Not addon issue
 
 ---
 
-### Setup — Data Folder Clarity
+## CRITICAL
 
-The "Data Folder" setting doesn't exist in a dev environment — the project root itself contains all required folders. The onboarding/documentation needs to clearly explain:
+### ✅ Folder Structure Bug
+Addon created `data/` subfolder instead of using existing structure. Dev builds wrote to the wrong location, `game.gp` and `level-info.gc` were never edited, levels never built.
 
-- **Release build:** point to the `data/` subfolder
-- **Dev environment:** point to the project root directly
+**Fix:** Auto-detect in `_data()`: checks if `goal_src/jak1/` exists at the given root → dev env; otherwise appends `/data/` → release layout. Works for all four user configurations:
+- Dev env pointing to repo root → `✓ goal_src found here`
+- Release pointing to `data/` directly → `✓ goal_src found here`
+- Release pointing to parent of `data/` → `✓ goal_src found in data/`
+- Wrong path → warning label in preferences
 
-Additionally, the ability to **override the data folder path per `.blend` file** would be very useful for users working on multiple projects simultaneously.
-
----
-
-### Setup — Extracted Models Folder (New Feature Idea)
-
-A third path in addon setup: a folder pointing to **extracted 3D models** from the game. This would serve two purposes:
-
-1. When you create an actor that has a model, the addon can load it directly from that folder — meaning the addon doesn't need to bundle any game assets, avoiding legal issues and keeping file size down.
-2. Users could place background geometry from existing levels as a reference template when building custom levels that need to interact with (or avoid) vanilla geometry.
+Also fixed: inverse bug where vol-h.gc engine patch worked on dev but broke on release.
 
 ---
 
-### UI — "Level Flow" Naming
+## Setup
 
-"Level Flow" is not intuitive as a panel name for checkpoints/continue-points. Suggested rename: **"Checkpoints"**, or **"Checkpoints & Boundaries"** if it will later include boundary support.
+### 🔬 Per-Blend File Path Override
+`data_path` is an addon-level preference, shared across all `.blend` files. Needed for multi-project workflows.
 
-Additionally, there's currently no clear differentiation between "spawn" and "checkpoint" — these may need to be consolidated or more clearly distinguished in the UI.
+**Plan:** Add `data_path_override: StringProperty` to `OGProperties` (scene-level). `_data_root()` reads scene override first, falls back to addon prefs. Medium effort.
 
----
+### 🏗 Extracted Game Models Folder
+A third preference path pointing to extracted game models from the decompiler. Two uses:
+1. Actor model loading without bundling game assets (legal + file size)
+2. Background geometry placement reference when working adjacent to vanilla levels
 
-### UI — Checkpoints: Debug Spawn Selection
-
-A way to select a checkpoint (custom or base game) and have the game launch directly at that point during debug would significantly speed up iteration. Reference locations in the codebase:
-
-- **mod-base:** `goal_src/jak1/engine/mods/mod-settings.gc` → `(define *debug-continue-point* "village1-hut")`
-- **vanilla:** `goal_src/jak1/engine/level/level.gc` → `play` function
-
-The addon could either:
-- Auto-patch `mod-settings.gc` to set the spawn to the first continue point on export
-- Add a UI reminder/field in the Build & Play panel prompting the user to set their spawn point
+The decompiler already outputs level GLBs to `decompiler_out/jak1/levels/` when `rip_levels: true`. The addon's `model_preview.py` already loads these for enemy previews — same infrastructure. Needs a UI entry point and an import operator.
 
 ---
 
-### UI — Checkpoints: Level Load State
+## Naming / UX
 
-Checkpoints should expose options for **which levels are loaded** and in what state. Ideal implementation: a list of all existing base game checkpoints plus all mod levels. Could be generated by reading `level-info.gc` or `game.gp` directly, or kept as a plain string input for flexibility.
+### ✅ "Level Flow" → "Checkpoints"
+Panel renamed to `🚩  Checkpoints`. Enum labels updated: "Player Spawn" → "Entry Spawn" with clear descriptions explaining the distinction. Audit messages updated.
 
----
-
-### Export — "Export & Compile" Fails on Dev Build
-
-The "Export & Compile" button currently gives a **"missing paths — open Developer Tools"** error on dev environment setups. This is almost certainly a downstream consequence of the path bug described above — once that's resolved, this should be re-tested.
-
-Output files that *were* created during the test:
-- `test.gd`
-- `test-1.glb`
-- `test-1.jsonc`
-- `test-1-obs.gc`
-
-`game.gp` and `level-info.gc` were **not** edited, confirming the path issue is the root cause.
+### ✅ Spawn/Checkpoint distinction clarified
+UI now explains: Entry Spawn = where Jak starts and respawns before any checkpoint triggers. Checkpoint = mid-level trigger that updates the respawn point when Jak walks into it.
 
 ---
 
----
+## Checkpoints
 
-## Q1 — Custom Actors & Custom Lumps
+### 🔬 Quaternion Rotation Bug
+Tester reports: rotation only works correctly when checkpoint empty is aligned to global axis.
 
-> "How does it deal with custom actors and custom actor lumps? Do these need to be added to the addon or there's a way to add custom types and lumps directly?"
+**Analysis:** The `R_remap @ m3 @ R_remap^T` then conjugate formula is mathematically correct for single-axis rotations (verified). Bug may be in combined-axis rotations or user expectation about which Blender arrow = game forward direction.
 
-### Current behaviour
-**Custom actor types: not supported directly.** The entity picker is a hardcoded enum (`ENTITY_DEFS` dict). Every actor type currently in the addon is explicitly listed with metadata (art group path, nav type, tpage group, etc.). If your custom actor isn't in that list, you can't place it from the UI.
+**Convention:** Green arrow (+Y) = Jak's facing direction in game. The blue (+Z) arrow is NOT forward.
 
-**Custom lumps: also not directly supported.** The lump dict for each entity is built in `collect_actors()` in pure Python. Only a small number of lump keys are ever written, driven by per-type logic (crate-type, eco-info, nav-mesh-sphere, path, vis-dist). There is no mechanism to attach arbitrary extra lump keys to an individual entity empty in Blender.
+**For next test session:** Test with specific combined rotations to reproduce the exact failure case. The tester offered more detail — should follow up.
 
-### What it would take to add both
+### 🔬 Checkpoint Radius Does Nothing
+Tester: "radius field does nothing even at 10 meters."
 
-**Custom actor types (two options):**
+**Most likely cause:** The `og_no_export` bug (see below) was dropping checkpoints from the JSONC entirely. The radius lump itself (`["meters", r]` read by `res-lump-float`) looks correct in code. Verify in next test session after og_no_export fix is deployed.
 
-Option A — "Custom Actor" entry in the picker  
-Add a catch-all `"custom"` entity type to `ENTITY_DEFS`. When spawned, the user types the actor type string directly into a custom property (`og_custom_type`) on the empty. `collect_actors()` would use that string as the etype instead of the object name. This requires no addon registry changes per-actor.
+### ✅ Volume Triggers Broken / Invisible in Debug
+Root cause: `_level_objects()` defaulted to `exclude_no_export=True`. Any collection marked no-export silently dropped ALL its objects — including checkpoints and trigger volumes — from the level data.
 
-Option B — Register custom types in the addon  
-Expose a small UI in the panel: "Add custom actor type" → name + art group path → stored in scene custom props or a JSON sidecar. Rebuilds `ENTITY_DEFS` dynamically on startup. More powerful but more work.
+**Fix:** Changed default to `False`. The no-export flag now only affects GLB geometry collection in `export_glb`.
 
-**Custom lumps (straightforward to add):**
+Additionally: vol-mark debug display doesn't show our triggers because our `process-drawable` subtypes never initialize their `vol` field. This is by design — the native vol-control system (see volume overhaul below) would fix this.
 
-Blender already supports arbitrary custom properties on any object. The pattern already exists in the addon — `og_crate_type`, `og_nav_radius`, `og_cam_mode`, etc. are all written as `o["og_key"] = value` on the empty and read back in `collect_actors()`.
+### ✅ Multi-Arrow Display
+Checkpoint empties now use `ARROWS` display type instead of `SINGLE_ARROW`. Facing direction is immediately visible in viewport.
 
-We could add a general freeform lump pass at the bottom of `collect_actors()`:
+### ✅ Camera as Child of Checkpoint
+`spawn_cam_anchor` now parents the camera empty to the spawn/checkpoint. Moving/rotating the spawn drags the camera. `collect_spawns` updated to use `matrix_world.translation` for correct world-space export of parented cameras.
 
-```python
-# After all standard lumps are built, apply any user-defined overrides/extras
-for key, val in o.items():
-    if key.startswith("og_lump_"):
-        lump_key = key[len("og_lump_"):]   # strip prefix
-        lump[lump_key] = _parse_lump_value(val)  # parse "['meters', 4.0]" etc.
-```
+### 🔬 Per-Checkpoint Level Load State
+The `lev1`/`disp1` fields on `continue-point` structs control which secondary level loads on respawn. The addon hardcodes `lev1 #f`. Exposing this per-checkpoint would allow custom levels adjacent to vanilla geometry to keep the backdrop loaded on death.
 
-The user would set custom properties like:
-- `og_lump_initial-angle` → `["float", 1.5708]`
-- `og_lump_speed` → `["meters", 4.0]`
-- `og_lump_idle-distance` → `["float", 20.0]`
+**Plan:** Add `og_lev1: StringProperty` and `og_disp1: EnumProperty` to spawn/checkpoint empties. Read in `_make_continues()`. Low effort.
 
-This is low-effort to implement and would cover almost any use case.
+### 🔬 Debug Spawn Selector (`*debug-continue-point*`)
+`*debug-continue-point*` is a mod-base addition. Vanilla `play` picks the first `:continues` entry.
 
-### Recommendation
-Implement `og_lump_*` passthrough first — it's ~10 lines of code and immediately unlocks custom lumps for any actor. Custom actor type support (Option A) is the second step. Together they make the addon usable for fully custom actor workflows without needing to patch the addon itself.
+**Plan (works for both vanilla and mod-base):** Expose "Default Spawn" dropdown in panel showing all SPAWN_/CHECKPOINT_ names. Reorder `:continues` list so selected one is first on export. Bonus for mod-base: auto-patch `mod-settings.gc` on export.
 
----
+### 🔬 Per-Level `deftype` Architecture
+`checkpoint-trigger`, `camera-trigger`, `camera-marker`, `aggro-trigger` defined per-level in `*-obs.gc`. If two custom levels load simultaneously, the type gets defined twice.
 
-## Q2 — Multiple Levels Per Blend File
+**Conclusion from research:** This IS the vanilla pattern — `launcherdoor.o` appears in `JUN.DGO`, `MAI.DGO` etc. Safe when only one level loads at a time. Problematic for multi-level mods with simultaneous loading.
 
-> "Does it only work as 1 level per blend file? When working on TFL, I had several levels all loaded at once, in different collections with each their own export settings, so it was really easy to work on both levels at the same time and make them match and export the GLB to the correct locations."
+**Plan:** For future multi-level mod support, move shared types to a community common file coordinated with mod-base maintainers. Not a blocking issue for single-level use.
 
-### Current behaviour
-**One level per blend file.** All export settings (level name, base actor ID, sound banks, etc.) live in `OGProperties`, which is registered as `bpy.types.Scene.og_props` — one instance per scene. Every ACTOR_, AMBIENT_, CAMERA_, TRIGGER_ object in the entire scene is exported as part of that single level. There is no concept of per-collection level grouping.
+### 🏗 Volume System Overhaul (AABB → Native Volumes)
+Current trigger volumes are axis-aligned bounding boxes only. Game's native vol-control system supports arbitrary concave shapes and is what vol-mark debug display renders.
 
-Export operators (`OG_OT_ExportLevel`, build operators) also use `ctx.scene.og_props.level_name` and run `collect_actors(scene)` which iterates `scene.objects` globally — no collection filter.
+Tester provided a Discord script for creating volumes from mesh geometry using the game's native res-lump volume format. This would also fix water volumes.
 
-### What multi-level support would need
+**Discord resource:** https://discord.com/channels/967812267351605298/973327696459358218/1280548232283557938
 
-1. **Per-collection level settings** — a `CollectionProperties` group (registered on `bpy.types.Collection.og_level`) holding: level name, output path, base actor ID, sound banks, etc.
-
-2. **Collection-scoped object collection** — `collect_actors()`, `collect_ambients()`, `collect_camera_actors()` would each need a `collection` argument and filter `objects` to only those in (or under) that collection.
-
-3. **Export UI per collection** — a panel in the Collection Properties sidebar showing the level settings and an "Export This Level" button.
-
-4. **Naming convention** — objects would still be prefixed ACTOR_/AMBIENT_/CAMERA_ but the collection they belong to determines which level they export to.
-
-This is a moderate amount of work (a few hundred lines) but architecturally clean — the current system is already mostly functional-style with `scene` passed around, so adding a `collection` parameter is straightforward.
-
-### Workaround until then
-Multiple Blender scenes in the same .blend file. Each scene has its own `og_props`, its own objects, and its own export settings. You can reference geometry across scenes via Linked Objects. It's not as seamless as TFL's collection-per-level approach but it works today.
+**Impact:** Major architectural change to trigger/volume system. Also required for water volumes. High priority for usability.
 
 ---
 
-## Q3 — Full JSON Regeneration vs Incremental
+## Other Bugs
 
-> "Does it regenerate the whole json every time or does it edit it somehow? If it's the latter, is it possible to have some part of the json that are manually added and don't get wiped out?"
+### ✅ Collections "Ignored for Export" Also Suppressed Checkpoints
+Same root cause as volume trigger bug. Fixed by og_no_export default change.
 
-### Current behaviour
-**Full regeneration every time.** `write_jsonc()` builds the entire JSONC data dict from scratch in Python and calls `p.write_text(new_text)` — it overwrites the file completely. There is one small optimisation: if the new text is identical to what's already on disk, the write is skipped. But if anything changed, the whole file is replaced.
+### ✅ REPL Warning "Compilation generated code, but wasn't supposed to"
+Caused by `user.gc` containing `define-extern` declarations compiled with `allow_emit=false`. 
 
-This means any manual edits to the JSONC are wiped on the next export.
+**Fix:** Removed the `define-extern` declarations — `bg`, `bg-custom`, `*artist-all-visible*` are already in the game's symbol table when connected via `(lt)`.
 
-The JSONC is a single flat JSON object with these top-level keys, all written by the addon:
-```
-long_name, iso_name, nickname, gltf_file, automatic_wall_detection,
-automatic_wall_angle, double_sided_collide, base_id, art_groups,
-custom_models, textures, tex_remap, sky, tpages, ambients, actors
-```
-
-### What it would take to preserve manual additions
-
-**Option A — Passthrough block (simplest)**  
-Read the existing JSONC before export. Look for a special key (e.g. `"_manual"`) that the addon never writes. Merge its contents into the output dict before writing. Users can manually add `"_manual": { "extra_key": [...] }` to the file and it will survive exports.
-
-**Option B — Merge strategy**  
-Read existing JSONC. For each top-level key, if the value in the existing file is not generated by Blender (i.e. it's not in the set of keys the addon manages), preserve it. Riskier — harder to define the boundary of "addon-owned" vs "user-owned" keys.
-
-**Option C — Solve it at Q1 instead (recommended)**  
-If `og_lump_*` custom property passthrough is implemented (see Q1), and a custom actor type is supported, there should be no reason to manually edit the JSONC at all. Every field you'd need to tweak would be settable in Blender. This is the cleanest long-term solution.
-
-### Current workaround
-Set all needed fields via Blender custom properties before export, and accept that the JSONC is always addon-owned. If you need one-off JSONC fields not covered by the addon, add them after export as a post-processing step (a small script that loads the JSONC, patches it, and writes it back).
+### ❌ Blender 5.0.1 GLTF Exporter Drops Custom Properties
+Not addon-related. Blender upstream regression. Use Blender 4.5.2 until fixed.
 
 ---
 
-## Summary Table — Community Q&A
+## Q&A — Previously Documented Community Questions
 
-| Question | Current State | Effort to Fix | Priority |
+### Q1 — Custom Actors & Custom Lumps
+See original Q&A below for full analysis.
+
+`og_lump_*` passthrough pattern documented. Custom actor Option A (catch-all type) documented.
+
+### Q2 — Multiple Levels Per Blend File
+One level per scene currently. Per-collection level settings needed for full support. Workaround: multiple Blender scenes in same .blend file.
+
+### Q3 — Full JSON Regeneration vs Incremental
+Full regen every time. Best long-term fix: implement Q1 so manual JSONC edits aren't needed.
+
+---
+
+## Positive Feedback
+
+- **Quick Geo Rebuild works well** ✅
+- **Core export pipeline functional on release builds** ✅ (after path fix)
+
+---
+
+## Priority Order for Next Work
+
+| # | Item | Effort | Blocks |
 |---|---|---|---|
-| Dev build path bug (data folder) | Broken for dev envs | Medium | **Critical** |
-| Per-blend path override | Not supported | Low | High |
-| Extracted models folder | Not supported | Medium | Medium |
-| Custom actor types | Hardcoded enum only | Low (Option A) / Medium (Option B) | Medium |
-| Custom lumps per actor | Not supported | Low (`og_lump_*` passthrough ~10 lines) | High |
-| Multi-level per blend | One scene = one level | Medium (collection properties) | Medium |
-| JSON preservation | Full regen, manual edits wiped | Low (passthrough block) | Low if Q1 solved |
-| "Level Flow" naming | Confusing | Trivial (rename) | Low |
-| Debug spawn point UI | Manual only | Low | Medium |
-| Checkpoint level load state | Not exposed | Medium | Medium |
-
----
-
-## Additional Notes
-
-### mod-settings.gc spawn checkpoint reminder
-
-> "Also you should definitely change the spawn checkpoint in `mod-settings.gc` if you're using mod-base :p"
-
-When using mod-base, the spawn checkpoint is defined in `mod-settings.gc`. If you don't change it, you'll spawn at whatever the default is (likely a vanilla level start point), not your custom level. The addon currently patches `level-info.gc` to register the level and its continue points, but it may not be guiding users to also update `mod-settings.gc` to actually spawn there.
-
-**Things to check:**
-- Does the addon's onboarding / documentation mention `mod-settings.gc` at all?
-- Should the Build & Export flow include a step or reminder to set the spawn checkpoint?
-- Could the addon write or patch `mod-settings.gc` automatically (set spawn to the first continue point of the exported level)?
-- Or at minimum, add a UI reminder in the Build & Play panel: "Don't forget to set your spawn in mod-settings.gc"
-
-**Context:** This is probably catching out new users who follow the export flow, get into the game, and find themselves spawning somewhere completely wrong.
-
----
-
----
-
-# Future Research Directions
-
-Leads identified during the April 2026 goal_src deep dive that weren't fully explored.
-Ordered roughly by expected payoff vs effort.
-
----
-
-## High Priority
-
-### 1. one-shot ambient sound patch
-
-The `'exact 0.0` bug in `ambient.gc` (`birth-ambient!` lines ~609 and ~621) is a confirmed two-line fix identical in pattern to the vol-h.gc patch. Fix changes `'exact` to `'base` for `effect-name` and `effect-param` lookups. Same fix applies to `ambient-type-light` (~481), `ambient-type-dark` (~507), `ambient-type-weather-off` (~533) for vol lookups.
-
-**Research needed:** Verify the fix doesn't break vanilla level ambient sounds. Test with one-shot sound emitter in a custom level.
-
----
-
-### 2. Spline camera (`cam-spline`) implementation
-
-Fully implemented in engine (`cam-states.gc`), completely unknown to the addon. Activated by `campath` + `campath-k` lumps on a camera entity. Would allow scripted camera paths along corridors, cinematic fly-throughs without needing cutscene machinery.
-
-**Research needed:**
-- What is the exact JSONC format for `campath` (multi-point vector4m)?
-- What is `campath-k` exactly — knot values, uniform spacing, or arc-length parameterized?
-- Does it work with the existing camera-trigger AABB system?
-- `spline-follow-dist` behaviour — does positive vs negative direction matter?
-
----
-
-### 3. Launcher fly-time bug fix
-
-Confirmed: `export.py` writes `alt-vector.w = fly_time_seconds * 300` but engine reads it as seconds and multiplies by 300 itself. Fix is one line. Before fixing, test what vanilla launchers actually use for `alt-vector.w` to confirm the correct value scale.
-
----
-
-### 4. `idle-distance` lump — proper implementation
-
-Currently the addon writes an `idle-distance` lump that nothing reads. To make it actually work, a GOAL method override needs to be injected into `*-obs.gc` that reads `(res-lump-float this 'idle-distance :default (-> *babak-nav-enemy-info* idle-distance))` and stores it. This is a good candidate for a custom GOAL template in the addon's boilerplate generator.
-
-**Research needed:** Which method override hook is cleanest — `nav-enemy-method-48`? Confirm the `enemy-info` struct field offset is stable across all nav-enemy subtypes.
-
----
-
-### 5. `battlecontroller` addon support
-
-Entirely missing from the addon. Source confirms: spawnable, reads 10+ lumps, supports multi-wave combat arenas. Needs: enemy type array picker, spawn-position waypoints (pathspawn), reward pickup selector, camera-name link, delay/mode config.
-
-**Research needed:**
-- Which tpage group does `battlecontroller.o` itself belong to? Does it require a specific DGO context?
-- Do `misty-battlecontroller` and `swamp-battlecontroller` work in custom levels or only in their home DGOs?
-- Can the base `battlecontroller` type be used directly without a level-specific subtype?
-
----
-
-## Medium Priority
-
-### 6. `cam-string` mode (rubber-band follow camera)
-
-Activated by `stringMaxLength > 0.0` lump on camera entity. Free third-person follow camera confined to a trigger zone. Reads `stringCliffHeight`, `string-push-z`. Potentially very useful for open-area zones.
-
-**Research needed:** What are sane default values? Does it conflict with the player's camera controls or does it just constrain them?
-
----
-
-### 7. Missing crate types: `darkeco`, `barrel`, `bucket`, `none`
-
-All confirmed valid values for the `crate-type` lump from `crates.gc`. `none` is particularly interesting — an invisible crate that still drops pickups. `darkeco` deals dark eco damage on break.
-
-**Research needed:** Do `barrel` and `bucket` require their own tpages or are they part of common? Test each type spawns correct visual.
-
----
-
-### 8. `perm-status` lump for pre-completing entities
-
-`["int32", 64]` on any entity sets bit 6 (`complete`) at spawn time. `["int32", 256]` sets `real-complete`. Allows doors to spawn open, crates to be pre-broken, oracles to show their "done" state — without any game-task wiring.
-
-**Research needed:** Does this work cleanly for all entity types or are there actors that have different behaviour when `complete` is set mid-init? Test on eco-door, sun-iris-door, oracle, crate.
-
----
-
-### 9. `flags` bitfield on camera entities
-
-Bit `0x8000` on the `flags` lump switches camera tracking mode to use the full rotation matrix instead of the default aim-at-player behavior. Could enable fully scripted camera rotations without the Look-At system.
-
-**Research needed:** What do other flag bits do? Full bitmask documentation doesn't seem to exist yet.
-
----
-
-## Lower Priority / Long-term
-
-### 10. `snow-bumper` entity
-
-Valid `process-drawable` entity, has a full `init-from-entity!`. No tpage info confirmed. Not in addon. Would require Snow tpages.
-
-**Research needed:** What tpages does it need? Does it function correctly without the snow physics context?
-
-### 11. Part-spawner / particle system
-
-Every vanilla level has a `<level>-part.gc` subtype of `part-spawner`. The addon has zero support for this. Particle IDs must be globally unique (safe range: 2969–3583). Full system documented in `particle-effects-system.md`.
-
-**Research needed:** Can a custom level use `part-spawner` directly with a hardcoded `art-name` pointing to a vanilla `defpartgroup`, without defining its own subtype? If so, this is a shortcut to particle effects without custom GOAL code.
-
-### 12. Level mood/fog/sky configuration
-
-Sky and mood are hardcoded to `village1` for custom levels. `level-load-info` has `mood`, `mood-func`, `sky`, `sun-fade` fields. Changing these requires editing `level-info.gc` and recompiling.
-
-**Research needed:** Is there a clean way to inject a custom mood function via `obs.gc`? Can `set-setting! 'mood` be called from `startup.gc` to override the loaded mood at runtime?
-
-### 13. `startup.gc` timing and entity availability
-
-The window in which `startup.gc` runs relative to entity birth is unclear. Entities are birthed over multiple frames after level load. If `startup.gc` runs before entities are alive, `entity-by-name` lookups will return `#f`.
-
-**Research needed:** Map the exact frame sequence: DGO load → login → birth spread → `startup.gc` execution. Is there a safe hook point after all entities are alive?
-
-### 14. Load boundary / level transition triggers
-
-`static-load-boundary` in `load-boundary-data.gc`. Polygonal XZ shapes that fire `load`/`display`/`vis`/`checkpt` commands when player crosses. LuminarLight has working examples. For multi-area mods this is essential but requires editing a global file.
-
-**Research needed:** Is there a way to inject new load boundaries from per-level code without touching `load-boundary-data.gc`? Or can the addon auto-patch that file on export similar to the vol-h.gc patch?
-
----
-
-## Quick Wins (low effort, high value)
-
-- Document `force-actors? #t` in getting-started guide ← 10 minutes, no code
-- Fix launcher fly-time bug in `export.py` ← one line change
-- Add `darkeco`/`barrel`/`bucket`/`none` crate types ← 10 lines in data.py
-- Add `perm-status` lump to eco-door panel ← quick "Starts Open" improvement
-- Expose `notice-dist` on puffer ← single `_prop_row` addition
-- Rename "Level Flow" → "Checkpoints" or "Checkpoints & Boundaries" ← trivial UI string change
-- Add `mod-settings.gc` spawn reminder to Build & Play panel ← low effort, high user impact
+| 1 | Checkpoint rotation quaternion — diagnose with tester | Low | Usability |
+| 2 | Checkpoint radius verify after og_no_export fix | Test only | Usability |
+| 3 | Per-checkpoint lev1/disp1 exposure | Low | Multi-area levels |
+| 4 | Debug spawn selector | Low–Med | Testing speed |
+| 5 | Per-blend path override | Medium | Multi-project |
+| 6 | Native volume system overhaul | High | Water volumes, debug display |
+| 7 | Extracted models folder | Medium | Legal/size |
