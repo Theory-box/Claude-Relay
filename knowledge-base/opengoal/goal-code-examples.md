@@ -100,7 +100,7 @@ For custom levels the pattern is `<level-name>-<spawn-uid>`, e.g. `my-level-star
 
 ### Level transition
 ```lisp
-(start 'play (get-continue-by-name *game-info* "village1-hut"))  ; full restart at continue point
+(start 'play (get-continue-by-name *game-info* "village1-hut"))
 ```
 
 ### Send event to another entity
@@ -122,20 +122,3 @@ For custom levels the pattern is `<level-name>-<spawn-uid>`, e.g. `my-level-star
 (set-setting! 'allow-pause #f 0.0 0)         ; disable pause menu
 (remove-setting! 'letterbox)                  ; restore default
 ```
-
----
-
-## What To Try Next
-
-These are confirmed possible based on engine source research:
-
-| Idea | Key calls | Difficulty |
-|---|---|---|
-| **Fog zone** | `set-setting! 'fog-near-plane` / `'fog-far-plane` on enter/exit | Easy |
-| **Music switcher** | `set-setting! 'music 'levelname` on proximity | Easy |
-| **Die relay** (kill a platform) | `process-by-ename` + `deactivate` | Easy |
-| **Enemy wave** | `process-by-ename` + `send-event 'cue-chase` on trigger | Medium |
-| **Orb count gate** | `(-> *game-info* fuel-cell-count)` — open door when N collected | Medium |
-| **Timed platform sequence** | Multi-state, deactivate in order with `(get-time)` delays | Medium |
-| **Eco detector** | `send-event *target* 'query 'powerup (pickup-type eco-blue)` | Medium |
-| **One-way door** (open forever once passed) | `process-entity-status!` + `entity-perm-status complete` | Medium |
