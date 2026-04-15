@@ -37,7 +37,9 @@ jak-project/
 ```
 → User should point `data_path` to `jak-project/` — `_data()` appending `/data` makes all paths wrong.
 
-**Confirmed via**: sparse clone of `https://github.com/open-goal/jak-project` — `goal_src/` lives at repo root.
+**Confirmed via two sources:**
+1. Sparse clone of `https://github.com/open-goal/jak-project` — `goal_src/` lives at repo root.
+2. `Taskfile.yml` in jak-project — decompiler is run as `decompiler "./decompiler/config/..." "./iso_data" "./decompiler_out"` from the repo root, confirming `decompiler_out/` is also at root level with no `data/` layer.
 
 ### The fix (from feedback branch, confirmed correct)
 Replace the simple `_data()` with auto-detection:
@@ -76,7 +78,7 @@ decompiler_out/jak1/
   <level_name>/<actor>-lod0.glb         (rip with rip_levels: true — actor models)
   <level_name>/<level_name>-background.glb  (same — background geo)
 ```
-Confirmed via: `decompiler/config/jak1/jak1_config.jsonc` in the jak-project repo.
+Confirmed via: `decompiler/config/jak1/jak1_config.jsonc` comments AND `Taskfile.yml` — decompiler is run as `decompiler config iso_data ./decompiler_out` from the project root. The `/jak1/` subfolder is added by the decompiler tool itself based on the game config.
 
 ### Auto-detection
 After the `_data()` fix, auto-detect is simply:
