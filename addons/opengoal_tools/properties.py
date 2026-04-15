@@ -76,18 +76,14 @@ class OGPreferences(AddonPreferences):
         if self.data_path.strip():
             from pathlib import Path
             root = Path(self.data_path.strip().rstrip("\\/"))
-            if (root / "goal_src" / "jak1").exists():
-                resolved = root
-                env_label = f"✓ Dev env detected — using: {resolved}"
-            else:
-                resolved = root / "data"
-                if resolved.exists():
-                    env_label = f"✓ Release build detected — using: {resolved}"
-                else:
-                    env_label = f"⚠ data/goal_src/jak1 not found — check path"
             box = layout.box()
             box.scale_y = 0.75
-            box.label(text=env_label, icon="INFO")
+            if (root / "goal_src" / "jak1").exists():
+                box.label(text=f"✓ goal_src found here — using: {root}", icon="CHECKMARK")
+            elif (root / "data" / "goal_src" / "jak1").exists():
+                box.label(text=f"✓ goal_src found in data/ — using: {root / 'data'}", icon="CHECKMARK")
+            else:
+                box.label(text="⚠  goal_src/jak1 not found — check path", icon="ERROR")
 
         layout.separator()
         layout.prop(self, "preview_models")
