@@ -3000,3 +3000,14 @@ def _aggro_event_id(name):
     return 0
 
 
+def _is_custom_type(etype):
+    """Return True if etype is not a known ENTITY_DEFS entry.
+
+    Custom types are user-defined GOAL deftypes that the addon doesn't know about.
+    They are defined in obs.gc via the GOAL Code panel and spawn as plain
+    process-drawable entities.  collect_actors handles them transparently —
+    they just get a minimal lump dict with name/trans/quat/bsphere.
+    """
+    return etype not in ENTITY_DEFS
+
+

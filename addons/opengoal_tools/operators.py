@@ -19,7 +19,7 @@ from .data import (
     _actor_links, _actor_get_link, _actor_set_link, _actor_remove_link,
     _build_actor_link_lumps, _parse_lump_row, _LUMP_HARDCODED_KEYS,
     _aggro_event_id, AGGRO_EVENT_ENUM_ITEMS, LUMP_TYPE_ITEMS,
-    UNIVERSAL_LUMPS,
+    UNIVERSAL_LUMPS, _is_custom_type,
 )
 from .collections import (
     _get_level_prop, _set_level_prop, _level_objects, _active_level_col,
@@ -2583,3 +2583,197 @@ class OG_OT_RefreshLevels(Operator):
 
 
 
+
+# ---------------------------------------------------------------------------
+# GOAL Code Block operators
+# ---------------------------------------------------------------------------
+
+_GOAL_BOILERPLATE = """\
+;;-*-Lisp-*-
+(in-package goal)
+;; {name}-obs.gc custom code — injected by OpenGOAL Level Tools
+;; Entity type: {etype}
+;;
+;; Replace this with your deftype + defstate + init-from-entity!
+;; See knowledge-base/opengoal/goal-scripting.md for reference.
+;;
+;; IMPORTANT:
+;;   • First field starts at offset-assert 176 (end of process-drawable base)
+;;   • Each state :code loop must call (suspend) or the game will freeze
+;;   • Compile errors appear in the goalc build log, not in Blender
+;;   • The entity type name in your deftype must match what you put in ACTOR_<n>_<uid>
+;;     i.e. ACTOR_{etype}_0 expects a (deftype {etype} (process-drawable) ...)
+
+(deftype {etype} (process-drawable)
+  ()   ;; add fields here starting at :offset-assert 176
+  (:states {etype}-idle))
+
+(defstate {etype}-idle ({etype})
+  :code
+    (behavior ()
+      (loop (suspend))))
+
+(defmethod init-from-entity! ((this {etype}) (arg0 entity-actor))
+  (set! (-> this root) (new 'process 'trsqv))
+  (process-drawable-from-entity! this arg0)
+  (go {etype}-idle)
+  (none))
+"""
+
+
+class OG_OT_CreateGoalCodeBlock(bpy.types.Operator):
+    """Create a new Blender text block pre-filled with GOAL boilerplate and assign it to this actor"""
+    bl_idname = "og.create_goal_code_block"
+    bl_label  = "Create GOAL Code Block"
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, ctx):
+        sel = ctx.active_object
+        if not sel or sel.type != "EMPTY":
+            return False
+        parts = sel.name.split("_", 2)
+        return (len(parts) >= 3 and parts[0] == "ACTOR"
+                and "_wp_" not in sel.name and "_wpb_" not in sel.name)
+
+    def execute(self, ctx):
+        sel   = ctx.active_object
+        parts = sel.name.split("_", 2)
+        etype = parts[1]
+        uid   = parts[2] if len(parts) >= 3 else "0"
+
+        # Generate a unique text block name
+        block_name = f"{etype}-goal-code"
+        counter    = 0
+        base_name  = block_name
+        while block_name in bpy.data.texts:
+            counter   += 1
+            block_name = f"{base_name}-{counter}"
+
+        # Create and fill the text block
+        txt = bpy.data.texts.new(block_name)
+        txt.write(_GOAL_BOILERPLATE.format(name=etype, etype=etype, uid=uid))
+        txt.cursor_set(0)
+
+        # Assign to this object
+        sel.og_goal_code_ref.text_block = txt
+        sel.og_goal_code_ref.enabled    = True
+
+        self.report({"INFO"}, f"Created GOAL code block '{block_name}' — open it in the Text Editor to edit")
+        return {"FINISHED"}
+
+
+class OG_OT_ClearGoalCodeBlock(bpy.types.Operator):
+    """Disconnect the GOAL code block from this actor (does not delete the text block)"""
+    bl_idname  = "og.clear_goal_code_block"
+    bl_label   = "Disconnect GOAL Code"
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, ctx):
+        sel = ctx.active_object
+        return (sel is not None
+                and sel.type == "EMPTY"
+                and hasattr(sel, "og_goal_code_ref")
+                and sel.og_goal_code_ref.text_block is not None)
+
+    def execute(self, ctx):
+        ctx.active_object.og_goal_code_ref.text_block = None
+        return {"FINISHED"}
+
+
+class OG_OT_OpenGoalCodeInEditor(bpy.types.Operator):
+    """Switch an open Text Editor area to show this actor's GOAL code block, or report instructions if none is open"""
+    bl_idname  = "og.open_goal_code_in_editor"
+    bl_label   = "Open in Text Editor"
+    bl_options = {"REGISTER"}
+
+    @classmethod
+    def poll(cls, ctx):
+        sel = ctx.active_object
+        return (sel is not None
+                and hasattr(sel, "og_goal_code_ref")
+                and sel.og_goal_code_ref.text_block is not None)
+
+    def execute(self, ctx):
+        txt = ctx.active_object.og_goal_code_ref.text_block
+        for window in ctx.window_manager.windows:
+            for area in window.screen.areas:
+                if area.type == "TEXT_EDITOR":
+                    area.spaces.active.text = txt
+                    self.report({"INFO"}, f"Showing '{txt.name}' in Text Editor")
+                    return {"FINISHED"}
+        self.report({"INFO"},
+                    f"Open a Text Editor area (Shift+F11) then re-click. "
+                    f"Block name: '{txt.name}'")
+        return {"FINISHED"}
+
+
+# ---------------------------------------------------------------------------
+# Custom GOAL Type spawn operator
+# ---------------------------------------------------------------------------
+
+import re as _re
+
+_VALID_ETYPE_RE = _re.compile(r'^[a-z][a-z0-9\-]*$')
+
+
+class OG_OT_SpawnCustomType(bpy.types.Operator):
+    """Spawn an ACTOR_ empty for a user-defined GOAL type.
+
+    The type name must:
+      • be lowercase letters, digits, and hyphens only
+      • not already exist in the addon's built-in entity list
+      • match the deftype name written in your GOAL code block exactly
+
+    The empty is placed at the 3D cursor and named ACTOR_<typename>_<n>.
+    Attach a GOAL code block via the GOAL Code sub-panel to define its behaviour.
+    """
+    bl_idname  = "og.spawn_custom_type"
+    bl_label   = "Spawn Custom Type"
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, ctx):
+        name = (ctx.scene.og_props.custom_type_name or "").strip()
+        return bool(name)
+
+    def execute(self, ctx):
+        etype = (ctx.scene.og_props.custom_type_name or "").strip().lower()
+
+        if not etype:
+            self.report({"ERROR"}, "Enter a type name first")
+            return {"CANCELLED"}
+
+        if not _VALID_ETYPE_RE.match(etype):
+            self.report({"ERROR"},
+                f"'{etype}' is not a valid type name. "
+                "Use lowercase letters, digits, and hyphens only (e.g. 'spin-prop').")
+            return {"CANCELLED"}
+
+        if not _is_custom_type(etype):
+            self.report({"ERROR"},
+                f"'{etype}' is already a built-in entity type. "
+                "Use the normal Spawn sub-panels to place it, or choose a different name.")
+            return {"CANCELLED"}
+
+        n = len([o for o in _level_objects(ctx.scene)
+                 if o.name.startswith(f"ACTOR_{etype}_")])
+
+        bpy.ops.object.empty_add(type="SPHERE", location=ctx.scene.cursor.location)
+        o = ctx.active_object
+        o.name               = f"ACTOR_{etype}_{n}"
+        o.show_name          = True
+        o.empty_display_size = 0.5
+        # Distinctive yellow-green colour so custom types stand out from built-ins
+        o.color = (0.6, 1.0, 0.2, 1.0)
+
+        # Link into the level collection (Props sub-collection is the best fit
+        # for a generic unknown type — no AI, no navmesh assumed)
+        _link_object_to_sub_collection(
+            ctx.scene, o, *_col_path_for_entity("evilplant"))  # reuse Props path
+
+        self.report({"INFO"},
+            f"Spawned '{o.name}' — open the GOAL Code panel to assign a code block, "
+            f"then define 'deftype {etype}' in that block.")
+        return {"FINISHED"}

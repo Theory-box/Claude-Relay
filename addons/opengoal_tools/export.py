@@ -14,7 +14,7 @@ from .data import (
     _actor_links, _actor_get_link, _actor_set_link,
     _actor_remove_link, _build_actor_link_lumps,
     _parse_lump_row, _aggro_event_id, AGGRO_TRIGGER_EVENTS,
-    _LUMP_HARDCODED_KEYS,
+    _LUMP_HARDCODED_KEYS, _is_custom_type,
 )
 from .collections import (
     _get_level_prop, _level_objects,
@@ -445,6 +445,60 @@ def collect_aggro_triggers(scene):
     return out
 
 
+def collect_custom_triggers(scene):
+    """Build vol-trigger actor list from VOL_ meshes whose og_vol_links target
+    custom (non-built-in) ACTOR_ empties.
+
+    One vol-trigger actor is emitted per (volume, custom_link) pair.
+    On enter: sends 'trigger to the target process.
+    On exit:  sends 'untrigger to the target process.
+
+    The target-name lump uses the entity lump name convention:
+      ACTOR_<etype>_<uid>  ->  <etype>-<uid>
+    This matches what process-by-ename looks up at runtime.
+    """
+    out = []
+    counter = 0
+    for vol in _level_objects(scene):
+        if vol.type != "MESH" or not vol.name.startswith("VOL_"):
+            continue
+        for entry in _vol_links(vol):
+            if _classify_target(entry.target_name) != "custom":
+                continue
+            target_obj = scene.objects.get(entry.target_name)
+            if not target_obj:
+                log(f"  [WARNING] vol-trigger {vol.name}: target '{entry.target_name}' not in scene — skipped")
+                continue
+            parts = entry.target_name.split("_", 2)
+            if len(parts) < 3:
+                log(f"  [WARNING] vol-trigger {vol.name}: malformed target name '{entry.target_name}' — skipped")
+                continue
+            target_lump_name = f"{parts[1]}-{parts[2]}"
+            xmin, xmax, ymin, ymax, zmin, zmax, cx, cy, cz, rad = _vol_aabb(vol)
+            uid = counter
+            counter += 1
+            out.append({
+                "trans":     [cx, cy, cz],
+                "etype":     "vol-trigger",
+                "game_task": "(game-task none)",
+                "quat":      [0, 0, 0, 1],
+                "vis_id":    0,
+                "bsphere":   [cx, cy, cz, rad],
+                "lump": {
+                    "name":        f"voltrig-{uid}",
+                    "target-name": target_lump_name,
+                    "bound-xmin":  ["meters", xmin],
+                    "bound-xmax":  ["meters", xmax],
+                    "bound-ymin":  ["meters", ymin],
+                    "bound-ymax":  ["meters", ymax],
+                    "bound-zmin":  ["meters", zmin],
+                    "bound-zmax":  ["meters", zmax],
+                },
+            })
+            log(f"  [vol-trigger] {vol.name} → {entry.target_name} (lump: {target_lump_name})")
+    return out
+
+
 def collect_cameras(scene):
     """Build camera actor list from CAMERA_ camera objects.
 
@@ -594,10 +648,13 @@ def collect_cameras(scene):
     return camera_actors, trigger_actors
 
 
-def write_gc(name, has_triggers=False, has_checkpoints=False, has_aggro_triggers=False):
+def write_gc(name, has_triggers=False, has_checkpoints=False, has_aggro_triggers=False, has_custom_triggers=False, scene=None):
     """Write obs.gc: always emits camera-marker type; if has_triggers also
     emits camera-trigger type; if has_checkpoints emits checkpoint-trigger type;
-    if has_aggro_triggers emits aggro-trigger type.
+    if has_aggro_triggers emits aggro-trigger type;
+    if has_custom_triggers emits vol-trigger type (sends 'trigger/'untrigger to custom actors).
+    If scene is provided, any ACTOR_ empties with an og_goal_code_ref text block
+    assigned (and enabled) have their code appended after the addon's types.
     All types birth automatically via entity-actor.birth! — no nREPL needed.
     """
     d = _goal_src() / "levels" / name
@@ -878,6 +935,117 @@ def write_gc(name, has_triggers=False, has_checkpoints=False, has_aggro_triggers
         ]
         log(f"  [write_gc] aggro-trigger type embedded")
 
+    if has_custom_triggers:
+        lines += [
+            ";; vol-trigger: AABB volume entity that sends 'trigger/'untrigger to a custom actor.",
+            ";; On rising edge (player enters volume), sends 'trigger to target by name.",
+            ";; On falling edge (player exits volume), sends 'untrigger to target by name.",
+            ";; Target is looked up each poll via process-by-ename — safe if target dies.",
+            ";; Mirrors the aggro-trigger pattern (proven working): *target* guard + frame throttle.",
+            "(deftype vol-trigger (process-drawable)",
+            "  ((target-name string  :offset-assert 176)",
+            "   (cull-radius float   :offset-assert 180)",
+            "   (xmin        float   :offset-assert 184)",
+            "   (xmax        float   :offset-assert 188)",
+            "   (ymin        float   :offset-assert 192)",
+            "   (ymax        float   :offset-assert 196)",
+            "   (zmin        float   :offset-assert 200)",
+            "   (zmax        float   :offset-assert 204)",
+            "   (inside      symbol  :offset-assert 208))",
+            "  :heap-base #x70",
+            "  :size-assert #xd4",
+            "  (:states vol-trigger-active))",
+            "",
+            "(defstate vol-trigger-active (vol-trigger)",
+            "  :code",
+            "  (behavior ()",
+            "    (loop",
+            "      (when (and *target* (zero? (mod (-> *display* base-frame-counter) 4)))",
+            "        (let* ((pos  (-> *target* control trans))",
+            "               (dx   (- (-> pos x) (-> self root trans x)))",
+            "               (dy   (- (-> pos y) (-> self root trans y)))",
+            "               (dz   (- (-> pos z) (-> self root trans z)))",
+            "               (cr   (-> self cull-radius))",
+            "               (in-vol (and",
+            "                 (< (+ (* dx dx) (* dy dy) (* dz dz)) (* cr cr))",
+            "                 (< (-> self xmin) (-> pos x)) (< (-> pos x) (-> self xmax))",
+            "                 (< (-> self ymin) (-> pos y)) (< (-> pos y) (-> self ymax))",
+            "                 (< (-> self zmin) (-> pos z)) (< (-> pos z) (-> self zmax)))))",
+            "          (cond",
+            "            ((and in-vol (not (-> self inside)))",
+            "             (set! (-> self inside) #t)",
+            "             (format 0 \"[vol-trigger] enter -> ~A~%\" (-> self target-name))",
+            "             (let ((proc (process-by-ename (-> self target-name))))",
+            "               (when proc (send-event proc 'trigger))))",
+            "            ((and (not in-vol) (-> self inside))",
+            "             (set! (-> self inside) #f)",
+            "             (format 0 \"[vol-trigger] exit ~A~%\" (-> self target-name))",
+            "             (let ((proc (process-by-ename (-> self target-name))))",
+            "               (when proc (send-event proc 'untrigger)))))))",
+            "      (suspend))))",
+            "",
+            "(defmethod init-from-entity! ((this vol-trigger) (arg0 entity-actor))",
+            "  (set! (-> this root) (new (quote process) (quote trsqv)))",
+            "  (process-drawable-from-entity! this arg0)",
+            "  (set! (-> this target-name) (res-lump-struct arg0 (quote target-name) string))",
+            "  (set! (-> this xmin)        (res-lump-float arg0 (quote bound-xmin)))",
+            "  (set! (-> this xmax)        (res-lump-float arg0 (quote bound-xmax)))",
+            "  (set! (-> this ymin)        (res-lump-float arg0 (quote bound-ymin)))",
+            "  (set! (-> this ymax)        (res-lump-float arg0 (quote bound-ymax)))",
+            "  (set! (-> this zmin)        (res-lump-float arg0 (quote bound-zmin)))",
+            "  (set! (-> this zmax)        (res-lump-float arg0 (quote bound-zmax)))",
+            "  (set! (-> this inside)      #f)",
+            "  (let* ((hx (* 0.5 (- (-> this xmax) (-> this xmin))))",
+            "         (hy (* 0.5 (- (-> this ymax) (-> this ymin))))",
+            "         (hz (* 0.5 (- (-> this zmax) (-> this zmin)))))",
+            "    (set! (-> this cull-radius) (sqrtf (+ (* hx hx) (* hy hy) (* hz hz)))))",
+            "  (format 0 \"[vol-trigger] armed -> ~A~%\" (-> this target-name))",
+            "  (go vol-trigger-active)",
+            "  (none))",
+            "",
+        ]
+        log(f"  [write_gc] vol-trigger type embedded")
+
+    # ── Custom GOAL code injection ────────────────────────────────────────
+    # Scan all ACTOR_ empties in the scene for text blocks assigned via
+    # og_goal_code_ref.  Deduplicate by text block name so shared blocks are
+    # only emitted once.  Each block is appended verbatim after the addon's
+    # own generated types.
+    if scene is not None:
+        seen_blocks   = set()
+        custom_blocks = []
+        for obj in _level_objects(scene):
+            if not (obj.type == "EMPTY"
+                    and obj.name.startswith("ACTOR_")
+                    and "_wp_" not in obj.name
+                    and "_wpb_" not in obj.name):
+                continue
+            ref = getattr(obj, "og_goal_code_ref", None)
+            if ref is None:
+                continue
+            txt = ref.text_block
+            if txt is None or not ref.enabled:
+                continue
+            if txt.name in seen_blocks:
+                continue
+            seen_blocks.add(txt.name)
+            custom_blocks.append((txt.name, txt.as_string()))
+
+        if custom_blocks:
+            lines += [
+                "",
+                f";; --- custom GOAL code ({len(custom_blocks)} block(s)) ---",
+            ]
+            for block_name, block_code in custom_blocks:
+                lines += [
+                    "",
+                    f";; block: {block_name}",
+                    "",
+                ]
+                lines += block_code.splitlines()
+            log(f"  [write_gc] injected {len(custom_blocks)} custom GOAL code block(s): "
+                f"{', '.join(n for n, _ in custom_blocks)}")
+
     new_text = "\n".join(lines)
     if p.exists() and p.read_text() == new_text:
         log(f"Skipped {p} (unchanged)")
@@ -1027,15 +1195,18 @@ def _vol_remove_link_to(vol, target_name):
 
 
 def _classify_target(target_name):
-    """Return one of 'camera', 'checkpoint', 'enemy', or '' for an unknown target."""
+    """Return one of 'camera', 'checkpoint', 'enemy', 'custom', or '' for an unknown target."""
     if target_name.startswith("CAMERA_"):
         return "camera"
     if target_name.startswith("CHECKPOINT_") and not target_name.endswith("_CAM"):
         return "checkpoint"
     if target_name.startswith("ACTOR_") and "_wp_" not in target_name and "_wpb_" not in target_name:
         parts = target_name.split("_", 2)
-        if len(parts) >= 3 and _actor_supports_aggro_trigger(parts[1]):
-            return "enemy"
+        if len(parts) >= 3:
+            if _actor_supports_aggro_trigger(parts[1]):
+                return "enemy"
+            if _is_custom_type(parts[1]):
+                return "custom"
     return ""
 
 

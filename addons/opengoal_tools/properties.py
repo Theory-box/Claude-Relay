@@ -109,6 +109,16 @@ class OGProperties(PropertyGroup):
     )
     nav_radius:  FloatProperty(name="Nav Sphere Radius (m)", default=6.0, min=0.5, max=50.0,
                                description="Fallback navmesh sphere radius for nav-unsafe enemies")
+    # Custom GOAL type spawn
+    custom_type_name: StringProperty(
+        name="Type Name",
+        description=(
+            "Name of your custom GOAL deftype (e.g. 'spin-prop', 'prox-music-zone'). "
+            "Must be lowercase with hyphens, matching the deftype name in your GOAL code block. "
+            "Cannot be a name that already exists in the addon's entity list."
+        ),
+        default="",
+    )
     base_id:     IntProperty(name="Base Actor ID", default=10000, min=1000, max=60000,
                              description="Starting actor ID for this level. Must be unique across all custom levels to avoid ghost entity spawns.")
     lightbake_samples: IntProperty(name="Sample Count", default=128, min=1, max=4096,
@@ -334,6 +344,26 @@ class OGVolLink(PropertyGroup):
         items=AGGRO_EVENT_ENUM_ITEMS,
         default="cue-chase",
         description="Event sent to the enemy on volume enter (nav-enemies only — ignored for cameras/checkpoints)",
+    )
+
+
+class OGGoalCodeRef(bpy.types.PropertyGroup):
+    """Reference to a Blender text block containing custom GOAL code.
+
+    Stored as og_goal_code_ref PointerProperty on ACTOR_ empties.
+    On export, the referenced text block is appended verbatim to *-obs.gc
+    after the addon's generated types.  Multiple actors can share one block —
+    it will only be emitted once (deduplication by text block name).
+    """
+    text_block: bpy.props.PointerProperty(
+        name="GOAL Code",
+        description="Blender text block whose contents will be injected into the level's obs.gc on export",
+        type=bpy.types.Text,
+    )
+    enabled: bpy.props.BoolProperty(
+        name="Inject on Export",
+        description="When enabled this code block will be included in obs.gc. Disable to temporarily exclude it without deleting the block",
+        default=True,
     )
 
 

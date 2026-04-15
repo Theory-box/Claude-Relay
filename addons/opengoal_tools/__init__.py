@@ -102,7 +102,7 @@ from .build import (
 from .properties import (
     OGPreferences, OGProperties,
     OGLumpRow, OG_OT_AddLumpRow, OG_OT_RemoveLumpRow,
-    OG_UL_LumpRows, OGActorLink, OGVolLink, OGAuditResult,
+    OG_UL_LumpRows, OGActorLink, OGVolLink, OGAuditResult, OGGoalCodeRef,
 )
 from .operators import (
     _draw_mat,
@@ -137,6 +137,9 @@ from .operators import (
     OG_OT_BakeLighting, OG_OT_PickSound, OG_OT_AddSoundEmitter, OG_OT_AddMusicZone,
     OG_OT_SetMusicZoneBank, OG_OT_SetMusicZoneFlava,
     OG_OT_RemoveLevel, OG_OT_RefreshLevels,
+    OG_OT_CreateGoalCodeBlock, OG_OT_ClearGoalCodeBlock,
+    OG_OT_OpenGoalCodeInEditor,
+    OG_OT_SpawnCustomType,
 )
 from .panels import (
     OG_OT_ReloadAddon, OG_OT_CleanLevelFiles,
@@ -149,6 +152,7 @@ from .panels import (
     OG_PT_VertexExport, OG_OT_AssignVertexExport, OG_OT_ClearVertexExport,
     OG_PT_SpawnEnemies, OG_PT_SpawnPlatforms,
     OG_PT_SpawnProps, OG_PT_SpawnNPCs, OG_PT_SpawnPickups, OG_PT_SpawnSounds, OG_PT_SpawnMusicZones,
+    OG_PT_SpawnCustomTypes,
     OG_PT_Camera, OG_PT_Triggers,
     OG_PT_SelectedObject, OG_PT_SelectedCollision,
     OG_PT_SelectedLightBaking, OG_PT_SelectedNavMeshTag,
@@ -169,6 +173,7 @@ from .panels import (
     OG_PT_VolumeLinks, OG_PT_NavmeshInfo,
     OG_PT_SelectedLumps, OG_PT_SelectedLumpReference,
     OG_PT_Waypoints, OG_PT_BuildPlay, OG_PT_DevTools, OG_PT_Collision,
+    OG_PT_ActorGoalCode,
 )
 
 from .utils import _preview_collections, _load_previews, _unload_previews
@@ -190,6 +195,7 @@ classes = (
     OGLumpRow,
     OGActorLink,
     OGVolLink,
+    OGGoalCodeRef,
     OGAuditResult,
     OGPreferences, OGProperties,
     OG_OT_AddLumpRow, OG_OT_RemoveLumpRow, OG_OT_UseLumpRef,
@@ -231,6 +237,10 @@ classes = (
     OG_OT_SetMusicZoneFlava,
     OG_OT_RemoveLevel,
     OG_OT_RefreshLevels,
+    OG_OT_CreateGoalCodeBlock,
+    OG_OT_ClearGoalCodeBlock,
+    OG_OT_OpenGoalCodeInEditor,
+    OG_OT_SpawnCustomType,
     # ── Collection system operators ──────────────────────────────────────
     OG_OT_CreateLevel, OG_OT_AssignCollectionAsLevel,
     OG_OT_SetActiveLevel, OG_OT_NudgeLevelProp,
@@ -326,6 +336,8 @@ classes = (
     OG_PT_BuildPlay,
     OG_PT_DevTools,
     OG_PT_Collision,
+    OG_PT_SpawnCustomTypes,
+    OG_PT_ActorGoalCode,
     *TEXTURING_CLASSES,
 )
 
@@ -384,6 +396,10 @@ def register():
     bpy.types.Object.og_lump_rows          = bpy.props.CollectionProperty(type=OGLumpRow)
     bpy.types.Object.og_lump_rows_index    = bpy.props.IntProperty(name="Active Lump Row", default=0)
 
+    # GOAL code injection — registered after OGGoalCodeRef is in classes tuple.
+    # Each ACTOR_ empty can reference a Blender text block to inject into obs.gc.
+    bpy.types.Object.og_goal_code_ref      = bpy.props.PointerProperty(type=OGGoalCodeRef)
+
     # Vertex-export: mesh objects tagged with an entity type export each vertex as an actor.
     bpy.types.Object.og_vertex_export_etype  = bpy.props.StringProperty(name="Export As Entity", default="")
     bpy.types.Object.og_vertex_export_search = bpy.props.StringProperty(name="", default="")
@@ -413,7 +429,7 @@ def unregister():
     for a in ("set_invisible","set_collision","ignore","noedge","noentity",
               "nolineofsight","nocamera","collide_material","collide_event","collide_mode",
               "enable_custom_weights","copy_eye_draws","copy_mod_draws","og_vol_links",
-              "og_actor_links","og_lump_rows","og_lump_rows_index",
+              "og_actor_links","og_lump_rows","og_lump_rows_index","og_goal_code_ref",
               "og_vertex_export_etype","og_vertex_export_search",
               "og_spring_height","og_launcher_dest","og_launcher_fly_time","og_num_lurkers",
               "og_door_auto_close","og_door_one_way","og_continue_name",
