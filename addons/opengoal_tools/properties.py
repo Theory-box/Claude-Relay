@@ -40,7 +40,12 @@ class OGPreferences(AddonPreferences):
     )
     og_active_version: StringProperty(
         name="Active Version",
-        description="Currently selected version subfolder name",
+        description="Relative path from root to the folder containing gk/goalc",
+        default="",
+    )
+    og_active_data: StringProperty(
+        name="Active Data Folder",
+        description="Relative path from root to the folder containing goal_src or data/goal_src",
         default="",
     )
     show_manual_paths: BoolProperty(
@@ -59,7 +64,7 @@ class OGPreferences(AddonPreferences):
         name="Data folder (override)",
         description=(
             "Override: release build = parent of data/, dev build = repository root. "
-            "Leave blank to use auto-detected version folder."
+            "Leave blank to use auto-detected data folder."
         ),
         subtype="DIR_PATH",
         default="",
@@ -68,7 +73,7 @@ class OGPreferences(AddonPreferences):
         name="Decompiler output (override)",
         description=(
             "Override: path to decompiler_out/jak1/. "
-            "Leave blank to auto-detect from the active version folder."
+            "Leave blank to auto-detect from the active data folder."
         ),
         subtype="DIR_PATH",
         default="",
@@ -89,58 +94,91 @@ class OGPreferences(AddonPreferences):
         row.prop(self, "og_root_path", text="OpenGOAL Root")
         row.operator("og.scan_paths", text="Find Files", icon="VIEWZOOM")
 
-        # ── Version picker ────────────────────────────────────────────────────
-        if self.og_root_path.strip():
-            root     = Path(self.og_root_path.strip().rstrip("\\/"))
-            exe_ext  = ".exe" if sys.platform == "win32" else ""
-            versions = []
-            if root.exists():
+        if not self.og_root_path.strip():
+            layout.separator()
+            layout.prop(self, "preview_models")
+            return
+
+        root    = Path(self.og_root_path.strip().rstrip("\\/"))
+        exe_ext = ".exe" if sys.platform == "win32" else ""
+
+        exe_folders  = []
+        data_folders = []
+        if root.exists():
+            try:
+                from .build import _scan_for_installs
+                exe_folders, data_folders = _scan_for_installs(root)
+            except Exception:
+                pass
+
+        def _rel(p: Path) -> str:
+            try:
+                return str(p.relative_to(root)).replace("\\", "/")
+            except ValueError:
+                return str(p)
+
+        # ── EXE picker ────────────────────────────────────────────────────────
+        box = layout.box()
+        box.label(text="Executables (gk + goalc):", icon="PLAY")
+        if exe_folders:
+            for d in exe_folders:
+                rel       = _rel(d)
+                is_active = (rel == self.og_active_version)
+                row = box.row(align=True)
+                op  = row.operator("og.set_version_field", text=rel,
+                                   icon="CHECKMARK" if is_active else "RADIOBUT_OFF",
+                                   emboss=is_active)
+                op.field = "og_active_version"
+                op.value = rel
+        elif root.exists():
+            box.label(text="None found — click Find Files or use overrides below", icon="ERROR")
+        else:
+            box.label(text="Root folder not found", icon="ERROR")
+
+        # ── Data folder picker ────────────────────────────────────────────────
+        box2 = layout.box()
+        box2.label(text="Game source / data folder:", icon="FILE_FOLDER")
+        if data_folders:
+            for d in data_folders:
+                rel       = _rel(d)
+                is_active = (rel == self.og_active_data)
+                row = box2.row(align=True)
+                op  = row.operator("og.set_version_field", text=rel,
+                                   icon="CHECKMARK" if is_active else "RADIOBUT_OFF",
+                                   emboss=is_active)
+                op.field = "og_active_data"
+                op.value = rel
+        elif root.exists():
+            box2.label(text="None found — click Find Files or use overrides below", icon="ERROR")
+
+        # ── Status summary ────────────────────────────────────────────────────
+        if self.og_active_version or self.og_active_data or self.exe_path.strip() or self.data_path.strip():
+            sbox = layout.box()
+            sbox.scale_y = 0.8
+            if self.og_active_version:
+                vp = root / self.og_active_version
+                ok = (vp / f"gk{exe_ext}").exists() and (vp / f"goalc{exe_ext}").exists()
+                sbox.label(text=f"EXE: {self.og_active_version}",
+                           icon="CHECKMARK" if ok else "ERROR")
+            elif self.exe_path.strip():
+                sbox.label(text="EXE: manual override", icon="CHECKMARK")
+            if self.og_active_data or self.data_path.strip():
                 try:
-                    for d in sorted(root.iterdir()):
-                        if d.is_dir() and (d / f"gk{exe_ext}").exists() and (d / f"goalc{exe_ext}").exists():
-                            versions.append(d.name)
-                except PermissionError:
-                    pass
-
-            if versions:
-                box = layout.box()
-                box.label(text="Versions found:")
-                for v in versions:
-                    row = box.row(align=True)
-                    is_active = (v == self.og_active_version)
-                    op = row.operator("og.set_active_version", text=v,
-                                      icon="CHECKMARK" if is_active else "RADIOBUT_OFF",
-                                      emboss=is_active)
-                    op.version = v
-
-                # Status for selected version
-                if self.og_active_version and self.og_active_version in versions:
-                    ver_path = root / self.og_active_version
-                    has_exe  = (ver_path / f"gk{exe_ext}").exists() and (ver_path / f"goalc{exe_ext}").exists()
-                    has_dev  = (ver_path / "goal_src" / "jak1").exists()
-                    has_rel  = (ver_path / "data" / "goal_src" / "jak1").exists()
-                    sbox = layout.box()
-                    sbox.scale_y = 0.8
+                    from .build import _data, _decompiler_path
+                    dp     = _data()
+                    decomp = _decompiler_path()
+                    is_dev = (dp / "goal_src" / "jak1").exists()
+                    layout_txt = "dev" if is_dev else "release"
                     sbox.label(
-                        text="EXE: gk + goalc found" if has_exe else "EXE: not found — check folder",
-                        icon="CHECKMARK" if has_exe else "ERROR",
+                        text=f"Data: {self.og_active_data or 'manual'} ({layout_txt} layout)",
+                        icon="CHECKMARK" if dp.exists() else "ERROR",
                     )
-                    if has_dev:
-                        sbox.label(text="Data: dev layout (goal_src at root)", icon="CHECKMARK")
-                    elif has_rel:
-                        sbox.label(text="Data: release layout (goal_src inside data/)", icon="CHECKMARK")
-                    else:
-                        sbox.label(text="Data: goal_src not found — run extractor first", icon="ERROR")
-            else:
-                box = layout.box()
-                box.scale_y = 0.75
-                if root.exists():
-                    box.label(
-                        text="No versions found — no subfolders with gk + goalc. Check path or use overrides below.",
-                        icon="ERROR",
+                    sbox.label(
+                        text=f"Decompiler: {decomp}",
+                        icon="CHECKMARK" if decomp.exists() else "INFO",
                     )
-                else:
-                    box.label(text="Folder not found — check path", icon="ERROR")
+                except Exception:
+                    pass
 
         # ── Manual overrides (collapsible) ────────────────────────────────────
         layout.separator()
@@ -167,35 +205,6 @@ class OGPreferences(AddonPreferences):
             col.separator()
             col.label(text="Decompiler output (leave blank to auto-detect):")
             col.prop(self, "decompiler_path", text="")
-            if self.decompiler_path.strip():
-                dp = Path(self.decompiler_path.strip().rstrip("\\/"))
-                b = col.box(); b.scale_y = 0.75
-                has_tex  = (dp / "textures").exists()
-                has_glbs = any(
-                    list((dp / d).glob("*.glb"))
-                    for d in ["beach", "jungle", "village", "misty", "snow"]
-                    if (dp / d).is_dir()
-                )
-                if has_tex and has_glbs:
-                    b.label(text="Textures and models found", icon="CHECKMARK")
-                elif has_tex:
-                    b.label(text="Textures found — enable rip_levels for models", icon="INFO")
-                elif dp.exists():
-                    b.label(text="Folder exists but empty — run decompiler first", icon="ERROR")
-                else:
-                    b.label(text="Folder not found", icon="ERROR")
-            else:
-                if self.og_root_path.strip() or self.data_path.strip():
-                    try:
-                        from .build import _decompiler_path
-                        auto = _decompiler_path()
-                        b = col.box(); b.scale_y = 0.75
-                        if auto.exists():
-                            b.label(text=f"Auto-detected: {auto}", icon="CHECKMARK")
-                        else:
-                            b.label(text=f"Auto-detect: {auto} (not found — run decompiler)", icon="INFO")
-                    except Exception:
-                        pass
 
         layout.separator()
         layout.prop(self, "preview_models")

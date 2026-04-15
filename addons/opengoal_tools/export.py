@@ -34,9 +34,12 @@ def _data_root():
         if manual:
             return _Path(manual)
         root = _s(getattr(prefs.preferences, "og_root_path", ""))
-        ver  = _s(getattr(prefs.preferences, "og_active_version", ""))
-        if root and ver:
-            return _Path(root) / ver
+        # Prefer og_active_data (separate data folder), fall back to og_active_version
+        dat = _s(getattr(prefs.preferences, "og_active_data", ""))
+        if not dat:
+            dat = _s(getattr(prefs.preferences, "og_active_version", ""))
+        if root and dat:
+            return _Path(root) / dat
     return _Path(".")
 
 def _data():

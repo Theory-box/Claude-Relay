@@ -141,7 +141,7 @@ from .operators import (
     OG_OT_OpenGoalCodeInEditor,
     OG_OT_SpawnCustomType,
     OG_OT_ScanPaths,
-    OG_OT_SetActiveVersion,
+    OG_OT_SetVersionField,
 )
 from .panels import (
     OG_OT_ReloadAddon, OG_OT_CleanLevelFiles,
@@ -244,7 +244,7 @@ classes = (
     OG_OT_OpenGoalCodeInEditor,
     OG_OT_SpawnCustomType,
     OG_OT_ScanPaths,
-    OG_OT_SetActiveVersion,
+    OG_OT_SetVersionField,
     # ── Collection system operators ──────────────────────────────────────
     OG_OT_CreateLevel, OG_OT_AssignCollectionAsLevel,
     OG_OT_SetActiveLevel, OG_OT_NudgeLevelProp,

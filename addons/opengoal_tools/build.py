@@ -72,7 +72,7 @@ def _find_free_nrepl_port():
 def _strip(p): return p.strip().rstrip("\\").rstrip("/")
 
 def _active_version_root() -> Path | None:
-    """Return og_root_path / og_active_version if both are set, else None."""
+    """Return the resolved exe folder path (og_root_path / og_active_version)."""
     prefs = bpy.context.preferences.addons.get("opengoal_tools")
     if not prefs:
         return None
@@ -82,6 +82,19 @@ def _active_version_root() -> Path | None:
     if root and ver:
         return Path(root) / ver
     return None
+
+def _active_data_root() -> Path | None:
+    """Return the resolved data folder path (og_root_path / og_active_data)."""
+    prefs = bpy.context.preferences.addons.get("opengoal_tools")
+    if not prefs:
+        return None
+    p    = prefs.preferences
+    root = _strip(getattr(p, "og_root_path", ""))
+    dat  = _strip(getattr(p, "og_active_data", ""))
+    if root and dat:
+        return Path(root) / dat
+    # Fall back to exe folder if no separate data folder set
+    return _active_version_root()
 
 def _exe_root():
     prefs = bpy.context.preferences.addons.get("opengoal_tools")
@@ -98,8 +111,45 @@ def _data_root():
         manual = _strip(prefs.preferences.data_path)
         if manual:
             return Path(manual)
-    ver = _active_version_root()
-    return ver if ver else Path(".")
+    dat = _active_data_root()
+    return dat if dat else Path(".")
+
+def _scan_for_installs(root: Path, max_depth: int = 4):
+    """Recursively find exe folders and data folders under root.
+
+    Returns (exe_folders, data_folders) as lists of Paths.
+    Skips known leaf dirs (data/, goal_src/, etc.) to avoid going deep
+    into game files. Stops recursing into a folder once it's been claimed
+    as an exe or data folder.
+    """
+    import sys as _sys
+    exe_ext   = ".exe" if _sys.platform == "win32" else ""
+    skip_dirs = {
+        "data", "out", "decompiler_out", "goal_src", "custom_assets",
+        "iso_data", "third_party", "node_modules", ".git",
+    }
+    exe_folders  = []
+    data_folders = []
+
+    def _walk(path: Path, depth: int):
+        if depth > max_depth:
+            return
+        try:
+            for d in sorted(path.iterdir()):
+                if not d.is_dir() or d.name.startswith(".") or d.name.lower() in skip_dirs:
+                    continue
+                if (d / f"gk{exe_ext}").exists() and (d / f"goalc{exe_ext}").exists():
+                    exe_folders.append(d)
+                    continue   # don't recurse further into an exe folder
+                if (d / "goal_src" / "jak1").exists() or (d / "data" / "goal_src" / "jak1").exists():
+                    data_folders.append(d)
+                    continue   # don't recurse further into a data folder
+                _walk(d, depth + 1)
+        except (PermissionError, OSError):
+            pass
+
+    _walk(root, 0)
+    return exe_folders, data_folders
 
 def _gk():         return _exe_root() / f"gk{_EXE}"
 def _goalc():      return _exe_root() / f"goalc{_EXE}"
