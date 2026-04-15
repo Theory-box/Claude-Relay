@@ -748,22 +748,157 @@ lighting at all.
 
 ---
 
-## Remaining Open Questions
+## API Reference: Blender 4.4 Specifics
 
-### 1. Persistent Volume Object
-The volume's filepath needs to survive file saves and reopens. Using
-`bpy.path.abspath('//')` to resolve relative to the `.blend` file is the
-standard pattern. Need to handle the case where the `.blend` has not been
-saved yet (filepath is empty).
+### Ray Visibility — API Changed in Blender 3.0, Confirmed Fixed in 4.4
 
-### 2. Light Leaking Through Walls
-The pure emission volume has no awareness of geometry. A probe inside a wall
-(if interior detection fails) will inject light that bleeds through surfaces.
+`obj.cycles_visibility.*` was a Cycles-specific PropertyGroup. In Blender 3.0
+(commit: "Move visibility from Cycles to Blender"), these properties were
+migrated to direct `bpy.types.Object` properties and the old API was removed.
 
-**Mitigation:** Bias probe positions slightly toward the interior of the nearest
-surface. The Jones & Reinhart (2014) paper addresses exactly this for irradiance
-caching. Their "normal offset" technique moves cache points along the surface
-normal to avoid boundary bleed.
+**Old API (pre-3.0, do NOT use):**
+```python
+obj.cycles_visibility.camera = False   # broken in 4.4
+obj.cycles_visibility.shadow = False   # broken in 4.4
+```
+
+**Current API (3.0+, use this):**
+```python
+obj.visible_camera = False
+obj.visible_shadow = False
+obj.visible_diffuse = True
+obj.visible_glossy = True
+obj.visible_transmission = True
+obj.visible_volume_scatter = True
+```
+
+The old viewport update bug (T61575) is confirmed "not reproducible in Blender
+4.4.1" specifically because the new properties are standard RNA and update the
+depsgraph correctly on assignment.
+
+---
+
+### Pixel Readback from Render Result
+
+`bpy.data.images['Render Result'].pixels` always returns an empty buffer.
+This is a known, unfixed Blender limitation. The documented workaround is a
+Compositor Viewer Node:
+
+```python
+def setup_viewer_compositor(scene):
+    """Set up a minimal compositor to expose render pixels. Returns saved state."""
+    saved = {
+        'use_nodes': scene.use_nodes,
+        'nodes': None  # store if needed
+    }
+    scene.use_nodes = True
+    tree = scene.node_tree
+
+    # Save existing nodes (to restore after prepass)
+    saved['node_data'] = [(n.bl_idname, n.location.copy()) for n in tree.nodes]
+
+    # Clear and rebuild minimal compositor
+    tree.nodes.clear()
+    rl = tree.nodes.new('CompositorNodeRLayers')
+    viewer = tree.nodes.new('CompositorNodeViewer')
+    viewer.use_alpha = False
+    tree.links.new(rl.outputs[0], viewer.inputs[0])
+
+    return saved
+
+def read_render_pixels(scene):
+    """Read rendered pixels as numpy array after bpy.ops.render.render()."""
+    img = bpy.data.images['Viewer Node']
+    w, h = scene.render.resolution_x, scene.render.resolution_y
+    buf = np.empty(w * h * 4, dtype=np.float32)
+    img.pixels.foreach_get(buf)          # fast — avoids Python loop
+    rgba = buf.reshape(h, w, 4)
+    return rgba[:, :, :3]                # RGB only, drop alpha
+```
+
+Set up once before the probe loop. Reuse for all probes. Restore after.
+
+**`foreach_get` vs `pixels[:]`:** `foreach_get` is significantly faster for large
+pixel arrays because it operates in C without constructing Python objects per
+element. Always use it for performance.
+
+---
+
+### Volume Emission Shader — Node Graph
+
+The exact node setup for an emission-only volume that reads from a named VDB grid:
+
+```python
+def build_emission_volume_material(vol_obj, grid_name='emission', strength=1.0):
+    mat = bpy.data.materials.new('IrradianceCache')
+    mat.use_nodes = True
+    nodes = mat.node_tree.nodes
+    links = mat.node_tree.links
+    nodes.clear()
+
+    # Attribute node — reads named grid from VDB
+    attr = nodes.new('ShaderNodeAttribute')
+    attr.attribute_name = grid_name          # must match vdb.write grid name
+    attr.attribute_type = 'GEOMETRY'         # not OBJECT or INSTANCER
+
+    # Emission shader — no scatter, no absorption
+    emit = nodes.new('ShaderNodeEmission')
+    emit.inputs['Strength'].default_value = strength
+
+    # Output — volume socket only (no surface socket)
+    out = nodes.new('ShaderNodeOutputMaterial')
+
+    links.new(attr.outputs['Color'], emit.inputs['Color'])
+    links.new(emit.outputs['Emission'], out.inputs['Volume'])
+
+    vol_obj.data.materials.append(mat)
+```
+
+**Key:** connect to `out.inputs['Volume']`, NOT `out.inputs['Surface']`.
+A Principled Volume node would add scatter/absorption — explicitly avoid it.
+
+---
+
+### Persistent Volume Object — Filepath Handling
+
+VDB filepath must survive saves and reloads. Standard pattern:
+
+```python
+import os, bpy
+
+def get_cache_path(filename='irradiance_cache.vdb'):
+    blend_path = bpy.data.filepath
+    if blend_path:
+        # Blend file is saved — put VDB next to it
+        return os.path.join(os.path.dirname(blend_path), filename)
+    else:
+        # Unsaved blend file — use temp dir
+        return os.path.join(bpy.app.tempdir, filename)
+```
+
+Store the path as a custom property on the volume object so it survives
+session reloads:
+```python
+vol_obj['irradiance_cache_path'] = cache_path
+```
+
+---
+
+## Remaining Open Question
+
+### Light Leaking Through Walls
+The emission volume has no awareness of geometry. A probe that lands inside
+a wall (if interior detection misjudges a thin surface) injects light that
+bleeds through.
+
+**Mitigation:** After generating probe candidates, check each against the
+nearest surface normal and offset slightly toward the interior centroid.
+Jones & Reinhart (2014) call this "sample point displacement" — their
+irradiance caching system does exactly this for architectural daylight
+simulation.
+
+For v1: treat it as acceptable artifact. The user can adjust the Zone Object
+to avoid problem areas. For v2: implement the normal-offset displacement pass.
 
 ---
 
