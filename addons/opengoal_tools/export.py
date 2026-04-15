@@ -1292,6 +1292,10 @@ def collect_spawns(scene):
         else:
             uid = o.name[11:] or "cp0"
 
+        # Sanitise uid: GOAL string content must not contain quotes or newlines.
+        # Strip anything that isn't alphanumeric, dash, or underscore.
+        uid = re.sub(r"[^a-zA-Z0-9_-]", "", uid) or ("start" if is_spawn else "cp0")
+
         l = o.location
         gx = round(l.x,  4)
         gy = round(l.z,  4)
@@ -1663,7 +1667,7 @@ def collect_actors(scene, depsgraph=None):
         # launcherdoor writes a continue-name string lump to set the active
         # checkpoint when Jak passes through the door.
         if etype == "launcherdoor":
-            cp_name = str(o.get("og_continue_name", "")).strip()
+            cp_name = re.sub(r"[^a-zA-Z0-9_-]", "", str(o.get("og_continue_name", "")).strip())
             if cp_name:
                 lump["continue-name"] = cp_name
                 log(f"  [launcherdoor] {o.name}  continue-name='{cp_name}'")
@@ -1938,6 +1942,8 @@ def collect_actors(scene, depsgraph=None):
         if o.name.endswith("_CAM"):
             continue
         uid = o.name[11:] or "cp0"
+        # Sanitise: continue-name goes into JSONC and level-info.gc as a string literal
+        uid = re.sub(r"[^a-zA-Z0-9_-]", "", uid) or "cp0"
         l   = o.location
         gx  = round(l.x,  4)
         gy  = round(l.z,  4)
