@@ -582,13 +582,33 @@ hit, loc, normal, idx = bvh.ray_cast(origin, direction)
 ```
 Cached. Use for interior probe placement when testing thousands of candidate points.
 
-### pyopenvdb
-- Available: Blender 3.6+ (official builds)
+### pyopenvdb / openvdb
+**Critical Blender 4.4 change:** The module name changed from `pyopenvdb` to `openvdb`.
+It is now a bundled VFX library that requires an explicit expose call:
+
+```python
+import bpy
+bpy.utils.expose_bundled_modules()  # REQUIRED in 4.4+ before importing
+import openvdb as vdb               # NOT pyopenvdb
+```
+
+In earlier versions (3.6–4.3): `import pyopenvdb as vdb` directly.
+The addon must handle both:
+```python
+try:
+    import openvdb as vdb          # Blender 4.4+
+except ImportError:
+    import pyopenvdb as vdb        # Blender 3.6–4.3
+```
+
 - Grid types: `FloatGrid`, `Vec3SGrid`, `BoolGrid`
 - Critical methods: `getAccessor()`, `setValueOn()`, `copyFromArray()`,
   `copyToArray()`, `gridClass = FOG_VOLUME`
 - Write: `vdb.write(path, grids=[g1, g2])`
 - World transform: `grid.transform = vdb.createLinearTransform(voxel_size)`
+
+**Known bug:** Blender 4.5 has a VDB reload bug (loaded VDB files don't update
+from disk without restart). Blender 4.4 does not have this issue.
 
 ### Volume Object Creation
 ```python

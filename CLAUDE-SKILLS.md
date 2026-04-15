@@ -108,11 +108,23 @@ Claude-Relay/
 ├── backups/                      # snapshots, never delete
 ├── knowledge-base/               # PROTECTED on all branches — propose changes in chat first
 │   └── opengoal/
+├── offtopic/                     # NON-JAK content lives here — see rule below
+│   └── Blender/                  # All Blender / Cycles work
+│       ├── research-photon-splat-prepass.md
+│       ├── install/              # Blender 4.4.3 binary parts
+│       └── knowledge-base/       # Blender-specific knowledge docs
 ├── session-notes/                # free to update, tracks progress per topic
 │   ├── opengoal-progress.md      # camera, enemies, general addon work
 │   └── audio-panel-progress.md   # audio panel, sound emitters
 └── scratch/                      # throwaway / WIP files, free to use
 ```
+
+### Offtopic Folder Rule
+**Any work not directly related to Jak & Daxter modding goes in `offtopic/`.**
+- Blender, rendering research, tools, side projects → `offtopic/<ProjectName>/`
+- Keep the root and `docs/`, `knowledge-base/`, `addons/` clean for Jak work
+- `offtopic/` follows the same branch/protection rules as the rest of the repo
+- Same knowledge-base write-protection applies to `offtopic/*/knowledge-base/` subdirs
 
 ---
 
