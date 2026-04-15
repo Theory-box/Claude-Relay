@@ -33,7 +33,8 @@ def _data_root() -> Path:
 def _glb_path(glb_rel: str) -> Path:
     """Resolve a relative glb path (e.g. 'levels/beach/babak-lod0.glb')
     against the decompiler output directory."""
-    return _data_root() / "data" / "decompiler_out" / "jak1" / glb_rel
+    from .build import _decompiler_path
+    return _decompiler_path() / glb_rel
 
 
 def models_available() -> bool:

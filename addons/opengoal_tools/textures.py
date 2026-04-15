@@ -68,7 +68,8 @@ def _get_previews():
 
 
 def _tex_root() -> Path:
-    return _data_root() / "data" / "decompiler_out" / "jak1" / "textures"
+    from .build import _decompiler_path
+    return _decompiler_path() / "textures"
 
 
 def _prefixes_for_group(group_id: str):

@@ -4208,7 +4208,7 @@ class OG_PT_DevTools(Panel):
         layout.separator(factor=0.3)
         col3 = layout.column(align=True)
         self._btn(col3, "custom_assets/", "FILE_FOLDER", str(_data() / "custom_assets" / "jak1" / "levels"))
-        self._btn(col3, "Game logs",      "SCRIPT",      str(_data_root() / "data" / "log"))
+        self._btn(col3, "Game logs",      "SCRIPT",      str(_data() / "log"))
         self._btn(col3, "startup.gc",     "FILE_SCRIPT", str(_user_dir() / "startup.gc"), is_file=True)
 
 
