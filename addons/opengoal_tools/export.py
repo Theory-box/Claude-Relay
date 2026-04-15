@@ -385,7 +385,6 @@ def _vol_planes(vol_obj):
     inverse-transpose).  Keep VOL_ meshes at uniform scale or apply scale
     (Ctrl+A) before export.
     """
-    import mathutils
     mesh        = vol_obj.data
     global_mat  = vol_obj.matrix_world
     rot_mat     = global_mat.to_3x3()   # rotation+scale part for normals
@@ -756,7 +755,7 @@ def write_gc(name, has_triggers=False, has_checkpoints=False, has_aggro_triggers
             "  (set! (-> this cam-name)    (res-lump-struct arg0 (quote cam-name) string))",
             "  (set! (-> this cull-radius) (res-lump-float  arg0 (quote cull-radius) :default 20480.0))",
             "  (set! (-> this inside)      #f)",
-            "  (set! (-> this vol)         (new (quote process) (quote vol-control) (the-as entity arg0)))",
+            "  (set! (-> this vol)         (new (quote process) (quote vol-control) this))",
             "  (format 0 \"[cam-trigger] armed: ~A cull-r ~M planes ~D~%\"",
             "    (-> this cam-name) (-> this cull-radius) (-> this vol pos-vol-count))",
             "  (go camera-trigger-active)",
@@ -839,7 +838,7 @@ def write_gc(name, has_triggers=False, has_checkpoints=False, has_aggro_triggers
             "  (set! (-> this cull-radius)",
             "    (res-lump-float arg0 (quote cull-radius) :default (* (-> this radius) 1.2)))",
             "  (when (-> this use-vol)",
-            "    (set! (-> this vol) (new (quote process) (quote vol-control) (the-as entity arg0))))",
+            "    (set! (-> this vol) (new (quote process) (quote vol-control) this)))",
             "  (format 0 \"[cp-trigger] armed: ~A use-vol:~A~%\" (-> this cp-name) (-> this use-vol))",
             "  (go checkpoint-trigger-active)",
             "  (none))",
@@ -905,7 +904,7 @@ def write_gc(name, has_triggers=False, has_checkpoints=False, has_aggro_triggers
             "  (set! (-> this event-id)    (the int (res-lump-value arg0 (quote event-id) uint128)))",
             "  (set! (-> this inside)      #f)",
             "  (set! (-> this cull-radius) (res-lump-float arg0 (quote cull-radius) :default 20480.0))",
-            "  (set! (-> this vol)         (new (quote process) (quote vol-control) (the-as entity arg0)))",
+            "  (set! (-> this vol)         (new (quote process) (quote vol-control) this))",
             "  (format 0 \"[aggro-trigger] armed: ~A cull-r ~M planes ~D~%\"",
             "    (-> this target-name) (-> this cull-radius) (-> this vol pos-vol-count))",
             "  (go aggro-trigger-active)",
@@ -962,7 +961,7 @@ def write_gc(name, has_triggers=False, has_checkpoints=False, has_aggro_triggers
             "  (set! (-> this target-name) (res-lump-struct arg0 (quote target-name) string))",
             "  (set! (-> this inside)      #f)",
             "  (set! (-> this cull-radius) (res-lump-float arg0 (quote cull-radius) :default 20480.0))",
-            "  (set! (-> this vol)         (new (quote process) (quote vol-control) (the-as entity arg0)))",
+            "  (set! (-> this vol)         (new (quote process) (quote vol-control) this))",
             "  (format 0 \"[vol-trigger] armed -> ~A planes ~D~%\"",
             "    (-> this target-name) (-> this vol pos-vol-count))",
             "  (go vol-trigger-active)",

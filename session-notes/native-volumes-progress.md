@@ -64,7 +64,35 @@ New struct sizes (all smaller — removed 24 bytes of float fields, added 4 byte
 
 ---
 
-## Open Questions / Next Steps
+## Session 2 additions (continuation)
+
+### Build patch coverage fixed (`build.py`)
+`_apply_engine_patches()` was previously only called in `_bg_build()`.
+Both `_bg_geo_rebuild()` and `_bg_build_and_play()` now also call it.
+Without the patch on a fresh install (or after a vol-h.gc rollback),
+`pos-vol-count` stays 0 in all 4 trigger types → triggers never fire.
+
+### Docstring + comment cleanup
+- Removed dead `_camera_aabb_to_planes()` function (was unreferenced)
+- Updated `_vol_aabb` docstring: water-path only now
+- Fixed stale "AABB polling" references in 3 collect_* docstrings
+- Updated `_apply_engine_patches` docstring: expanded scope, removed TODO
+
+### Audit check added (`audit.py`)
+New `check_vol_geometry` (registered after `check_volumes`):
+- **ERROR** — VOL_ mesh has zero faces → zero planes → trigger never fires
+- **ERROR** — majority of face normals are inward-facing (triggers fire
+  OUTSIDE the volume; caught by comparing normals against centroid→face)
+- **WARNING** — some normals inward (non-convex or partially flipped)
+
+### Plane math verified with standalone tests
+Unit cube: all 8 classification tests pass.
+45°-rotated cube:
+- Points inside the diamond shape: correctly classified INSIDE
+- AABB false-positive corners (in bounding box but outside rotated box):
+  correctly classified OUTSIDE
+- The Blender→Game coord transform preserves dot products (orthogonal
+  transform), confirmed analytically and by test.
 
 ### 1. vol-control constructor call syntax — MUST VERIFY
 Current code uses:
