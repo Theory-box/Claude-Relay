@@ -466,8 +466,14 @@ class OG_OT_SpawnPlayer(Operator):
     bl_label  = "Add Player Spawn"
     bl_description = "Place a player spawn empty at the 3D cursor"
     def execute(self, ctx):
-        n   = len([o for o in _level_objects(ctx.scene) if o.name.startswith("SPAWN_") and not o.name.endswith("_CAM")])
+        # Count scene-wide (not just active level) so names stay unique
+        # across multiple levels in the same .blend file.
+        existing = {o.name for o in ctx.scene.objects
+                    if o.name.startswith("SPAWN_") and not o.name.endswith("_CAM")}
+        n = len(existing)
         uid = "start" if n == 0 else f"spawn{n}"
+        while f"SPAWN_{uid}" in existing:
+            n += 1; uid = "start" if n == 0 else f"spawn{n}"
         bpy.ops.object.empty_add(type="ARROWS", location=ctx.scene.cursor.location)
         o = ctx.active_object
         o.name = f"SPAWN_{uid}"; o.show_name = True
@@ -486,8 +492,14 @@ class OG_OT_SpawnCheckpoint(Operator):
         "Requires a linked trigger volume (or uses the fallback radius sphere)."
     )
     def execute(self, ctx):
-        n   = len([o for o in _level_objects(ctx.scene) if o.name.startswith("CHECKPOINT_") and not o.name.endswith("_CAM")])
+        # Count scene-wide (not just active level) so names stay unique
+        # across multiple levels in the same .blend file.
+        existing = {o.name for o in ctx.scene.objects
+                    if o.name.startswith("CHECKPOINT_") and not o.name.endswith("_CAM")}
+        n = len(existing)
         uid = f"cp{n}"
+        while f"CHECKPOINT_{uid}" in existing:
+            n += 1; uid = f"cp{n}"
         bpy.ops.object.empty_add(type="ARROWS", location=ctx.scene.cursor.location)
         o = ctx.active_object
         o.name = f"CHECKPOINT_{uid}"; o.show_name = True
@@ -565,7 +577,11 @@ class OG_OT_SpawnEntity(Operator):
         info  = ENTITY_DEFS.get(etype, {})
         shape = info.get("shape", "SPHERE")
         color = info.get("color", (1.0,0.5,0.1,1.0))
-        n     = len([o for o in _level_objects(ctx.scene) if o.name.startswith(f"ACTOR_{etype}_")])
+        # Scene-wide counter prevents name collisions in multi-level .blend files
+        existing = {o.name for o in ctx.scene.objects if o.name.startswith(f"ACTOR_{etype}_")}
+        n = len(existing)
+        while f"ACTOR_{etype}_{n}" in existing:
+            n += 1
         bpy.ops.object.empty_add(type=shape, location=ctx.scene.cursor.location)
         o = ctx.active_object
         o.name = f"ACTOR_{etype}_{n}"
@@ -1379,8 +1395,10 @@ class OG_OT_SpawnCamera(Operator):
         "Link a trigger volume mesh with 'Link Trigger Volume'."
     )
     def execute(self, ctx):
-        n = len([o for o in _level_objects(ctx.scene)
-                 if o.name.startswith("CAMERA_") and o.type == "CAMERA"])
+        existing = {o.name for o in ctx.scene.objects if o.name.startswith("CAMERA_") and o.type == "CAMERA"}
+        n = len(existing)
+        while f"CAMERA_{n}" in existing:
+            n += 1
         cam_name = f"CAMERA_{n}"
         bpy.ops.object.camera_add(location=ctx.scene.cursor.location)
         o = ctx.active_object
@@ -1413,8 +1431,10 @@ class OG_OT_SpawnVolume(Operator):
         "If a camera, spawn, or checkpoint is selected, it auto-links."
     )
     def execute(self, ctx):
-        n = len([o for o in _level_objects(ctx.scene)
-                 if o.type == "MESH" and o.name.startswith("VOL_")])
+        existing_vols = {o.name for o in ctx.scene.objects if o.type == "MESH" and o.name.startswith("VOL_")}
+        n = len(existing_vols)
+        while f"VOL_{n}" in existing_vols:
+            n += 1
         bpy.ops.mesh.primitive_cube_add(size=4.0, location=ctx.scene.cursor.location)
         vol = ctx.active_object
         vol.name = f"VOL_{n}"
@@ -1489,7 +1509,11 @@ class OG_OT_SpawnVolumeAutoLink(Operator):
             if existing:
                 self.report({"WARNING"}, f"{self.target_name} already linked to {existing.name} — unlink first")
                 return {"CANCELLED"}
-        n = len([o for o in _level_objects(ctx.scene) if o.type == "MESH" and o.name.startswith("VOL_")])
+        # Scene-wide counter prevents name collisions in multi-level .blend files
+        existing_vols = {o.name for o in ctx.scene.objects if o.type == "MESH" and o.name.startswith("VOL_")}
+        n = len(existing_vols)
+        while f"VOL_{n}" in existing_vols:
+            n += 1
         # Place at target location
         bpy.ops.mesh.primitive_cube_add(size=4.0, location=target.location)
         vol = ctx.active_object
@@ -1804,8 +1828,10 @@ class OG_OT_SpawnAggroTrigger(Operator):
         if not _is_aggro_target(target):
             self.report({"ERROR"}, f"{self.target_name} is not a nav-enemy")
             return {"CANCELLED"}
-        n = len([o for o in _level_objects(ctx.scene)
-                 if o.type == "MESH" and o.name.startswith("VOL_")])
+        existing_vols = {o.name for o in ctx.scene.objects if o.type == "MESH" and o.name.startswith("VOL_")}
+        n = len(existing_vols)
+        while f"VOL_{n}" in existing_vols:
+            n += 1
         bpy.ops.mesh.primitive_cube_add(size=4.0, location=target.location)
         vol = ctx.active_object
         vol.name = f"VOL_{n}"
@@ -2403,8 +2429,11 @@ class OG_OT_SpawnPlatform(Operator):
         etype = ctx.scene.og_props.platform_type
         einfo = ENTITY_DEFS.get(etype, {})
 
-        # Use count of existing same-type actors as uid, matching OG_OT_SpawnEntity pattern
-        n   = len([o for o in _level_objects(ctx.scene) if o.name.startswith(f"ACTOR_{etype}_")])
+        # Scene-wide counter to prevent name collisions in multi-level .blend files
+        existing = {o.name for o in ctx.scene.objects if o.name.startswith(f"ACTOR_{etype}_")}
+        n = len(existing)
+        while f"ACTOR_{etype}_{n:04d}" in existing:
+            n += 1
         uid = f"{n:04d}"
 
         bpy.ops.object.empty_add(type=einfo.get("shape", "CUBE"),
@@ -2802,9 +2831,10 @@ class OG_OT_SpawnCustomType(bpy.types.Operator):
                 "Use the normal Spawn sub-panels to place it, or choose a different name.")
             return {"CANCELLED"}
 
-        n = len([o for o in _level_objects(ctx.scene)
-                 if o.name.startswith(f"ACTOR_{etype}_")])
-
+        existing = {o.name for o in ctx.scene.objects if o.name.startswith(f"ACTOR_{etype}_")}
+        n = len(existing)
+        while f"ACTOR_{etype}_{n}" in existing:
+            n += 1
         bpy.ops.object.empty_add(type="SPHERE", location=ctx.scene.cursor.location)
         o = ctx.active_object
         o.name               = f"ACTOR_{etype}_{n}"

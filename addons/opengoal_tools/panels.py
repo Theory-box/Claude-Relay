@@ -105,11 +105,11 @@ class OG_PT_Level(Panel):
 
 
 # ---------------------------------------------------------------------------
-# Spawn > Level Flow  (sub-panel)
+# Spawn > Checkpoints  (sub-panel)
 # ---------------------------------------------------------------------------
 
 class OG_PT_SpawnLevelFlow(Panel):
-    bl_label       = "🗺  Level Flow"
+    bl_label       = "🚩  Checkpoints"
     bl_idname      = "OG_PT_spawn_level_flow"
     bl_space_type  = "VIEW_3D"
     bl_region_type = "UI"

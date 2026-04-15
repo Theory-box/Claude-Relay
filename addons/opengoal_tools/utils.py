@@ -161,7 +161,7 @@ def _draw_platform_settings(layout, sel, scene):
 #    🧍 NPCs              OG_PT_SpawnNPCs      (sub, DEFAULT_CLOSED)
 #    ⭐ Pickups           OG_PT_SpawnPickups   (sub, DEFAULT_CLOSED)
 #    🔊 Sound Emitters    OG_PT_SpawnSounds    (sub, DEFAULT_CLOSED)
-#    🗺 Level Flow        OG_PT_SpawnLevelFlow (sub, DEFAULT_CLOSED)
+#    🚩 Checkpoints        OG_PT_SpawnLevelFlow (sub, DEFAULT_CLOSED)
 #    📷 Cameras           OG_PT_Camera         (sub, DEFAULT_CLOSED)
 #    🔗 Triggers          OG_PT_Triggers       (sub, DEFAULT_CLOSED)
 #
