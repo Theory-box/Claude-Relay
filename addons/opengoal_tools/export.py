@@ -31,6 +31,8 @@ def _data_root():
     from pathlib import Path as _Path
     return _Path(p.strip().rstrip("\\").rstrip("/")) if p.strip() else _Path(".")
 
+_data_cache: dict = {}   # {str(data_root): Path} — invalidated when data_path changes
+
 def _data():
     """Return the effective data folder.
 
@@ -45,11 +47,15 @@ def _data():
 
     Heuristic: if <root>/goal_src/jak1/ exists → dev env, return root.
                otherwise → release layout, return root/data/.
+
+    Result is cached per unique data_path string to avoid repeated filesystem
+    stat() calls during panel redraws.
     """
     root = _data_root()
-    if (root / "goal_src" / "jak1").exists():
-        return root          # dev env
-    return root / "data"    # release layout
+    key  = str(root)
+    if key not in _data_cache:
+        _data_cache[key] = root if (root / "goal_src" / "jak1").exists() else root / "data"
+    return _data_cache[key]
 
 def _levels_dir(): return _data() / "custom_assets" / "jak1" / "levels"
 def _goal_src():   return _data() / "goal_src" / "jak1"
@@ -2353,7 +2359,13 @@ def _make_continues(name, spawns):
 
 def patch_level_info(name, spawns, scene=None):
     p = _level_info()
-    if not p.exists(): log(f"WARNING: {p} not found"); return
+    if not p.exists():
+        raise FileNotFoundError(
+            f"level-info.gc not found at:\n  {p}\n\n"
+            f"Check your Data folder path in Addon Preferences.\n"
+            f"  Release build: point to the folder containing 'data/'\n"
+            f"  Dev env: point to the repository root (contains goal_src/)"
+        )
     # Audio settings from scene props (if scene provided)
     if scene is not None:
         _bank      = str(_get_level_prop(scene, "og_music_bank",    "none") or "none")
@@ -2365,6 +2377,8 @@ def patch_level_info(name, spawns, scene=None):
         _sbanks_val = f"'({_sbanks})" if _sbanks else "'()"
         _bot_h     = float(_get_level_prop(scene, "og_bottom_height", -20.0))
         _vis_ov    = str(_get_level_prop(scene, "og_vis_nick_override", "") or "").strip()
+        # Sanitise: keep only lowercase alphanumeric, max 3 chars — it goes into a GOAL symbol
+        _vis_ov    = re.sub(r"[^a-z0-9]", "", _vis_ov.lower())[:3]
         _vnick     = _vis_ov if _vis_ov else _nick(name)
     else:
         _music_val = "#f"
@@ -2445,7 +2459,13 @@ def patch_game_gp(name, code_deps=None):
     undefined at runtime and the entity spawns as a do-nothing process.
     """
     p = _game_gp()
-    if not p.exists(): log(f"WARNING: {p} not found"); return
+    if not p.exists():
+        raise FileNotFoundError(
+            f"game.gp not found at:\n  {p}\n\n"
+            f"Check your Data folder path in Addon Preferences.\n"
+            f"  Release build: point to the folder containing 'data/'\n"
+            f"  Dev env: point to the repository root (contains goal_src/)"
+        )
     raw  = p.read_bytes()
     crlf = b"\r\n" in raw
     txt  = raw.decode("utf-8").replace("\r\n", "\n")

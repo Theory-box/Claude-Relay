@@ -84,8 +84,14 @@ class OG_OT_CreateLevel(Operator):
         if not name:
             self.report({"ERROR"}, "Level name cannot be empty")
             return {"CANCELLED"}
+        if len(name) < 3:
+            self.report({"ERROR"}, f"Level name '{name}' is too short — minimum 3 characters (needed for a valid DGO nickname).")
+            return {"CANCELLED"}
+        if not re.match(r'^[a-z][a-z0-9-]*$', name):
+            self.report({"ERROR"}, f"Level name '{name}' is invalid — use lowercase letters, numbers, and dashes only (must start with a letter).")
+            return {"CANCELLED"}
         if len(name) > 10:
-            self.report({"ERROR"}, f"Level name '{name}' is {len(name)} chars — max 10")
+            self.report({"ERROR"}, f"Level name '{name}' is {len(name)} chars — max is 10. Shorten it in Level Settings.")
             return {"CANCELLED"}
 
         # Check for duplicate names
@@ -155,8 +161,14 @@ class OG_OT_AssignCollectionAsLevel(Operator):
         name = self.level_name.strip().lower().replace(" ", "-")
         if not name:
             self.report({"ERROR"}, "Level name cannot be empty"); return {"CANCELLED"}
+        if len(name) < 3:
+            self.report({"ERROR"}, f"Level name '{name}' is too short — minimum 3 characters (needed for a valid DGO nickname).")
+            return {"CANCELLED"}
+        if not re.match(r'^[a-z][a-z0-9-]*$', name):
+            self.report({"ERROR"}, f"Level name '{name}' is invalid — use lowercase letters, numbers, and dashes only (must start with a letter).")
+            return {"CANCELLED"}
         if len(name) > 10:
-            self.report({"ERROR"}, f"Name '{name}' is {len(name)} chars — max 10"); return {"CANCELLED"}
+            self.report({"ERROR"}, f"Level name '{name}' is {len(name)} chars — max is 10. Shorten it in Level Settings."); return {"CANCELLED"}
 
         # Check for duplicate level names
         for c in _all_level_collections(ctx.scene):
@@ -423,8 +435,14 @@ class OG_OT_EditLevel(Operator):
         name = self.level_name.strip().lower().replace(" ", "-")
         if not name:
             self.report({"ERROR"}, "Level name cannot be empty"); return {"CANCELLED"}
+        if len(name) < 3:
+            self.report({"ERROR"}, f"Level name '{name}' is too short — minimum 3 characters (needed for a valid DGO nickname).")
+            return {"CANCELLED"}
+        if not re.match(r'^[a-z][a-z0-9-]*$', name):
+            self.report({"ERROR"}, f"Level name '{name}' is invalid — use lowercase letters, numbers, and dashes only (must start with a letter).")
+            return {"CANCELLED"}
         if len(name) > 10:
-            self.report({"ERROR"}, f"Name '{name}' is {len(name)} chars — max 10"); return {"CANCELLED"}
+            self.report({"ERROR"}, f"Level name '{name}' is {len(name)} chars — max is 10. Shorten it in Level Settings."); return {"CANCELLED"}
         # Check for duplicate names (excluding self)
         for c in _all_level_collections(ctx.scene):
             if c.name != col.name and c.get("og_level_name", "") == name:
@@ -796,8 +814,12 @@ class OG_OT_ExportBuild(Operator):
         name = _lname(ctx)
         if not name:
             self.report({"ERROR"}, "Enter a level name first"); return {"CANCELLED"}
-        if len(name) > 10:
-            self.report({"ERROR"}, f"Level name '{name}' is {len(name)} chars — max 10"); return {"CANCELLED"}
+        if len(name) < 3:
+            self.report({"ERROR"}, f"Level name '{name}' is too short — minimum 3 characters (needed for a valid DGO nickname).")
+            return {"CANCELLED"}
+        if not re.match(r'^[a-z][a-z0-9-]*$', name):
+            self.report({"ERROR"}, f"Level name '{name}' is invalid — use lowercase letters, numbers, and dashes only (must start with a letter).")
+            return {"CANCELLED"}
         if len(name) > 10:
             self.report({"ERROR"}, f"Level name '{name}' is {len(name)} chars — max is 10. Shorten it in Level Settings.")
             return {"CANCELLED"}
@@ -942,8 +964,14 @@ class OG_OT_PlayAutoLoad(Operator):
         name = _lname(ctx)
         if not name:
             self.report({"ERROR"}, "Enter a level name first"); return {"CANCELLED"}
+        if len(name) < 3:
+            self.report({"ERROR"}, f"Level name '{name}' is too short — minimum 3 characters (needed for a valid DGO nickname).")
+            return {"CANCELLED"}
+        if not re.match(r'^[a-z][a-z0-9-]*$', name):
+            self.report({"ERROR"}, f"Level name '{name}' is invalid — use lowercase letters, numbers, and dashes only (must start with a letter).")
+            return {"CANCELLED"}
         if len(name) > 10:
-            self.report({"ERROR"}, f"Level name '{name}' is {len(name)} chars — max 10"); return {"CANCELLED"}
+            self.report({"ERROR"}, f"Level name '{name}' is {len(name)} chars — max is 10. Shorten it in Level Settings."); return {"CANCELLED"}
         _PLAY_STATE.clear()
         _PLAY_STATE.update({"done":False,"error":None,"status":"Starting..."})
         threading.Thread(target=_bg_play, args=(name,), daemon=True).start()
@@ -1055,8 +1083,12 @@ class OG_OT_GeoRebuild(Operator):
         name = _lname(ctx)
         if not name:
             self.report({"ERROR"}, "Enter a level name first"); return {"CANCELLED"}
-        if len(name) > 10:
-            self.report({"ERROR"}, f"Level name '{name}' is {len(name)} chars — max 10"); return {"CANCELLED"}
+        if len(name) < 3:
+            self.report({"ERROR"}, f"Level name '{name}' is too short — minimum 3 characters (needed for a valid DGO nickname).")
+            return {"CANCELLED"}
+        if not re.match(r'^[a-z][a-z0-9-]*$', name):
+            self.report({"ERROR"}, f"Level name '{name}' is invalid — use lowercase letters, numbers, and dashes only (must start with a letter).")
+            return {"CANCELLED"}
         if len(name) > 10:
             self.report({"ERROR"}, f"Level name '{name}' is {len(name)} chars — max is 10. Shorten it in Level Settings.")
             return {"CANCELLED"}
@@ -1102,6 +1134,15 @@ class OG_OT_ExportBuildPlay(Operator):
         name = _lname(ctx)
         if not name:
             self.report({"ERROR"}, "Enter a level name first")
+            return {"CANCELLED"}
+        if len(name) < 3:
+            self.report({"ERROR"}, f"Level name '{name}' is too short — minimum 3 characters (needed for a valid DGO nickname).")
+            return {"CANCELLED"}
+        if not re.match(r'^[a-z][a-z0-9-]*$', name):
+            self.report({"ERROR"}, f"Level name '{name}' is invalid — use lowercase letters, numbers, and dashes only (must start with a letter).")
+            return {"CANCELLED"}
+        if len(name) > 10:
+            self.report({"ERROR"}, f"Level name '{name}' is {len(name)} chars — max is 10. Shorten it in Level Settings.")
             return {"CANCELLED"}
         try:
             export_glb(ctx, name)

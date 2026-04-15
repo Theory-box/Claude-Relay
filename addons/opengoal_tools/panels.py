@@ -4046,19 +4046,32 @@ class OG_PT_BuildPlay(Panel):
         gk_ok  = _gk().exists()
         gc_ok  = _goalc().exists()
         gp_ok  = _game_gp().exists()
+        exe_ok = gk_ok and gc_ok
+        all_ok = exe_ok and gp_ok
 
-        if not (gk_ok and gc_ok and gp_ok):
+        if not all_ok:
             box = layout.box()
-            box.label(text="Missing paths — open Developer Tools", icon="ERROR")
+            box.label(text="Setup incomplete — open Addon Preferences", icon="ERROR")
+            if not gk_ok:
+                box.label(text="✗  gk not found — check EXE folder", icon="BLANK1")
+            if not gc_ok:
+                box.label(text="✗  goalc not found — check EXE folder", icon="BLANK1")
+            if not gp_ok:
+                box.label(text="✗  game.gp not found — check Data folder", icon="BLANK1")
             layout.separator(factor=0.3)
 
         col = layout.column(align=True)
         col.scale_y = 1.8
+        col.enabled = all_ok
         col.operator("og.export_build",  text="⚙  Export & Compile",        icon="EXPORT")
-        col.scale_y = 1.4
-        col.operator("og.geo_rebuild",   text="🔄  Quick Geo Rebuild",       icon="FILE_REFRESH")
-        col.scale_y = 1.8
-        col.operator("og.play",          text="▶  Launch Game (Debug)",      icon="PLAY")
+        col2 = layout.column(align=True)
+        col2.scale_y = 1.4
+        col2.enabled = all_ok
+        col2.operator("og.geo_rebuild",   text="🔄  Quick Geo Rebuild",       icon="FILE_REFRESH")
+        col3 = layout.column(align=True)
+        col3.scale_y = 1.8
+        col3.enabled = gk_ok
+        col3.operator("og.play",          text="▶  Launch Game (Debug)",      icon="PLAY")
 
 
 

@@ -83,6 +83,8 @@ def _data_root():
 
 def _gk():         return _exe_root() / f"gk{_EXE}"
 def _goalc():      return _exe_root() / f"goalc{_EXE}"
+_data_cache: dict = {}   # {str(data_root): Path} — invalidated when data_path changes
+
 def _data():
     """Return the effective data folder.
 
@@ -97,11 +99,23 @@ def _data():
 
     Heuristic: if <root>/goal_src/jak1/ exists → dev env, return root.
                otherwise → release layout, return root/data/.
+
+    Result is cached per unique data_path string to avoid repeated filesystem
+    stat() calls during panel redraws.
     """
     root = _data_root()
-    if (root / "goal_src" / "jak1").exists():
-        return root          # dev env
-    return root / "data"    # release layout
+    key  = str(root)
+    if key not in _data_cache:
+        _data_cache[key] = root if (root / "goal_src" / "jak1").exists() else root / "data"
+    return _data_cache[key]
+
+
+def _patch_vol_h_enabled():
+    """Return True if the vol-h.gc auto-patch preference is enabled (default True)."""
+    prefs = bpy.context.preferences.addons.get("opengoal_tools")
+    if prefs is None:
+        return True
+    return bool(getattr(prefs.preferences, "patch_vol_h", True))
 
 
 def _apply_engine_patches():
@@ -110,10 +124,14 @@ def _apply_engine_patches():
     custom level builder stores tags at DEFAULT_RES_TIME = -1e9).
     Safe for vanilla levels — 'base ignores timestamp, finds by name only.
 
+    Skipped entirely if the 'Auto-patch vol-h.gc' preference is disabled.
+
     TODO: NEEDS LIVE TEST — confirm vol-h.gc is found and patched correctly
     on a fresh jak-project install. Verify water volumes still work after
     a clean recompile triggered by this patch.
     """
+    if not _patch_vol_h_enabled():
+        return []
     patched = []
     vol_h = _data() / "goal_src" / "jak1" / "engine" / "geometry" / "vol-h.gc"
     if not vol_h.exists():
@@ -334,8 +352,12 @@ def patch_entity_gc(navmesh_actors):
     """
     p = _entity_gc()
     if not p.exists():
-        log(f"WARNING: entity.gc not found at {p}")
-        return
+        if navmesh_actors:
+            raise FileNotFoundError(
+                f"entity.gc not found at:\n  {p}\n\n"
+                f"Nav-mesh actors need this file. Check your Data folder path in Addon Preferences."
+            )
+        return  # no navmesh actors and no file — nothing to do
 
     raw  = p.read_bytes()
     crlf = b"\r\n" in raw
@@ -391,8 +413,11 @@ def patch_entity_gc(navmesh_actors):
     # Insert before (defmethod birth! ((this entity-actor))
     BIRTH_MARKER = "(defmethod birth! ((this entity-actor))"
     if BIRTH_MARKER not in txt:
-        log("WARNING: entity.gc birth! marker not found — cannot inject nav-mesh")
-        return
+        raise RuntimeError(
+            "entity.gc: '(defmethod birth! ((this entity-actor)))' marker not found.\n"
+            "Nav-mesh injection requires this method. Your entity.gc may be out of date "
+            "or was modified manually."
+        )
     txt = txt.replace(BIRTH_MARKER, inject_block + "\n" + BIRTH_MARKER, 1)
 
     # ── Inject call at top of birth! body ────────────────────────────────────
@@ -650,6 +675,9 @@ def _bg_build_and_play(name, scene, depsgraph=None):
     try:
         # ── Phase 1: Build ────────────────────────────────────────────────────
         state["status"] = "Collecting scene..."
+        patched = _apply_engine_patches()
+        if patched:
+            state["status"] = "Applied engine patches, collecting..."
         _clean_orphaned_vol_links(scene)
         actors    = collect_actors(scene, depsgraph)
         ambients  = collect_ambients(scene)

@@ -39,8 +39,10 @@ class OGPreferences(AddonPreferences):
     data_path: StringProperty(
         name="Data folder",
         description=(
-            "Your active jak1 source folder — the one that contains data/goal_src. "
-            "Usually .../jak-project/ or .../active/jak1/"
+            "Project root folder. "
+            "Release build: point to the versioned folder containing the 'data/' subfolder. "
+            "Dev environment (jak-project clone): point directly to the repository root "
+            "(the folder that contains goal_src/ and custom_assets/ at the top level)."
         ),
         subtype="DIR_PATH",
         default="",
@@ -50,14 +52,26 @@ class OGPreferences(AddonPreferences):
         description="Automatically show the enemy's game model as a viewport stand-in when spawning",
         default=True,
     )
+    patch_vol_h: BoolProperty(
+        name="Auto-patch vol-h.gc (trigger volumes)",
+        description=(
+            "On each Export & Compile, automatically patch vol-h.gc to fix trigger volume "
+            "lookup for custom levels. Changes 'exact -> 'base in two res-lump calls so that "
+            "custom level volumes (stored at DEFAULT_RES_TIME = -1e9) are found correctly. "
+            "Safe for vanilla levels — 'base ignores timestamp and matches by name only. "
+            "Disable if you manage vol-h.gc manually or are testing vanilla behaviour."
+        ),
+        default=True,
+    )
     def draw(self, ctx):
         layout = self.layout
         layout.label(text="EXE folder — contains gk / goalc executables:")
         layout.prop(self, "exe_path", text="")
-        layout.label(text="Data folder — contains data/goal_src (e.g. your jak-project folder):")
+        layout.label(text="Data folder — release: parent of data/  |  dev env: repository root:")
         layout.prop(self, "data_path", text="")
         layout.separator()
         layout.prop(self, "preview_models")
+        layout.prop(self, "patch_vol_h")
 
 
 
