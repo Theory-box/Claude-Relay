@@ -143,6 +143,7 @@ from .operators import (
     OG_OT_ScanPaths,
     OG_OT_SetActiveVersion,
 )
+from .panels import (
     OG_OT_ReloadAddon, OG_OT_CleanLevelFiles,
     OG_OT_UseLumpRef, OG_OT_SortLevelObjects,
     OG_PT_Level, OG_PT_SpawnLevelFlow, OG_PT_LevelManagerSub,
