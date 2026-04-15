@@ -2633,7 +2633,8 @@ class OG_OT_CreateGoalCodeBlock(bpy.types.Operator):
         if not sel or sel.type != "EMPTY":
             return False
         parts = sel.name.split("_", 2)
-        return len(parts) >= 3 and parts[0] == "ACTOR" and "_wp_" not in sel.name
+        return (len(parts) >= 3 and parts[0] == "ACTOR"
+                and "_wp_" not in sel.name and "_wpb_" not in sel.name)
 
     def execute(self, ctx):
         sel   = ctx.active_object
