@@ -172,3 +172,46 @@ Object datablock, error setting Object.og_sync_period
 
 **Fix:** Update lump documentation. Puffer panel (if added) should expose both `notice-dist` (meters) and `distance` (two internal-unit floats for top/bottom Y offset).
 
+
+---
+
+## [CONFIRMED] one-shot ambient sounds broken in custom levels
+
+**Symptom:** Ambient sound emitters with `cycle-speed < 0` (one-shot mode) play nothing in-game.
+
+**Root cause:** `birth-ambient!` (`ambient.gc` lines 609, 621) uses `'exact 0.0` to look up `effect-name` and `effect-param`. Custom level lumps are stored at key-frame `-1e9` → `'exact 0.0` never matches → entity sets function to `ambient-type-error`.
+
+The loop path (cycle-speed ≥ 0) works because `res-lump-struct` uses `'interp` internally, which does match `-1e9` keys.
+
+**Fix:** In `goal_src/jak1/engine/entity/ambient.gc` change two `'exact` to `'base`:
+```lisp
+; Line ~609
+; BEFORE:
+(let ((s5-1 (-> ((method-of-type res-lump lookup-tag-idx) this 'effect-name 'exact 0.0) lo)))
+; AFTER:
+(let ((s5-1 (-> ((method-of-type res-lump lookup-tag-idx) this 'effect-name 'base 0.0) lo)))
+
+; Line ~621
+; BEFORE:
+(let ((v1-28 ((method-of-type res-lump lookup-tag-idx) this 'effect-param 'exact 0.0)))
+; AFTER:
+(let ((v1-28 ((method-of-type res-lump lookup-tag-idx) this 'effect-param 'base 0.0)))
+```
+
+**Same fix needed in:** `ambient-type-light` (line ~481), `ambient-type-dark` (~507), `ambient-type-weather-off` (~533) — all use `'exact 0.0` for `'vol` lookup.
+
+**Status:** Unpatched in current bundle. Workaround: use loop sounds (cycle-speed ≥ 0) only.
+
+---
+
+## [CONFIRMED] idle-distance lump is never read by nav-enemy
+
+**Symptom:** Setting Idle Distance in the addon panel has no effect on enemy activation range.
+
+**Root cause:** `idle-distance` is a field in the static `nav-enemy-info` struct (e.g. `*babak-nav-enemy-info*`), not read from entity lumps. The addon emits an `idle-distance` lump that no engine code reads.
+
+**Fix options:**
+- Remove the panel and lump emission (simplest)
+- Inject a GOAL method override via obs.gc that reads the lump in `nav-enemy-method-48`
+
+**Status:** Panel exists in addon, lump is emitted, has no in-game effect.

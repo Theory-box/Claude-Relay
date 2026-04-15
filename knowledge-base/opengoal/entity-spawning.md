@@ -741,3 +741,56 @@ The `battlecontroller` type (`common/battlecontroller.gc`) is entirely absent fr
 
 **Subclasses in vanilla:** `misty-battlecontroller`, `swamp-battlecontroller`, `citb-battlecontroller`. All extend `battlecontroller` with custom intro cameras and wave sequences. For custom levels, the base `battlecontroller` type works directly.
 
+
+---
+
+## 13. Source-Verified Engine Behaviors (goal_src deep dive, April 2026)
+
+### battlecontroller spawned enemies inherit the controller's entity for lump lookups
+
+Confirmed from `nav-enemy-init-by-other` in `nav-enemy.gc`:
+
+```lisp
+(set! (-> self entity) (-> arg0 entity))  ; arg0 = battlecontroller instance
+```
+
+When battlecontroller spawns a wave enemy it sets the enemy's `entity` pointer to the **controller's own entity-actor**. This means every lump lookup the enemy does during its lifetime (`idle-distance`, `vis-dist`, `nav-mesh-sphere`, etc.) reads from the battlecontroller's lump dict, not a separate entity.
+
+**Practical implication for addon:** You do not need separate lump entries per enemy type in a wave encounter. Put `idle-distance`, `vis-dist`, and any shared enemy config directly on the `battlecontroller` actor — all spawned enemies in that wave will read those values. The only per-type config is via `lurker-type`/`percent` arrays on the controller itself.
+
+---
+
+### one-shot ambient sounds broken in custom levels (source confirmed)
+
+`birth-ambient!` in `ambient.gc` (line 609) uses `'exact 0.0` lookup for `effect-name` and `effect-param` when initialising one-shot sounds (cycle-speed < 0):
+
+```lisp
+(let ((s5-1 (-> ((method-of-type res-lump lookup-tag-idx) this 'effect-name 'exact 0.0) lo)))
+(let ((v1-28 ((method-of-type res-lump lookup-tag-idx) this 'effect-param 'exact 0.0)))
+```
+
+Custom level lumps are stored at key-frame `-1e9`. `'exact 0.0` never matches → entity falls back to `ambient-type-error` silently. The loop path (cycle-speed ≥ 0) works because `res-lump-struct` uses `'interp` internally.
+
+**Fix:** Same pattern as the vol-h.gc patch — change `'exact` to `'base` on both lines. Two-line change in `ambient.gc`.
+
+**Also affected:** `ambient-type-light` (line 481), `ambient-type-dark` (line 507), `ambient-type-weather-off` (line 533) — all use `'exact 0.0` to look up `'vol` planes. Custom mood-light/dark ambients would never find their vol data.
+
+---
+
+### idle-distance is NOT a lump — the addon panel is a no-op
+
+`idle-distance` lives in the static `nav-enemy-info` struct (e.g. `*babak-nav-enemy-info*`), hardcoded per enemy type. There is no lump path that overrides it at the entity level. The addon's "Idle Distance (m)" panel writes an `og_idle_distance` custom prop and emits an `idle-distance` lump — but nothing in the engine reads that lump.
+
+**Fix options:**
+1. Remove the idle-distance panel entirely (honest)
+2. Implement a proper per-instance override in GOAL code injected via obs.gc — override `nav-enemy-method-48` on the specific type to read `res-lump-float 'idle-distance` and store it into `enemy-info`
+
+**Affected enemies:** All nav-enemies using the panel (babak, lurkercrab, lurkerpuppy, hopper, etc.)
+
+---
+
+### ambient collect radius is always spherical — shape doesn't matter
+
+`collect-ambients` in `ambient.gc` uses only `spheres-overlap?` against the ambient's bsphere. The ambient emitter object's mesh shape, scale, or rotation has zero effect on when it activates. Only the bsphere radius matters. The `vol` lump on light/dark/weather-off ambients controls zone-of-effect *after* activation, not activation itself.
+
+**Practical implication:** For sound emitters, the visual object shape in Blender is irrelevant. Only the bsphere radius (exported from the object's bounding sphere) controls activation distance. This is already correct behavior in the addon — but worth documenting so users don't try to shape sound zones with mesh geometry.
