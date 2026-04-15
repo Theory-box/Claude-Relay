@@ -1630,6 +1630,37 @@ class SCENEAUDIT_OT_select_object(Operator):
         return {'FINISHED'}
 
 
+class SCENEAUDIT_OT_select_all_in_category(Operator):
+    """Select all objects in an audit result category."""
+    bl_idname = "sceneaudit.select_all_in_category"
+    bl_label = "Select All"
+    bl_description = "Select all objects in this audit category"
+
+    category: StringProperty()
+
+    def execute(self, context):
+        audit = context.scene.scene_audit
+        results = getattr(audit, f"results_{self.category}", None)
+        if results is None:
+            return {'CANCELLED'}
+
+        for o in context.view_layer.objects:
+            o.select_set(False)
+
+        last = None
+        for r in results:
+            obj = bpy.data.objects.get(r.object_name)
+            if obj:
+                obj.select_set(True)
+                last = obj
+
+        if last:
+            context.view_layer.objects.active = last
+
+        self.report({'INFO'}, f"Selected {len(results)} object(s)")
+        return {'FINISHED'}
+
+
 class SCENEAUDIT_OT_run_audit(Operator):
     """Scan the active scene and populate the audit result lists."""
     bl_idname = "sceneaudit.run_audit"
@@ -1711,10 +1742,9 @@ class SCENEAUDIT_PT_panel(Panel):
 
     # ── Helper: draw a collapsible result section ──────────────────────────
     @staticmethod
-    def _draw_result_section(layout, audit, label, icon, results, show_attr):
+    def _draw_result_section(layout, audit, label, icon, results, show_attr, category):
         box = layout.box()
 
-        # Collapsible header with count badge
         header = box.row()
         header.prop(
             audit, show_attr,
@@ -1727,18 +1757,18 @@ class SCENEAUDIT_PT_panel(Panel):
             return
 
         if len(results) == 0:
-            row = box.row()
-            row.label(text="None found", icon='CHECKMARK')
+            box.label(text="None found", icon='CHECKMARK')
         else:
+            # Select All button
+            sel_row = box.row()
+            op = sel_row.operator("sceneaudit.select_all_in_category",
+                                  text="Select All", icon='RESTRICT_SELECT_OFF')
+            op.category = category
+
             col = box.column(align=True)
             for r in results:
-                # Show extra_info (e.g. face count, scale values) as a suffix if present
                 label_text = f"{r.object_name}  {r.extra_info}" if r.extra_info else r.object_name
-                op = col.operator(
-                    "sceneaudit.select_object",
-                    text=label_text,
-                    icon=icon
-                )
+                op = col.operator("sceneaudit.select_object", text=label_text, icon=icon)
                 op.object_name = r.object_name
 
     # ── Panel draw ─────────────────────────────────────────────────────────
@@ -1786,7 +1816,8 @@ class SCENEAUDIT_PT_panel(Panel):
                 layout, audit,
                 label="Missing Materials", icon='MATERIAL',
                 results=audit.results_missing_materials,
-                show_attr="show_missing_materials"
+                show_attr="show_missing_materials",
+                category="missing_materials"
             )
 
         if audit.check_modifiers:
@@ -1794,7 +1825,8 @@ class SCENEAUDIT_PT_panel(Panel):
                 layout, audit,
                 label="Has Modifiers", icon='MODIFIER',
                 results=audit.results_modifiers,
-                show_attr="show_modifiers"
+                show_attr="show_modifiers",
+                category="modifiers"
             )
 
         if audit.check_lights:
@@ -1802,7 +1834,8 @@ class SCENEAUDIT_PT_panel(Panel):
                 layout, audit,
                 label="Lights", icon='LIGHT',
                 results=audit.results_lights,
-                show_attr="show_lights"
+                show_attr="show_lights",
+                category="lights"
             )
 
         if audit.check_unapplied_scale:
@@ -1810,7 +1843,8 @@ class SCENEAUDIT_PT_panel(Panel):
                 layout, audit,
                 label="Unapplied Scale", icon='OBJECT_ORIGIN',
                 results=audit.results_unapplied_scale,
-                show_attr="show_unapplied_scale"
+                show_attr="show_unapplied_scale",
+                category="unapplied_scale"
             )
 
         if audit.check_no_uvs:
@@ -1818,7 +1852,8 @@ class SCENEAUDIT_PT_panel(Panel):
                 layout, audit,
                 label="No UV Maps", icon='UV',
                 results=audit.results_no_uvs,
-                show_attr="show_no_uvs"
+                show_attr="show_no_uvs",
+                category="no_uvs"
             )
 
         if audit.check_high_poly:
@@ -1826,7 +1861,8 @@ class SCENEAUDIT_PT_panel(Panel):
                 layout, audit,
                 label="High Poly", icon='MESH_DATA',
                 results=audit.results_high_poly,
-                show_attr="show_high_poly"
+                show_attr="show_high_poly",
+                category="high_poly"
             )
 
 
@@ -1871,6 +1907,7 @@ classes = (
     SceneAuditResult,
     SceneAuditProps,
     SCENEAUDIT_OT_select_object,
+    SCENEAUDIT_OT_select_all_in_category,
     SCENEAUDIT_OT_run_audit,
     SCENEAUDIT_PT_panel,
 )
