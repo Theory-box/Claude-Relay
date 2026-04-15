@@ -1,5 +1,23 @@
 # OpenGOAL Addon — Session Notes
 
+---
+
+## 🔴 NEXT PRIORITY — Dev Build Path Bug (reported 15/04/2026)
+
+**The export system creates a `data/` subfolder inside the project root, which is wrong for dev environments.**
+
+- Dev env expects files at: `OG-Mod-Base\custom_assets\jak1\levels\`
+- Addon currently writes to: `OG-Mod-Base\data\custom_assets\jak1\levels\`
+- Consequence: `game.gp` and `level-info.gc` are never patched → level never builds
+- Release builds are fine (they have a `data/` folder), but dev builds are completely blocked
+- Fix is in the path resolution logic — needs to detect dev vs release env, or expose separate path fields
+
+**Fix this before anything else. Users on dev builds cannot use the export flow at all.**
+
+Full feedback context in `feature-community-questions.md` (Feedback Entry — 15/04/2026).
+
+---
+
 ## Current State (merged to main)
 All features below are live on main.
 
