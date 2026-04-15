@@ -122,3 +122,72 @@ For custom levels the pattern is `<level-name>-<spawn-uid>`, e.g. `my-level-star
 (set-setting! 'allow-pause #f 0.0 0)         ; disable pause menu
 (remove-setting! 'letterbox)                  ; restore default
 ```
+
+---
+
+## Example 2 — Crate Bobber (Confirmed Working ✅)
+
+A custom entity that displays a wood crate mesh and bobs up and down on a sine wave. Demonstrates loading an existing art group into a custom type.
+
+### Blender setup
+- Spawn panel → ⚙ Custom Types → type `crate-bobber` → Spawn
+- Place the empty where you want the crate to appear
+- Custom Lumps:
+  - `amplitude` — **meters** — e.g. `1.0` (bob height above/below base position)
+  - `speed` — **float** — e.g. `364.0` (speed of oscillation)
+
+### Speed guide
+| Value | Cycle time |
+|---|---|
+| `182.0` | ~6 seconds |
+| `364.0` | ~3 seconds |
+| `728.0` | ~1.5 seconds |
+
+### GOAL code
+```lisp
+;;-*-Lisp-*-
+(in-package goal)
+
+(deftype crate-bobber (process-drawable)
+  ((base-y    float)
+   (amplitude float)
+   (speed     float))
+  (:states crate-bobber-idle))
+
+(defstate crate-bobber-idle (crate-bobber)
+  :trans
+    (behavior ()
+      (set! (-> self root trans y)
+            (+ (-> self base-y)
+               (* (-> self amplitude)
+                  (sin (* (-> self speed)
+                          (the float (current-time))))))))
+  :code
+    (behavior ()
+      (loop (suspend)))
+  :post ja-post)
+
+(defmethod init-from-entity! ((this crate-bobber) (arg0 entity-actor))
+  (set! (-> this root) (new 'process 'trsqv))
+  (process-drawable-from-entity! this arg0)
+  (initialize-skeleton-by-name this "crate-wood" '())
+  (set! (-> this base-y)
+        (-> this root trans y))
+  (set! (-> this amplitude)
+        (res-lump-float arg0 'amplitude :default (meters 1.0)))
+  (set! (-> this speed)
+        (res-lump-float arg0 'speed :default 364.0))
+  (format 0 "[crate-bobber] armed base-y=~M amplitude=~M~%"
+          (-> this base-y) (-> this amplitude))
+  (go crate-bobber-idle)
+  (none))
+```
+
+### Notes
+- `crate-ag` lives in `GAME.CGO` — always loaded, no extra DGO entries needed
+- `initialize-skeleton-by-name` takes the skeleton group name without `*` and `-sg*`, e.g. `"crate-wood"` looks up `*crate-wood-sg*`
+- `:post ja-post` is required — without it the mesh won't render each frame
+- Other available crate variants: `"crate-barrel"`, `"crate-bucket"`, `"crate-iron"`, `"crate-steel"`
+- The `:trans` handler runs before `:post` each frame — good place to update position/rotation
+- `(current-time)` returns the frame counter (`*display* base-frame-counter`), an int — cast with `(the float ...)`
+- `sin` takes rotation units (not radians) — multiply frame counter by a small float to control speed
