@@ -636,3 +636,61 @@ A full scripted moment: when Jak enters the zone, fade to black, hold for a few 
 | Kill a process | `(deactivate proc)` |
 | Per-frame | `:trans (behavior () ...)` — runs before :code |
 | Update collision | `:post transform-post` — required if position changes |
+
+---
+
+## Example 11 — Level Exit Trigger
+
+Transitions to another level when Jak walks into a VOL_ zone. Uses the same `set-continue!` + `load-commands-set!` pattern as `launcherdoor` (confirmed engine source).
+
+**Custom type name:** `level-exit`
+**Lumps:**
+- `continue-name` — string — the continue-point name in the destination level (e.g. `my-level-2-start`)
+
+**Setup:**
+1. Make sure the destination level has a continue/spawn point — note its name
+2. Spawn `ACTOR_level-exit_0`, add the `continue-name` lump
+3. Place a `VOL_` mesh over the exit zone
+4. Link the VOL_ to `ACTOR_level-exit_0` via Volume Links
+
+```lisp
+;;-*-Lisp-*-
+(in-package goal)
+
+(deftype level-exit (process-drawable)
+  ()
+  (:states level-exit-idle))
+
+(defstate level-exit-idle (level-exit)
+  :event
+    (behavior ((proc process) (argc int) (message symbol) (block event-message-block))
+      (case message
+        (('trigger)
+         (let ((cp-name (res-lump-struct (-> self entity) 'continue-name structure)))
+           (when cp-name
+             (let ((cp (set-continue! *game-info* (the-as basic cp-name))))
+               (load-commands-set! *level* (-> cp load-commands))))))))
+  :code
+    (behavior ()
+      (loop (suspend))))
+
+(defmethod init-from-entity! ((this level-exit) (arg0 entity-actor))
+  (set! (-> this root) (new 'process 'trsqv))
+  (process-drawable-from-entity! this arg0)
+  (go level-exit-idle)
+  (none))
+```
+
+**How it works:**
+- `set-continue!` registers the destination continue-point and returns the `continue-point` struct
+- `load-commands-set!` applies that continue's load commands — this is what actually triggers the level load and transition
+- This is the exact same call sequence as `launcherdoor.gc` line 80 — the engine's own cave entrance actor
+
+**Finding the continue-name:**
+The continue-point name is set in the destination level's Blender file via the **Level Flow** panel (spawn points section). It's the string you give the spawn/continue point there. For a vanilla level like village1 you'd use `"village1-hut"`.
+
+**Notes:**
+- No fade or animation — transition happens immediately on zone entry. Wrap in a `fade-sequence` (Example 10) if you want a fade first
+- The destination level must be compiled and in the game's build for the transition to work
+- If `continue-name` lump is missing or the name doesn't match any known continue-point, nothing happens — no crash
+
