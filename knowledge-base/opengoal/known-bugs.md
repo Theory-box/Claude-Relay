@@ -97,15 +97,15 @@ FileNotFoundError: [WinError 3] The system cannot find the path specified: 'data
 
 ---
 
-## [CONFIRMED BROKEN] Bonelurker crash on level load
+## [CONFIRMED: NOT ENTITY-SPAWNABLE] Bonelurker has no init-from-entity
 
-**Symptom:** Level fails to load entirely when `ACTOR_bonelurker_0` is placed.
+**Symptom:** Placing `ACTOR_bonelurker_*` either does nothing at runtime or causes a silent spawn failure.
 
-**Likely cause:** Type redefinition at GOALC link time. `bonelurker.gc` may conflict with existing MIS.DGO build entries in `game.gp`, or requires `battlecontroller.o` as a compile-time dependency. Bonelurker is never spawned via `entity-actor` in vanilla — it's always spawned programmatically by `battlecontroller`.
+**Root cause confirmed from source:** `bonelurker.gc` contains no `init-from-entity!` method. The type only defines touch-handler, attack-handler, initialize-collision, and nav-enemy-method-48. In vanilla, bonelurker is exclusively spawned programmatically by `misty-battlecontroller` — it never appears as a direct entity-actor in any level JSONC.
 
-**Workaround:** Do not place bonelurker actors. All other enemy types work.
+**Fix:** Remove `bonelurker` from `ENTITY_DEFS` entirely. It cannot be used as a standalone placed entity. If the user wants bonelurkers in a level, they must implement a `battlecontroller` setup.
 
-**Status:** Under investigation. Remove bonelurker from ENTITY_DEFS spawn picker pending fix.
+**Previous incorrect theory:** "Type redefinition at GOALC link time / requires battlecontroller.o as compile-time dependency." This was speculation — the actual issue is simply the absence of any init-from-entity handler.
 
 ---
 
@@ -141,3 +141,34 @@ Object datablock, error setting Object.og_sync_period
 - Export fallback path explicitly filters `og_preview_mesh` / `og_waypoint_preview_mesh`.
 
 **Status:** Fixed in main.
+
+---
+
+## [CONFIRMED] warpgate is process-hidden — not entity-spawnable
+
+**Symptom:** `ACTOR_warpgate_*` empty has no effect in-game.
+
+**Root cause:** Source: `(deftype warpgate (process-hidden) ())` in `village_common/villagep-obs.gc`. `process-hidden` types have no game-loop, no draw method, no `init-from-entity!`. The warpgate visual is a scripted cinematic prop in vanilla, not a placeable entity.
+
+**Fix:** Remove `warpgate` from `ENTITY_DEFS` in `data.py`.
+
+---
+
+## [CONFIRMED] ram is process-drawable, not nav-enemy
+
+**Symptom:** `ACTOR_ram_*` placed in the Enemies panel has no navmesh or waypoint options, does nothing when Jak approaches.
+
+**Root cause:** Source: `(deftype ram (process-drawable) ...)` in `snow/snow-ram-h.gc`. It is not a nav-enemy. Reads `extra-id` (instance index) and `mode` (uint, state variant). Has self-contained movement logic. Cannot be chased, triggered via aggro-trigger, or linked to a navmesh.
+
+**Fix:** Move `ram` from cat `"Enemies"` to `"Objects"` in `ENTITY_DEFS`. Remove it from nav-enemy workflows. Document that it requires Snow tpages.
+
+---
+
+## [CONFIRMED] puffer 'distance' lump is vertical patrol range, not notice distance
+
+**Symptom:** Setting `distance` lump on puffer has unexpected effect on vertical movement, not AI activation range.
+
+**Root cause:** Source: `puffer.gc` reads `res-lump-data arg0 'distance (pointer float)` as a **two-float array**: `[0]` = top Y offset from patrol bottom, `[1]` = bottom Y offset. Both in internal units (divide by 4096 for meters). This is the vertical patrol range, not a notice/activation distance. `notice-dist` is the correct lump for activation range (single float, default 57344 ≈ 14m).
+
+**Fix:** Update lump documentation. Puffer panel (if added) should expose both `notice-dist` (meters) and `distance` (two internal-unit floats for top/bottom Y offset).
+

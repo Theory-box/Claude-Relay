@@ -75,3 +75,51 @@ Tracked here so nothing gets lost between sessions. Add new entries as they're f
 - [ ] Build & Play completes without GOAL compile error
 - [ ] Checkpoint trigger fires and re-arms
 - [ ] Aggro trigger wakes nav-enemy on entry
+
+---
+
+## ⚠️ Data Errors in ENTITY_DEFS — Action Required
+
+### warpgate must be removed
+- **Status:** Confirmed data error
+- **Detail:** `warpgate` is defined in source as `(deftype warpgate (process-hidden) ())`. It is not entity-spawnable. Currently listed under Platforms in ENTITY_DEFS — placing it has no effect in-game.
+- **Fix needed:** Remove `warpgate` from `ENTITY_DEFS` in `data.py`.
+
+### bonelurker must be removed
+- **Status:** Confirmed data error
+- **Detail:** `bonelurker.gc` has no `init-from-entity!` method. It cannot be placed as an entity-actor. Only spawnable programmatically via `misty-battlecontroller`. Placing it produces no result (no crash, no entity).
+- **Fix needed:** Remove `bonelurker` from `ENTITY_DEFS` in `data.py`.
+
+### ram is in wrong category
+- **Status:** Confirmed data error
+- **Detail:** `ram` extends `process-drawable`, not `nav-enemy`. It reads `extra-id` (instance index) and `mode` (state variant). It has no navmesh, no waypoints, no AI chase. Currently listed under Enemies with nav-enemy handling.
+- **Fix needed:** Move `ram` to Objects category in `ENTITY_DEFS`. Remove navmesh/waypoint handling.
+
+---
+
+## 🔧 Missing Panels — Objects with Configurable Lumps (Source Verified)
+
+These entities are spawnable and functional but have no addon UI for their settings. All confirmed from source `init-from-entity!` reads.
+
+| Entity | Lumps to expose | Notes |
+|---|---|---|
+| `balance-plat` | `distance` (meters, default 5m), `scale-factor` (float, default 1.0) | Same reads as `tar-plat` |
+| `tar-plat` | `distance` (meters, default 5m), `scale-factor` (float, default 1.0) | Same reads as `balance-plat` |
+| `wedge-plat` | `rotspeed` float, `rotoffset` degrees, `distance` meters | Two init variants with different distance defaults |
+| `wall-plat` | `tunemeters` float | Z-depth adjustment |
+| `cavetrapdoor` | `delay` (sec), `shove` (meters, default 2m), `rotoffset` (degrees), `cycle-speed` float[3], `mode` uint | Mode changes behavior variant |
+| `plat-eco` | `notice-dist` (meters, default -1) | -1 = use engine default |
+| `springbox` | `spring-height` (meters, default ~11m) | Confirmed single float only |
+
+Entities with **no lump reads** (no panel needed): `revcycle`, `teetertotter`, `swampgate`, `side-to-side-plat`, `accordian`.
+
+---
+
+## 📋 Missing Feature: battlecontroller
+
+The `battlecontroller` type is entirely absent from the addon. It is the primary mechanism for designed multi-enemy encounters (wave arenas). Confirmed spawnable from source.
+
+**Lumps:** `camera-name`, `pathspawn`, `delay`, `num-lurkers`, `lurker-type`, `percent`, `final-pickup`, `pickup-type`, `max-pickup-count`, `pickup-percent`, `mode`
+
+See `knowledge-base/opengoal/entity-spawning.md` section 12 for full details.
+

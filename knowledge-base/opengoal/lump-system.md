@@ -184,10 +184,10 @@ These lumps are read by base engine code and apply to every entity.
 **Notes:** Controls how many child enemies are spawned/managed.
 
 ### `notice-dist` (also `distance`) — ResFloat (meters)
-**Used by:** `yeti` (as `notice-dist`), `puffer` (as `distance`), `sunken-fish` (as `distance`)  
-**JSONC:** `["meters", 50.0]`  
-**Defaults:** yeti: 204800.0 (50m), puffer: min/max as two-float array  
-**Notes:** Distance at which AI notice/activate behaviour triggers. For `puffer`, `distance` is a two-float array: `["float", min_dist, max_dist]` where both are in internal units (multiply by 4096 for meters).
+**Used by:** `yeti` (as `notice-dist`), `puffer` (has both — different meanings), `sunken-fish` (as `distance`)  
+**JSONC:** `["meters", 50.0]` for notice-dist; `["float", top_y_offset, bottom_y_offset]` for puffer distance  
+**Defaults:** yeti: 204800.0 (50m)  
+**Notes:** For `yeti`: activation distance. For `puffer`: `distance` is a **two-float array in raw internal units** — `[0]` = top Y offset from patrol bottom, `[1]` = bottom Y offset. This controls **vertical patrol range**, NOT AI activation. For puffer AI activation range use `notice-dist` (single float, default 57344 ≈ 14m). Confirmed from source (`puffer.gc` reads `res-lump-data 'distance (pointer float)` for two floats, `res-lump-float 'notice-dist` separately).
 
 ### `mode` — ResUint32 or ResInt32 (actor-specific)
 **Used by:** many actors — meaning varies completely per type  
@@ -464,10 +464,9 @@ Camera actors (entity-actor with type `camera-marker`) use these lumps. These ar
 **Notes:** For whirlpool: both values are internal units (not meters). Two-float array.
 
 ### `distance` — ResFloat (two values for puffer)
-**Used by:** `puffer` (min/max notice distance), `sunken/square-platform`, `sunken-fish`, `sharkey`  
-**JSONC:** `["float", min_dist, max_dist]` for puffer — INTERNAL UNITS (not meters!)  
-**Default puffer:** 57344.0 (~14m) for notice, auto for chase  
-**Notes:** Puffer reads two floats — min and max distance. Both in raw internal units.
+**Used by:** `puffer` (vertical patrol range), `sunken/square-platform`, `sunken-fish`, `sharkey`  
+**JSONC:** `["float", top_y_offset, bottom_y_offset]` for puffer — INTERNAL UNITS (not meters!)  
+**Notes:** For puffer: two-float array defining vertical patrol range from the entity's spawn Y. `[0]` = top Y offset (upward limit), `[1]` = bottom Y offset (downward limit). Both raw internal units. **NOT an activation/notice distance** — for that, use `notice-dist` (separate lump, default 57344 ≈ 14m). Confirmed from `puffer.gc` source: reads `res-lump-data 'distance (pointer float)` for the two-float array, then reads `res-lump-float 'notice-dist` separately.
 
 ### `count` — ResUint32
 **Used by:** `sunken-fish` (spawn count), `citb-drop-plat`  
@@ -627,7 +626,7 @@ def make_path_k(n_points):
 | **swamp-bat** | `path`, `pathb`, `num-lurkers` | BOTH paths required; num-lurkers 2–8 |
 | **yeti** | `path`, `num-lurkers`, `notice-dist` | spawns yeti-slave at path points |
 | **snow-bunny** | `path`, `nav-mesh-sphere` | path REQUIRED, errors without |
-| **puffer** | `path`, `distance` | distance = [min, max] in INTERNAL units |
+| **puffer** | `path`, `notice-dist`, `distance` | `notice-dist` = activation range (meters, default ~14m); `distance` = vertical patrol range [top_y, bottom_y] in INTERNAL units |
 | **flying-lurker** | `path` | standard path follower |
 | **driller-lurker** | `path` (min 2 pts) | errors "bad path" if <2 points |
 | **gnawer** | `path`, `extra-count`, `gnawer` | spline worm, complex lump setup |

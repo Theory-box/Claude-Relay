@@ -519,10 +519,18 @@ Enables placing `ACTOR_` empties for user-defined GOAL types that are not in the
 ### Still open
 
 - **water-anim** — visual water surface not yet in addon (needs look picker + dense mesh)
-- **Bonelurker crash** — type redefinition at link time, still under investigation
+- **Bonelurker** — confirmed not entity-spawnable. Has no `init-from-entity!` in source. Must be removed from ENTITY_DEFS.
+- **warpgate** — confirmed `process-hidden`. Not entity-spawnable. Must be removed from ENTITY_DEFS.
+- **ram** — confirmed `process-drawable`, not nav-enemy. Should move to Objects category in ENTITY_DEFS.
 - **NPCs with game-task** — dialogue/mission behavior with `(game-task none)` unconfirmed
 - **Sky/mood** — hardcoded to village1; other moods documented but untested
 - **VISMESH_ vis-blocker** — built on feature/vis-blocker, not yet merged to main
+- **battlecontroller** — entirely absent from addon. Confirmed spawnable, reads 10+ lumps. Needed for wave-based combat arenas.
+- **puffer `distance` lump** — previously documented incorrectly as min/max notice distance. Source confirms it is a two-float vertical patrol range [top_y_offset, bottom_y_offset] in internal units. `notice-dist` is the separate activation range lump.
+- **balance-plat / tar-plat** — no settings panel. Both read `distance` (float, default 5m) and `scale-factor` (float, default 1.0).
+- **wedge-plat** — no settings panel. Reads `rotspeed`, `rotoffset`, `distance`.
+- **cavetrapdoor** — no settings panel. Reads `delay`, `shove`, `rotoffset`, `cycle-speed`, `mode`.
+- **plat-eco notice-dist** — lump confirmed from source (default -1.0), not surfaced in any panel.
 
 ---
 

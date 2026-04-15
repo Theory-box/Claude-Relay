@@ -209,7 +209,7 @@ These extend `process-drawable` and implement their own movement. **Do NOT patch
 | `quicksandlurker` | Stationary. Buries, pops up, fires missile projectiles at Jak. | none | No path. Place in flat area. |
 | `bully` | Spins and charges using physics. No path. | none | **Idles until Jak is within 80m** (`idle-distance` default), then jumps and starts spinning. Does NOT damage Jak on idle contact — only damages during spin. Uses `nav-control` for wall bouncing, not navmesh. Do not add navmesh. |
 | `swamp-bat` | Flies patrol paths, spawns slave bats. | **`path` AND `pathb` both required** | Two path lumps. `num-lurkers` sets slave count (default 6, range 2–8). Errors "need 2 paths" if either missing. |
-| `puffer` | Patrols path, inflates/deflates, rams Jak. | **`path` required**, `alt-actor` optional, `notice-dist` optional | Errors "no path". `alt-actor` links buddy puffer. `notice-dist` default = 57344.0 (14m). Uses `nav-control` not navmesh. |
+| `puffer` | Patrols path, inflates/deflates, rams Jak. | **`path` required**, `notice-dist` optional, `distance` optional | Errors "no path". `notice-dist` controls AI activation range (default 57344 ≈ 14m). `distance` is a **two-float array** `[top_y_offset, bottom_y_offset]` for vertical patrol range (internal units, not meters). Uses `nav-control` not navmesh. |
 | `flying-lurker` | Flies patrol path. | **`path` required** | Path defines flight route. |
 | `driller-lurker` | Drills along path underground, pops up to attack. | **`path` required (min 2 verts)** | Errors "bad path" if fewer than 2 path points. |
 | `gnawer` | Multi-segment worm travels along path. | **`path` required** | Multiple body segments. |
@@ -256,6 +256,7 @@ For `swamp-bat`:
 |---|---|---|---|---|
 | `num-lurkers` | int | swamp-bat, yeti, villa-starfish | 6 / path-vert-count / 3 | Child spawn count |
 | `notice-dist` | float | puffer, yeti | 57344.0 / 204800.0 | Distance to trigger AI |
+| `distance` | float[2] | puffer | none | Vertical patrol range: [top_y_offset, bottom_y_offset] in internal units |
 | `alt-actor` | actor-ref | puffer | none | Links to buddy puffer |
 | `height-info` | float | reflector-middle | 0.0 | Y offset for beam attach |
 
@@ -520,7 +521,7 @@ Results from testing in `april-2026` custom level. Updated as tests are run.
 | `flying-lurker` | process-drawable | Ogre | Needs path. Patrols correctly. |
 | `quicksandlurker` | process-drawable | Misty | Works. Stationary, no path needed. |
 | `muse` | nav-enemy | Misty | Works. Needs navmesh for chase. |
-| `bonelurker` | nav-enemy | Misty | Works. Needs navmesh for chase. Needs bonelurker.o in DGO. |
+| `bonelurker` | nav-enemy | Misty | **Cannot be entity-spawned.** Source confirmed: `bonelurker.gc` has no `init-from-entity!` method. It is exclusively spawned programmatically by `misty-battlecontroller`. Placing a `ACTOR_bonelurker_*` empty does nothing — the engine finds no init handler. Remove from ENTITY_DEFS spawn picker. |
 | `balloonlurker` | process-drawable | Misty | Works. Needs `path` lump. |
 
 ### ⚠️ Partial / Known Issues
@@ -530,15 +531,15 @@ Results from testing in `april-2026` custom level. Updated as tests are run.
 | `plunger-lurker` | process-drawable | Idles only, no player interaction | **Task-gated**: `init-from-entity!` checks `(get-task-status (game-task plunger-lurker-hit))` — if task is `invalid` (never completed), immediately goes to `plunger-lurker-die` and deactivates. If task is active/completed, goes to `plunger-lurker-idle` which DOES trigger on proximity (`distance² < 6710886400` = ~81m). Needs game task to be set to make it activate. |
 | `cavecrusher` | process-drawable | Idles only, collision but no attack | `cavecrusher-idle` only has one state. The `:event` handler responds to `'touch`/`'attack` with `deadlyup` knockback — but only if Jak's collision shape triggers it. In the maincave level it moves on a scripted path triggered by a `maincavecam` entity. Without that camera/trigger setup it just idles. It is a **set-piece obstacle**, not a free-roaming enemy. |
 | `gnawer` | process-drawable | Partially works | Animates, damages Jak, travels path. Spawns slightly off-position and path-following causes circular motion rather than clean point-to-point. Functional for use but path tuning needed. |
-| `swamp-bat` | process-drawable | Broken — requires investigation | Confirmed not working despite `path` + `pathb` lumps. Likely slave-spawn or path init issue. Do not use until root cause found. |
+| `swamp-bat` | process-drawable | Swamp | Works when both paths are present. Errors "need 2 paths" if either `path` or `pathb` is missing or empty. num-lurkers sets slave bats (2–8, default 6). Previously listed as broken — re-check with explicit pathb lump. |
 | `mother-spider` | process-drawable | Broken — does not spawn children | Loads but does not spawn `baby-spider` children. Root cause unknown — may be task-gated or require a `spider-vent` actor to function. Do not use until investigated. |
 | `dark-crystal` | process-drawable | Decorative only | Spawns and displays animated texture correctly. No collision, no behaviour, no AI. Usable purely as a visual prop. |
 | `double-lurker` | process-drawable | Unreliable — spawns then immediately despawns | Observed spawning once then vanishing instantly. Did not spawn at all on subsequent loads. Cause unknown — may be a missing `double-lurker-top` art group issue or AID conflict. Moved from confirmed working. |
-| `puffer` | process-drawable | Spawns but path-following broken | Activates and moves but ignores path points, passes through geometry. `nav-control` movement appears non-functional in custom levels. Avoid. |
+| `puffer` | process-drawable | Path following unreliable | Spawns and activates. `distance` lump = two-float vertical patrol range (top_y_offset, bottom_y_offset in internal units). Path following appears broken in custom levels — puffer ignores path points and passes through geometry. Underlying issue: uses nav-control for movement, which may not initialize correctly without a full nav-mesh environment. |
 | `fireboulder` | process-drawable | Decorative only | Spawns with no collision and no behaviour. Likely scripted/triggered in vanilla and not self-activating. |
 | `green-eco-lurker` | nav-enemy | Spawns but no interaction | Idles, no collision, does not react to player. Likely needs navmesh patch to activate — untested with navmesh. |
-| `ram` | unknown | Untested — no path/navmesh options in addon | No waypoint or navmesh UI exposed in addon. May be self-contained or trigger-driven. Unknown if it even spawns correctly. |
-| `lightning-mole` / `peeper` | unknown | Untested — no path/navmesh options in addon | Same as ram — no waypoint/navmesh UI in addon. May be intentional if it uses its own hardcoded patrol. Unknown if it spawns correctly. |
+| `ram` | process-drawable | Untested | `ram` extends `process-drawable` (not nav-enemy). Reads `extra-id` (int, instance index) and `mode` (uint, state variant). Self-contained movement — no waypoints or navmesh. Confirm spawns correctly before using in custom level. `ram-boss` is a completely separate type (nav-enemy) — do not confuse the two. |
+| `lightning-mole` / `peeper` | fleeing-nav-enemy | Untested with navmesh | `lightning-mole` extends `fleeing-nav-enemy` (a nav-enemy subclass). Has a proper `init-from-entity!`. Should work with navmesh. `peeper` is an alias using the same art group. No path required — uses flee AI. Test with navmesh before shipping. |
 
 ### 🔲 Untested
 | Enemy | Group | Notes |
@@ -667,11 +668,76 @@ The engine resolves strings via `entity-by-name` — no index arithmetic needed.
 
 **Pickups:** eco-pill, ecovent, ventblue, ventred, ventyellow, ecoventrock
 
-**Platforms:** orbit-plat, square-platform, ropebridge, lavaballoon, darkecobarrel, caveelevator, caveflamepots, cavetrapdoor, cavespatula, cavespatulatwo, ogre-bridge, ogre-bridgeend, pontoon, tra-pontoon, mis-bone-bridge, breakaway-left/mid/right, plat-flip, side-to-side-plat, wall-plat, wedge-plat, tar-plat, balance-plat, teetertotter, revcycle, launcher, warpgate
+**Platforms:** orbit-plat, square-platform, ropebridge, lavaballoon, darkecobarrel, caveelevator, caveflamepots, cavetrapdoor, cavespatula, cavespatulatwo, ogre-bridge, ogre-bridgeend, pontoon, tra-pontoon, mis-bone-bridge, breakaway-left/mid/right, plat-flip, side-to-side-plat, wall-plat, wedge-plat, tar-plat, balance-plat, teetertotter, revcycle, launcher
+
+> **Note:** `warpgate` (`deftype warpgate (process-hidden) ()`) is NOT entity-spawnable. It must be removed from ENTITY_DEFS. The warp-gate visual is purely a scripted cinematic prop in vanilla.
 
 **Objects:** water-vol, swingpole, springbox, eco-door, launcherdoor, shover, swampgate, ceilingflag, windturbine, boatpaddle, accordian, all lava props, balloon, crate-darkeco-cluster, swamp-tetherrock, fishermans-boat, cavecrystal, cavegem, ecoclaw, gondola, shortcut-boulder, spike, steam-cap, swamp-blimp, swamp-rock, swamp-rope, swamp-spike, tntbarrel, whirlpool, windmill-one
 
 **Props:** dark-plant, evilplant
 
 **Bosses:** ogreboss, plant-boss, robotboss
+
+
+---
+
+## 12. Source-Verified Lump Data — Objects Without Addon Panels
+
+*Confirmed from `goal_src/jak1` source, April 2026. All defaults in internal units unless noted.*
+
+### Platforms needing settings panels
+
+| Entity | Lumps read | Notes |
+|---|---|---|
+| `balance-plat` | `distance` float default 20480 (5m), `scale-factor` float default 1.0 | `distance` = max Y travel from rest. `scale-factor` scales responsiveness. Same reads as `tar-plat`. |
+| `tar-plat` | `distance` float default 20480 (5m), `scale-factor` float default 1.0 | Identical lump reads to `balance-plat`. |
+| `wedge-plat` | `rotspeed` float, `rotoffset` float, `distance` float default 36864 (9m) | Two variant init paths with different distance defaults (36864 and 69632). |
+| `wall-plat` | `tunemeters` float | Adjusts Z-depth of wall platform. No default — omit lump to use art default. |
+| `cavetrapdoor` | `delay` float (sec), `shove` float default 8192 (2m), `rotoffset` float, `cycle-speed` float[3], `mode` uint | `delay` = seconds before wiggle starts. `shove` = upward launch force. `mode` changes behavior variant. |
+| `plat-eco` | `notice-dist` float default -1.0 | -1.0 means "use engine default notice system". Set explicitly to override. |
+
+### Platforms confirmed NO extra lumps needed
+
+| Entity | Reason |
+|---|---|
+| `side-to-side-plat` | Extends `plat` — inherits `sync` lump. No own lump reads. |
+| `revcycle` | No `res-lump` reads at all. Pure visual prop. |
+| `teetertotter` | No `res-lump` reads at all. Physics-driven, no config. |
+| `swampgate` | Reads only `entity-perm-status`. No lump config needed. |
+
+### Objects confirmed NO extra lumps needed
+
+| Entity | Reason |
+|---|---|
+| `accordian` | Reads `alt-actor` (via entity-actor-lookup, not res-lump) and `perm-status`. No res-lump calls. |
+
+### Entities that must be REMOVED from ENTITY_DEFS
+
+| Entity | Reason |
+|---|---|
+| `warpgate` | `(deftype warpgate (process-hidden) ())` — process-hidden, no init-from-entity. Never entity-spawnable. |
+| `bonelurker` | No `init-from-entity!` anywhere in source. Only spawned by `misty-battlecontroller`. Placing an entity-actor crashes silently. |
+
+### Entities with wrong category in ENTITY_DEFS
+
+| Entity | Current category | Correct category | Notes |
+|---|---|---|---|
+| `ram` | Enemies | Objects/Props | Extends `process-drawable` not nav-enemy. Reads `extra-id` (instance index) and `mode` (state variant). Self-contained, no waypoints. |
+
+### Missing entity: `battlecontroller`
+
+The `battlecontroller` type (`common/battlecontroller.gc`) is entirely absent from the addon but is the primary mechanism for multi-wave enemy encounters.
+
+**Lumps read from source:**
+- `camera-name` — ResString: camera entity to activate during wave
+- `pathspawn` — ResVector (vector4m, multi-point): enemy spawn positions
+- `delay` — ResFloat: seconds between spawn waves
+- `num-lurkers` — ResInt32: total enemies in this controller
+- `lurker-type` — ResType array: enemy type(s) to spawn (e.g. `["type", "babak", "hopper"]`)
+- `percent` — ResFloat array: spawn probability per type (parallel to `lurker-type`)
+- `final-pickup` — ResUint32 (pickup-type enum): reward after all waves cleared (default = fuel-cell)
+- `pickup-type` / `max-pickup-count` / `pickup-percent` — per-creature-type pickup overrides
+- `mode` — ResUint32: `1` = prespawn mode
+
+**Subclasses in vanilla:** `misty-battlecontroller`, `swamp-battlecontroller`, `citb-battlecontroller`. All extend `battlecontroller` with custom intro cameras and wave sequences. For custom levels, the base `battlecontroller` type works directly.
 
