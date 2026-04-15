@@ -2,7 +2,7 @@
 
 ---
 
-## 🔴 NEXT PRIORITY — Dev Build Path Bug (researched 15/04/2026)
+## ✅ Dev Build Path Bug — FIXED (research/community-feedback-apr15, commit 2bc1234)
 
 **Root cause confirmed.** Both `export.py:35` and `build.py:86` define:
 ```python

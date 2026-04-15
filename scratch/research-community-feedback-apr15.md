@@ -3,6 +3,9 @@
 Deep-dive into all issues raised by community tester.
 Env: Blender 5.0.1 · mod-base `5599be3` · addon `b0577ea`
 
+**Status:** Path bug fix implemented — commit `2bc1234` on `research/community-feedback-apr15`.
+Awaiting test on a real dev build before merge to main.
+
 ---
 
 ## 1. 🔴 Dev Build Path Bug — Full Root Cause
