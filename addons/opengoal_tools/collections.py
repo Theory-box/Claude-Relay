@@ -97,10 +97,13 @@ def _col_is_no_export(col):
     return bool(getattr(col, "og_no_export", False))
 
 
-def _recursive_col_objects(col, exclude_no_export=True):
+def _recursive_col_objects(col, exclude_no_export=False):
     """Return all objects in a collection and its children, deduplicated.
 
     If exclude_no_export=True, skips sub-collections with og_no_export=True.
+    Default is False — og_no_export should only filter GLB geometry, not
+    game-logic objects (actors, spawns, checkpoints, cameras, triggers).
+    Pass exclude_no_export=True explicitly only when collecting geometry for GLB export.
     """
     seen = set()
     result = []
@@ -117,10 +120,13 @@ def _recursive_col_objects(col, exclude_no_export=True):
     return result
 
 
-def _level_objects(scene, level_col=None, exclude_no_export=True):
+def _level_objects(scene, level_col=None, exclude_no_export=False):
     """Return all objects belonging to the active level collection.
 
     Falls back to scene.objects if not in collection mode (backward compat).
+    exclude_no_export defaults to False: og_no_export only suppresses GLB
+    geometry export and should not hide actors, spawns, or checkpoints from
+    the level data collection. Pass exclude_no_export=True only from export_glb.
     """
     if level_col is None:
         level_col = _active_level_col(scene)

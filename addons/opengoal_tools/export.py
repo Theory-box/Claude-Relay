@@ -1296,7 +1296,9 @@ def collect_spawns(scene):
         # Strip anything that isn't alphanumeric, dash, or underscore.
         uid = re.sub(r"[^a-zA-Z0-9_-]", "", uid) or ("start" if is_spawn else "cp0")
 
-        l = o.location
+        # Use matrix_world for world-space position — correct whether or not the
+        # empty is parented to another object.
+        l = o.matrix_world.translation
         gx = round(l.x,  4)
         gy = round(l.z,  4)
         gz = round(-l.y, 4)
@@ -1322,7 +1324,9 @@ def collect_spawns(scene):
         cam_obj    = scene.objects.get(cam_name)
 
         if cam_obj and cam_obj.type == "EMPTY":
-            cl = cam_obj.location
+            # Use matrix_world.translation for world-space position — correct for both
+            # unparented cameras and cameras parented to the spawn empty.
+            cl = cam_obj.matrix_world.translation
             cam_x = round(cl.x,  4)
             cam_y = round(cl.z,  4)
             cam_z = round(-cl.y, 4)

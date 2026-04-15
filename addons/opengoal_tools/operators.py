@@ -481,14 +481,14 @@ class OG_OT_SpawnCheckpoint(Operator):
     bl_idname = "og.spawn_checkpoint"
     bl_label  = "Add Checkpoint"
     bl_description = (
-        "Place a mid-level checkpoint empty at the 3D cursor. "
-        "The engine auto-assigns the nearest zero-flag checkpoint as the player "
-        "moves around, so these act as silent progress saves without any trigger actors."
+        "Place a mid-level checkpoint trigger at the 3D cursor. "
+        "When Jak walks into the trigger volume, the respawn point is updated to this location. "
+        "Requires a linked trigger volume (or uses the fallback radius sphere)."
     )
     def execute(self, ctx):
         n   = len([o for o in _level_objects(ctx.scene) if o.name.startswith("CHECKPOINT_") and not o.name.endswith("_CAM")])
         uid = f"cp{n}"
-        bpy.ops.object.empty_add(type="SINGLE_ARROW", location=ctx.scene.cursor.location)
+        bpy.ops.object.empty_add(type="ARROWS", location=ctx.scene.cursor.location)
         o = ctx.active_object
         o.name = f"CHECKPOINT_{uid}"; o.show_name = True
         o.empty_display_size = 1.2; o.color = (1.0, 0.85, 0.0, 1.0)
@@ -503,7 +503,8 @@ class OG_OT_SpawnCamAnchor(Operator):
     bl_label  = "Add Spawn Camera"
     bl_description = (
         "Place a camera-anchor empty linked to the selected SPAWN_ or CHECKPOINT_ empty. "
-        "This sets the camera position and orientation used when the player respawns at that point."
+        "The camera is parented to the spawn so moving/rotating the spawn automatically "
+        "moves the camera with it. Sets the camera position and orientation on respawn."
     )
     def execute(self, ctx):
         sel = ctx.active_object
@@ -518,20 +519,23 @@ class OG_OT_SpawnCamAnchor(Operator):
         if ctx.scene.objects.get(cam_name):
             self.report({"WARNING"}, f"{cam_name} already exists")
             return {"CANCELLED"}
-        # Place camera 6m behind and 3m above spawn in Blender space
+        # Place camera 6m behind and 3m above spawn in spawn-local space
         offset = mathutils.Vector((0.0, -6.0, 3.0))
-        loc    = sel.matrix_world.translation + sel.matrix_world.to_3x3() @ offset
-        bpy.ops.object.empty_add(type="ARROWS", location=loc)
+        world_loc = sel.matrix_world.translation + sel.matrix_world.to_3x3() @ offset
+        bpy.ops.object.empty_add(type="ARROWS", location=world_loc)
         o = ctx.active_object
         o.name = cam_name; o.show_name = True
         o.empty_display_size = 0.8; o.color = (0.2, 0.6, 1.0, 1.0)
         # Point it toward the spawn (face -Z toward spawn so camera looks at it)
-        direction = sel.matrix_world.translation - loc
+        direction = sel.matrix_world.translation - world_loc
         if direction.length > 1e-4:
             rot_quat = direction.to_track_quat('-Z', 'Y')
             o.rotation_euler = rot_quat.to_euler()
+        # Parent to spawn so moving spawn also moves camera
+        o.parent = sel
+        o.matrix_parent_inverse = sel.matrix_world.inverted()
         _link_object_to_sub_collection(ctx.scene, o, *_COL_PATH_SPAWNS)
-        self.report({"INFO"}, f"Added {cam_name}")
+        self.report({"INFO"}, f"Added {cam_name} (parented to {sel.name})")
         return {"FINISHED"}
 
 
