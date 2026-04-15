@@ -69,8 +69,26 @@ class OGPreferences(AddonPreferences):
         layout = self.layout
         layout.label(text="EXE folder — contains gk / goalc executables:")
         layout.prop(self, "exe_path", text="")
-        layout.label(text="Data folder — release: the 'data/' subfolder  |  dev env: repository root:")
+        layout.label(text="Data folder — release: point to data/  |  dev env: repository root:")
         layout.prop(self, "data_path", text="")
+
+        # Show what the addon actually resolved so users can verify the auto-detect
+        if self.data_path.strip():
+            from pathlib import Path
+            root = Path(self.data_path.strip().rstrip("\\/"))
+            if (root / "goal_src" / "jak1").exists():
+                resolved = root
+                env_label = f"✓ Dev env detected — using: {resolved}"
+            else:
+                resolved = root / "data"
+                if resolved.exists():
+                    env_label = f"✓ Release build detected — using: {resolved}"
+                else:
+                    env_label = f"⚠ data/goal_src/jak1 not found — check path"
+            box = layout.box()
+            box.scale_y = 0.75
+            box.label(text=env_label, icon="INFO")
+
         layout.separator()
         layout.prop(self, "preview_models")
         layout.prop(self, "patch_vol_h")

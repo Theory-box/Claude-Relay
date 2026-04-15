@@ -4178,6 +4178,10 @@ class OG_PT_DevTools(Panel):
         box.label(text=f"gk{_EXE}:    {'✓ OK' if gk_ok else '✗ NOT FOUND'}", icon="CHECKMARK" if gk_ok else "ERROR")
         box.label(text=f"goalc{_EXE}: {'✓ OK' if gc_ok else '✗ NOT FOUND'}", icon="CHECKMARK" if gc_ok else "ERROR")
         box.label(text=f"game.gp:   {'✓ OK' if gp_ok else '✗ NOT FOUND'}", icon="CHECKMARK" if gp_ok else "ERROR")
+        # Show the auto-detected resolved data path so users can verify setup
+        resolved = str(_data())
+        data_ok = _game_gp().parent.parent.parent.exists()  # goal_src/jak1 exists
+        box.label(text=f"resolved:  {resolved}", icon="CHECKMARK" if gp_ok else "INFO")
         box.operator("preferences.addon_show", text="Set EXE / Data Paths", icon="PREFERENCES").module = __name__
 
         layout.separator()
