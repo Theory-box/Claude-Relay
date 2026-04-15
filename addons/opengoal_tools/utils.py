@@ -10,7 +10,7 @@ from .data import (
     ENTITY_DEFS, ENTITY_WIKI, ENTITY_ENUM_ITEMS, ENEMY_ENUM_ITEMS,
     PROP_ENUM_ITEMS, NPC_ENUM_ITEMS, PICKUP_ENUM_ITEMS, PLATFORM_ENUM_ITEMS,
     LUMP_REFERENCE, LUMP_TYPE_ITEMS, NAV_UNSAFE_TYPES, IS_PROP_TYPES,
-    _actor_has_links, _actor_link_slots, _lump_ref_for_etype,
+    _actor_has_links, _actor_link_slots, _lump_ref_for_etype, _is_custom_type,
 )
 from .collections import (
     _get_level_prop, _level_objects, _col_path_for_entity,
@@ -25,9 +25,9 @@ from .properties import OGProperties
 
 def _is_linkable(obj):
     """True if this object type can accept a trigger volume link.
-    Cameras, checkpoints, player spawns, and nav-enemy actors are linkable.
-    Process-drawable enemies (Yeti, Bully, etc.) are NOT linkable because
-    they don't respond to 'cue-chase events.
+    Cameras, checkpoints, player spawns, nav-enemy actors, and custom GOAL
+    type actors are linkable. Process-drawable enemies (Yeti, Bully, etc.)
+    are NOT linkable because they don't respond to 'cue-chase events.
     """
     if obj is None:
         return False
@@ -41,8 +41,11 @@ def _is_linkable(obj):
             return True
         if n.startswith("ACTOR_") and "_wp_" not in n and "_wpb_" not in n:
             parts = n.split("_", 2)
-            if len(parts) >= 3 and _actor_supports_aggro_trigger(parts[1]):
-                return True
+            if len(parts) >= 3:
+                if _actor_supports_aggro_trigger(parts[1]):
+                    return True
+                if _is_custom_type(parts[1]):
+                    return True
     return False
 
 
