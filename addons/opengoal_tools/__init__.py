@@ -74,7 +74,7 @@ from .export import (
     _navmesh_compute, _navmesh_to_goal,
     # Core collect / write pipeline
     _canonical_actor_objects, _collect_navmesh_actors,
-    _camera_aabb_to_planes, collect_aggro_triggers, collect_cameras,
+    collect_aggro_triggers, collect_cameras,
     collect_spawns, collect_actors, collect_ambients, collect_nav_mesh_geometry,
     needed_ags, needed_code, write_jsonc, write_gd, _make_continues,
     patch_level_info, patch_game_gp, discover_custom_levels,
