@@ -2,7 +2,7 @@
 
 **Branch:** `research/response-tensor`
 **Started:** April 2026
-**Status:** Session 10 complete. Clean corrected finding: ~25% functional recovery is a ceiling for signature-based compression. On-manifold probes win (not off-manifold as session 9B claimed). K=1 probe captures most available signal. Previous "identity lives in extrapolation" claim was seed variance plus correlation error.
+**Status:** Session 11 complete. The 25% "ceiling" was an ES-gradient artifact. With exact gradients + tuned λ + combined (output+hidden) targets, K=128 gives ~52% recovery on teacher task. Shakespeare test reveals task-dependence: low K is useless for char-level LM, compression requires many probes. Compression ratio = intrinsic task structure.
 
 ## Research Question
 
