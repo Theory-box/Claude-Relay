@@ -2,7 +2,7 @@
 
 **Branch:** `research/response-tensor`
 **Started:** April 2026
-**Status:** Session 05 complete (5 of up to 10). Write-to-future-self: architecture works, optimization doesn't bootstrap without BPTT. The high-level picture across the research is now stable.
+**Status:** Session 06 complete (6 of up to 10). Novel characterization found: dream dynamics = Fisher-metric Brownian motion on weight-space. Preserved macro-invariants define "type" as a level set, not a point.
 
 ## Research Question
 
@@ -70,13 +70,24 @@ Three-part experiment (5A memoryless, 5B drift task, 5C oracle probe).
 - Full writeup: `scratch/response-tensor/session05_findings.md`
 - Scripts: 3 files in `scratch/response-tensor/`
 
-### Session 06 — options
-The high-level picture across sessions 1-5 is stable. Remaining directions:
+### Session 06 — dream dynamics as Fisher-metric Brownian motion (novel characterization)
+Committed direction: combined Möbius + dreams. Networks evolve under their own dream-driven weight updates with no external gradient signal. Update rule: sample noise, forward pass, perturb target by ε, gradient step.
 
-1. **Add BPTT** (3-5 step window) and rerun the drift task. Direct test of whether bootstrap is the whole 5B failure story.
-2. **Warm-init memory** to encode approximate phase at start; does self_write hold on?
-3. **Declare stable.** Write a final synthesis doc. Original question is substantially answered: self-reference via the unified object is real but constrained, "self" in self-modeling is about type not identity, and self-modification beyond gradient descent requires explicit credit assignment.
-4. **Different question entirely.** If there's a follow-up angle that hasn't surfaced yet.
+- **Math:** δθ = lr · ε · ξ · ∂f/∂θ. Expected δθ = 0 (zero drift). Covariance ∝ (∂f/∂θ)^T (∂f/∂θ) = empirical Fisher. So dream dynamics IS Fisher-metric Brownian motion on weight space.
+- **Convergence test:** Networks DIVERGE under dream dynamics. Pairwise function distance +75% over 1000 steps. Refutes my initial "shared attractor" hypothesis.
+- **Preservation probe (6B):** 9 macro-properties preserved to <5% drift (W_norm +0.0%, J_eff_rank +0.0%, J_top +0.2%, out_var +1.2%, lipschitz +0.3%, etc.). Test loss degrades +170%. Random-init networks preserve the SAME set of macro-invariants — preservation is a property of the dynamics, not training.
+- **Unifying frame:** Fisher-metric Brownian motion preserves Fisher-isotropic quantities and erodes weight-space-directed quantities. Training content is directed (requires specific weight-data alignment); macro-properties are isotropic (functionals that don't care about direction in weight-space).
+- **Reframing session 4:** "Type equivalence" is a shared LEVEL SET in weight-space, not a shared point. Networks in the same type share macro-invariants but occupy different points within the level set. The macro-signature is the parameterization-free object — what the "unified object" framing from sessions 1-2 was actually pointing at all along.
+- **Novelty:** The framing "dream dynamics = Fisher Brownian motion characterizing networks via preserved invariants" is novel to my literature survey. Pieces exist (SGLD, NTK, empirical Fisher) but not this specific combination or the type=level-set conclusion.
+- Full writeup: `scratch/response-tensor/session06_findings.md`
+- Scripts: `scratch/response-tensor/session06_dream_attractor.py`, `session06b_macro_invariants.py`
+
+### Session 07 — options
+1. Longer-timescale probe: 50k steps, test Brownian-motion prediction formally — does weight distribution asymptote to Fisher-predicted shape?
+2. Scale test: 4-layer net + MNIST — do the preserved invariants survive?
+3. Enumerate invariants via symmetry group of the Fisher walk (Lie-theoretic framing)
+4. Biology connection: REM sleep has drift term (consolidation) that our dynamics lacks. Adding back drift might reveal something.
+5. Stop and write final synthesis. Session 6 may be the best place to wrap.
 
 ### Sessions 03+ — tentative
 - Scale up (larger model, real task) to see if the mean-vs-residual energy partition survives.
