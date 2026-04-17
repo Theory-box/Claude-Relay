@@ -82,6 +82,8 @@ These come after UI/flow decisions, which is the next conversation.
 - [x] Session 3: 22 T1-candidate IR skeletons added to ir.py (no templates yet)
 - [x] Session 3: T3 research notes on cam-spline, cam-string, particle effects,
       battlecontroller — `knowledge-base/blender/goal-node-t3-research-notes.md`
+- [x] Session 3: User-journey walkthroughs across 6 modding scenarios
+      — `knowledge-base/blender/goal-node-user-journeys.md`
 - [ ] Blender-side adapter (after UI discussion)
 - [ ] End-to-end compile-and-build against a real level (after adapter)
 
@@ -149,3 +151,47 @@ Effort estimates:
   `<level>-part.gc` generator, `EFFECT_` entity category)
 
 None requires compiler work beyond IR skeletons already in place.
+
+## Session 3 user-journey findings
+
+Stress-tested the proposed vocabulary against 6 realistic modding scenarios:
+A) Power-cell quest (kill-all-enemies → door → reward)
+B) 3-switch puzzle door
+C) Boss arena with multi-wave + cinematic reward
+D) Timed platforming section with failure reset
+E) Cinematic level intro (fade/pan/subtitle/fade)
+F) Secret chamber revealed by stomp
+
+Genuinely new T1 nodes uncovered by walkthroughs:
+  - CheckAllComplete(actor_set) — critical for kill-all / press-all gating
+  - CountInPermState — for partial-completion gating
+  - OnVolLeft — relabel of OnEvent('untrigger) for clarity
+  - GetCurrentTime, DeclareVariable/SetVariable/GetVariable — Scenario D
+    timer pattern cannot work without these
+
+Compiler fixes identified:
+  - Auto-allow Sequence under OnSpawn via hidden self-trigger
+  - Flag-name enum must include bit-0..bit-10
+  - $CURRENT template substitution in ForEach emitter — confirm validated
+
+Strong arguments for T2 features:
+  - Subgraphs — cutscene + intro reusability (Scenarios C, E)
+  - Variables / data flow — Scenario D blocked without them
+  - battlecontroller, cam-spline, particles, subtitles — confirmed needed
+
+Open question 8 raised by walkthroughs:
+  "Scene-level graphs" — should logic live on a scene-wide invisible
+  director actor rather than tied to a particular ACTOR_ empty? Every
+  scenario had at least one 'ghost director' actor. UX concern, not
+  compiler concern.
+
+Most-used-across-scenarios ranking (T1 critical subset):
+  1. ActorSet (4 scenarios)
+  2. SendEvent with variable target + ForEach (4)
+  3. SetPermFlag / ClearPermFlag (3)
+  4. CameraSwitchToMarker (3)
+  5. FadeToBlack / FadeFromBlack (2)
+  6. CheckAllComplete (2, but critical)
+  7. Variables (1, but blocking)
+
+These are the demo-compelling set.
