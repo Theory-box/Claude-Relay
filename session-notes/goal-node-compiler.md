@@ -80,7 +80,8 @@ These come after UI/flow decisions, which is the next conversation.
 - [x] Session 3: Comprehensive brainstorm of advanced vocabulary
       — `knowledge-base/blender/goal-node-advanced-vocabulary-brainstorm.md`
 - [x] Session 3: 22 T1-candidate IR skeletons added to ir.py (no templates yet)
-- [ ] Session 4: Research pass on T3 items (camera-spline, particles, battlecontroller)
+- [x] Session 3: T3 research notes on cam-spline, cam-string, particle effects,
+      battlecontroller — `knowledge-base/blender/goal-node-t3-research-notes.md`
 - [ ] Blender-side adapter (after UI discussion)
 - [ ] End-to-end compile-and-build against a real level (after adapter)
 
@@ -129,3 +130,22 @@ Need user input before more implementation:
 5. Per-node validation-warning suppression?
 6. Graph integration with existing Blender Actor Links / Volume Links panels — own or coexist?
 7. ActorsByType prefix matching vs exact match?
+
+## Session 3 T3 research findings
+
+Critical insight from the T3 deep-dive: **cam-spline, cam-string,
+particle effects, and battlecontroller are primarily *addon-side* features,
+not graph features**. The graph only adds a handful of convenience wrappers
+once the addon's scene-authoring surface is extended. This promotes these
+items from T3 ("research first") to T2 ("well-scoped, serious modding")
+with an addon-first implementation path.
+
+Effort estimates:
+- cam-string: ~1 day (2 new lumps, 0 graph nodes)
+- battlecontroller: ~4-5 days (new entity type, 9 lumps, 0-2 convenience nodes)
+- cam-spline: ~2-3 days (4 lumps + curve export, blocked on knot
+  parameterisation research in `cam-states.gc`)
+- Particle effects: ~1 week for preset-based approach (15 pre-tuned effects,
+  `<level>-part.gc` generator, `EFFECT_` entity category)
+
+None requires compiler work beyond IR skeletons already in place.
