@@ -2,7 +2,7 @@
 
 **Branch:** `research/response-tensor`
 **Started:** April 2026
-**Status:** Session 09 complete. Signatures are a lossy functional compression (~23% recovery with K=4 behavioral probes, 16 numbers). Best probes live off-manifold: "identity lives in extrapolation." Session 8 established writeability + spoofing.
+**Status:** Session 10 complete. Clean corrected finding: ~25% functional recovery is a ceiling for signature-based compression. On-manifold probes win (not off-manifold as session 9B claimed). K=1 probe captures most available signal. Previous "identity lives in extrapolation" claim was seed variance plus correlation error.
 
 ## Research Question
 
