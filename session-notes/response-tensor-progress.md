@@ -2,7 +2,7 @@
 
 **Branch:** `research/response-tensor`
 **Started:** April 2026
-**Status:** Session 04 complete (4 of up to 10). First positive (though small-effect) result — temporal past-self signal through active gating helps, and "self" turns out to be about type not identity.
+**Status:** Session 05 complete (5 of up to 10). Write-to-future-self: architecture works, optimization doesn't bootstrap without BPTT. The high-level picture across the research is now stable.
 
 ## Research Question
 
@@ -59,16 +59,24 @@ The candidate R proposed: the collection of input-output Jacobians `{J(x) = dy/d
 - Full writeup: `scratch/response-tensor/session04_findings.md`
 - Script: `scratch/response-tensor/session04_temporal_feedback.py`
 
-### Session 05 — options
-Three possible directions, each answering a different open question:
+### Session 05 — write-to-future-self via tied weights; works architecturally, fails optimizationally
+Three-part experiment (5A memoryless, 5B drift task, 5C oracle probe).
+- Architecture: `z1 = W1 x + b1 + W_m m_prev`, `m_new = W_m^T · mean(h) + b_m`. Tied weights, no BPTT, message is stop-grad on read.
+- 5A: On IID task, all conditions tie. Network correctly ignores an irrelevant channel. Expected.
+- 5B: Even with drift task that REWARDS memory (optimal no-memory floor at 0.051 due to unresolvable phase), self_write matches no_memory exactly (0.051 vs 0.051). Messages don't oscillate at drift frequency. Network never writes useful content.
+- 5C: Oracle [sin(2πt/T), cos(2πt/T)] signal fed through the same memory channel drops loss to 0.015 — 3.3× improvement. Architecture works when given usable signal.
+- **Diagnosis:** cold-start / credit-assignment failure. At init m ≈ 0, reading is neutral, gradient on W_m has no pressure toward useful content. Without BPTT or explicit supervision, the write never gets off the ground.
+- **Broader implication:** gradient descent on weights IS already a self-modification channel with a working credit-assignment path. Any additional self-modification mechanism needs its own such path. Without one it's dead code. Matches all existing literature on memory-augmented architectures.
+- Full writeup: `scratch/response-tensor/session05_findings.md`
+- Scripts: 3 files in `scratch/response-tensor/`
 
-1. **Cross-task past-self.** Use net-on-task-P's past snapshots as signal for net-on-task-Q. Tests whether the "type" is task-bounded or broader (any trained network). Answers: how general is the equivalence class?
+### Session 06 — options
+The high-level picture across sessions 1-5 is stable. Remaining directions:
 
-2. **Scale up.** 20 seeds on MNIST or char-LM. Pure replication/validation — converts 1σ effect into robust claim (or kills it).
-
-3. **Direct recursion test.** A trains, save trajectory. Train B using A's trajectory as signal. Train C using B's trajectory. Does C learn something A didn't? This is the direct form of the original question from turn 1 of the conversation.
-
-Option 3 is most ambitious and most directly answers the user's starting question. Option 2 is de-risking. Option 1 sharpens the "type vs identity" finding.
+1. **Add BPTT** (3-5 step window) and rerun the drift task. Direct test of whether bootstrap is the whole 5B failure story.
+2. **Warm-init memory** to encode approximate phase at start; does self_write hold on?
+3. **Declare stable.** Write a final synthesis doc. Original question is substantially answered: self-reference via the unified object is real but constrained, "self" in self-modeling is about type not identity, and self-modification beyond gradient descent requires explicit credit assignment.
+4. **Different question entirely.** If there's a follow-up angle that hasn't surfaced yet.
 
 ### Sessions 03+ — tentative
 - Scale up (larger model, real task) to see if the mean-vs-residual energy partition survives.
