@@ -17,6 +17,15 @@ class VertexLitSettings(bpy.types.PropertyGroup):
     gi_samples: bpy.props.IntProperty(
         name="Samples", default=128, min=1, max=1024,
         description="Ray samples per vertex. More = less noise, slower rebuild")
+    gi_rays_per_pass: bpy.props.IntProperty(
+        name="Rays Per Pass", default=4, min=1, max=64,
+        description="Samples accumulated per vertex per GI pass. Higher = faster convergence per pass")
+
+    gi_thread_pause: bpy.props.FloatProperty(
+        name="Thread Pause (ms)", default=1.0, min=0.0, max=20.0, precision=1,
+        description="Milliseconds the GI thread sleeps every 64 vertices. "
+                    "Lower = faster GI, higher = more Blender responsiveness")
+
     gi_bounce_strength: bpy.props.FloatProperty(
         name="Bounce Strength", default=1.0, min=0.0, max=5.0)
 

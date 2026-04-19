@@ -1,7 +1,6 @@
 # vertex_lit_renderer/engine.py
 
 import time
-import numpy as np
 import bpy
 import gpu
 from gpu_extras.batch import batch_for_shader
@@ -203,53 +202,18 @@ def _extract_mesh_data(obj, depsgraph):
             c=mat_slot.diffuse_color
             mat_diffuse=(float(c[0]),float(c[1]),float(c[2]))
 
-        # Numpy bulk reads — ~28x faster than Python loops for large meshes
-        n_tris = len(mesh.loop_triangles)
-        n_flat = n_tris * 3
-
-        tv = np.empty(n_tris * 3, dtype=np.int32)
-        mesh.loop_triangles.foreach_get('vertices', tv)
-        tv = tv.reshape(n_tris, 3)
-
-        tl = np.empty(n_tris * 3, dtype=np.int32)
-        mesh.loop_triangles.foreach_get('loops', tl)
-        tl = tl.reshape(n_tris, 3)
-
-        vi_flat = tv.ravel()
-        li_flat = tl.ravel()
-
-        # Positions from vertex coords
-        vc = np.empty(n_verts * 3, dtype=np.float32)
-        mesh.vertices.foreach_get('co', vc)
-        vc = vc.reshape(n_verts, 3)
-        positions = vc[vi_flat]  # numpy (n_flat, 3)
-
-        # Normals: per-vertex smooth (fast). corner_normals for hard edges
-        # would need a Python loop — for geo nodes scenes smooth is fine.
-        vn = np.empty(n_verts * 3, dtype=np.float32)
-        mesh.vertices.foreach_get('normal', vn)
-        vn = vn.reshape(n_verts, 3)
-        normals = vn[vi_flat]    # numpy (n_flat, 3)
-
-        # UVs
-        if uv_layer:
-            n_loops = len(mesh.loops)
-            uv_raw = np.empty(n_loops * 2, dtype=np.float32)
-            uv_layer.data.foreach_get('uv', uv_raw)
-            uvs = uv_raw.reshape(n_loops, 2)[li_flat]  # numpy (n_flat, 2)
-        else:
-            uvs = np.zeros((n_flat, 2), dtype=np.float32)
-
-        # Colors: build per-loop from vertex/corner dicts (still dict-based,
-        # but only for objects that actually have vertex paint)
-        if vcol_point or vcol_corner:
-            colors = np.array(
-                [vcol_corner.get(int(li_flat[i]), vcol_point.get(int(vi_flat[i]), default))
-                 for i in range(n_flat)], dtype=np.float32)
-        else:
-            colors = np.tile(np.array(default, dtype=np.float32), (n_flat, 1))
-
-        vi_map = vi_flat.tolist()
+        positions=[]; normals=[]; colors=[]; uvs=[]; vi_map=[]
+        for tri in mesh.loop_triangles:
+            for corner in range(3):
+                vi=tri.vertices[corner]; li=tri.loops[corner]
+                v=mesh.vertices[vi]
+                positions.append((v.co.x,v.co.y,v.co.z))
+                normals.append((corner_normals[li].vector.x,
+                                corner_normals[li].vector.y,
+                                corner_normals[li].vector.z))
+                colors.append(vcol_corner.get(li,vcol_point.get(vi,default)))
+                uvs.append(tuple(uv_layer.data[li].uv) if uv_layer else (0.0,0.0))
+                vi_map.append(vi)
 
         bpy.data.meshes.remove(mesh)
         return dict(
@@ -400,7 +364,9 @@ class VertexLitEngine(bpy.types.RenderEngine):
         self._gi.cancel()
 
         use_gi  =vls.use_gi        if vls else True
-        gi_samp =vls.gi_samples    if vls else 128
+        gi_samp        = vls.gi_samples      if vls else 128
+        rays_per_pass  = vls.gi_rays_per_pass if vls else 4
+        thread_pause   = vls.gi_thread_pause  if vls else 0.001
         en_scale=vls.energy_scale  if vls else 0.01
         lights  =_collect_lights(depsgraph,en_scale)
 
@@ -411,7 +377,10 @@ class VertexLitEngine(bpy.types.RenderEngine):
 
         for inst in depsgraph.object_instances:
             obj=inst.object
-            if obj.type!='MESH' or obj.hide_get(): continue
+            if obj.type!='MESH': continue
+            # Instances have a hidden source object by design — skip hide check.
+            # Blender only includes truly invisible instances from the depsgraph.
+            if not inst.is_instance and obj.hide_get(): continue
             if obj.name in seen: continue
             seen.add(obj.name)
 
@@ -450,8 +419,10 @@ class VertexLitEngine(bpy.types.RenderEngine):
                 gi_norms[name]=[tuple(m3@Vector(no)) for no in data['vert_no_local']]
 
             self._gi.start(
-                dict(bvh=bvh,face_albedo=face_albedo,
-                     lights=plain_lights,verts=gi_verts,normals=gi_norms),
+                dict(bvh=bvh, face_albedo=face_albedo,
+                     lights=plain_lights, verts=gi_verts, normals=gi_norms,
+                     rays_per_pass=rays_per_pass,
+                     thread_pause=thread_pause / 1000.0),  # ms → seconds
                 target_samples=gi_samp)
             print(f"[VertexLit] GI started ({gi_samp} samples)")
 
@@ -568,7 +539,8 @@ class VertexLitEngine(bpy.types.RenderEngine):
 
         for inst in depsgraph.object_instances:
             obj=inst.object
-            if obj.type!='MESH' or obj.hide_get(): continue
+            if obj.type!='MESH': continue
+            if not inst.is_instance and obj.hide_get(): continue
             entry=self._batch_dict.get(obj.name)
             if entry is None: continue
             batch,tex=entry

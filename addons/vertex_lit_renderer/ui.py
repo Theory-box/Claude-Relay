@@ -19,6 +19,8 @@ class VERTEX_LIT_PT_settings(bpy.types.Panel):
         if s.use_gi:
             col = box.column(align=True)
             col.prop(s, 'gi_samples')
+            col.prop(s, 'gi_rays_per_pass')
+            col.prop(s, 'gi_thread_pause')
             col.prop(s, 'gi_bounce_strength')
             box.label(text="Recomputed when mesh/lights change", icon='INFO')
 

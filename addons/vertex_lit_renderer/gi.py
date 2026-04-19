@@ -263,6 +263,9 @@ class ProgressiveGI:
         face_albedo = scene_data['face_albedo']
         lights      = scene_data['lights']
 
+        SAMPLES_PER_ITER = int(scene_data.get('rays_per_pass', 4))
+        SLEEP_SECS       = float(scene_data.get('thread_pause', 0.001))
+
         while not stop_event.is_set() and self._count < target_samples:
             pass_data = {}
 
@@ -276,18 +279,20 @@ class ProgressiveGI:
                 for vi in range(n_v):
                     if stop_event.is_set():
                         break
-                    r, g, b = _one_sample(
-                        world_verts[vi], world_norms[vi],
-                        lights, bvh, face_albedo)
+                    # Accumulate multiple samples per vertex per pass.
+                    r = g = b = 0.0
+                    for _ in range(SAMPLES_PER_ITER):
+                        sr, sg, sb = _one_sample(
+                            world_verts[vi], world_norms[vi],
+                            lights, bvh, face_albedo)
+                        r += sr; g += sg; b += sb
                     contrib[vi, 0] = r
                     contrib[vi, 1] = g
                     contrib[vi, 2] = b
-                    # Sleep every 16 vertices. time.sleep(0) only yields
-                    # the GIL momentarily but lets this thread reacquire it
-                    # immediately — bvh.ray_cast holds GIL and blocks Blender.
-                    # A real sleep gives the main thread guaranteed CPU time.
-                    if vi & 15 == 15:
-                        time.sleep(0.008)
+                    # Sleep every 64 vertices (= 256 ray casts at 4 samples).
+                    # Keeps Blender responsive without wasting time on sleep.
+                    if vi & 63 == 63:
+                        time.sleep(SLEEP_SECS)
 
                 pass_data[name] = contrib
 
@@ -300,5 +305,5 @@ class ProgressiveGI:
                 for name, contrib in pass_data.items():
                     if name in self._accum:
                         self._accum[name] += contrib
-                self._count  += 1
+                self._count  += SAMPLES_PER_ITER
                 self._updated = True
