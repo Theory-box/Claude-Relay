@@ -493,6 +493,7 @@ class VertexLitEngine(bpy.types.RenderEngine):
         self._transform_time   = 0.0
         self._light_dirty      = False
         self._light_dirty_time = 0.0
+        self._last_light_poll_time = 0.0
         self._state_ready      = True
 
     def _ensure_resources(self):
@@ -888,6 +889,19 @@ class VertexLitEngine(bpy.types.RenderEngine):
 
         scene=depsgraph.scene
         vls=getattr(scene,'vertex_lit',None)
+
+        # Defensive light-state poll runs every view_draw (throttled to 0.2s).
+        # view_update may not fire for all light operations in all Blender
+        # versions/operator paths — moving a point light or rotating a sun
+        # while hovering over the 3D viewport has been observed to produce
+        # redraws without a view_update call. Polling here is unconditional.
+        now = time.time()
+        if (not self._light_dirty and self._lights_cache
+                and (now - self._last_light_poll_time) > 0.2
+                and self._lights_differ(depsgraph)):
+            self._light_dirty      = True
+            self._light_dirty_time = now
+        self._last_light_poll_time = now
 
         if self._light_dirty and (time.time() - self._light_dirty_time) > 0.3:
             self._light_dirty = False
