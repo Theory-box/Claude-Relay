@@ -183,6 +183,17 @@ def _extract_mesh_data(obj, vp_dg):
                         elif attr.domain=='CORNER': vcol_corner[idx] = rgba
                     except Exception: pass
 
+        # Read cast_shadow from GeoNodes named attribute if present.
+        # Falls back to the Object property if the attribute doesn't exist.
+        # Attribute domain=POINT, type=BOOLEAN, name='vertex_lit_cast_shadow'
+        gn_cast_shadow = None
+        if mesh.attributes and 'vertex_lit_cast_shadow' in mesh.attributes:
+            attr = mesh.attributes['vertex_lit_cast_shadow']
+            if attr.data_type == 'BOOLEAN' and len(attr.data) > 0:
+                # ANY vertex with cast_shadow=False → whole object excluded
+                # (GeoNodes sets it per-point; we treat it as object-level for BVH)
+                gn_cast_shadow = any(d.value for d in attr.data)
+
         uv_layer = mesh.uv_layers.active
         n_verts  = len(mesh.vertices)
 
@@ -238,6 +249,7 @@ def _extract_mesh_data(obj, vp_dg):
             vert_co_local=vert_co_local, vert_no_local=vert_no_local,
             mat_diffuse=mat_diffuse,
             gi_face_albedo=gi_face_albedo,
+            gn_cast_shadow=gn_cast_shadow,
         )
 
     except Exception as e:
@@ -264,7 +276,12 @@ def _build_raw_bvh_data(mesh_cache, objects):
     for name,data in mesh_cache.items():
         obj=objects.get(name)
         if obj is None: continue
-        if not getattr(obj,'vertex_lit_cast_shadow',True): continue
+        # GeoNodes attribute takes priority; fall back to Object property
+        gn_cs = data.get('gn_cast_shadow')
+        if gn_cs is not None:
+            if not gn_cs: continue   # GN attribute says don't cast
+        elif not getattr(obj,'vertex_lit_cast_shadow',True):
+            continue                  # Object property says don't cast
         inst_mat=obj.matrix_world
         for co in data['vert_co_local']:
             wv=inst_mat@Vector(co)
