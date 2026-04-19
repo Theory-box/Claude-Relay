@@ -296,16 +296,13 @@ class ProgressiveGI:
             pass_data = {}
 
             for name, world_verts in scene_data['verts'].items():
-                if stop_event.is_set():
-                    break
+                if stop_event.is_set(): break
                 world_norms = scene_data['normals'][name]
                 n_v         = len(world_verts)
                 contrib     = np.zeros((n_v, 3), dtype=np.float64)
 
                 for vi in range(n_v):
-                    if stop_event.is_set():
-                        break
-                    # Accumulate multiple samples per vertex per pass.
+                    if stop_event.is_set(): break
                     r = g = b = 0.0
                     for _ in range(SAMPLES_PER_ITER):
                         if stop_event.is_set(): break
@@ -316,8 +313,6 @@ class ProgressiveGI:
                     contrib[vi, 0] = r
                     contrib[vi, 1] = g
                     contrib[vi, 2] = b
-                    # Sleep every 256 vertices. With stop_event checks inside
-                    # _one_sample, responsiveness no longer depends on this.
                     if vi & 255 == 255:
                         time.sleep(SLEEP_SECS)
 

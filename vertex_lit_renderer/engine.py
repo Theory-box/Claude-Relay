@@ -478,7 +478,8 @@ class VertexLitEngine(bpy.types.RenderEngine):
                 dict(raw_bvh=raw_bvh,lights=plain_lights,
                      verts=gi_verts,normals=gi_norms,
                      rays_per_pass=rays_per_pass,
-                     thread_pause=thread_pause/1000.0),
+                     thread_pause=thread_pause/1000.0,
+),
                 target_samples=gi_samp,
                 preserve_existing=self._gi_preserve)
             self._gi_preserve=False
