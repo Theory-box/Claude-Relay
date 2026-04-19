@@ -385,12 +385,17 @@ class VertexLitEngine(bpy.types.RenderEngine):
                 if isinstance(id_data, bpy.types.Object) and id_data.type == 'MESH':
                     if id_data.mode == 'EDIT':
                         pass  # handled by depsgraph_update_post → _incremental_rebuild
+                    elif id_data.name in self._mesh_cache:
+                        # Known object changed (including leaving edit mode) —
+                        # incremental rebuild only, no full scene rebuild needed.
+                        global _edit_dirty, _edit_dirty_time
+                        _edit_dirty.add(id_data.name)
+                        _edit_dirty_time = time.time()
+                        self.tag_redraw(); return
                     else:
-                        # Always rebuild on geometry update — catches both new objects
-                        # AND name-recycled objects (delete Cube, add new Cube).
-                        already_cached = id_data.name in self._mesh_cache
+                        # Genuinely new object — full rebuild needed
                         self._dirty = True
-                        self._gi_preserve = already_cached  # preserve GI for truly new objs
+                        self._gi_preserve = True
                         self.tag_redraw(); return
                 if isinstance(id_data, bpy.types.Object) and id_data.type == 'LIGHT':
                     self._dirty = True
