@@ -374,14 +374,34 @@ class ProgressiveGI:
         n_total = len(all_v)
         print(f"[VertexLit] GI (embreex): {n_total} verts")
 
+        # ── Adaptive sample budget state (thread-local, no lock needed) ──────
+        # Welford online variance tracks how stable each vertex's lighting is.
+        # Once variance drops below threshold, the chunk is skipped entirely.
+        # This means zero embreex calls for converged regions — the savings
+        # grow as the scene converges, CPU usage asymptotes toward 0 at rest.
+        local_accum  = np.zeros((n_total, 3), dtype=np.float64)
+        M2           = np.zeros((n_total, 3), dtype=np.float64)
+        converged    = np.zeros(n_total, dtype=bool)
+        pass_num     = 0
+        MIN_PASSES   = 6    # variance meaningless below this
+        CHECK_EVERY  = 3    # re-evaluate convergence every N passes
+        # Converged when per-pass variance < 1% of brightness squared.
+        # The max(…, 1e-4) floor catches dark/shadowed vertices.
+        REL_THRESH   = 0.01
+
         while not stop_event.is_set():
             cf = np.zeros((n_total, 3), dtype=np.float64)
+            any_active = False
 
-            # Process in chunks so stop_event is checked between each embreex call.
-            # Each chunk fires at most GI_CHUNK_VERTS * n_samp rays — stays < 100ms.
             for chunk_start in range(0, n_total, self.GI_CHUNK_VERTS):
                 if stop_event.is_set(): break
                 chunk_end = min(chunk_start + self.GI_CHUNK_VERTS, n_total)
+
+                # Skip chunk entirely if every vertex in it has converged
+                if pass_num >= MIN_PASSES and np.all(converged[chunk_start:chunk_end]):
+                    continue
+
+                any_active = True
                 chunk_cf = _gi_pass_embree(
                     all_v[chunk_start:chunk_end],
                     all_n[chunk_start:chunk_end],
@@ -391,14 +411,46 @@ class ProgressiveGI:
 
             if stop_event.is_set(): break
 
-            pass_data = {name: cf[s:e] for name,(s,e) in obj_ranges.items()}
-            with self._lock:
-                if self._gen != generation: return
-                for name, contrib in pass_data.items():
-                    if name in self._accum:
-                        self._accum[name] += contrib
-                self._count  += n_samp
-                self._updated = True
+            # ── Welford update (only for active vertices) ─────────────────────
+            # pass_estimate = what this pass said per sample
+            pass_est  = cf / max(n_samp, 1)
+            old_mean  = local_accum / max(pass_num * n_samp, 1)
+            local_accum += cf
+            pass_num    += 1
+            new_mean  = local_accum / (pass_num * n_samp)
+            # M2 += (x - old_mean) * (x - new_mean)  — standard Welford step
+            M2 += (pass_est - old_mean) * (pass_est - new_mean)
+
+            # ── Convergence check ─────────────────────────────────────────────
+            if pass_num >= MIN_PASSES and pass_num % CHECK_EVERY == 0:
+                variance  = M2 / pass_num                          # (n_total, 3)
+                mean_sq   = np.maximum(new_mean ** 2, 1e-4)       # floor for dark areas
+                rel_var   = np.max(variance / mean_sq, axis=1)    # (n_total,) worst channel
+                converged = rel_var < REL_THRESH
+                n_conv = int(np.sum(converged))
+                if n_conv > 0 and pass_num % (CHECK_EVERY * 4) == 0:
+                    print(f"[VertexLit] GI pass {pass_num}: "
+                          f"{n_conv}/{n_total} verts converged "
+                          f"({100*n_conv//n_total}%)")
+
+            # ── Commit to shared accum (only when something changed) ──────────
+            if any_active:
+                pass_data = {name: cf[s:e] for name,(s,e) in obj_ranges.items()}
+                with self._lock:
+                    if self._gen != generation: return
+                    for name, contrib in pass_data.items():
+                        if name in self._accum:
+                            self._accum[name] += contrib
+                    self._count  += n_samp
+                    self._updated = True
+
+            # If everything converged, idle until a scene change restarts us
+            if pass_num >= MIN_PASSES and np.all(converged):
+                print(f"[VertexLit] GI fully converged after {pass_num} passes")
+                while not stop_event.is_set():
+                    time.sleep(0.05)
+                return
+
             time.sleep(0.001)
 
     def _run_bvhtree(self, scene_data, target_samples, stop_event, generation,
