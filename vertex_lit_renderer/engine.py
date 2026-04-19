@@ -774,22 +774,39 @@ class VertexLitEngine(bpy.types.RenderEngine):
 
 @bpy.app.handlers.persistent
 def _edit_depsgraph_post(scene, depsgraph):
-    """Fires during edit mode. Collects objects with changed geometry."""
+    """Fires during edit mode and on edit-mode commit/exit.
+
+    Edit-mode pause: while an object is in EDIT mode, geometry changes
+    are NOT queued — no incremental rebuild happens. For large meshes
+    the rebuild (Python loop over every vertex + triangle corner) is
+    the dominant edit-time hitch; skipping it entirely keeps editing
+    smooth. Blender's own edit-cage overlay provides live visual
+    feedback on the mesh being edited; the vertex-lit shading stays
+    at its pre-edit state until tab-out.
+
+    On mode exit, Blender commits edit-mode changes to the datablock
+    and fires another update with mode != 'EDIT'. That's when we queue
+    — triggering exactly one incremental rebuild (via view_draw's
+    debounce) to catch the lighting up. view_update's in-cache branch
+    also catches this path; either trigger is fine (set dedup'd)."""
     global _edit_dirty, _edit_dirty_time
     for update in depsgraph.updates:
         if not update.is_updated_geometry: continue
         id_data = update.id
-        # Object-level update (most common in edit mode)
+        # Object-level update
         if isinstance(id_data, bpy.types.Object) and id_data.type == 'MESH':
             if id_data.mode == 'EDIT':
-                _edit_dirty.add(id_data.name)
-                _edit_dirty_time = time.time()
+                continue   # paused — skip queuing while editing
+            _edit_dirty.add(id_data.name)
+            _edit_dirty_time = time.time()
         # Mesh data-block update fallback
         elif isinstance(id_data, bpy.types.Mesh):
             obj = getattr(bpy.context, 'active_object', None)
-            if obj and obj.mode == 'EDIT' and obj.data == id_data:
-                _edit_dirty.add(obj.name)
-                _edit_dirty_time = time.time()
+            if obj is None or obj.data != id_data: continue
+            if obj.mode == 'EDIT':
+                continue   # paused
+            _edit_dirty.add(obj.name)
+            _edit_dirty_time = time.time()
 
 
 def register():
