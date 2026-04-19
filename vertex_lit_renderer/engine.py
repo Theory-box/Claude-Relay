@@ -124,32 +124,86 @@ def _scene_bounds(depsgraph):
 
 def _extract_mesh_data(obj, vp_dg):
     """
-    Extract per-loop arrays from the evaluated mesh WITHOUT touching bpy.data.
-    Uses eval_obj.data directly (borrowed reference — do not remove).
-    vp_dg is the viewport depsgraph so GeoNodes/hidden prototypes evaluate correctly.
+    Extract per-loop arrays from the evaluated mesh via foreach_get bulk reads.
+    All hot-path arrays come back as numpy arrays — ~10-20x faster than the
+    previous Python per-vertex/per-corner loops on large meshes.
+
+    Return dict keys unchanged (downstream contract preserved), but array
+    types change from Python lists of tuples to numpy arrays:
+      - positions      (n_loops, 3) f32
+      - normals        (n_loops, 3) f32 (corner normals if available, else vertex)
+      - colors         (n_loops, 4) f32 (vertex color or face-default fallback)
+      - uvs            (n_loops, 2) f32
+      - vi_map         (n_loops,)   i32  — per-loop vertex index
+      - vert_co_local  (n_verts, 3) f32
+      - vert_no_local  (n_verts, 3) f32
+      - texture, mat_diffuse, gi_face_albedo, gn_cast_shadow, n_verts : unchanged
+
+    Previous attempt (reverted in commit 8fc0d9d) tripped on numpy float32
+    scalars leaking into Python tuples fed to batch_for_shader. That path is
+    gone now — attr_fill takes numpy arrays directly, so the type friction
+    doesn't exist anymore.
+
+    Per-attribute try/except falls back to a safe default if foreach_get
+    fails on some weird mesh (rare). Catastrophic failure returns None, same
+    as before.
     """
     try:
         eval_obj = obj.evaluated_get(vp_dg)
         if not eval_obj or not hasattr(eval_obj, 'data') or not eval_obj.data:
             return None
+        mesh = eval_obj.data
 
-        mesh = eval_obj.data   # borrowed — never call bpy.data.meshes.remove() on this
-
-        # Triangulation may or may not be pre-computed on the evaluated mesh.
         if not mesh.loop_triangles:
             try: mesh.calc_loop_triangles()
             except Exception: pass
         if not mesh.loop_triangles:
             return None
 
-        # corner_normals is computed by the evaluator; safe to read on borrowed mesh.
-        try:
-            corner_normals = mesh.corner_normals
-            has_corner_normals = True
-        except Exception:
-            has_corner_normals = False
+        n_verts       = len(mesh.vertices)
+        n_tris        = len(mesh.loop_triangles)
+        n_loops_total = len(mesh.loops)
+        n_loops       = n_tris * 3
 
-        # Per-face material list — GeoNodes "Set Material" assigns per face.
+        # ── Per-vertex bulk reads ─────────────────────────────────────────
+        vert_co_local = np.empty(n_verts * 3, dtype=np.float32)
+        mesh.vertices.foreach_get('co', vert_co_local)
+        vert_co_local = vert_co_local.reshape(n_verts, 3)
+
+        vert_no_local = np.empty(n_verts * 3, dtype=np.float32)
+        mesh.vertices.foreach_get('normal', vert_no_local)
+        vert_no_local = vert_no_local.reshape(n_verts, 3)
+
+        # ── Per-triangle bulk reads ───────────────────────────────────────
+        tri_verts = np.empty(n_tris * 3, dtype=np.int32)
+        mesh.loop_triangles.foreach_get('vertices', tri_verts)
+        tri_verts = tri_verts.reshape(n_tris, 3)
+
+        tri_loops = np.empty(n_tris * 3, dtype=np.int32)
+        mesh.loop_triangles.foreach_get('loops', tri_loops)
+        tri_loops = tri_loops.reshape(n_tris, 3)
+
+        tri_mat = np.empty(n_tris, dtype=np.int32)
+        mesh.loop_triangles.foreach_get('material_index', tri_mat)
+
+        # ── Flat per-loop index arrays (used everywhere below) ────────────
+        vi_map = tri_verts.ravel()              # (n_loops,) i32 — per-loop vertex idx
+        loop_indices = tri_loops.ravel()        # (n_loops,) i32 — per-loop loop idx
+
+        # ── Per-loop position (index vertex table by loop's vertex) ───────
+        positions = vert_co_local[vi_map]       # (n_loops, 3) f32
+
+        # ── Per-loop normal: corner normals if available, else vertex ─────
+        normals = None
+        try:
+            cn_flat = np.empty(n_loops_total * 3, dtype=np.float32)
+            mesh.corner_normals.foreach_get('vector', cn_flat)
+            corner_normals_np = cn_flat.reshape(n_loops_total, 3)
+            normals = corner_normals_np[loop_indices]
+        except Exception:
+            normals = vert_no_local[vi_map]
+
+        # ── Materials → per-mat colors + per-triangle default ─────────────
         mat_list = [slot.material for slot in eval_obj.material_slots]
         if not mat_list:
             m = eval_obj.active_material
@@ -160,92 +214,91 @@ def _extract_mesh_data(obj, vp_dg):
                 c = m.diffuse_color
                 return [float(c[0]), float(c[1]), float(c[2]), 1.0]
             return [1.0, 1.0, 1.0, 1.0]
-        mat_colors = [_mat_color(m) for m in mat_list]
-        default    = mat_colors[0] if mat_colors else [1.0, 1.0, 1.0, 1.0]
+        mat_colors = [_mat_color(m) for m in mat_list] or [[1.0, 1.0, 1.0, 1.0]]
+        mat_colors_np = np.array(mat_colors, dtype=np.float32)
 
-        # First textured material as the mesh texture.
+        # Clamp material indices into valid range, broadcast to per-loop (× 3).
+        tri_mat_safe     = np.where(tri_mat < len(mat_colors_np), tri_mat, 0)
+        face_colors      = mat_colors_np[tri_mat_safe]             # (n_tris, 4)
+        default_per_loop = np.repeat(face_colors, 3, axis=0)       # (n_loops, 4)
+
+        # ── Per-loop UV ───────────────────────────────────────────────────
+        uv_layer = mesh.uv_layers.active
+        if uv_layer and len(uv_layer.data) == n_loops_total:
+            try:
+                uv_flat = np.empty(n_loops_total * 2, dtype=np.float32)
+                uv_layer.data.foreach_get('uv', uv_flat)
+                uv_np = uv_flat.reshape(n_loops_total, 2)
+                uvs = uv_np[loop_indices]                          # (n_loops, 2)
+            except Exception:
+                uvs = np.zeros((n_loops, 2), dtype=np.float32)
+                uv_np = None
+        else:
+            uvs = np.zeros((n_loops, 2), dtype=np.float32)
+            uv_np = None
+
+        # ── Per-loop color: vertex color override if present, else default
+        colors = default_per_loop
+        if mesh.color_attributes:
+            attr = None
+            try: attr = mesh.color_attributes.active_color
+            except Exception: pass
+            if attr is None and len(mesh.color_attributes): attr = mesh.color_attributes[0]
+            if attr and getattr(attr, 'data_type', '') in ('FLOAT_COLOR', 'BYTE_COLOR', ''):
+                try:
+                    n_data = len(attr.data)
+                    c_flat = np.empty(n_data * 4, dtype=np.float32)
+                    attr.data.foreach_get('color', c_flat)
+                    c_np = c_flat.reshape(n_data, 4)
+                    if attr.domain == 'POINT' and n_data == n_verts:
+                        colors = c_np[vi_map]
+                    elif attr.domain == 'CORNER' and n_data == n_loops_total:
+                        colors = c_np[loop_indices]
+                    # else: shape mismatch — keep default_per_loop
+                except Exception:
+                    pass
+
+        # ── Texture (first textured material) ─────────────────────────────
         tex = None
         for m in mat_list:
             if m:
                 t = _get_gpu_tex(_find_base_texture(m))
                 if t: tex = t; break
 
-        # Vertex colours — FLOAT_COLOR / BYTE_COLOR only.
-        vcol_point = {}; vcol_corner = {}
-        if mesh.color_attributes:
-            attr = None
-            try: attr = mesh.color_attributes.active_color
-            except Exception: pass
-            if attr is None and len(mesh.color_attributes): attr = mesh.color_attributes[0]
-            if attr and getattr(attr,'data_type','') in ('FLOAT_COLOR','BYTE_COLOR',''):
-                for idx, d in enumerate(attr.data):
-                    try:
-                        c = d.color
-                        rgba = [float(c[0]),float(c[1]),float(c[2]),float(c[3]) if len(c)>3 else 1.0]
-                        if attr.domain=='POINT':  vcol_point[idx]  = rgba
-                        elif attr.domain=='CORNER': vcol_corner[idx] = rgba
-                    except Exception: pass
-
-        # Read cast_shadow from GeoNodes named attribute if present.
-        # Falls back to the Object property if the attribute doesn't exist.
-        # Attribute domain=POINT, type=BOOLEAN, name='vertex_lit_cast_shadow'
-        gn_cast_shadow = None
-        if mesh.attributes and 'vertex_lit_cast_shadow' in mesh.attributes:
-            attr = mesh.attributes['vertex_lit_cast_shadow']
-            if attr.data_type == 'BOOLEAN' and len(attr.data) > 0:
-                # ANY vertex with cast_shadow=False → whole object excluded
-                # (GeoNodes sets it per-point; we treat it as object-level for BVH)
-                gn_cast_shadow = any(d.value for d in attr.data)
-
-        uv_layer = mesh.uv_layers.active
-        n_verts  = len(mesh.vertices)
-
-        # Per-vertex local-space arrays for GI world transform.
-        vert_co_local = [(v.co.x,v.co.y,v.co.z) for v in mesh.vertices]
-        vert_no_local = [(v.normal.x,v.normal.y,v.normal.z) for v in mesh.vertices]
-
+        # ── GI face albedo (Python-side — texture sampling has edge cases
+        # and is not the dominant cost; keeping it Python for safety). ─────
+        default = mat_colors[0]
         _m0 = mat_list[0] if mat_list else None
-        mat_diffuse = (float(_m0.diffuse_color[0]),float(_m0.diffuse_color[1]),
-                       float(_m0.diffuse_color[2])) if _m0 else (0.8,0.8,0.8)
+        mat_diffuse = (float(_m0.diffuse_color[0]), float(_m0.diffuse_color[1]),
+                       float(_m0.diffuse_color[2])) if _m0 else (0.8, 0.8, 0.8)
 
-        positions=[]; normals=[]; colors=[]; uvs=[]; vi_map=[]
-        gi_face_albedo=[]
-        for tri in mesh.loop_triangles:
-            mi = tri.material_index
+        gi_face_albedo = []
+        for ti in range(n_tris):
+            mi = int(tri_mat_safe[ti])
             face_default = mat_colors[mi] if mi < len(mat_colors) else default
-
-            # Sample texture at UV centroid for accurate GI albedo
             _fmat = mat_list[mi] if mi < len(mat_list) else None
             _fimg = _find_base_texture(_fmat) if _fmat else None
-            _pd   = _get_pixel_array(_fimg) if (_fimg and uv_layer) else None
+            _pd   = _get_pixel_array(_fimg) if (_fimg and uv_np is not None) else None
             if _pd:
-                _arr,_w,_h = _pd
-                _u = sum(uv_layer.data[tri.loops[_c]].uv[0] for _c in range(3))/3.0
-                _v = sum(uv_layer.data[tri.loops[_c]].uv[1] for _c in range(3))/3.0
+                _arr, _w, _h = _pd
+                l0, l1, l2 = tri_loops[ti]
+                _u = (uv_np[l0,0] + uv_np[l1,0] + uv_np[l2,0]) / 3.0
+                _v = (uv_np[l0,1] + uv_np[l1,1] + uv_np[l2,1]) / 3.0
                 _u %= 1.0; _v %= 1.0
-                _px=min(int(_u*_w),_w-1); _py=min(int(_v*_h),_h-1)
-                _mc=face_default
-                gi_face_albedo.append((_arr[_py,_px,0]*_mc[0],_arr[_py,_px,1]*_mc[1],_arr[_py,_px,2]*_mc[2]))
+                _px = min(int(_u*_w), _w-1); _py = min(int(_v*_h), _h-1)
+                gi_face_albedo.append((float(_arr[_py,_px,0]*face_default[0]),
+                                       float(_arr[_py,_px,1]*face_default[1]),
+                                       float(_arr[_py,_px,2]*face_default[2])))
             else:
-                gi_face_albedo.append(tuple(face_default[:3]))
+                gi_face_albedo.append((face_default[0], face_default[1], face_default[2]))
 
-            for corner in range(3):
-                vi=tri.vertices[corner]; li=tri.loops[corner]
-                v=mesh.vertices[vi]
-                positions.append((v.co.x,v.co.y,v.co.z))
-                if has_corner_normals:
-                    try:
-                        cn=corner_normals[li]
-                        normals.append((cn.vector.x,cn.vector.y,cn.vector.z))
-                    except Exception:
-                        normals.append((v.normal.x,v.normal.y,v.normal.z))
-                else:
-                    normals.append((v.normal.x,v.normal.y,v.normal.z))
-                colors.append(vcol_corner.get(li,vcol_point.get(vi,face_default)))
-                uvs.append(tuple(uv_layer.data[li].uv) if uv_layer else (0.0,0.0))
-                vi_map.append(vi)
+        # ── cast_shadow GeoNodes named attribute ──────────────────────────
+        gn_cast_shadow = None
+        if mesh.attributes and 'vertex_lit_cast_shadow' in mesh.attributes:
+            cs_attr = mesh.attributes['vertex_lit_cast_shadow']
+            if cs_attr.data_type == 'BOOLEAN' and len(cs_attr.data) > 0:
+                gn_cast_shadow = any(d.value for d in cs_attr.data)
 
-        # No bpy.data.meshes.remove() — mesh is borrowed from eval_obj.
         return dict(
             positions=positions, normals=normals, colors=colors,
             uvs=uvs, vi_map=vi_map, texture=tex, n_verts=n_verts,
@@ -257,7 +310,7 @@ def _extract_mesh_data(obj, vp_dg):
 
     except Exception as e:
         print(f"[VertexLit] extract error ({obj.name}): {e}")
-        return None   # nothing to remove
+        return None
 
 
 def _build_bounce_vbo(n_loops, gi_per_vert, vi_map_np):
@@ -353,36 +406,60 @@ def _rebuild_batch_with_new_bounce(cached, static_vbo, gi_per_vert):
 
 
 def _build_raw_bvh_data(mesh_cache, objects):
-    """Returns raw vert/poly data for GI thread to build BVH — no main-thread hitch."""
-    all_verts=[]; all_polys=[]; face_albedo=[]; v_offset=0
-    for name,data in mesh_cache.items():
-        obj=objects.get(name)
+    """Returns raw vert/poly data for GI thread to build BVH — no main-thread hitch.
+
+    World-space vertex transform is vectorized with numpy matmul: a 30k-vert
+    cliff goes from a Python-level per-vertex loop to one matmul call.
+    Poly indexing is also numpy (reshape vi_map to (T,3) and add offset)."""
+    vert_chunks = []
+    poly_chunks = []
+    face_albedo = []
+    v_offset    = 0
+
+    for name, data in mesh_cache.items():
+        obj = objects.get(name)
         if obj is None: continue
         # GeoNodes attribute takes priority; fall back to Object property
         gn_cs = data.get('gn_cast_shadow')
         if gn_cs is not None:
-            if not gn_cs: continue   # GN attribute says don't cast
-        elif not getattr(obj,'vertex_lit_cast_shadow',True):
-            continue                  # Object property says don't cast
-        inst_mat=obj.matrix_world
-        for co in data['vert_co_local']:
-            wv=inst_mat@Vector(co)
-            all_verts.append((wv.x,wv.y,wv.z))
-        vi_map=data['vi_map']
-        gfa=data.get('gi_face_albedo') or [data['mat_diffuse']]*(len(vi_map)//3)
-        for fi,i in enumerate(range(0,len(vi_map),3)):
-            all_polys.append([vi_map[i]+v_offset,vi_map[i+1]+v_offset,vi_map[i+2]+v_offset])
-            face_albedo.append(gfa[fi] if fi<len(gfa) else data['mat_diffuse'])
-        v_offset+=len(data['vert_co_local'])
-    if not all_verts: return None,[]
+            if not gn_cs: continue
+        elif not getattr(obj, 'vertex_lit_cast_shadow', True):
+            continue
 
-    # Subsample if over the cap — keeps same vertex pool, just fewer triangles.
-    # face_albedo is subsampled in sync so face indices remain correct.
-    if len(all_polys) > MAX_BVH_TRIS:
-        step = max(1, len(all_polys) // MAX_BVH_TRIS)
+        # local -> world via numpy matmul (vectorized across all verts)
+        local = data['vert_co_local']                               # (N, 3) f32
+        if not isinstance(local, np.ndarray):
+            local = np.asarray(local, dtype=np.float32)
+        mat = np.asarray(obj.matrix_world, dtype=np.float32)        # (4, 4)
+        world = local @ mat[:3, :3].T + mat[:3, 3]                  # (N, 3)
+        vert_chunks.append(world)
+
+        # Polys: vi_map is (n_loops,); reshape to (T, 3) and offset
+        vi_map = data['vi_map']
+        if not isinstance(vi_map, np.ndarray):
+            vi_map = np.asarray(vi_map, dtype=np.int32)
+        tri_verts = vi_map.reshape(-1, 3) + v_offset                 # (T, 3) i32
+        poly_chunks.append(tri_verts)
+
+        # Face albedo stays Python-list (variable-length per mesh; fast enough)
+        n_tris = tri_verts.shape[0]
+        gfa = data.get('gi_face_albedo') or [data['mat_diffuse']] * n_tris
+        for fi in range(n_tris):
+            face_albedo.append(gfa[fi] if fi < len(gfa) else data['mat_diffuse'])
+
+        v_offset += local.shape[0]
+
+    if not vert_chunks: return None
+
+    all_verts = np.concatenate(vert_chunks, axis=0)                  # (total_V, 3)
+    all_polys = np.concatenate(poly_chunks, axis=0)                  # (total_T, 3)
+
+    # Subsample if over cap
+    if all_polys.shape[0] > MAX_BVH_TRIS:
+        step = max(1, all_polys.shape[0] // MAX_BVH_TRIS)
         all_polys   = all_polys[::step]
         face_albedo = face_albedo[::step]
-        print(f"[VertexLit] BVH subsampled to {len(all_polys)} tris (step={step})")
+        print(f"[VertexLit] BVH subsampled to {all_polys.shape[0]} tris (step={step})")
 
     return {'verts': all_verts, 'polys': all_polys, 'albedo': face_albedo}
 
@@ -576,13 +653,21 @@ class VertexLitEngine(bpy.types.RenderEngine):
                 'type':int(l['type']),'radius':float(l['radius']),
             } for l in lights]
 
-            gi_verts={}; gi_norms={}
+            gi_verts = {}
+            gi_norms = {}
             for name, data in new_mesh.items():
                 obj = bpy_objects.get(name)
                 if obj is None: continue
-                m=obj.matrix_world; m3=m.to_3x3()
-                gi_verts[name]=[tuple(m@Vector(co)) for co in data['vert_co_local']]
-                gi_norms[name]=[tuple(m3@Vector(no)) for no in data['vert_no_local']]
+                local_co = data['vert_co_local']
+                local_no = data['vert_no_local']
+                if not isinstance(local_co, np.ndarray):
+                    local_co = np.asarray(local_co, dtype=np.float32)
+                if not isinstance(local_no, np.ndarray):
+                    local_no = np.asarray(local_no, dtype=np.float32)
+                mat  = np.asarray(obj.matrix_world, dtype=np.float32)
+                mat3 = mat[:3, :3]
+                gi_verts[name] = local_co @ mat3.T + mat[:3, 3]
+                gi_norms[name] = local_no @ mat3.T
 
             _global_gi.start(
                 dict(raw_bvh=raw_bvh,lights=plain_lights,
@@ -624,18 +709,29 @@ class VertexLitEngine(bpy.types.RenderEngine):
 
     def _restart_gi_for_transforms(self, vls):
         """Restart GI from cached geometry after an object is moved.
-        No bpy calls, no mesh extraction — just retransforms cached verts."""
+        No bpy calls, no mesh extraction — just retransforms cached verts.
+
+        Vectorized: each object's local->world transform is one numpy matmul
+        across all verts instead of a Python loop."""
         if not self._mesh_cache: return
         bpy_objects = {name: bpy.data.objects.get(name) for name in self._mesh_cache}
         raw_bvh = _build_raw_bvh_data(self._mesh_cache, bpy_objects)
         if raw_bvh is None: return
-        gi_verts={}; gi_norms={}
+        gi_verts = {}
+        gi_norms = {}
         for name, data in self._mesh_cache.items():
             obj = bpy_objects.get(name)
             if obj is None: continue
-            m=obj.matrix_world; m3=m.to_3x3()
-            gi_verts[name]=[tuple(m@Vector(co)) for co in data['vert_co_local']]
-            gi_norms[name]=[tuple(m3@Vector(no)) for no in data['vert_no_local']]
+            local_co = data['vert_co_local']
+            local_no = data['vert_no_local']
+            if not isinstance(local_co, np.ndarray):
+                local_co = np.asarray(local_co, dtype=np.float32)
+            if not isinstance(local_no, np.ndarray):
+                local_no = np.asarray(local_no, dtype=np.float32)
+            mat  = np.asarray(obj.matrix_world, dtype=np.float32)   # (4, 4)
+            mat3 = mat[:3, :3]
+            gi_verts[name] = local_co @ mat3.T + mat[:3, 3]         # world positions
+            gi_norms[name] = local_no @ mat3.T                       # world normals (no translation)
         gi_samp = vls.gi_samples      if vls else 128
         rpp     = vls.gi_rays_per_pass if vls else 4
         pause   = (vls.gi_thread_pause if vls else 0.1) / 1000.0

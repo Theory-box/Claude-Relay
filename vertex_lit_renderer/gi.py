@@ -78,7 +78,13 @@ except ImportError:
 
 def _build_bvh_fallback(raw_bvh):
     if not _BVHTREE_OK: return None, []
-    return BVHTree.FromPolygons(raw_bvh['verts'], raw_bvh['polys'], epsilon=1e-6), raw_bvh['albedo']
+    verts = raw_bvh['verts']
+    polys = raw_bvh['polys']
+    # BVHTree.FromPolygons wants sequences of sequences; numpy arrays work via
+    # __iter__ but conversion is cheap and avoids any edge-case brittleness.
+    if isinstance(verts, np.ndarray): verts = verts.tolist()
+    if isinstance(polys, np.ndarray): polys = polys.tolist()
+    return BVHTree.FromPolygons(verts, polys, epsilon=1e-6), raw_bvh['albedo']
 
 
 # ── Vectorized hemisphere batch ───────────────────────────────────────────────
@@ -498,13 +504,25 @@ class ProgressiveGI:
 
     @staticmethod
     def _flatten_verts(scene_data):
-        vl=[]; nl=[]; obj_ranges={}; idx=0
+        """Concatenate all objects' world verts/normals into flat arrays.
+        Accepts both numpy arrays and list-of-tuples inputs (the latter only
+        if someone upstream regresses). Embree's intersector wants float64."""
+        v_chunks = []
+        n_chunks = []
+        obj_ranges = {}
+        idx = 0
         for name in scene_data['verts']:
-            verts=scene_data['verts'][name]; norms=scene_data['normals'][name]
-            n=len(verts); vl.extend(verts); nl.extend(norms)
-            obj_ranges[name]=(idx,idx+n); idx+=n
-        if idx==0: return None,None,None
-        all_v=np.array(vl,dtype=np.float64)
-        all_n=np.array(nl,dtype=np.float64)
-        all_n/=np.linalg.norm(all_n,axis=1,keepdims=True)+1e-8
-        return all_v,all_n,obj_ranges
+            verts = scene_data['verts'][name]
+            norms = scene_data['normals'][name]
+            v = np.asarray(verts, dtype=np.float64)
+            n = np.asarray(norms, dtype=np.float64)
+            cnt = v.shape[0]
+            v_chunks.append(v)
+            n_chunks.append(n)
+            obj_ranges[name] = (idx, idx + cnt)
+            idx += cnt
+        if idx == 0: return None, None, None
+        all_v = np.concatenate(v_chunks, axis=0)
+        all_n = np.concatenate(n_chunks, axis=0)
+        all_n /= np.linalg.norm(all_n, axis=1, keepdims=True) + 1e-8
+        return all_v, all_n, obj_ranges
