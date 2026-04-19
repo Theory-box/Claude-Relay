@@ -457,12 +457,6 @@ class VertexLitEngine(bpy.types.RenderEngine):
         finally:
             self._rebuilding = False
 
-            scene_data=dict(bvh=bvh, face_albedo=face_albedo,
-                            lights=plain_lights,
-                            verts=gi_verts, normals=gi_norms)
-            print(f"[VertexLit] Starting progressive GI  target={gi_samp} samples…")
-            self._gi.start(scene_data, target_samples=gi_samp)
-
     # ── Apply GI update (fast — geometry stays cached) ────────────────────
 
     def _apply_gi_update(self, gi_data):
