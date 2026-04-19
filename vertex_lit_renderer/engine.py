@@ -393,9 +393,10 @@ class VertexLitEngine(bpy.types.RenderEngine):
                         _edit_dirty_time = time.time()
                         self.tag_redraw(); return
                     else:
-                        # Genuinely new object — full rebuild needed
-                        self._dirty = True
-                        self._gi_preserve = True
+                        # New object — incremental rebuild adds just this one
+                        global _edit_dirty, _edit_dirty_time
+                        _edit_dirty.add(id_data.name)
+                        _edit_dirty_time = time.time()
                         self.tag_redraw(); return
                 if isinstance(id_data, bpy.types.Object) and id_data.type == 'LIGHT':
                     self._dirty = True
@@ -409,8 +410,15 @@ class VertexLitEngine(bpy.types.RenderEngine):
                     self._light_dirty_time = time.time()
                     self.tag_redraw(); return
                 elif id_data.type == 'MESH':
-                    self._transform_dirty = True
-                    self._transform_time  = time.time()
+                    if id_data.name not in self._mesh_cache:
+                        # Not in cache yet — new object being dragged (e.g. duplicate)
+                        # needs extraction, not just a GI matrix update
+                        global _edit_dirty, _edit_dirty_time
+                        _edit_dirty.add(id_data.name)
+                        _edit_dirty_time = time.time()
+                    else:
+                        self._transform_dirty = True
+                        self._transform_time  = time.time()
                     self.tag_redraw(); return
             if isinstance(id_data, bpy.types.Image):
                 _invalidate_tex(id_data.name)
