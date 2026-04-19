@@ -1,255 +1,237 @@
-# vertex_lit_renderer/gi.py
 """
-Progressive one-bounce GI via background thread.
+gi.py — Progressive GI using Intel Embree via trimesh/embreex
 
-One sample per vertex per thread pass.  Main thread polls has_update()
-each view_draw and rebuilds only bounce colours — geometry stays cached.
-Converges smoothly instead of hitching.
+Architecture:
+  OLD: one Python call per ray → GIL held → ~1000 rays/sec
+  NEW: all rays for a pass fired as one numpy batch → GIL released during
+       C-level traversal → Embree uses TBB internally for multi-core
+
+Install: embreex + trimesh are pip-installed at addon register if absent.
+Fallback: silently falls back to Blender BVHTree if install fails.
 """
 
-import math
-import random
-import threading
-import time
+import threading, time, math, random, subprocess, sys
 import numpy as np
-import bpy
-from mathutils import Vector
-from mathutils.bvhtree import BVHTree
+
+# ── Dependency bootstrap ──────────────────────────────────────────────────────
+
+_EMBREE_READY   = False
+_EMBREE_CHECKED = False
+
+def ensure_embree():
+    global _EMBREE_READY, _EMBREE_CHECKED
+    if _EMBREE_CHECKED:
+        return _EMBREE_READY
+    _EMBREE_CHECKED = True
+    try:
+        import trimesh, embreex, trimesh.ray.ray_pyembree  # noqa
+        _EMBREE_READY = True
+        print("[VertexLit] embreex backend ready")
+        return True
+    except ImportError:
+        pass
+    print("[VertexLit] Installing trimesh + embreex (first run only)…")
+    try:
+        subprocess.check_call(
+            [sys.executable, "-m", "pip", "install",
+             "trimesh", "embreex", "--quiet", "--break-system-packages"],
+            timeout=120)
+        import trimesh, trimesh.ray.ray_pyembree  # noqa
+        _EMBREE_READY = True
+        print("[VertexLit] embreex installed and ready")
+    except Exception as e:
+        print(f"[VertexLit] embreex install failed ({e}), using BVHTree fallback")
+        _EMBREE_READY = False
+    return _EMBREE_READY
 
 
-# ── Pure-Python helpers (safe to call from background thread) ─────────────────
+# ── Embree scene builder ──────────────────────────────────────────────────────
 
-def _rand_hemi(nx, ny, nz):
-    """Uniform hemisphere sample around (nx,ny,nz). Returns (dx,dy,dz)."""
-    while True:
-        x = random.uniform(-1.0, 1.0)
-        y = random.uniform(-1.0, 1.0)
-        z = random.uniform(-1.0, 1.0)
-        r2 = x*x + y*y + z*z
-        if 1e-10 < r2 <= 1.0:
-            break
-    s = 1.0 / math.sqrt(r2)
-    dx, dy, dz = x*s, y*s, z*s
-    if dx*nx + dy*ny + dz*nz < 0.0:
-        dx, dy, dz = -dx, -dy, -dz
-    return dx, dy, dz
+def _build_embree_intersector(raw_bvh):
+    try:
+        import trimesh
+        from trimesh.ray.ray_pyembree import RayMeshIntersector
+        verts  = np.array(raw_bvh['verts'],  dtype=np.float64)
+        faces  = np.array(raw_bvh['polys'],  dtype=np.int32)
+        albedo = np.array([[a[0],a[1],a[2]] for a in raw_bvh['albedo']], dtype=np.float64)
+        mesh   = trimesh.Trimesh(vertices=verts, faces=faces, process=False)
+        isect  = RayMeshIntersector(mesh, scale_to_box=False)
+        print(f"[VertexLit] Embree scene: {len(verts)} verts, {len(faces)} tris")
+        return isect, albedo, mesh.face_normals.copy()
+    except Exception as e:
+        print(f"[VertexLit] Embree scene build failed ({e}), using BVHTree")
+        return None, None, None
 
 
-def _direct_at(px, py, pz, nx, ny, nz, lights, bvh, stop_event, bias=0.003):
-    """Direct Lambert + shadow test at a point. Checks stop_event before each
-    BVH ray cast so threads stop within one ray cast duration on cancellation."""
-    r = g = b = 0.0
-    ox, oy, oz = px + nx*bias, py + ny*bias, pz + nz*bias
+# ── BVHTree fallback ──────────────────────────────────────────────────────────
+
+try:
+    from mathutils.bvhtree import BVHTree
+    _BVHTREE_OK = True
+except ImportError:
+    _BVHTREE_OK = False
+
+def _build_bvh_fallback(raw_bvh):
+    if not _BVHTREE_OK: return None, []
+    return BVHTree.FromPolygons(raw_bvh['verts'], raw_bvh['polys'], epsilon=1e-6), raw_bvh['albedo']
+
+
+# ── Vectorized hemisphere batch ───────────────────────────────────────────────
+
+def _hemisphere_batch(origins, normals, n_samples):
+    """Cosine-weighted hemisphere rays for all verts × n_samples. Pure numpy."""
+    n, N, BIAS = len(origins), len(origins)*n_samples, 0.003
+    orig_r = np.repeat(origins, n_samples, axis=0)
+    norm_r = np.repeat(normals, n_samples, axis=0)
+    cos_t  = np.sqrt(np.random.uniform(0.0, 1.0, N))
+    phi    = np.random.uniform(0.0, 2*np.pi, N)
+    sin_t  = np.sqrt(np.maximum(0.0, 1.0 - cos_t**2))
+    local  = np.stack([sin_t*np.cos(phi), sin_t*np.sin(phi), cos_t], axis=1)
+    up     = np.where(np.abs(norm_r[:,0:1]) < 0.9,
+                      np.tile([1.,0.,0.], (N,1)),
+                      np.tile([0.,1.,0.], (N,1)))
+    tangent = np.cross(norm_r, up)
+    tangent /= np.linalg.norm(tangent, axis=1, keepdims=True) + 1e-8
+    bitan   = np.cross(norm_r, tangent)
+    dirs = local[:,0:1]*tangent + local[:,1:2]*bitan + local[:,2:3]*norm_r
+    return orig_r + norm_r*BIAS, dirs
+
+
+# ── Vectorized GI pass ────────────────────────────────────────────────────────
+
+def _gi_pass_embree(origins, normals, lights, intersector,
+                    face_albedo_arr, face_normals_arr, n_samp, stop_event):
+    BIAS    = 0.003
+    n_verts = len(origins)
+    contrib = np.zeros((n_verts, 3))
+
+    if stop_event.is_set(): return contrib
+
+    ray_o, ray_d = _hemisphere_batch(origins, normals, n_samp)
+
+    if stop_event.is_set(): return contrib
+
+    try:
+        hit_locs, hit_ray_idx, hit_tri_idx = intersector.intersects_location(
+            ray_o, ray_d, multiple_hits=False)
+    except Exception as e:
+        print(f"[VertexLit] Embree cast error: {e}")
+        return contrib
+
+    if len(hit_locs) == 0 or stop_event.is_set():
+        return contrib
+
+    hit_albedo    = face_albedo_arr[hit_tri_idx]
+    hit_face_norm = face_normals_arr[hit_tri_idx]
+    bounce_color  = np.zeros((len(hit_locs), 3))
 
     for light in lights:
-        if stop_event.is_set(): break               # check before each shadow ray
-        if light['type'] == 1:                      # Sun
-            lx, ly, lz = (-light['dir'][0],
-                          -light['dir'][1],
-                          -light['dir'][2])
-            inv = 1.0 / max(math.sqrt(lx*lx + ly*ly + lz*lz), 1e-10)
-            lx, ly, lz = lx*inv, ly*inv, lz*inv
-            hit = bvh.ray_cast((ox,oy,oz), (lx,ly,lz))
-            if hit[0]: continue                     # occluded
-            diff = max(lx*nx + ly*ny + lz*nz, 0.0)
-            e = light['energy'] * diff
-            r += light['color'][0] * e
-            g += light['color'][1] * e
-            b += light['color'][2] * e
-        else:                                       # Point / Spot
-            dx = light['pos'][0]-px
-            dy = light['pos'][1]-py
-            dz = light['pos'][2]-pz
-            dist = math.sqrt(dx*dx + dy*dy + dz*dz)
-            if dist < 1e-5: continue
-            inv = 1.0/dist
-            lx, ly, lz = dx*inv, dy*inv, dz*inv
-            hit = bvh.ray_cast((ox,oy,oz), (lx,ly,lz))
-            if hit[0] and hit[3] is not None and hit[3] < dist - bias:
-                continue
-            x_r = dist / max(light['radius'], 0.001)
-            att = max(1.0 - x_r*x_r*x_r*x_r, 0.0)**2
-            diff = max(lx*nx + ly*ny + lz*nz, 0.0)
-            e = light['energy'] * diff * att
-            r += light['color'][0] * e
-            g += light['color'][1] * e
-            b += light['color'][2] * e
+        if stop_event.is_set(): break
+        lcolor = np.array(light['color']) * float(light['energy'])
+        ltype  = int(light['type'])
 
-    return r, g, b
-
-
-def _one_sample(pos_t, norm_t, lights, bvh, face_albedo, stop_event, bias=0.003):
-    """Single Monte Carlo bounce sample. Returns (r, g, b).
-    stop_event is checked between BVH calls so the thread can exit within
-    one ray cast duration — critical for timely cleanup of large BVH trees."""
-    nx, ny, nz = norm_t
-    ln = math.sqrt(nx*nx + ny*ny + nz*nz)
-    if ln < 1e-10:
-        return 0.0, 0.0, 0.0
-    nx, ny, nz = nx/ln, ny/ln, nz/ln
-
-    if stop_event.is_set(): return 0.0, 0.0, 0.0   # check before bounce ray
-
-    px, py, pz = pos_t
-    dx, dy, dz = _rand_hemi(nx, ny, nz)
-
-    hit_loc, hit_norm, hit_idx, hit_dist = bvh.ray_cast(
-        (px + nx*bias, py + ny*bias, pz + nz*bias),
-        (dx, dy, dz),
-    )
-    if hit_loc is None or hit_dist is None or hit_dist < bias*2.0:
-        return 0.0, 0.0, 0.0
-
-    if stop_event.is_set(): return 0.0, 0.0, 0.0   # check before shadow rays
-
-    hnx, hny, hnz = hit_norm
-    hl  = math.sqrt(hnx*hnx + hny*hny + hnz*hnz)
-    if hl > 1e-10:
-        hnx, hny, hnz = hnx/hl, hny/hl, hnz/hl
-
-    dr, dg, db = _direct_at(
-        hit_loc[0], hit_loc[1], hit_loc[2],
-        hnx, hny, hnz,
-        lights, bvh, stop_event, bias)
-
-    if hit_idx is not None and hit_idx < len(face_albedo):
-        ar, ag, ab = face_albedo[hit_idx]
-    else:
-        ar = ag = ab = 0.8
-
-    cos_in = max(dx*nx + dy*ny + dz*nz, 0.0)
-    scale  = 2.0 * math.pi * cos_in
-
-    return (min(dr*ar*scale, 20.0),
-            min(dg*ag*scale, 20.0),
-            min(db*ab*scale, 20.0))
-
-
-# ── Scene BVH builder ─────────────────────────────────────────────────────────
-
-def build_scene_bvh(depsgraph):
-    """World-space BVH of all visible meshes + per-face albedo list."""
-    all_verts   = []
-    all_polys   = []
-    face_albedo = []
-    v_offset    = 0
-    seen        = set()
-
-    for inst in depsgraph.object_instances:
-        obj = inst.object
-        if obj.type != 'MESH' or obj.hide_get():
+        if ltype == 0:   # point/spot
+            to_l   = np.array(light['pos']) - hit_locs
+            dist2  = np.einsum('ij,ij->i', to_l, to_l)
+            dist   = np.sqrt(dist2) + 1e-8
+            to_ln  = to_l / dist[:,None]
+            atten  = 1.0 / (dist2 + 1e-4)
+        elif ltype == 1: # sun
+            d = -np.array(light['dir'])
+            d /= np.linalg.norm(d) + 1e-8
+            to_ln  = np.tile(d, (len(hit_locs),1))
+            atten  = np.ones(len(hit_locs))
+            dist   = np.full(len(hit_locs), 1e6)
+        else:
             continue
-        if obj.name in seen:
-            continue
-        seen.add(obj.name)
 
-        eval_obj = obj.evaluated_get(depsgraph)
-        mesh     = bpy.data.meshes.new_from_object(
-            eval_obj, preserve_all_data_layers=False, depsgraph=depsgraph)
-        if not mesh:
-            continue
-        mat_w = inst.matrix_world
+        ndotl = np.maximum(0.0, np.einsum('ij,ij->i', hit_face_norm, to_ln))
+        sh_o  = hit_locs + to_ln * BIAS
 
-        for v in mesh.vertices:
-            wv = mat_w @ v.co
-            all_verts.append((wv.x, wv.y, wv.z))
+        try:
+            sh_locs, sh_ray_idx, _ = intersector.intersects_location(
+                sh_o, to_ln, multiple_hits=False)
+        except Exception:
+            sh_ray_idx = np.array([], dtype=np.int64)
+            sh_locs    = np.zeros((0,3))
 
-        for poly in mesh.polygons:
-            all_polys.append([i + v_offset for i in poly.vertices])
-            mi = poly.material_index
-            if mi < len(obj.material_slots) and obj.material_slots[mi].material:
-                c = obj.material_slots[mi].material.diffuse_color
-                face_albedo.append((float(c[0]), float(c[1]), float(c[2])))
-            else:
-                face_albedo.append((0.8, 0.8, 0.8))
+        occluded = np.zeros(len(hit_locs), dtype=bool)
+        if len(sh_locs) > 0:
+            sh_dist = np.linalg.norm(sh_locs - sh_o[sh_ray_idx], axis=1)
+            blocked = sh_ray_idx[sh_dist < dist[sh_ray_idx]]
+            occluded[blocked] = True
 
-        v_offset += len(mesh.vertices)
-        bpy.data.meshes.remove(mesh)
+        lit = (~occluded).astype(np.float64) * ndotl * atten
+        bounce_color += lcolor * lit[:,None]
 
-    if not all_verts:
-        return None, []
-
-    bvh = BVHTree.FromPolygons(all_verts, all_polys, epsilon=1e-6)
-    return bvh, face_albedo
+    np.add.at(contrib, hit_ray_idx // n_samp, hit_albedo * bounce_color)
+    contrib /= max(n_samp, 1)
+    return contrib
 
 
-# ── Progressive GI accumulator ────────────────────────────────────────────────
+# ── BVHTree fallback helpers ──────────────────────────────────────────────────
+
+def _direct_at(px,py,pz,nx,ny,nz,lights,bvh,stop_event,bias=0.003):
+    r=g=b=0.0
+    for light in lights:
+        if stop_event.is_set(): break
+        ltype=int(light['type']); lr,lg,lb=light['color']; energy=float(light['energy'])
+        if ltype==0:
+            dx=light['pos'][0]-px; dy=light['pos'][1]-py; dz=light['pos'][2]-pz
+            dist=math.sqrt(dx*dx+dy*dy+dz*dz)+1e-8
+            dx/=dist; dy/=dist; dz/=dist
+            ndl=max(0.0,nx*dx+ny*dy+nz*dz)
+            if ndl<=0: continue
+            atten=energy/(dist*dist+1e-4)
+            hit=bvh.ray_cast((px+nx*bias,py+ny*bias,pz+nz*bias),(dx,dy,dz),dist-bias)
+            if hit[0] is None: r+=lr*ndl*atten; g+=lg*ndl*atten; b+=lb*ndl*atten
+        elif ltype==1:
+            dx,dy,dz=[-v for v in light['dir']]
+            dn=math.sqrt(dx*dx+dy*dy+dz*dz)+1e-8; dx/=dn; dy/=dn; dz/=dn
+            ndl=max(0.0,nx*dx+ny*dy+nz*dz)
+            if ndl<=0: continue
+            hit=bvh.ray_cast((px+nx*bias,py+ny*bias,pz+nz*bias),(dx,dy,dz))
+            if hit[0] is None: r+=lr*ndl*energy; g+=lg*ndl*energy; b+=lb*ndl*energy
+    return r,g,b
+
+def _one_sample_bvh(pos_t,norm_t,lights,bvh,face_albedo,stop_event,bias=0.003):
+    px,py,pz=pos_t; nx,ny,nz=norm_t
+    while True:
+        rx=random.uniform(-1,1); ry=random.uniform(-1,1); rz=random.uniform(-1,1)
+        rl=math.sqrt(rx*rx+ry*ry+rz*rz)
+        if 1e-6<rl<1.0: break
+    rx/=rl; ry/=rl; rz/=rl
+    if rx*nx+ry*ny+rz*nz<0: rx=-rx; ry=-ry; rz=-rz
+    if stop_event.is_set(): return 0.0,0.0,0.0
+    hit=bvh.ray_cast((px+nx*bias,py+ny*bias,pz+nz*bias),(rx,ry,rz))
+    if hit[0] is None: return 0.0,0.0,0.0
+    fi=hit[3]
+    if fi is None or fi>=len(face_albedo): return 0.0,0.0,0.0
+    ar,ag,ab=face_albedo[fi]; hx,hy,hz=hit[0]; hn=hit[2]
+    if hn is None: return 0.0,0.0,0.0
+    hnx,hny,hnz=hn
+    if stop_event.is_set(): return 0.0,0.0,0.0
+    dr,dg,db=_direct_at(hx,hy,hz,hnx,hny,hnz,lights,bvh,stop_event)
+    return ar*dr,ag*dg,ab*db
+
+
+# ── ProgressiveGI ─────────────────────────────────────────────────────────────
 
 class ProgressiveGI:
-    """
-    Runs one-bounce GI in a background daemon thread.
-    Each pass adds 1 sample per vertex.  Main thread polls has_update()
-    and applies the averaged result without hitching.
-
-    cancel() is non-blocking — it signals the thread to stop but doesn't
-    wait.  stop() is the full blocking version used when freeing the engine.
-    A generation counter ensures a cancelled thread's late writes are ignored.
-    """
-
     def __init__(self):
-        self._lock    = threading.Lock()
-        self._accum   = {}      # obj.name → np.ndarray(n, 3)
-        self._count   = 0
-        self._updated = False
-        self._gen     = 0       # incremented on each start(); old writes discarded
-        self._stop    = threading.Event()   # current thread's stop flag
-        self._thread  = None
+        self._lock       = threading.Lock()
+        self._gen        = 0
+        self._accum      = {}
+        self._count      = 0
+        self._updated    = False
+        self._stop       = threading.Event()
+        self._thread     = None
         self._scene_data = None
 
-    # ── Public API ────────────────────────────────────────────────────────
-
-    @property
-    def sample_count(self):
-        return self._count
-
-    @property
-    def is_running(self):
-        return self._thread is not None and self._thread.is_alive()
-
-    def has_update(self):
-        with self._lock:
-            return self._updated
-
-    def get_update(self):
-        """Returns (dict obj.name→list[(r,g,b)], sample_count). Clears flag."""
-        with self._lock:
-            self._updated = False
-            if self._count == 0:
-                return {}, 0
-            result = {}
-            for name, arr in self._accum.items():
-                avg = arr / self._count
-                result[name] = [
-                    (min(float(avg[i,0]),20.0),
-                     min(float(avg[i,1]),20.0),
-                     min(float(avg[i,2]),20.0))
-                    for i in range(len(avg))
-                ]
-            return result, self._count
-
-    def cancel(self):
-        """Non-blocking: signal current thread to stop, return immediately."""
-        self._stop.set()
-
-    def stop(self):
-        """Blocking: signal + join.  Use in free() / render() / update()."""
-        self._stop.set()
-        if self._thread and self._thread.is_alive():
-            self._thread.join(timeout=2.0)
-        self._thread = None
-
-    def start(self, scene_data: dict, target_samples: int = 64,
-              preserve_existing: bool = False):
-        """
-        preserve_existing=True keeps accumulated GI for objects already in
-        _accum (same vertex count). Used when objects are added/moved so
-        lighting on unchanged geometry doesn't reset to zero.
-        BVH is built inside the thread so the main thread never hitches.
-        """
+    def start(self, scene_data, target_samples=64, preserve_existing=False):
         self._stop.set()
         new_stop = threading.Event()
         self._stop = new_stop
-
         with self._lock:
             self._gen += 1
             gen        = self._gen
@@ -259,73 +241,130 @@ class ProgressiveGI:
             for name, verts in scene_data['verts'].items():
                 n   = len(verts)
                 old = old_accum.get(name)
-                # Reuse existing data only if vertex count matches exactly
                 new_accum[name] = (old.copy() if old is not None and len(old)==n
                                    else np.zeros((n,3), dtype=np.float64))
-            self._accum   = new_accum
-            self._count   = old_count
-            self._updated = False
-
-        self._scene_data = scene_data  # stored so get_update() can read gi_steps
+            self._accum      = new_accum
+            self._count      = old_count
+            self._updated    = False
+            self._scene_data = scene_data
         self._thread = threading.Thread(
-            target=self._run,
-            args=(scene_data, target_samples, new_stop, gen),
-            daemon=True,
-            name='VertexLit-GI',
-        )
+            target=self._run, args=(scene_data,target_samples,new_stop,gen),
+            daemon=True, name='VertexLit-GI')
         self._thread.start()
 
-    # ── Background thread ─────────────────────────────────────────────────
+    def cancel(self):
+        self._stop.set()
+
+    def stop(self):
+        self._stop.set()
+        if self._thread and self._thread.is_alive():
+            self._thread.join(timeout=2.0)
+        self._thread = None
+
+    def has_update(self):
+        with self._lock: return self._updated
+
+    def is_running(self):
+        return self._thread is not None and self._thread.is_alive()
+
+    def get_update(self):
+        with self._lock:
+            self._updated = False
+            if self._count == 0: return {}, 0
+            result = {}
+            for name, arr in self._accum.items():
+                avg = arr / self._count
+                result[name] = [
+                    (min(float(avg[i,0]),20.0),
+                     min(float(avg[i,1]),20.0),
+                     min(float(avg[i,2]),20.0))
+                    for i in range(len(avg))]
+            return result, self._count
 
     def _run(self, scene_data, target_samples, stop_event, generation):
-        # Build BVH here in the background thread so the main thread never
-        # stalls on BVHTree.FromPolygons() for high-poly GeoNodes scenes.
-        raw = scene_data.get('raw_bvh')
-        if raw is not None:
-            bvh = BVHTree.FromPolygons(raw['verts'], raw['polys'], epsilon=1e-6)
-            face_albedo = raw['albedo']
-        else:
-            bvh         = scene_data.get('bvh')       # fallback for old callers
-            face_albedo = scene_data.get('face_albedo', [])
+        raw    = scene_data.get('raw_bvh')
         lights = scene_data['lights']
+        n_samp = int(scene_data.get('rays_per_pass', 4))
 
-        SAMPLES_PER_ITER = int(scene_data.get('rays_per_pass', 4))
-        SLEEP_SECS       = float(scene_data.get('thread_pause', 0.001))
+        use_embree = _EMBREE_READY and raw is not None
+        intersector = face_albedo_arr = face_normals_arr = None
+
+        if use_embree:
+            intersector, face_albedo_arr, face_normals_arr = \
+                _build_embree_intersector(raw)
+            use_embree = intersector is not None
+
+        if use_embree:
+            self._run_embree(scene_data, target_samples, stop_event, generation,
+                             lights, intersector, face_albedo_arr,
+                             face_normals_arr, n_samp)
+        else:
+            bvh, fa = _build_bvh_fallback(raw) if raw else (None, [])
+            if bvh:
+                self._run_bvhtree(scene_data, target_samples, stop_event,
+                                  generation, lights, bvh, fa, n_samp)
+            else:
+                print("[VertexLit] GI: no ray backend available")
+
+    def _run_embree(self, scene_data, target_samples, stop_event, generation,
+                    lights, intersector, face_albedo_arr, face_normals_arr, n_samp):
+        all_v, all_n, obj_ranges = self._flatten_verts(scene_data)
+        if all_v is None: return
+        print(f"[VertexLit] GI (embreex): {len(all_v)} verts, {target_samples} samples")
 
         while not stop_event.is_set() and self._count < target_samples:
-            pass_data = {}
-
-            for name, world_verts in scene_data['verts'].items():
-                if stop_event.is_set(): break
-                world_norms = scene_data['normals'][name]
-                n_v         = len(world_verts)
-                contrib     = np.zeros((n_v, 3), dtype=np.float64)
-
-                for vi in range(n_v):
-                    if stop_event.is_set(): break
-                    r = g = b = 0.0
-                    for _ in range(SAMPLES_PER_ITER):
-                        if stop_event.is_set(): break
-                        sr, sg, sb = _one_sample(
-                            world_verts[vi], world_norms[vi],
-                            lights, bvh, face_albedo, stop_event)
-                        r += sr; g += sg; b += sb
-                    contrib[vi, 0] = r
-                    contrib[vi, 1] = g
-                    contrib[vi, 2] = b
-                    if vi & 255 == 255:
-                        time.sleep(SLEEP_SECS)
-
-                pass_data[name] = contrib
-
-            if stop_event.is_set():
-                break
-
+            cf = _gi_pass_embree(all_v, all_n, lights, intersector,
+                                 face_albedo_arr, face_normals_arr,
+                                 n_samp, stop_event)
+            if stop_event.is_set(): break
+            pass_data = {name: cf[s:e] for name,(s,e) in obj_ranges.items()}
             with self._lock:
-                if self._gen != generation:
-                    return          # superseded — discard
+                if self._gen != generation: return
                 for name, contrib in pass_data.items():
                     if name in self._accum:
                         self._accum[name] += contrib
-                self._count  += SAMPLES_PER_ITER
+                self._count  += n_samp
                 self._updated = True
+            time.sleep(0.001)
+
+    def _run_bvhtree(self, scene_data, target_samples, stop_event, generation,
+                     lights, bvh, face_albedo, n_samp):
+        SLEEP = float(scene_data.get('thread_pause', 0.001))
+        while not stop_event.is_set() and self._count < target_samples:
+            pass_data = {}
+            for name, world_verts in scene_data['verts'].items():
+                if stop_event.is_set(): break
+                world_norms = scene_data['normals'][name]
+                n_v = len(world_verts)
+                contrib = np.zeros((n_v,3), dtype=np.float64)
+                for vi in range(n_v):
+                    if stop_event.is_set(): break
+                    r=g=b=0.0
+                    for _ in range(n_samp):
+                        if stop_event.is_set(): break
+                        sr,sg,sb=_one_sample_bvh(world_verts[vi],world_norms[vi],
+                                                  lights,bvh,face_albedo,stop_event)
+                        r+=sr; g+=sg; b+=sb
+                    contrib[vi,0]=r; contrib[vi,1]=g; contrib[vi,2]=b
+                    if vi&255==255: time.sleep(SLEEP)
+                pass_data[name]=contrib
+            if stop_event.is_set(): break
+            with self._lock:
+                if self._gen != generation: return
+                for name, contrib in pass_data.items():
+                    if name in self._accum: self._accum[name]+=contrib
+                self._count  += n_samp
+                self._updated = True
+
+    @staticmethod
+    def _flatten_verts(scene_data):
+        vl=[]; nl=[]; obj_ranges={}; idx=0
+        for name in scene_data['verts']:
+            verts=scene_data['verts'][name]; norms=scene_data['normals'][name]
+            n=len(verts); vl.extend(verts); nl.extend(norms)
+            obj_ranges[name]=(idx,idx+n); idx+=n
+        if idx==0: return None,None,None
+        all_v=np.array(vl,dtype=np.float64)
+        all_n=np.array(nl,dtype=np.float64)
+        all_n/=np.linalg.norm(all_n,axis=1,keepdims=True)+1e-8
+        return all_v,all_n,obj_ranges

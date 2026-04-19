@@ -17,6 +17,8 @@ import bpy
 
 
 def register():
+    from . import gi as _gi
+    _gi.ensure_embree()  # pip-install embreex if absent (runs once per session)
     from . import props, engine, ui
     props.register()
     engine.register()
