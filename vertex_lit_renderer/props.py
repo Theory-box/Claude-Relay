@@ -34,6 +34,9 @@ class VertexLitSettings(bpy.types.PropertyGroup):
         name="Light Energy Scale", default=0.01, min=0.0001, max=10.0)
 
 
+def register():
+    bpy.utils.register_class(VertexLitSettings)
+    bpy.types.Scene.vertex_lit = bpy.props.PointerProperty(type=VertexLitSettings)
     # Per-object shadow casting toggle (mirrors Cycles' visible_shadow)
     bpy.types.Object.vertex_lit_cast_shadow = bpy.props.BoolProperty(
         name="Cast Shadow",
