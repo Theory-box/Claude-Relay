@@ -1106,6 +1106,8 @@ def unregister():
     if _global_gi is not None:
         _global_gi.stop()
         _global_gi = None
+    from . import gi as _gi_mod
+    _gi_mod.shutdown_ray_executor()
     if _edit_depsgraph_post in bpy.app.handlers.depsgraph_update_post:
         bpy.app.handlers.depsgraph_update_post.remove(_edit_depsgraph_post)
     bpy.utils.unregister_class(VertexLitEngine)

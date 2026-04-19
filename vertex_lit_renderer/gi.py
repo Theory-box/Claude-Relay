@@ -4,14 +4,16 @@ gi.py — Progressive GI using Intel Embree via trimesh/embreex
 Architecture:
   OLD: one Python call per ray → GIL held → ~1000 rays/sec
   NEW: all rays for a pass fired as one numpy batch → GIL released during
-       C-level traversal → Embree uses TBB internally for multi-core
+       C-level traversal, and the batch is split across a ThreadPoolExecutor
+       so multiple cores run embreex intersects_location simultaneously.
 
 Install: embreex + trimesh are pip-installed at addon register if absent.
 Fallback: silently falls back to Blender BVHTree if install fails.
 """
 
-import threading, time, math, random, subprocess, sys
+import threading, time, math, random, subprocess, sys, os
 import numpy as np
+import concurrent.futures
 
 # ── Dependency bootstrap ──────────────────────────────────────────────────────
 
@@ -110,6 +112,98 @@ def _hemisphere_batch(origins, normals, n_samples):
     return orig_r + norm_r * BIAS, dirs
 
 
+# ── Parallel ray casting ──────────────────────────────────────────────────────
+# embreex's intersects_location releases the GIL during Embree's C-level ray
+# traversal, so multiple Python threads actually run in parallel. Embree's
+# per-ray API itself isn't multi-core — parallelism happens at this layer by
+# splitting the ray array across workers and reducing their results.
+
+_ray_executor          = None
+_ray_parallel_enabled  = True   # set False to force single-threaded path
+_PARALLEL_MIN_RAYS     = 8000   # overhead not worth it under this
+
+def _get_ray_executor():
+    """Lazy-init a persistent thread pool sized to this machine's core count
+    (leaving one core for the main/draw thread). Capped at 8 workers —
+    coordination overhead grows past that and Embree's single-core per-query
+    throughput saturates the shared memory bus."""
+    global _ray_executor
+    if _ray_executor is None:
+        n_workers = min(8, max(2, (os.cpu_count() or 4) - 1))
+        _ray_executor = concurrent.futures.ThreadPoolExecutor(
+            max_workers=n_workers, thread_name_prefix='VertexLit-Ray')
+        print(f"[VertexLit] ray pool: {n_workers} workers")
+    return _ray_executor
+
+
+def shutdown_ray_executor():
+    """Clean up the ray thread pool. Called from addon unregister so a
+    reload doesn't leak worker threads."""
+    global _ray_executor
+    if _ray_executor is not None:
+        try:
+            _ray_executor.shutdown(wait=False, cancel_futures=True)
+        except Exception:
+            pass
+        _ray_executor = None
+
+
+def _parallel_intersects_location(intersector, origins, directions,
+                                   stop_event=None):
+    """Call intersector.intersects_location on (origins, directions), splitting
+    the ray array across the thread pool and stitching hit_ray_idx back to
+    global indices. Returns (hit_locs, hit_ray_idx, hit_tri_idx) with the same
+    semantics as a single intersects_location call. Falls back to a direct
+    call for small batches or if threading is disabled."""
+    n_rays = len(origins)
+    if n_rays == 0:
+        return (np.zeros((0, 3)), np.array([], dtype=np.int64),
+                np.array([], dtype=np.int64))
+
+    if not _ray_parallel_enabled or n_rays < _PARALLEL_MIN_RAYS:
+        try:
+            return intersector.intersects_location(
+                origins, directions, multiple_hits=False)
+        except Exception as e:
+            print(f"[VertexLit] intersects_location error: {e}")
+            return (np.zeros((0, 3)), np.array([], dtype=np.int64),
+                    np.array([], dtype=np.int64))
+
+    executor  = _get_ray_executor()
+    n_workers = executor._max_workers
+    chunk     = (n_rays + n_workers - 1) // n_workers
+
+    def _worker(start, end):
+        if stop_event is not None and stop_event.is_set():
+            return None
+        try:
+            locs, ray_idx, tri_idx = intersector.intersects_location(
+                origins[start:end], directions[start:end], multiple_hits=False)
+            return locs, ray_idx + start, tri_idx   # offset ray_idx to global
+        except Exception as e:
+            print(f"[VertexLit] intersects_location worker error: {e}")
+            return None
+
+    futures = [executor.submit(_worker, s, min(s + chunk, n_rays))
+               for s in range(0, n_rays, chunk)]
+    locs_parts, idx_parts, tri_parts = [], [], []
+    for f in futures:
+        r = f.result()
+        if r is None: continue
+        locs, ray_idx, tri_idx = r
+        if len(locs) == 0: continue
+        locs_parts.append(locs)
+        idx_parts.append(ray_idx)
+        tri_parts.append(tri_idx)
+
+    if not locs_parts:
+        return (np.zeros((0, 3)), np.array([], dtype=np.int64),
+                np.array([], dtype=np.int64))
+    return (np.concatenate(locs_parts),
+            np.concatenate(idx_parts),
+            np.concatenate(tri_parts))
+
+
 # ── Vectorized GI pass ────────────────────────────────────────────────────────
 
 def _gi_pass_embree(origins, normals, lights, intersector,
@@ -134,12 +228,8 @@ def _gi_pass_embree(origins, normals, lights, intersector,
     ray_o, ray_d = _hemisphere_batch(origins, normals, n_samp)
     if stop_event.is_set(): return contrib
 
-    try:
-        hit_locs, hit_ray_idx, hit_tri_idx = intersector.intersects_location(
-            ray_o, ray_d, multiple_hits=False)
-    except Exception as e:
-        print(f"[VertexLit] Embree bounce error: {e}")
-        return contrib
+    hit_locs, hit_ray_idx, hit_tri_idx = _parallel_intersects_location(
+        intersector, ray_o, ray_d, stop_event=stop_event)
 
     # ── 2. Shadow + direct at bounce hit points (indirect GI) ────────────
     if len(hit_locs) > 0 and not stop_event.is_set():
@@ -165,7 +255,8 @@ def _gi_pass_embree(origins, normals, lights, intersector,
             if to_ln_h is None: continue
             ndotl_h = np.maximum(0.0, np.einsum('ij,ij->i', hit_face_norm, to_ln_h))
             sh_o = hit_locs + to_ln_h * BIAS
-            occ  = _shadow_test(intersector, sh_o, to_ln_h, dist_h)
+            occ  = _shadow_test(intersector, sh_o, to_ln_h, dist_h,
+                                stop_event=stop_event)
             lit  = (~occ).astype(np.float64) * ndotl_h * atten_h
             bounce_color += lcolor * lit[:,None]
 
@@ -192,7 +283,8 @@ def _gi_pass_embree(origins, normals, lights, intersector,
             light_for_pass, origins, n_verts)
         if to_ln_v is None: continue
         ndotl_v = np.maximum(0.0, np.einsum('ij,ij->i', normals, to_ln_v))
-        occ     = _shadow_test(intersector, sh_bias_o, to_ln_v, dist_v)
+        occ     = _shadow_test(intersector, sh_bias_o, to_ln_v, dist_v,
+                                stop_event=stop_event)
         lit     = (~occ).astype(np.float64) * ndotl_v * atten_v
         direct += lcolor * lit[:,None]
 
@@ -253,15 +345,12 @@ def _light_vectors(light, points, n):
     return lcolor, ltype, to_ln, atten, dist
 
 
-def _shadow_test(intersector, origins, directions, max_dist):
+def _shadow_test(intersector, origins, directions, max_dist, stop_event=None):
     """Returns bool array (n,): True = occluded."""
     n        = len(origins)
     occluded = np.zeros(n, dtype=bool)
-    try:
-        sh_locs, sh_ray_idx, _ = intersector.intersects_location(
-            origins, directions, multiple_hits=False)
-    except Exception:
-        return occluded
+    sh_locs, sh_ray_idx, _ = _parallel_intersects_location(
+        intersector, origins, directions, stop_event=stop_event)
     if len(sh_locs) > 0:
         sh_dist = np.linalg.norm(sh_locs - origins[sh_ray_idx], axis=1)
         blocked = sh_ray_idx[sh_dist < max_dist[sh_ray_idx]]
