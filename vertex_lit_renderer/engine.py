@@ -239,15 +239,15 @@ def _extract_mesh_data(obj, vp_dg):
 
             for corner in range(3):
                 vi=tri.vertices[corner]; li=tri.loops[corner]
-                positions.append(tuple(_co[vi]))
+                positions.append((float(_co[vi,0]),float(_co[vi,1]),float(_co[vi,2])))
                 if has_corner_normals:
                     try:
                         cn=corner_normals[li]
                         normals.append((cn.vector.x,cn.vector.y,cn.vector.z))
                     except Exception:
-                        normals.append(tuple(_no[vi]))
+                        normals.append((float(_no[vi,0]),float(_no[vi,1]),float(_no[vi,2])))
                 else:
-                    normals.append(tuple(_no[vi]))
+                    normals.append((float(_no[vi,0]),float(_no[vi,1]),float(_no[vi,2])))
                 colors.append(vcol_corner.get(li,vcol_point.get(vi,face_default)))
                 uvs.append(tuple(uv_layer.data[li].uv) if uv_layer else (0.0,0.0))
                 vi_map.append(vi)
