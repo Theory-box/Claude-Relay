@@ -362,6 +362,7 @@ class VertexLitEngine(bpy.types.RenderEngine):
 
     def view_update(self, context, depsgraph):
         self._ensure_state()
+        global _edit_dirty, _edit_dirty_time
 
         # ── Deletion detection ────────────────────────────────────────────
         # Check if any cached object no longer exists in the scene.
@@ -388,13 +389,11 @@ class VertexLitEngine(bpy.types.RenderEngine):
                     elif id_data.name in self._mesh_cache:
                         # Known object changed (including leaving edit mode) —
                         # incremental rebuild only, no full scene rebuild needed.
-                        global _edit_dirty, _edit_dirty_time
                         _edit_dirty.add(id_data.name)
                         _edit_dirty_time = time.time()
                         self.tag_redraw(); return
                     else:
                         # New object — incremental rebuild adds just this one
-                        global _edit_dirty, _edit_dirty_time
                         _edit_dirty.add(id_data.name)
                         _edit_dirty_time = time.time()
                         self.tag_redraw(); return
@@ -413,7 +412,6 @@ class VertexLitEngine(bpy.types.RenderEngine):
                     if id_data.name not in self._mesh_cache:
                         # Not in cache yet — new object being dragged (e.g. duplicate)
                         # needs extraction, not just a GI matrix update
-                        global _edit_dirty, _edit_dirty_time
                         _edit_dirty.add(id_data.name)
                         _edit_dirty_time = time.time()
                     else:
