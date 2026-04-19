@@ -207,13 +207,10 @@ def _extract_mesh_data(obj, depsgraph):
         # ── Material colour + vertex colours ────────────────────────────────
         mat = eval_obj.active_material
         tex = _get_gpu_tex(_find_base_texture(mat))
-        if mat:
-            c = mat.diffuse_color
-            base_col = np.array([c[0], c[1], c[2], 1.0], dtype=np.float32)
-        else:
-            base_col = np.ones(4, dtype=np.float32)
-
-        colors = np.tile(base_col, (n_flat, 1))
+        # vertColor = WHITE unless mesh has actual vertex paint attributes.
+        # Material colour goes to fragment shader as uDiffuseColor.
+        # This keeps lighting unattenuated by near-black diffuse_color values.
+        colors = np.ones((n_flat, 4), dtype=np.float32)
 
         if mesh.color_attributes:
             attr = None
@@ -599,6 +596,13 @@ class VertexLitEngine(bpy.types.RenderEngine):
             if entry is None: continue
             batch, tex = entry
             shader.uniform_float('uModel', inst.matrix_world)
+            # Pass material diffuse_color for untextured objects
+            mat = bpy.data.objects.get(obj.name)
+            if mat and mat.active_material:
+                c = mat.active_material.diffuse_color
+                shader.uniform_float('uDiffuseColor', (c[0], c[1], c[2]))
+            else:
+                shader.uniform_float('uDiffuseColor', (0.8, 0.8, 0.8))
             albedo = tex if tex is not None else self._white_tex
             shader.uniform_sampler('uAlbedo',   albedo)
             shader.uniform_int('uHasTexture',   1 if tex is not None else 0)

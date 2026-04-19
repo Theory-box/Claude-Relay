@@ -289,8 +289,8 @@ class ProgressiveGI:
                     # Sleep every 100 vertices to guarantee main thread time.
                     # sleep(0) is not enough — the GI thread immediately
                     # reclaims the GIL.  5ms sleep gives Blender ~15% of CPU.
-                    if vi % 100 == 99:
-                        time.sleep(0.005)
+                    if vi % 500 == 499:
+                        time.sleep(0.001)
 
                 pass_data[name] = contrib
 

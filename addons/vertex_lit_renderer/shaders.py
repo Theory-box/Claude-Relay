@@ -31,24 +31,22 @@ uniform float     uShadowDark;
 
 in vec3 position;
 in vec3 normal;
-in vec4 vertColor;
+in vec4 vertColor;   /* vertex paint attribute, or white if none */
 in vec2 texCoord;
 in vec3 bounceColor;
 
 out vec4 vLight;
 out vec2 vUV;
+out vec4 vVertColor;
 
 void main() {
     vec4 wPos4  = uModel * vec4(position, 1.0);
     vec3 wPos   = wPos4.xyz;
+    mat3 nMat   = transpose(inverse(mat3(uModel)));
+    vec3 N      = normalize(nMat * normal);
 
-    /* Normal matrix computed from uModel (mat4 uniform — provably works).
-       mat3 uniforms have a known Blender API issue with transposition. */
-    mat3 nMat = transpose(inverse(mat3(uModel)));
-    vec3 N    = normalize(nMat * normal);
-
-    float hemi = dot(N, vec3(0.0, 0.0, 1.0)) * 0.5 + 0.5;
-    vec3 light = mix(uGroundColor, uSkyColor, hemi);
+    float hemi  = dot(N, vec3(0.0, 0.0, 1.0)) * 0.5 + 0.5;
+    vec3  light = mix(uGroundColor, uSkyColor, hemi);
 
     for (int i = 0; i < 8; i++) {
         if (i >= uNumLights) break;
@@ -61,7 +59,7 @@ void main() {
             float di = length(d);
             L   = d / max(di, 1e-5);
             float x = di / max(uLRadius[i], 0.001);
-            att = pow(max(1.0 - x * x * x * x, 0.0), 2.0);
+            att = pow(max(1.0 - x*x*x*x, 0.0), 2.0);
         }
         float diff = max(dot(N, L), 0.0);
         light += uLCol[i] * (uLEnergy[i] * diff * att);
@@ -80,7 +78,11 @@ void main() {
         }
     }
 
-    vLight      = vec4(clamp(light, 0.0, 12.0) * shadow * vertColor.rgb, vertColor.a);
+    /* vLight carries ONLY the lighting term — no material colour here.
+       Material colour lives in the fragment shader (albedo / diffuse_color).
+       Keeps vertex paint separate from material base colour. */
+    vLight      = vec4(clamp(light, 0.0, 12.0) * shadow, 1.0);
+    vVertColor  = vertColor;
     vUV         = texCoord;
     gl_Position = uViewProj * wPos4;
 }
@@ -89,11 +91,20 @@ void main() {
 MAIN_FRAG = """
 uniform sampler2D uAlbedo;
 uniform int       uHasTexture;
+uniform vec3      uDiffuseColor;  /* mat.diffuse_color — only used when no texture */
+
 in vec4 vLight;
+in vec4 vVertColor;
 in vec2 vUV;
 out vec4 outColor;
+
 void main() {
-    vec4 albedo = (uHasTexture != 0) ? texture(uAlbedo, vUV) : vec4(1.0);
-    outColor = vec4(vLight.rgb * albedo.rgb, vLight.a * albedo.a);
+    /* Albedo: texture if present, else viewport material colour */
+    vec3 albedo = (uHasTexture != 0)
+        ? texture(uAlbedo, vUV).rgb
+        : uDiffuseColor;
+
+    /* Vertex paint tint (white = no effect when no vertex colours set) */
+    outColor = vec4(vLight.rgb * albedo * vVertColor.rgb, vLight.a);
 }
 """

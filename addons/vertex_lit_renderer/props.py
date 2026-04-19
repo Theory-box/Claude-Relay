@@ -12,7 +12,7 @@ class VertexLitSettings(bpy.types.PropertyGroup):
 
     # GI — off by default; enable for subtle fill on static geometry
     use_gi: bpy.props.BoolProperty(
-        name="GI Bounce", default=True,
+        name="GI Bounce", default=False,
         description="One-bounce ray traced GI. Disable for geo nodes / heavy scenes")
     gi_samples: bpy.props.IntProperty(
         name="Samples", default=4, min=1, max=128)
@@ -21,7 +21,7 @@ class VertexLitSettings(bpy.types.PropertyGroup):
 
     # Light scale — 0.1 works for Blender's default 1 W/m² sun
     energy_scale: bpy.props.FloatProperty(
-        name="Light Energy Scale", default=0.5, min=0.0001, max=100.0,
+        name="Light Energy Scale", default=1.0, min=0.0001, max=100.0,
         description=(
             "Multiplier on all light energies. "
             "0.1 = good for a 1 W sun (Blender default). "
