@@ -592,20 +592,13 @@ class VertexLitEngine(bpy.types.RenderEngine):
                 shader.uniform_float(f'uLRadius[{i}]', l['radius']      if l else 1.0)
             except ValueError: pass
 
-        # Draw — Bug 4: uNormalMat computed on CPU (once per object, not per vertex)
         for inst in depsgraph.object_instances:
             obj = inst.object
             if obj.type != 'MESH' or obj.hide_get(): continue
             entry = self._batch_dict.get(obj.name)
             if entry is None: continue
             batch, tex = entry
-            model_mat  = inst.matrix_world
-            try:
-                nm = model_mat.to_3x3().inverted_safe().transposed()
-            except Exception:
-                nm = model_mat.to_3x3()
-            shader.uniform_float('uModel',     model_mat)
-            shader.uniform_float('uNormalMat', nm)
+            shader.uniform_float('uModel', inst.matrix_world)
             albedo = tex if tex is not None else self._white_tex
             shader.uniform_sampler('uAlbedo',   albedo)
             shader.uniform_int('uHasTexture',   1 if tex is not None else 0)

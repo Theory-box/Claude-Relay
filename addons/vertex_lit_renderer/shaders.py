@@ -1,5 +1,3 @@
-# vertex_lit_renderer/shaders.py
-
 SHADOW_VERT = """
 uniform mat4 uLightSpace;
 uniform mat4 uModel;
@@ -13,7 +11,6 @@ SHADOW_FRAG = """void main() {}"""
 MAIN_VERT = """
 uniform mat4 uViewProj;
 uniform mat4 uModel;
-uniform mat3 uNormalMat;   /* computed on CPU, passed per draw call */
 uniform mat4 uLightSpace;
 
 uniform vec3  uLPos[8];
@@ -42,15 +39,19 @@ out vec4 vLight;
 out vec2 vUV;
 
 void main() {
-    vec4 wPos4 = uModel * vec4(position, 1.0);
-    vec3 wPos  = wPos4.xyz;
-    vec3 N     = normalize(uNormalMat * normal);
+    vec4 wPos4  = uModel * vec4(position, 1.0);
+    vec3 wPos   = wPos4.xyz;
+
+    /* Normal matrix computed from uModel (mat4 uniform — provably works).
+       mat3 uniforms have a known Blender API issue with transposition. */
+    mat3 nMat = transpose(inverse(mat3(uModel)));
+    vec3 N    = normalize(nMat * normal);
 
     float hemi = dot(N, vec3(0.0, 0.0, 1.0)) * 0.5 + 0.5;
     vec3 light = mix(uGroundColor, uSkyColor, hemi);
 
     for (int i = 0; i < 8; i++) {
-        float lightOn = (i < uNumLights) ? 1.0 : 0.0;
+        if (i >= uNumLights) break;
         vec3  L;
         float att = 1.0;
         if (uLType[i] == 1) {
@@ -59,14 +60,14 @@ void main() {
             vec3  d  = uLPos[i] - wPos;
             float di = length(d);
             L   = d / max(di, 1e-5);
-            float x  = di / max(uLRadius[i], 0.001);
-            att = pow(max(1.0 - x*x*x*x, 0.0), 2.0);
+            float x = di / max(uLRadius[i], 0.001);
+            att = pow(max(1.0 - x * x * x * x, 0.0), 2.0);
         }
         float diff = max(dot(N, L), 0.0);
-        light += uLCol[i] * (uLEnergy[i] * diff * att) * lightOn;
+        light += uLCol[i] * (uLEnergy[i] * diff * att);
     }
 
-    light += bounceColor * 1.0;  /* bounce strength baked at build time */
+    light += bounceColor;
 
     float shadow = 1.0;
     if (uUseShadow != 0) {

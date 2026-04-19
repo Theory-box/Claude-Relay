@@ -12,10 +12,10 @@ class VertexLitSettings(bpy.types.PropertyGroup):
 
     # GI — off by default; enable for subtle fill on static geometry
     use_gi: bpy.props.BoolProperty(
-        name="GI Bounce", default=False,
+        name="GI Bounce", default=True,
         description="One-bounce ray traced GI. Disable for geo nodes / heavy scenes")
     gi_samples: bpy.props.IntProperty(
-        name="Samples", default=8, min=1, max=128)
+        name="Samples", default=4, min=1, max=128)
     gi_bounce_strength: bpy.props.FloatProperty(
         name="Bounce Strength", default=0.5, min=0.0, max=5.0)
 
