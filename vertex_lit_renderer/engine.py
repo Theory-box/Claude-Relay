@@ -199,13 +199,8 @@ def _extract_mesh_data(obj, vp_dg):
 
         uv_layer = mesh.uv_layers.active
         n_verts  = len(mesh.vertices)
-        n_tris   = len(mesh.loop_triangles)
 
-        # ── Fast numpy extraction ─────────────────────────────────────────
-        # foreach_get reads the whole attribute array at once — ~100x faster
-        # than Python loops for large meshes. Critical for edit-mode latency.
-
-        # Vertex positions and normals (local space)
+        # foreach_get is safe and fast for simple per-vertex arrays
         _co_flat = np.empty(n_verts * 3, dtype=np.float32)
         mesh.vertices.foreach_get('co', _co_flat)
         _co = _co_flat.reshape(n_verts, 3)
@@ -217,75 +212,45 @@ def _extract_mesh_data(obj, vp_dg):
         vert_co_local = _co.tolist()
         vert_no_local = _no.tolist()
 
-        # Triangle vertex and loop indices
-        _tv_flat = np.empty(n_tris * 3, dtype=np.int32)
-        mesh.loop_triangles.foreach_get('vertices', _tv_flat)
-        _tv = _tv_flat.reshape(n_tris, 3)          # (n_tris, 3) vertex indices
-
-        _tl_flat = np.empty(n_tris * 3, dtype=np.int32)
-        mesh.loop_triangles.foreach_get('loops', _tl_flat)
-        _tl = _tl_flat.reshape(n_tris, 3)          # (n_tris, 3) loop indices
-
-        _tmi = np.empty(n_tris, dtype=np.int32)
-        mesh.loop_triangles.foreach_get('material_index', _tmi)
-
-        # Per-loop positions and vertex normals via numpy fancy indexing
-        _li_flat = _tv.flatten()                    # (n_tris*3,) loop→vertex map
-        positions = _co[_li_flat].tolist()
-        vi_map    = _li_flat.tolist()
-
-        # Corner normals (smooth shading) — try foreach_get, fall back to vertex
-        try:
-            _cn_flat = np.empty(len(mesh.loops) * 3, dtype=np.float32)
-            mesh.corner_normals.foreach_get('vector', _cn_flat)
-            _cn = _cn_flat.reshape(-1, 3)
-            normals = _cn[_tl.flatten()].tolist()
-        except Exception:
-            normals = _no[_li_flat].tolist()
-
-        # UVs
-        if uv_layer:
-            _uv_flat = np.empty(len(mesh.loops) * 2, dtype=np.float32)
-            uv_layer.data.foreach_get('uv', _uv_flat)
-            _uv = _uv_flat.reshape(-1, 2)
-            uvs = _uv[_tl.flatten()].tolist()
-        else:
-            uvs = [(0.0, 0.0)] * (n_tris * 3)
-
-        # Per-loop colors — numpy where possible, Python fallback for edge cases
-        _mc_arr = np.array([mat_colors[i] if i < len(mat_colors) else default
-                             for i in range(n_tris)], dtype=np.float32)  # (n_tris, 4)
-        _loop_mc = np.repeat(_mc_arr, 3, axis=0)  # (n_tris*3, 4)
-        colors = _loop_mc.tolist()
-        # Override with vertex colors if present
-        if vcol_point or vcol_corner:
-            ll = _tl.flatten().tolist()
-            lv = _li_flat.tolist()
-            colors = [vcol_corner.get(ll[i], vcol_point.get(lv[i], colors[i]))
-                      for i in range(len(ll))]
-
         _m0 = mat_list[0] if mat_list else None
         mat_diffuse = (float(_m0.diffuse_color[0]),float(_m0.diffuse_color[1]),
                        float(_m0.diffuse_color[2])) if _m0 else (0.8,0.8,0.8)
 
-        # GI face albedo — per-triangle texture sample (small loop, unavoidable)
-        gi_face_albedo = []
-        for fi in range(n_tris):
-            mi  = int(_tmi[fi])
+        positions=[]; normals=[]; colors=[]; uvs=[]; vi_map=[]
+        gi_face_albedo=[]
+        for tri in mesh.loop_triangles:
+            mi = tri.material_index
             face_default = mat_colors[mi] if mi < len(mat_colors) else default
+
+            # Sample texture at UV centroid for accurate GI albedo
             _fmat = mat_list[mi] if mi < len(mat_list) else None
             _fimg = _find_base_texture(_fmat) if _fmat else None
             _pd   = _get_pixel_array(_fimg) if (_fimg and uv_layer) else None
             if _pd:
                 _arr,_w,_h = _pd
-                _u = float(_uv[_tl[fi,0],0] + _uv[_tl[fi,1],0] + _uv[_tl[fi,2],0]) / 3.0
-                _v = float(_uv[_tl[fi,0],1] + _uv[_tl[fi,1],1] + _uv[_tl[fi,2],1]) / 3.0
+                _u = sum(uv_layer.data[tri.loops[_c]].uv[0] for _c in range(3))/3.0
+                _v = sum(uv_layer.data[tri.loops[_c]].uv[1] for _c in range(3))/3.0
                 _u %= 1.0; _v %= 1.0
                 _px=min(int(_u*_w),_w-1); _py=min(int(_v*_h),_h-1)
                 _mc=face_default
                 gi_face_albedo.append((_arr[_py,_px,0]*_mc[0],_arr[_py,_px,1]*_mc[1],_arr[_py,_px,2]*_mc[2]))
             else:
                 gi_face_albedo.append(tuple(face_default[:3]))
+
+            for corner in range(3):
+                vi=tri.vertices[corner]; li=tri.loops[corner]
+                positions.append(tuple(_co[vi]))
+                if has_corner_normals:
+                    try:
+                        cn=corner_normals[li]
+                        normals.append((cn.vector.x,cn.vector.y,cn.vector.z))
+                    except Exception:
+                        normals.append(tuple(_no[vi]))
+                else:
+                    normals.append(tuple(_no[vi]))
+                colors.append(vcol_corner.get(li,vcol_point.get(vi,face_default)))
+                uvs.append(tuple(uv_layer.data[li].uv) if uv_layer else (0.0,0.0))
+                vi_map.append(vi)
 
         # No bpy.data.meshes.remove() — mesh is borrowed from eval_obj.
         return dict(
