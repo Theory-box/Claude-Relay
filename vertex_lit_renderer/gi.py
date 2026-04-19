@@ -175,14 +175,21 @@ def _gi_pass_embree(origins, normals, lights, intersector,
 
     # ── 3. Ray-traced direct lighting at source vertices ─────────────────
     # Shadow rays from every vertex → replaces the old shadow map entirely.
-    # Direct is deterministic; averaging over passes = same value each time.
+    # For hard-shadow lights, direct is deterministic; per-pass copies × n_samp
+    # in the accumulator gives the right average. For sun lights with angle>0,
+    # we jitter the direction each pass — over passes the penumbra emerges
+    # from averaging one-ray-per-pass per vertex at different jitters.
     sh_bias_o = origins + normals * BIAS
     direct    = np.zeros((n_verts, 3))
 
     for light in lights:
         if stop_event.is_set(): break
+        # Per-pass jitter for sun soft shadows
+        light_for_pass = light
+        if light.get('is_sun') and float(light.get('angle', 0.0)) > 1e-4:
+            light_for_pass = _jitter_sun_direction(light)
         lcolor, ltype, to_ln_v, atten_v, dist_v = _light_vectors(
-            light, origins, n_verts)
+            light_for_pass, origins, n_verts)
         if to_ln_v is None: continue
         ndotl_v = np.maximum(0.0, np.einsum('ij,ij->i', normals, to_ln_v))
         occ     = _shadow_test(intersector, sh_bias_o, to_ln_v, dist_v)
@@ -191,9 +198,39 @@ def _gi_pass_embree(origins, normals, lights, intersector,
 
     # Repeat direct n_samp times so averaging (_count += n_samp) gives
     # the correct value: avg(direct×n_samp) = direct ✓
+    # For jittered suns, each pass's "direct" is the jittered-direction
+    # sample; multiplying by n_samp and dividing by total count still gives
+    # the correct Monte-Carlo estimate of the soft-shadow result.
     contrib += direct * n_samp
 
     return contrib  # raw sum — get_update() divides by _count
+
+
+def _jitter_sun_direction(light):
+    """Return a copy of the light dict with 'dir' jittered within the sun's
+    angular-diameter cone. Uniform sampling inside the cone: pick a point on
+    the unit disk perpendicular to the sun axis, scaled by tan(half_angle).
+    One jittered direction per pass — applied to all vertices, which gives
+    a correct Monte-Carlo penumbra when averaged over many passes."""
+    d = np.asarray(light['dir'], dtype=np.float64)
+    d /= (np.linalg.norm(d) + 1e-12)
+    half_angle = 0.5 * float(light['angle'])   # angle stored is full diameter
+    # Orthonormal basis {u, v} in the plane perpendicular to d
+    if abs(d[2]) < 0.9:
+        u = np.cross(d, np.array([0.0, 0.0, 1.0]))
+    else:
+        u = np.cross(d, np.array([1.0, 0.0, 0.0]))
+    u /= (np.linalg.norm(u) + 1e-12)
+    v = np.cross(d, u)
+    # Uniform disk sample (r = sqrt(ξ), θ = 2πξ)  scaled by tan(half_angle)
+    r   = np.sqrt(np.random.random()) * np.tan(half_angle)
+    phi = 2.0 * np.pi * np.random.random()
+    offset = (u * np.cos(phi) + v * np.sin(phi)) * r
+    d_jit  = d + offset
+    d_jit /= (np.linalg.norm(d_jit) + 1e-12)
+    out = dict(light)
+    out['dir'] = tuple(d_jit)
+    return out
 
 
 def _light_vectors(light, points, n):

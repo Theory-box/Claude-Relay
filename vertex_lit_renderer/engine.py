@@ -121,6 +121,9 @@ def _collect_lights(depsgraph, energy_scale):
             'energy': energy, 'type': ltype.get(ld.type,0),
             'radius': radius, 'is_sun': ld.type=='SUN',
             'matrix_world': mat.copy(),
+            # Sun angular diameter (radians) for soft shadow jittering.
+            # Default in Blender is ~0.2rad (~11.4°). Zero = hard shadow.
+            'angle': float(getattr(ld, 'angle', 0.0)) if ld.type == 'SUN' else 0.0,
         })
         if len(lights)>=MAX_LIGHTS: break
     return lights
@@ -538,17 +541,19 @@ class VertexLitEngine(bpy.types.RenderEngine):
 
     def _lights_cmp_fingerprint(self, depsgraph):
         """Stable fingerprint of all lights for change detection.
-        Uses base-object transform (obj.location / obj.rotation_euler) —
-        NOT inst.matrix_world, which can drift slightly between depsgraph
-        queries even when nothing changed, causing false positives that
-        early-returned view_update and masked mesh transforms.
-        Values are rounded so minor FP noise doesn't count as a change."""
+        Iterates bpy.data.objects directly (not depsgraph.object_instances)
+        — avoids walking every scatter/GeoNodes instance each 0.2s just to
+        find a handful of lights. Uses base-object transforms, deterministic
+        under FP drift. Includes sun angle + shadow_soft_size so changes to
+        those also fire a GI restart."""
         fp = {}
-        for inst in depsgraph.object_instances:
-            obj = inst.object
+        for obj in bpy.data.objects:
             if obj.type != 'LIGHT': continue
+            if obj.hide_render: continue
             if len(fp) >= MAX_LIGHTS: break
             ld = obj.data
+            angle = round(float(getattr(ld, 'angle', 0.0)), 6)
+            soft_size = round(float(getattr(ld, 'shadow_soft_size', 0.0)), 6)
             fp[obj.name] = (
                 tuple(round(x, 5) for x in obj.location),
                 tuple(round(x, 5) for x in obj.rotation_euler),
@@ -556,6 +561,7 @@ class VertexLitEngine(bpy.types.RenderEngine):
                 (round(float(ld.color.r), 6),
                  round(float(ld.color.g), 6),
                  round(float(ld.color.b), 6)),
+                angle, soft_size,
             )
         return fp
 
