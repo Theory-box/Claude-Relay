@@ -29,6 +29,19 @@ class VertexLitSettings(bpy.types.PropertyGroup):
     gi_bounce_strength: bpy.props.FloatProperty(
         name="Bounce Strength", default=1.0, min=0.0, max=5.0)
 
+    # GI denoising (bilateral filter on bounce results, fades to zero near convergence)
+    use_denoise: bpy.props.BoolProperty(
+        name="Denoise", default=True,
+        description="Apply a normal-weighted bilateral filter to GI bounce values. "
+                    "Strength fades to zero as the scene converges, so the final "
+                    "image is always the exact ray-traced result. Recommended on.")
+    denoise_strength: bpy.props.FloatProperty(
+        name="Denoise Strength", default=1.0, min=0.0, max=1.0,
+        description="Max filter strength applied at 0%% convergence. Fades "
+                    "quadratically to zero as sample count reaches target. "
+                    "Lower values reduce any residual blurring risk at the "
+                    "cost of more visible noise during convergence.")
+
     # Lights
     energy_scale: bpy.props.FloatProperty(
         name="Light Energy Scale", default=0.01, min=0.0001, max=10.0)

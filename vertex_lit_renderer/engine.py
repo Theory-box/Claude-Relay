@@ -6,6 +6,7 @@ import gpu
 import numpy as np
 from mathutils import Matrix, Vector
 from mathutils.bvhtree import BVHTree
+from mathutils.kdtree import KDTree
 
 from .shaders import MAIN_VERT, MAIN_FRAG
 from .gi import ProgressiveGI
@@ -16,6 +17,70 @@ MAX_BVH_TRIS = 50_000  # cap BVH tris so ray casts stay fast (< 1ms each)
                        # making each ray cast take > 500ms and preventing threads
                        # from stopping within the join timeout — causing accumulation.
                        # GI only needs approximate geometry; subsampling is fine.
+
+# Denoise neighbor count — number of nearest neighbors used by the bilateral
+# filter. 8 is a good balance: enough to average out noise, few enough that
+# the filter stays local and doesn't blur features.
+DENOISE_K = 8
+
+# scipy's cKDTree is ~3× faster than mathutils.kdtree for build+query on the
+# scenes we see (low 100k verts). Used opportunistically if available.
+try:
+    from scipy.spatial import cKDTree as _scipy_kdtree
+    _HAS_SCIPY_KDTREE = True
+except ImportError:
+    _HAS_SCIPY_KDTREE = False
+
+
+def _build_neighbor_index(vert_co_local, K=DENOISE_K):
+    """Build the (n_verts, K) int32 matrix of each vertex's K nearest
+    neighbor indices, excluding self. Uses scipy.cKDTree when available
+    (fast C query, single call), falls back to mathutils.KDTree otherwise
+    (slower Python loop but always present in Blender)."""
+    n_verts = len(vert_co_local)
+    if n_verts <= K + 1:
+        return None   # too small to bother
+    if _HAS_SCIPY_KDTREE:
+        tree = _scipy_kdtree(vert_co_local)
+        _, idx = tree.query(vert_co_local, k=K + 1)
+        return idx[:, 1:K + 1].astype(np.int32)   # drop self (column 0)
+    # mathutils fallback
+    tree = KDTree(n_verts)
+    for i in range(n_verts):
+        tree.insert(Vector(vert_co_local[i]), i)
+    tree.balance()
+    neighbors = np.zeros((n_verts, K), dtype=np.int32)
+    for i in range(n_verts):
+        co = vert_co_local[i]
+        results = tree.find_n((float(co[0]), float(co[1]), float(co[2])), K + 1)
+        # results[0] is self (dist=0); take K following
+        for j in range(K):
+            neighbors[i, j] = results[j + 1][1]
+    return neighbors
+
+
+def _bilateral_denoise(gi, normals, neighbors, strength):
+    """Normal-weighted bilateral filter on per-vertex GI values.
+
+    For each vertex v with K neighbors k[1..K]:
+        w_k      = max(0, n_v · n_k) ** 4
+        filtered = (Σ w_k · gi[k] + gi[v]) / (Σ w_k + 1)   (self weight = 1)
+        output   = strength · filtered + (1 − strength) · gi[v]
+
+    The power-4 normal weight kills any mixing across normal discontinuities
+    (corners, creases, thin objects) — only flat regions see the filter.
+    Strength is a scalar in [0, 1]; callers ramp it to zero as convergence
+    completes so the final image is the exact raw result."""
+    if strength <= 0.001 or neighbors is None:
+        return gi
+    gi_n    = gi[neighbors]              # (V, K, 3)
+    norm_n  = normals[neighbors]         # (V, K, 3)
+    n_dot   = np.einsum('vi,vki->vk', normals, norm_n)
+    w_n     = np.maximum(0.0, n_dot) ** 4
+    wsum    = w_n.sum(axis=1, keepdims=True) + 1.0
+    filtered = (np.sum(w_n[..., None] * gi_n, axis=1) + gi) / wsum
+    return strength * filtered + (1.0 - strength) * gi
+
 
 # Object types we don't extract mesh data from. Anything NOT in this set may
 # produce cachable geometry via the depsgraph evaluator (MESH directly, or
@@ -804,14 +869,26 @@ class VertexLitEngine(bpy.types.RenderEngine):
 
     # ── Apply GI ──────────────────────────────────────────────────────────
 
-    def _apply_gi_update(self, gi_data):
+    def _apply_gi_update(self, gi_data, sample_count=0, target_samples=1):
         """Fast path for GI updates: rebuild each mesh's batch around its
         preserved static VBO with a new bounce VBO.
 
         The static VBO (position/normal/color/uv) stays alive in _batch_dict
         and is NOT re-uploaded. Only the small bounce VBO is uploaded fresh.
         Cheaper than the original 5-attribute rebuild in both allocation and
-        GPU bandwidth."""
+        GPU bandwidth.
+
+        If the scene's `use_denoise` is on, GI values are bilaterally
+        filtered before upload. Strength fades quadratically with
+        convergence so at target_samples the filter is mathematically zero."""
+        vls = getattr(bpy.context.scene, 'vertex_lit', None)
+        denoise = bool(vls and getattr(vls, 'use_denoise', False))
+        if denoise:
+            remaining = max(0.0, 1.0 - float(sample_count) / max(1.0, float(target_samples)))
+            strength  = (remaining * remaining) * float(getattr(vls, 'denoise_strength', 1.0))
+        else:
+            strength = 0.0
+
         any_applied = False
         for name, cached in self._mesh_cache.items():
             gv = gi_data.get(name)
@@ -819,6 +896,17 @@ class VertexLitEngine(bpy.types.RenderEngine):
             entry = self._batch_dict.get(name)
             if entry is None: continue
             _old_batch, static_vbo, tex = entry
+
+            if strength > 0.001:
+                # Lazy-build the neighbor index once per mesh and cache it.
+                # A None result (mesh too small to denoise) is cached too, so
+                # we don't retry the KD build every frame.
+                if 'denoise_neighbors' not in cached:
+                    cached['denoise_neighbors'] = _build_neighbor_index(cached['vert_co_local'])
+                nbrs = cached['denoise_neighbors']
+                if nbrs is not None:
+                    gv = _bilateral_denoise(gv, cached['vert_no_local'], nbrs, strength)
+
             new_batch = _rebuild_batch_with_new_bounce(cached, static_vbo, gv)
             if new_batch is None: continue
             self._batch_dict[name] = (new_batch, static_vbo, tex)
@@ -972,7 +1060,8 @@ class VertexLitEngine(bpy.types.RenderEngine):
 
         if _global_gi is not None and _global_gi.has_update():
             gi_data,n=_global_gi.get_update()
-            self._apply_gi_update(gi_data)
+            target = int(vls.gi_samples) if vls else 128
+            self._apply_gi_update(gi_data, sample_count=n, target_samples=target)
             print(f"[VertexLit] GI sample {n} applied")
 
         lights=self._lights_cache
