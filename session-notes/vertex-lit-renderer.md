@@ -39,6 +39,7 @@ Edit-mode global pause: if `bpy.context.active_object.mode != 'OBJECT'`, both th
 - **STATIC-usage VBO can't be re-filled** after first draw. `attr_fill` throws "Can't fill, static buffer already in use." Workaround: rebuild bounce VBO + batch each GI update (keep static_vbo cached, reuse it via `batch.vertbuf_add`).
 - **Scene-diff type filter must match `_rebuild_inner`** — curve/surface/meta/font all get evaluated→mesh and cached. Filtering scene-diff on `type=='MESH'` alone breaks GI updates (curves show as "always deleted"). Use the `_NON_GEOMETRY_OBJ_TYPES` constant.
 - **decay=0.1 default is wrong for light changes** — with preserve_existing=True, the new accumulation is 96% old-lighting / 4% new-lighting per pass. Hundreds of passes to dilute out. Light path uses decay=0.0 to fully reset.
+- **`n_samp` Monte Carlo bookkeeping for soft-shadow sun.** Original code used one jittered sun direction per PASS and wrote `direct * n_samp` for count bookkeeping. For deterministic lights that's correct. For a jittered sun it's wrong — booked 1 real sample as n_samp, so higher n_samp did more work per pass with zero additional sampling. User caught it: n_samp=1 converged faster than n_samp=32 at equal wall time. Fix: `_direct_soft_sun_mc` generates `n_verts × n_samp` independent jittered directions per pass, vectorized shadow-tests all at once, sums the per-sample contributions. Convergence now scales as √(P × n_samp) as expected. Deterministic path still uses the cheap `* n_samp` shortcut.
 - **inst.matrix_world fingerprint drifts** between depsgraph queries even with no change. Use base `obj.location` + `obj.rotation_euler` (rounded) for change-detection fingerprints.
 - **Blender fires is_updated_transform on dependent meshes when lights change.** If not explicitly overridden, the transform path wins the debounce race with the wrong decay. Fix: handler-flagged light dirty takes priority in view_draw and clears `_transform_dirty`.
 - **COMPAT_ENGINES registration** — adding `'VERTEX_LIT'` to built-in panels (light/mesh/material/world) lets users access standard settings (light power, sun angle, color, size) without us writing UI. Done in ui.py on register.
@@ -69,6 +70,11 @@ All active in current code:
 - `energy_scale` — global multiplier on light intensities
 
 Per-object: `vertex_lit_cast_shadow` — if False, excluded from GI BVH (doesn't cast shadow or block bounces, still receives).
+
+## Optimization work log
+
+- **Tier 1: parallel ray casting via ThreadPoolExecutor.** Tried on `feature/gi-parallel` (commit a52b3e3, archived, not merged). Was SLOWER per pass. Likely causes: embreex doesn't release the GIL as I assumed, OR Embree/embreex is already internally multi-threaded and our outer split fragmented the work, OR per-call fixed overhead paid N× with worse batch-scaling. Dead end without a different approach (multiprocessing with array serialization cost, or GIL-release verification).
+- **Direct lighting MC fix.** Unexpected win — not on the optimization roadmap originally. User observed n_samp=1 converging faster than n_samp=32 on soft-shadow scenes. Root cause was the `direct * n_samp` shortcut being wrong for jittered suns (booked 1 real sample as n_samp). Now proper MC with n_samp real samples per vertex per pass — high n_samp finally pays off. Commit b47cc42.
 
 ## Roadmap (user-expressed interest, not yet scheduled)
 
