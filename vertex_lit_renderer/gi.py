@@ -170,8 +170,7 @@ def _gi_pass_embree(origins, normals, lights, intersector,
         bounce_color += lcolor * lit[:,None]
 
     np.add.at(contrib, hit_ray_idx // n_samp, hit_albedo * bounce_color)
-    contrib /= max(n_samp, 1)
-    return contrib
+    return contrib  # raw sum — get_update() divides by _count
 
 
 # ── BVHTree fallback helpers ──────────────────────────────────────────────────
