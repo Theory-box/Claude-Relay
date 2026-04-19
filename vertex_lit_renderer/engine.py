@@ -530,17 +530,44 @@ class VertexLitEngine(bpy.types.RenderEngine):
         if active is not None and active.mode != 'OBJECT':
             return
 
-        # ── Deletion detection ────────────────────────────────────────────
-        # Check if any cached object no longer exists in the scene.
-        # Without this, deleted objects leave stale batches, and re-adding
-        # an object with the same name would show the old GI data.
+        # ── Scene membership diff ─────────────────────────────────────────
+        # Compare depsgraph object_instances vs _mesh_cache to catch:
+        #   - Deletions: was in cache, no longer in depsgraph. Pop from caches
+        #     and restart GI with remaining objects (decay=1.0 — other objects
+        #     are unchanged; no grey flash from accumulator reset).
+        #   - Additions: in depsgraph but not in cache. Includes unhides, which
+        #     don't fire is_updated_geometry so the per-update loop below
+        #     misses them. Queue into _edit_dirty for incremental rebuild.
+        # Previously both paths went through the full-rebuild route (_dirty=
+        # True, _gi_preserve=False) causing the delete hitch + grey screen,
+        # and unhides effectively never reached this logic at all because
+        # only the deletion case fired.
         if self._mesh_cache:
             current = {inst.object.name for inst in depsgraph.object_instances
                        if inst.object.type == 'MESH'}
-            if not current.issuperset(self._mesh_cache.keys()):
-                self._dirty = True
-                self._gi_preserve = False  # full reset — scene changed significantly
-                self.tag_redraw(); return
+            cache_keys = set(self._mesh_cache.keys())
+            deleted = cache_keys - current
+            added   = current - cache_keys
+
+            if deleted or added:
+                for name in deleted:
+                    self._mesh_cache.pop(name, None)
+                    self._batch_dict.pop(name, None)
+
+                if added:
+                    # Incremental rebuild picks these up next view_draw and
+                    # calls _restart_gi_for_transforms with the fresh scene.
+                    for name in added:
+                        _edit_dirty.add(name)
+                    _edit_dirty_time = time.time()
+                elif deleted:
+                    # Deletion only: restart GI immediately with decay=1.0
+                    # so remaining objects keep their accumulated bounce data.
+                    vls = getattr(context.scene, 'vertex_lit', None)
+                    self._restart_gi_for_transforms(vls, decay=1.0)
+
+                self.tag_redraw()
+                return
 
         for update in depsgraph.updates:
             id_data = update.id
@@ -707,12 +734,19 @@ class VertexLitEngine(bpy.types.RenderEngine):
 
     # ── Lightweight GI restart after transform ──────────────────────────────────────────────
 
-    def _restart_gi_for_transforms(self, vls):
-        """Restart GI from cached geometry after an object is moved.
+    def _restart_gi_for_transforms(self, vls, decay=0.1):
+        """Restart GI from cached geometry after a scene change.
         No bpy calls, no mesh extraction — just retransforms cached verts.
 
         Vectorized: each object's local->world transform is one numpy matmul
-        across all verts instead of a Python loop."""
+        across all verts instead of a Python loop.
+
+        decay controls how much of the previous accumulation is kept:
+          - 0.1 (default): quick fade. Good for moves/transforms where old
+            bounce values are partly stale (occlusion changed).
+          - 1.0: keep everything. Used for deletion — remaining objects'
+            lighting is unchanged, only the shadow-caster set got smaller.
+            Prevents the grey flash on delete."""
         if not self._mesh_cache: return
         bpy_objects = {name: bpy.data.objects.get(name) for name in self._mesh_cache}
         raw_bvh = _build_raw_bvh_data(self._mesh_cache, bpy_objects)
@@ -739,7 +773,7 @@ class VertexLitEngine(bpy.types.RenderEngine):
             dict(raw_bvh=raw_bvh, lights=self._lights_cache,
                  verts=gi_verts, normals=gi_norms,
                  rays_per_pass=rpp, thread_pause=pause),
-            target_samples=gi_samp, preserve_existing=True, decay=0.1)
+            target_samples=gi_samp, preserve_existing=True, decay=decay)
 
 
     # ── Incremental rebuild (edit mode) ──────────────────────────────────
