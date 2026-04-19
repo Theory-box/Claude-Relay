@@ -267,12 +267,15 @@ def _direct_soft_sun_mc(light, origins, normals, sh_bias_o, intersector,
     tan_h      = np.tan(half_angle)
 
     # Orthonormal basis perpendicular to the sun axis
+    # Orthonormal basis vectors (axis_a, axis_b) in the plane perpendicular
+    # to the sun direction. Named axis_* so they don't collide with the
+    # stratified sampling (u, v) below.
     if abs(d_sun[2]) < 0.9:
-        u = np.cross(d_sun, np.array([0.0, 0.0, 1.0]))
+        axis_a = np.cross(d_sun, np.array([0.0, 0.0, 1.0]))
     else:
-        u = np.cross(d_sun, np.array([1.0, 0.0, 0.0]))
-    u /= (np.linalg.norm(u) + 1e-12)
-    v = np.cross(d_sun, u)
+        axis_a = np.cross(d_sun, np.array([1.0, 0.0, 0.0]))
+    axis_a /= (np.linalg.norm(axis_a) + 1e-12)
+    axis_b = np.cross(d_sun, axis_a)
 
     # N = n_verts * n_samp — one jittered direction per (vertex, sample) pair.
     # Sampled uniformly over the disk perpendicular to d_sun with radius tan(half_angle);
@@ -282,8 +285,8 @@ def _direct_soft_sun_mc(light, origins, normals, sh_bias_o, intersector,
     u, v = _stratified_uv(n_verts, n_samp)
     r_rand = np.sqrt(u) * tan_h
     phi    = 2.0 * np.pi * v
-    offsets = (u[None, :] * np.cos(phi)[:, None]
-               + v[None, :] * np.sin(phi)[:, None]) * r_rand[:, None]
+    offsets = (axis_a[None, :] * np.cos(phi)[:, None]
+               + axis_b[None, :] * np.sin(phi)[:, None]) * r_rand[:, None]
     dirs    = d_sun[None, :] + offsets
     dirs   /= (np.linalg.norm(dirs, axis=1, keepdims=True) + 1e-12)
     to_ln   = -dirs   # to-light = opposite of sun propagation direction
