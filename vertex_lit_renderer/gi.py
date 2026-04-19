@@ -361,17 +361,34 @@ class ProgressiveGI:
             else:
                 print("[VertexLit] GI: no ray backend available")
 
+    # Max verts per embreex call — keeps each C-level call under ~100ms so
+    # the stop_event is checked frequently and free() join(0.5s) reliably lands.
+    GI_CHUNK_VERTS = 3000
+
     def _run_embree(self, scene_data, target_samples, stop_event, generation,
                     lights, intersector, face_albedo_arr, face_normals_arr, n_samp):
         all_v, all_n, obj_ranges = self._flatten_verts(scene_data)
         if all_v is None: return
-        print(f"[VertexLit] GI (embreex): {len(all_v)} verts, {target_samples} samples")
+        n_total = len(all_v)
+        print(f"[VertexLit] GI (embreex): {n_total} verts")
 
         while not stop_event.is_set():
-            cf = _gi_pass_embree(all_v, all_n, lights, intersector,
-                                 face_albedo_arr, face_normals_arr,
-                                 n_samp, stop_event)
+            cf = np.zeros((n_total, 3), dtype=np.float64)
+
+            # Process in chunks so stop_event is checked between each embreex call.
+            # Each chunk fires at most GI_CHUNK_VERTS * n_samp rays — stays < 100ms.
+            for chunk_start in range(0, n_total, self.GI_CHUNK_VERTS):
+                if stop_event.is_set(): break
+                chunk_end = min(chunk_start + self.GI_CHUNK_VERTS, n_total)
+                chunk_cf = _gi_pass_embree(
+                    all_v[chunk_start:chunk_end],
+                    all_n[chunk_start:chunk_end],
+                    lights, intersector, face_albedo_arr, face_normals_arr,
+                    n_samp, stop_event)
+                cf[chunk_start:chunk_end] = chunk_cf
+
             if stop_event.is_set(): break
+
             pass_data = {name: cf[s:e] for name,(s,e) in obj_ranges.items()}
             with self._lock:
                 if self._gen != generation: return

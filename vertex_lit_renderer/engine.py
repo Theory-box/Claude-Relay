@@ -342,11 +342,14 @@ class VertexLitEngine(bpy.types.RenderEngine):
 
     def free(self):
         """Explicitly release all resources — don't rely on GC for GPU objects."""
-        # Non-blocking cancel only. stop() blocks for join timeout which freezes
-        # the UI. The global gi's gen counter ensures the old thread's data is
-        # discarded when the next session calls start() with a new generation.
         global _global_gi
-        if _global_gi is not None: _global_gi.cancel()
+        if _global_gi is not None:
+            # cancel() sets stop flag; join(0.5) gives the thread time to finish
+            # its current chunk and exit. With chunked embreex calls each chunk
+            # is < 100ms, so 0.5s is more than enough to confirm a clean stop.
+            _global_gi.cancel()
+            if _global_gi._thread and _global_gi._thread.is_alive():
+                _global_gi._thread.join(timeout=0.5)
         self._batch_dict       = {}
         self._mesh_cache       = {}
         self._white_tex        = None
