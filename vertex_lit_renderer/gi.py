@@ -83,73 +83,15 @@ def _build_bvh_fallback(raw_bvh):
 
 # ── Vectorized hemisphere batch ───────────────────────────────────────────────
 
-# ── Halton low-discrepancy sequence ──────────────────────────────────────────
-# Tables are built once. A fixed per-vertex scramble is pre-generated so
-# adjacent vertices are always decorrelated — no per-pass random generation,
-# no sluggishness. Each pass shifts all indices by n_samples so directions
-# never repeat across passes.
-
-_HALTON_SIZE  = 8192
-_halton_u1    = None   # base-2 Van der Corput (cos_theta)
-_halton_u2    = None   # base-3 Van der Corput (phi)
-_halton_scram = None   # fixed per-slot scramble — generated ONCE, not per pass
-_halton_pass  = 0
-
-# Cached index base for (n, n_samples) so repeat/tile only runs when shape changes
-_h_cache_key  = None
-_h_cache_base = None   # (scramble_rep + sample_steps) array, reused each pass
-
-def _halton_seq(n: int, base: int) -> np.ndarray:
-    seq = np.zeros(n, dtype=np.float64)
-    f = 1.0
-    remaining = np.arange(1, n + 1, dtype=np.int64)
-    while np.any(remaining > 0):
-        f /= base
-        seq += (remaining % base).astype(np.float64) * f
-        remaining //= base
-    return seq
-
-def _ensure_halton():
-    global _halton_u1, _halton_u2, _halton_scram
-    if _halton_u1 is None:
-        _halton_u1    = _halton_seq(_HALTON_SIZE, 2).astype(np.float32)
-        _halton_u2    = _halton_seq(_HALTON_SIZE, 3).astype(np.float32)
-        # Fixed scramble — one random offset per table slot, never changes.
-        # Decorrelates vertices without touching RNG during rendering.
-        _halton_scram = np.random.randint(0, _HALTON_SIZE,
-                                          _HALTON_SIZE, dtype=np.int32)
-
 def _hemisphere_batch(origins, normals, n_samples):
-    """Cosine-weighted hemisphere via scrambled Halton — no per-pass RNG."""
-    global _halton_pass, _h_cache_key, _h_cache_base
-    _ensure_halton()
-
+    """Cosine-weighted hemisphere rays. Pure numpy random — fast, no splotching."""
     n, N, BIAS = len(origins), len(origins) * n_samples, 0.01
     orig_r = np.repeat(origins, n_samples, axis=0)
     norm_r = np.repeat(normals, n_samples, axis=0)
-
-    # Build or reuse index base — only recomputed when (n, n_samples) changes.
-    # Within a session shape is fixed, so this runs once then is cached.
-    key = (n, n_samples)
-    if key != _h_cache_key:
-        vert_slots   = np.arange(n, dtype=np.int32) % _HALTON_SIZE
-        scramble_rep = np.repeat(_halton_scram[vert_slots], n_samples)
-        sample_steps = np.tile(np.arange(n_samples, dtype=np.int32), n)
-        _h_cache_base = (scramble_rep + sample_steps) % _HALTON_SIZE
-        _h_cache_key  = key
-
-    # Shift cached base by pass offset — one modulo op on N ints, very cheap
-    idx = (_h_cache_base + _halton_pass) % _HALTON_SIZE
-    _halton_pass = (_halton_pass + n_samples) % _HALTON_SIZE
-
-    u1  = _halton_u1[idx].astype(np.float64)
-    u2  = _halton_u2[idx].astype(np.float64)
-
-    cos_t = np.sqrt(u1)
-    phi   = 2.0 * np.pi * u2
-    sin_t = np.sqrt(np.maximum(0.0, 1.0 - cos_t ** 2))
-    local = np.stack([sin_t * np.cos(phi), sin_t * np.sin(phi), cos_t], axis=1)
-
+    cos_t  = np.sqrt(np.random.uniform(0.0, 1.0, N))
+    phi    = np.random.uniform(0.0, 2.0 * np.pi, N)
+    sin_t  = np.sqrt(np.maximum(0.0, 1.0 - cos_t ** 2))
+    local  = np.stack([sin_t * np.cos(phi), sin_t * np.sin(phi), cos_t], axis=1)
     up      = np.where(np.abs(norm_r[:, 0:1]) < 0.9,
                        np.tile([1., 0., 0.], (N, 1)),
                        np.tile([0., 1., 0.], (N, 1)))
@@ -159,7 +101,6 @@ def _hemisphere_batch(origins, normals, n_samples):
     dirs    = (local[:, 0:1] * tangent +
                local[:, 1:2] * bitan   +
                local[:, 2:3] * norm_r)
-
     return orig_r + norm_r * BIAS, dirs
 
 
@@ -363,7 +304,6 @@ class ProgressiveGI:
             self._count      = old_count
             self._updated    = False
             self._scene_data = scene_data
-        global _halton_pass; _halton_pass = 0  # fresh sequence each session
         self._thread = threading.Thread(
             target=self._run, args=(scene_data,target_samples,new_stop,gen),
             daemon=True, name='VertexLit-GI')
