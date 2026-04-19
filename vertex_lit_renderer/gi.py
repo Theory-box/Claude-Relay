@@ -174,63 +174,100 @@ def _gi_pass_embree(origins, normals, lights, intersector,
     if stop_event.is_set(): return contrib
 
     # ── 3. Ray-traced direct lighting at source vertices ─────────────────
-    # Shadow rays from every vertex → replaces the old shadow map entirely.
-    # For hard-shadow lights, direct is deterministic; per-pass copies × n_samp
-    # in the accumulator gives the right average. For sun lights with angle>0,
-    # we jitter the direction each pass — over passes the penumbra emerges
-    # from averaging one-ray-per-pass per vertex at different jitters.
+    # Two paths:
+    #  - Deterministic lights (point, sun with angle=0): one shadow ray per
+    #    vertex. The per-pass result is identical on every pass, so we use
+    #    the cheap '× n_samp' shortcut to match the accumulator's count
+    #    accounting (count += n_samp per pass) with only 1 real sample.
+    #  - Soft-shadow sun (angle > 0): TRUE Monte Carlo — n_samp independent
+    #    jittered directions per vertex per pass, summed. Count still += n_samp
+    #    per pass, so the accumulator / count gives the correct sample mean
+    #    with P × n_samp real samples after P passes.
+    #
+    # Previous code used the '× n_samp' shortcut for soft suns too, which
+    # booked 1 real sample as n_samp — making high n_samp do more work per
+    # pass without any additional sampling. User reported n_samp=1 visibly
+    # converging faster than n_samp=32 at same wall time. That was the bug.
     sh_bias_o = origins + normals * BIAS
     direct    = np.zeros((n_verts, 3))
 
     for light in lights:
         if stop_event.is_set(): break
-        # Per-pass jitter for sun soft shadows
-        light_for_pass = light
-        if light.get('is_sun') and float(light.get('angle', 0.0)) > 1e-4:
-            light_for_pass = _jitter_sun_direction(light)
-        lcolor, ltype, to_ln_v, atten_v, dist_v = _light_vectors(
-            light_for_pass, origins, n_verts)
-        if to_ln_v is None: continue
-        ndotl_v = np.maximum(0.0, np.einsum('ij,ij->i', normals, to_ln_v))
-        occ     = _shadow_test(intersector, sh_bias_o, to_ln_v, dist_v)
-        lit     = (~occ).astype(np.float64) * ndotl_v * atten_v
-        direct += lcolor * lit[:,None]
+        is_soft_sun = (light.get('is_sun')
+                       and float(light.get('angle', 0.0)) > 1e-4)
 
-    # Repeat direct n_samp times so averaging (_count += n_samp) gives
-    # the correct value: avg(direct×n_samp) = direct ✓
-    # For jittered suns, each pass's "direct" is the jittered-direction
-    # sample; multiplying by n_samp and dividing by total count still gives
-    # the correct Monte-Carlo estimate of the soft-shadow result.
-    contrib += direct * n_samp
+        if is_soft_sun:
+            direct += _direct_soft_sun_mc(
+                light, origins, normals, sh_bias_o, intersector,
+                n_samp, stop_event)
+        else:
+            lcolor, ltype, to_ln_v, atten_v, dist_v = _light_vectors(
+                light, origins, n_verts)
+            if to_ln_v is None: continue
+            ndotl_v = np.maximum(0.0, np.einsum('ij,ij->i', normals, to_ln_v))
+            occ     = _shadow_test(intersector, sh_bias_o, to_ln_v, dist_v)
+            lit     = (~occ).astype(np.float64) * ndotl_v * atten_v
+            # Deterministic: replicate by n_samp so the accumulator's
+            # count += n_samp bookkeeping yields the correct mean.
+            direct += (lcolor * lit[:, None]) * n_samp
+
+    # For jittered suns, direct already holds the SUM of n_samp real samples
+    # per vertex. For deterministic lights, direct already holds value × n_samp.
+    # Either way, adding directly to contrib is correct.
+    contrib += direct
 
     return contrib  # raw sum — get_update() divides by _count
 
 
-def _jitter_sun_direction(light):
-    """Return a copy of the light dict with 'dir' jittered within the sun's
-    angular-diameter cone. Uniform sampling inside the cone: pick a point on
-    the unit disk perpendicular to the sun axis, scaled by tan(half_angle).
-    One jittered direction per pass — applied to all vertices, which gives
-    a correct Monte-Carlo penumbra when averaged over many passes."""
-    d = np.asarray(light['dir'], dtype=np.float64)
-    d /= (np.linalg.norm(d) + 1e-12)
-    half_angle = 0.5 * float(light['angle'])   # angle stored is full diameter
-    # Orthonormal basis {u, v} in the plane perpendicular to d
-    if abs(d[2]) < 0.9:
-        u = np.cross(d, np.array([0.0, 0.0, 1.0]))
+def _direct_soft_sun_mc(light, origins, normals, sh_bias_o, intersector,
+                        n_samp, stop_event):
+    """Monte-Carlo direct lighting for a sun with non-zero angle: n_samp
+    independent jittered directions PER VERTEX, then sum the per-sample
+    contributions. Returns per-vertex sum (shape n_verts × 3). Independent
+    per-vertex jitter (rather than a single jitter shared across all verts
+    per pass) decorrelates neighbor noise so the penumbra converges without
+    banding."""
+    n_verts = len(origins)
+    lcolor  = np.array(light['color']) * float(light['energy'])
+    d_sun   = np.asarray(light['dir'], dtype=np.float64)
+    d_sun  /= (np.linalg.norm(d_sun) + 1e-12)
+    half_angle = 0.5 * float(light['angle'])
+    tan_h      = np.tan(half_angle)
+
+    # Orthonormal basis perpendicular to the sun axis
+    if abs(d_sun[2]) < 0.9:
+        u = np.cross(d_sun, np.array([0.0, 0.0, 1.0]))
     else:
-        u = np.cross(d, np.array([1.0, 0.0, 0.0]))
+        u = np.cross(d_sun, np.array([1.0, 0.0, 0.0]))
     u /= (np.linalg.norm(u) + 1e-12)
-    v = np.cross(d, u)
-    # Uniform disk sample (r = sqrt(ξ), θ = 2πξ)  scaled by tan(half_angle)
-    r   = np.sqrt(np.random.random()) * np.tan(half_angle)
-    phi = 2.0 * np.pi * np.random.random()
-    offset = (u * np.cos(phi) + v * np.sin(phi)) * r
-    d_jit  = d + offset
-    d_jit /= (np.linalg.norm(d_jit) + 1e-12)
-    out = dict(light)
-    out['dir'] = tuple(d_jit)
-    return out
+    v = np.cross(d_sun, u)
+
+    # N = n_verts * n_samp — one jittered direction per (vertex, sample) pair.
+    # Sampled uniformly over the disk perpendicular to d_sun with radius tan(half_angle);
+    # this maps to (approximately, for small angles) uniform solid angle in the cone.
+    N = n_verts * n_samp
+    r_rand = np.sqrt(np.random.random(N)) * tan_h
+    phi    = 2.0 * np.pi * np.random.random(N)
+    offsets = (u[None, :] * np.cos(phi)[:, None]
+               + v[None, :] * np.sin(phi)[:, None]) * r_rand[:, None]
+    dirs    = d_sun[None, :] + offsets
+    dirs   /= (np.linalg.norm(dirs, axis=1, keepdims=True) + 1e-12)
+    to_ln   = -dirs   # to-light = opposite of sun propagation direction
+
+    if stop_event.is_set(): return np.zeros((n_verts, 3))
+
+    # Expand per-vertex state to per-sample for vectorized shadow test
+    orig_exp = np.repeat(sh_bias_o, n_samp, axis=0)
+    norm_exp = np.repeat(normals,   n_samp, axis=0)
+    dist_v   = np.full(N, 1e6)
+
+    ndotl = np.maximum(0.0, np.einsum('ij,ij->i', norm_exp, to_ln))
+    occ   = _shadow_test(intersector, orig_exp, to_ln, dist_v)
+    lit   = (~occ).astype(np.float64) * ndotl   # atten = 1 for sun
+
+    samples = lcolor * lit[:, None]   # (N, 3)
+    # Sum the n_samp samples per vertex → (n_verts, 3)
+    return samples.reshape(n_verts, n_samp, 3).sum(axis=1)
 
 
 def _light_vectors(light, points, n):
