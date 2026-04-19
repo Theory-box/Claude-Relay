@@ -36,11 +36,16 @@ def ensure_embree():
             [sys.executable, "-m", "pip", "install",
              "trimesh", "embreex", "--quiet", "--break-system-packages"],
             timeout=120)
-        import trimesh, trimesh.ray.ray_pyembree  # noqa
-        _EMBREE_READY = True
-        print("[VertexLit] embreex installed and ready")
     except Exception as e:
-        print(f"[VertexLit] embreex install failed ({e}), using BVHTree fallback")
+        print(f"[VertexLit] pip install failed ({e}), using BVHTree fallback")
+        return False
+    # Verify import works after install
+    try:
+        import trimesh, embreex, trimesh.ray.ray_pyembree  # noqa
+        _EMBREE_READY = True
+        print("[VertexLit] embreex installed and ready — will use on next render view entry")
+    except Exception as e:
+        print(f"[VertexLit] embreex import failed after install ({e}), using BVHTree")
         _EMBREE_READY = False
     return _EMBREE_READY
 

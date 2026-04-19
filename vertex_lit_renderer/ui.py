@@ -11,6 +11,14 @@ class VERTEX_LIT_PT_settings(bpy.types.Panel):
     def draw(self, context):
         layout = self.layout
         s = context.scene.vertex_lit
+        # Backend status indicator
+        from . import gi as _gi
+        if _gi._EMBREE_READY:
+            layout.label(text="Backend: Intel Embree", icon='CHECKMARK')
+        elif _gi._EMBREE_CHECKED:
+            layout.label(text="Backend: BVHTree (embreex unavailable)", icon='ERROR')
+        else:
+            layout.label(text="Backend: BVHTree", icon='INFO')
 
         box = layout.box()
         row = box.row()
@@ -20,7 +28,6 @@ class VERTEX_LIT_PT_settings(bpy.types.Panel):
             col = box.column(align=True)
             col.prop(s, 'gi_samples')
             col.prop(s, 'gi_rays_per_pass')
-            col.prop(s, 'gi_threads')
             col.prop(s, 'gi_thread_pause')
             col.prop(s, 'gi_bounce_strength')
             box.label(text="Recomputed when mesh/lights change", icon='INFO')
