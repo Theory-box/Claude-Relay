@@ -4,10 +4,10 @@ class VertexLitSettings(bpy.types.PropertyGroup):
 
     # Hemisphere fill
     sky_color: bpy.props.FloatVectorProperty(
-        name="Sky", subtype='COLOR', default=(0.08, 0.10, 0.14),
+        name="Sky", subtype='COLOR', default=(0.25, 0.30, 0.40),
         min=0.0, max=1.0, description="Ambient colour for upward-facing surfaces")
     ground_color: bpy.props.FloatVectorProperty(
-        name="Ground", subtype='COLOR', default=(0.03, 0.03, 0.04),
+        name="Ground", subtype='COLOR', default=(0.08, 0.07, 0.05),
         min=0.0, max=1.0, description="Ambient colour for downward-facing surfaces")
 
     # GI — off by default; enable for subtle fill on static geometry
@@ -21,7 +21,7 @@ class VertexLitSettings(bpy.types.PropertyGroup):
 
     # Light scale — 0.1 works for Blender's default 1 W/m² sun
     energy_scale: bpy.props.FloatProperty(
-        name="Light Energy Scale", default=0.1, min=0.0001, max=100.0,
+        name="Light Energy Scale", default=0.5, min=0.0001, max=100.0,
         description=(
             "Multiplier on all light energies. "
             "0.1 = good for a 1 W sun (Blender default). "

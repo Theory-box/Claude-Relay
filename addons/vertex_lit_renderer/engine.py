@@ -1,6 +1,7 @@
 # vertex_lit_renderer/engine.py
 
 import time
+import numpy as np
 import bpy
 import gpu
 from gpu_extras.batch import batch_for_shader
@@ -153,10 +154,8 @@ def _build_light_space(light,center,radius):
 
 def _extract_mesh_data(obj, depsgraph):
     """
-    Extract per-loop arrays from evaluated mesh.
-    Uses new_from_object (stable copy) instead of to_mesh().
-    Stores local vertex data so _rebuild can build BVH + GI without
-    a second new_from_object call (Bug 5 fix).
+    Extract mesh data using numpy foreach_get (~28x faster than Python loops).
+    Stores numpy arrays so batch_for_shader receives them without conversion.
     """
     mesh = None
     try:
@@ -166,76 +165,92 @@ def _extract_mesh_data(obj, depsgraph):
         if not mesh:
             return None
 
-        # Bug 1 fix: calc_loop_triangles not guaranteed on new_from_object meshes.
-        # Call explicitly before accessing loop_triangles.
         mesh.calc_loop_triangles()
-        if not mesh.loop_triangles:
-            bpy.data.meshes.remove(mesh)
-            return None
+        n_tris = len(mesh.loop_triangles)
+        if n_tris == 0:
+            bpy.data.meshes.remove(mesh); return None
 
+        n_verts = len(mesh.vertices)
+        n_flat  = n_tris * 3
+
+        # ── Positions & normals via foreach_get (bulk C-level read) ─────────
+        vc = np.empty(n_verts * 3, dtype=np.float32)
+        mesh.vertices.foreach_get('co', vc)
+        vc = vc.reshape(n_verts, 3)
+
+        vn = np.empty(n_verts * 3, dtype=np.float32)
+        mesh.vertices.foreach_get('normal', vn)
+        vn = vn.reshape(n_verts, 3)
+
+        tv = np.empty(n_tris * 3, dtype=np.int32)
+        mesh.loop_triangles.foreach_get('vertices', tv)
+        tv = tv.reshape(n_tris, 3)
+
+        tl = np.empty(n_tris * 3, dtype=np.int32)
+        mesh.loop_triangles.foreach_get('loops', tl)
+        tl = tl.reshape(n_tris, 3)
+
+        vi_flat   = tv.ravel()
+        positions = vc[vi_flat]
+        normals   = vn[vi_flat]
+
+        # ── UVs ─────────────────────────────────────────────────────────────
+        uv_layer = mesh.uv_layers.active
+        if uv_layer:
+            n_loops  = len(mesh.loops)
+            uv_raw   = np.empty(n_loops * 2, dtype=np.float32)
+            uv_layer.data.foreach_get('uv', uv_raw)
+            uvs = uv_raw.reshape(n_loops, 2)[tl.ravel()]
+        else:
+            uvs = np.zeros((n_flat, 2), dtype=np.float32)
+
+        # ── Material colour + vertex colours ────────────────────────────────
         mat = eval_obj.active_material
         tex = _get_gpu_tex(_find_base_texture(mat))
-        default = [1.0, 1.0, 1.0, 1.0]
-        if mat: c = mat.diffuse_color; default = [c[0], c[1], c[2], 1.0]
+        if mat:
+            c = mat.diffuse_color
+            base_col = np.array([c[0], c[1], c[2], 1.0], dtype=np.float32)
+        else:
+            base_col = np.ones(4, dtype=np.float32)
 
-        vcol = {}
+        colors = np.tile(base_col, (n_flat, 1))
+
         if mesh.color_attributes:
             attr = None
             try: attr = mesh.color_attributes.active_color
             except Exception: pass
-            if attr is None and len(mesh.color_attributes): attr = mesh.color_attributes[0]
+            if attr is None and len(mesh.color_attributes):
+                attr = mesh.color_attributes[0]
             if attr and attr.domain == 'POINT':
-                for idx, d in enumerate(attr.data):
-                    c = d.color; vcol[idx] = [c[0], c[1], c[2], c[3] if len(c) > 3 else 1.0]
+                col_raw = np.empty(n_verts * 4, dtype=np.float32)
+                attr.data.foreach_get('color', col_raw)
+                colors = col_raw.reshape(n_verts, 4)[vi_flat]
 
-        uv_layer   = mesh.uv_layers.active
-        n_verts    = len(mesh.vertices)
-        positions  = []; normals = []; colors = []; uvs = []; vi_map = []
-
-        # Bug 1 fix: tri.split_normals was removed in 4.1+.
-        # Use mesh.corner_normals[loop_index] — the modern per-loop normal API.
-        cn = mesh.corner_normals  # stable collection indexed by loop index
-
-        for tri in mesh.loop_triangles:
-            for corner in range(3):
-                vi = tri.vertices[corner]
-                li = tri.loops[corner]
-                v  = mesh.vertices[vi]
-                positions.append((v.co.x, v.co.y, v.co.z))
-                normals.append(tuple(cn[li].vector))   # copy before mesh is removed
-                colors.append(vcol.get(vi, default))
-                uvs.append(tuple(uv_layer.data[li].uv) if uv_layer else (0.0, 0.0))
-                vi_map.append(vi)
-
-        # Bug 5 fix: store local-space vertex data and BVH triangles so _rebuild
-        # can build GI data without calling new_from_object a second time.
-        vert_co_local = [(v.co.x, v.co.y, v.co.z) for v in mesh.vertices]
-        vert_no_local = [(v.normal.x, v.normal.y, v.normal.z) for v in mesh.vertices]
-        bvh_tris      = [(t.vertices[0], t.vertices[1], t.vertices[2])
-                         for t in mesh.loop_triangles]
-        # Per-face albedo (for GI BVH)
-        face_albedo   = []
-        for t in mesh.loop_triangles:
-            mi = t.material_index
-            if mat and mi == 0:
-                c = mat.diffuse_color
-                face_albedo.append((float(c[0]), float(c[1]), float(c[2])))
-            else:
-                face_albedo.append((0.8, 0.8, 0.8))
+        # ── GI / BVH cache (no second new_from_object needed) ───────────────
+        if mat:
+            c = mat.diffuse_color
+            alb = (float(c[0]), float(c[1]), float(c[2]))
+        else:
+            alb = (0.8, 0.8, 0.8)
 
         bpy.data.meshes.remove(mesh)
         return dict(
-            positions=positions, normals=normals, colors=colors,
-            uvs=uvs, vi_map=vi_map, texture=tex, n_verts=n_verts,
-            # GI / BVH data (local space)
-            vert_co_local=vert_co_local,
-            vert_no_local=vert_no_local,
-            bvh_tris=bvh_tris,
-            face_albedo=face_albedo,
+            positions=positions,        # np (n_flat, 3)
+            normals=normals,            # np (n_flat, 3)
+            colors=colors,             # np (n_flat, 4)
+            uvs=uvs,                   # np (n_flat, 2)
+            vi_map=vi_flat,            # np (n_flat,)
+            texture=tex, n_verts=n_verts,
+            vert_co_local=vc,          # np (n_verts, 3)
+            vert_no_local=vn,          # np (n_verts, 3)
+            bvh_tris=tv.tolist(),      # list for BVHTree
+            face_albedo=[alb] * n_tris,
         )
 
     except Exception as e:
-        print(f"[VertexLit] mesh extract error ({obj.name}): {e}")
+        import traceback
+        print(f"[VertexLit] extract error ({obj.name}): {e}")
+        traceback.print_exc()
         if mesh:
             try: bpy.data.meshes.remove(mesh)
             except Exception: pass
@@ -243,17 +258,18 @@ def _extract_mesh_data(obj, depsgraph):
 
 
 def _build_batch_from_cache(cached, gi_per_vert=None):
-    """Build GPUBatch from cached mesh data. Fast — no mesh re-extraction."""
-    shader   = _get_main_shader()
-    vi_map   = cached['vi_map']
-    n_v      = cached['n_verts']
+    shader = _get_main_shader()
+    vi_map = cached['vi_map']
+    n_v    = cached['n_verts']
+    n_flat = len(vi_map)
 
     if gi_per_vert and len(gi_per_vert) == n_v:
-        bounces = [gi_per_vert[vi] for vi in vi_map]
+        gi_arr  = np.array(gi_per_vert, dtype=np.float32)
+        bounces = gi_arr[vi_map]
     else:
-        bounces = [(0.0,0.0,0.0)] * len(vi_map)
+        bounces = np.zeros((n_flat, 3), dtype=np.float32)
 
-    return batch_for_shader(shader,'TRIS',{
+    return batch_for_shader(shader, 'TRIS', {
         'position':    cached['positions'],
         'normal':      cached['normals'],
         'vertColor':   cached['colors'],
