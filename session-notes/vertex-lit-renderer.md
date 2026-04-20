@@ -84,12 +84,26 @@ Per-object: `vertex_lit_cast_shadow` — if False, excluded from GI BVH (doesn't
   - **Clamp to [0, 1]** bool prop, default ON, commit c62a452. Prevents HDR values above 1.0 from wrapping around in 8-bit exporters (Jak 1 highlights showed multi-colored artifacts without this).
   - **Overbright Scale (Jak/PS2)** bool prop, default ON, commit b75a036. Multiplies baked values by 0.5 before clamping so engines that apply a `×2` overbright multiplier at render time (Jak 1's tfrag3 shader does `fragment_color = stored × 2`) produce output that matches our viewport. Discovered by reading OpenGOAL's tfrag3.vert. Round-trip is exact up to 8-bit quantization for viewport values in [0, 2]; values above 2 clip to Jak's hardware ceiling. When disabled, baked values go through without scaling (for generic GLTF viewers, Three.js, non-overbright Unity targets).
 
+## Abandoned work — viewport color parity with Jak in-game (all scrapped)
+
+Tried to make the viewport render match OpenGOAL's in-game output after the user reported "punchier" / more contrasty colors in-game vs our viewport. Branches `feature/color-matching` and `feature/gamma-space-math` were explored and deleted. The work is in git history if needed (commits 1a31ce2, 04bf0a4, 279fdbc, b80b7c9, c7e2a18) but main is clean.
+
+What was attempted and why each fell short:
+- **Color management matcher operator** (1a31ce2) — button to set View Transform=Standard, Look=None, exp=0, gamma=1 on the scene. This part probably worked but user didn't want the UI clutter for a partial fix.
+- **Retro gamma-space fragment shader path** (04bf0a4, b80b7c9) — tried to multiply light × texture in gamma space instead of linear, to match how PS2-era engines did byte × byte math. First variant crushed shadows to pitch black (over-applied to_linear); second variant gave a "light film" (lifted blacks). Fundamental issue: OpenGOAL's C++ framebuffer setup isn't in the bundle so we don't know whether they use `GL_FRAMEBUFFER_SRGB` or raw RGBA8. Without knowing that, we can't derive the right gamma curve from first principles.
+- **Alpha blend fix** (279fdbc) — forced `outColor.a = 1.0` and explicit `gpu.state.blend_set('NONE')` to stop the cleared world color bleeding through as a grey floor on mesh pixels. This DID fix a real bug (user confirmed "faded is fixed"). If future color work resumes, this fix is worth re-applying as a standalone change — it was correct independent of the gamma stuff.
+- **Luminosity curve slider** (c7e2a18) — exposed `pow(gamma_product, curve)` as a user-dialed exponent 1.0–2.2. Dead-end: user would have to eyeball it per scene and shouldn't have to.
+
+Verdict: the root problem is we're guessing at OpenGOAL's output pipeline without C++ source. Future attempts should either (a) actually fetch OpenGOAL's C++ texture/framebuffer setup code from GitHub before shaping the shader, or (b) take a totally different approach and make the viewport read the baked attribute directly when present (true parity with Blender's solid-view + texture preview).
+
 ## Roadmap (user-expressed interest, not yet scheduled)
 
+- **Hide VertexLit_Baked attribute from our viewport renderer.** When the user bakes GI to vertex colors, the `VertexLit_Baked` attribute can become the mesh's active color attribute, and our shader then uses it as `vertColor` — which visually overlays the bake on top of the live GI, doubling things up and corrupting the preview. Fix: in the vertex-color extraction path in engine.py (~line 326), skip any attribute whose name matches `VertexLit_Baked` (or starts with a reserved prefix) when picking which attribute to feed the shader. Other user-painted attributes should still work. Low-risk, ~3-line change in the color-attribute selection logic.
 - **Soft sun shadows** — jittered direction within cone angle (uses existing `light.angle` prop that COMPAT_ENGINES now exposes). Natural fit for accumulating GI; ~40 lines in `_gi_pass_embree`.
 - **Point-light size for soft shadows** — same jitter technique, sphere sampling. Uses `light.shadow_soft_size`.
 - **Emissive materials** — detect emission on extract (material.emission_color/strength or Principled BSDF's emission), store `gi_face_emission`, include in hemisphere bounce as `albedo * incoming + emission`. Good for large area emitters. Small bright emitters converge slowly without MIS (would need significant rewrite).
 - **Re-evaluate edit-mode pause** — now that numpy extraction is fast, tabbing out of edit may not hitch anymore. Could unpause for a smoother experience. Requires testing.
+- **Viewport color parity with Jak in-game** — revisit with OpenGOAL C++ source in hand. See abandoned-work section above for what didn't work and why.
 
 ## Known not-done
 - GeoNodes named attribute for cast shadow (`vertex_lit_cast_shadow` on Point domain) was attempted but never worked. Object property works fine. Worth revisiting if user asks.
