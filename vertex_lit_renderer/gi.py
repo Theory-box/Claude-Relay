@@ -522,6 +522,7 @@ class ProgressiveGI:
         REL_THRESH   = 0.01 # per-pass variance < 1% of brightness² → converged
 
         while not stop_event.is_set():
+            pass_t0 = time.perf_counter()
             cf = np.zeros((n_total, 3), dtype=np.float64)
             any_active = False
 
@@ -600,9 +601,13 @@ class ProgressiveGI:
                         converged[check_idx[newly_conv]] = True
                     n_conv = int(np.sum(converged))
                     if n_conv > 0 and pass_num % (CHECK_EVERY * 4) == 0:
+                        # Total active this pass = what we actually traced
+                        traced = n_total - n_conv if pass_num > MIN_PASSES else n_total
+                        pass_ms = (time.perf_counter() - pass_t0) * 1000.0
                         print(f"[VertexLit] GI pass {pass_num}: "
                               f"{n_conv}/{n_total} verts converged "
-                              f"({100*n_conv//n_total}%)")
+                              f"({100*n_conv//n_total}%), "
+                              f"traced {traced} verts, pass took {pass_ms:.0f}ms")
 
             # ── Replay for converged verts ───────────────────────────────────
             # Their contribution this pass is their current running average
