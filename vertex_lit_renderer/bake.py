@@ -28,6 +28,16 @@ class VERTEX_LIT_OT_bake_to_vertex_colors(bpy.types.Operator):
         description="Bake only the selected mesh objects. Off = every mesh "
                     "in the scene that has current GI data.",
     )
+    clamp_to_01: bpy.props.BoolProperty(
+        name="Clamp to [0, 1]",
+        default=True,
+        description="Clamp baked values to the 0..1 range. Required when "
+                    "exporting to any 8-bit per-channel format (GLTF, FBX, "
+                    "OBJ, game engines). Without it, HDR values above 1.0 "
+                    "wrap around or clip unpredictably in the exporter, "
+                    "showing up as multi-colored highlights. Turn off only "
+                    "if your target workflow preserves full float range.",
+    )
     include_alpha: bpy.props.BoolProperty(
         name="Alpha = 1",
         default=True,
@@ -93,6 +103,13 @@ class VERTEX_LIT_OT_bake_to_vertex_colors(bpy.types.Operator):
 
             # Per-vertex lit value
             lit = (accum / max(count, 1)) * bounce_str   # (n_verts, 3)
+
+            # Clamp to [0, 1] for 8-bit-per-channel export safety. Without
+            # this, HDR values >1.0 wrap around in exporters that truncate
+            # to uint8 (Jak 1, GLTF without KHR_materials_variants, etc.),
+            # producing multi-colored artifacts in highlights.
+            if self.clamp_to_01:
+                np.clip(lit, 0.0, 1.0, out=lit)
 
             # Build flat RGBA float32 buffer
             flat = np.empty(n_verts * 4, dtype=np.float32)
