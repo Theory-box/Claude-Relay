@@ -92,6 +92,12 @@ class VERTEX_LIT_PT_settings(bpy.types.Panel):
         box.label(text="Lights", icon='LIGHT')
         box.prop(s, 'energy_scale')
 
+        box = layout.box()
+        box.label(text="Bake", icon='RENDER_STILL')
+        box.operator('vertex_lit.bake_to_vertex_colors', icon='VPAINT_HLT')
+        box.label(text="Writes current GI to 'VertexLit_Baked' color attribute",
+                  icon='INFO')
+
 
 
 class VERTEX_LIT_PT_object(bpy.types.Panel):
