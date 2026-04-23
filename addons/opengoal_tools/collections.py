@@ -12,6 +12,7 @@ from .data import ENTITY_DEFS
 _LEVEL_PROP_KEY_MAP = {
     "og_level_name":        "level_name",
     "og_base_id":           "base_id",
+    "og_level_index":       "level_index",
     "og_bottom_height":     "bottom_height",
     "og_vis_nick_override": "vis_nick_override",
     "og_sound_bank_1":      "sound_bank_1",
@@ -54,6 +55,7 @@ _LEVEL_COL_DEFAULTS = {
     "og_is_level":          True,
     "og_level_name":        "my-level",
     "og_base_id":           10000,
+    "og_level_index":       100,
     "og_bottom_height":     -20.0,
     "og_vis_nick_override": "",
     "og_sound_bank_1":      "none",
@@ -330,4 +332,107 @@ def _on_active_level_changed(self, context):
     col = _active_level_col(context.scene)
     if col is not None:
         _set_blender_active_collection(context, col)
+
+
+# ---------------------------------------------------------------------------
+# Level-index and nickname helpers
+# ---------------------------------------------------------------------------
+
+def _next_free_level_index(scene, exclude_col=None):
+    """Return the smallest unused level index >= 100, scanning all level cols.
+
+    `exclude_col` lets callers ignore a specific collection (useful in Edit
+    Level where the current value shouldn't block itself).
+    """
+    used = set()
+    for c in _all_level_collections(scene):
+        if exclude_col is not None and c.name == exclude_col.name:
+            continue
+        idx = c.get("og_level_index", None)
+        if isinstance(idx, int) and idx > 0:
+            used.add(idx)
+    i = 100
+    while i in used:
+        i += 1
+    return i
+
+
+def _level_index_in_use(scene, idx, exclude_col=None):
+    """True if another level collection already uses `idx`."""
+    for c in _all_level_collections(scene):
+        if exclude_col is not None and c.name == exclude_col.name:
+            continue
+        if int(c.get("og_level_index", -1)) == int(idx):
+            return True
+    return False
+
+
+def _resolve_vis_nick(col):
+    """Return the effective 3-letter vis nickname for a level collection.
+
+    Uses og_vis_nick_override if set, else derives from og_level_name.
+    """
+    override = str(col.get("og_vis_nick_override", "") or "").strip().lower()
+    if override:
+        return override
+    name = str(col.get("og_level_name", col.name) or "")
+    return name.replace("-", "")[:3].lower()
+
+
+def _vis_nick_in_use(scene, nick, exclude_col=None):
+    """True if another level collection already resolves to the same nickname."""
+    nick_clean = str(nick or "").strip().lower()
+    if not nick_clean:
+        return False
+    for c in _all_level_collections(scene):
+        if exclude_col is not None and c.name == exclude_col.name:
+            continue
+        if _resolve_vis_nick(c) == nick_clean:
+            return True
+    return False
+
+
+def _suggest_unique_vis_nick(scene, base_name, exclude_col=None):
+    """Suggest a unique 3-char nickname seeded from base_name.
+
+    Tries the plain 3-char trim first, then replaces the last char with 0..9
+    to find a free slot. Returns the first free candidate, or the plain trim
+    if nothing free is found (caller should still validate).
+    """
+    plain = str(base_name or "").replace("-", "")[:3].lower()
+    if not plain:
+        plain = "lvl"
+    if not _vis_nick_in_use(scene, plain, exclude_col=exclude_col):
+        return plain
+    # Append a digit by replacing final character, keeping 3-char length
+    stem = plain[:2] if len(plain) >= 2 else plain
+    for d in range(0, 10):
+        candidate = (stem + str(d))[:3]
+        if not _vis_nick_in_use(scene, candidate, exclude_col=exclude_col):
+            return candidate
+    return plain
+
+
+def _ensure_level_index(scene, col):
+    """Lazy migration: if col lacks og_level_index, assign next free index.
+
+    Called when an old level (pre-fix) is first accessed so existing files
+    don't all collide on the hardcoded default.
+    """
+    if col is None:
+        return
+    idx = col.get("og_level_index", None)
+    if not isinstance(idx, int) or idx <= 0:
+        col["og_level_index"] = _next_free_level_index(scene, exclude_col=col)
+
+
+def _migrate_all_level_indices(scene):
+    """Walk every level collection and assign og_level_index where missing.
+
+    Ensures multi-level .blend files created before this field existed don't
+    all collide on the same default value. Safe to call repeatedly — only
+    touches collections that have no valid index set.
+    """
+    for c in _all_level_collections(scene):
+        _ensure_level_index(scene, c)
 

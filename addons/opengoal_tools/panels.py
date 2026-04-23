@@ -84,6 +84,9 @@ class OG_PT_Level(Panel):
         # ── Level info (compact) ──────────────────────────────────────────
         name = str(level_col.get("og_level_name", ""))
         base_id = int(level_col.get("og_base_id", 10000))
+        lindex = int(level_col.get("og_level_index", 100))
+        vnick_over = str(level_col.get("og_vis_nick_override", "") or "").strip()
+        vnick_eff  = vnick_over if vnick_over else _nick(name)
         if name:
             name_clean = name.lower().replace(" ", "-")
             if len(name_clean) > 10:
@@ -93,7 +96,7 @@ class OG_PT_Level(Panel):
             else:
                 row = layout.row()
                 row.enabled = False
-                row.label(text=f"ID: {base_id}   ISO: {_iso(name)}   Nick: {_nick(name)}")
+                row.label(text=f"ID: {base_id}   Idx: {lindex}   ISO: {_iso(name)}   Nick: {vnick_eff}")
 
         layout.separator(factor=0.4)
 

@@ -271,6 +271,8 @@ class OGProperties(PropertyGroup):
     )
     base_id:     IntProperty(name="Base Actor ID", default=10000, min=1000, max=60000,
                              description="Starting actor ID for this level. Must be unique across all custom levels to avoid ghost entity spawns.")
+    level_index: IntProperty(name="Level Index", default=100, min=1, max=10000,
+                             description="Unique level-load-info :index value. Must not collide with vanilla levels or other custom levels. Safe range: 100+.")
     lightbake_samples: IntProperty(name="Sample Count", default=128, min=1, max=4096,
                                    description="Number of Cycles render samples used when baking lighting to vertex colors")
     # Audio

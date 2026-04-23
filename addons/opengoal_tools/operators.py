@@ -32,6 +32,9 @@ from .collections import (
     _COL_PATH_SPAWNABLE_NPCS, _COL_PATH_SPAWNABLE_PICKUPS,
     _COL_PATH_GEO_SOLID, _COL_PATH_WATER,
     _set_blender_active_collection, _LEVEL_COL_DEFAULTS,
+    _next_free_level_index, _level_index_in_use,
+    _vis_nick_in_use, _suggest_unique_vis_nick, _resolve_vis_nick,
+    _ensure_level_index, _migrate_all_level_indices,
 )
 from .export import (
     _nick, _iso, _lname, _ldir, _goal_src, _level_info, _game_gp,
@@ -69,14 +72,20 @@ class OG_OT_CreateLevel(Operator):
                                description="Name for the new level (lowercase, dashes)")
     base_id:    IntProperty(name="Base Actor ID", default=10000, min=1000, max=60000,
                             description="Starting actor ID — must be unique per level")
+    level_index: IntProperty(name="Level Index", default=100, min=1, max=10000,
+                             description="Unique level-load-info :index. Must not collide with vanilla or other custom levels. Safe range: 100+")
+    vis_nick:   StringProperty(name="Vis Nickname", default="",
+                               description="3-letter nickname used for DGO/vis files. Auto-suggested from name; must be unique across levels")
 
     def invoke(self, ctx, event):
-        # Auto-increment base_id if other levels exist
+        # Auto-increment base_id + level_index from existing levels, suggest unique nick
         levels = _all_level_collections(ctx.scene)
         if levels:
             max_id = max(c.get("og_base_id", 10000) for c in levels)
             self.base_id = max_id + 1000
             self.level_name = "new-level"
+        self.level_index = _next_free_level_index(ctx.scene)
+        self.vis_nick = _suggest_unique_vis_nick(ctx.scene, self.level_name)
         return ctx.window_manager.invoke_props_dialog(self)
 
     def execute(self, ctx):
@@ -94,6 +103,23 @@ class OG_OT_CreateLevel(Operator):
                 self.report({"ERROR"}, f"A level named '{name}' already exists")
                 return {"CANCELLED"}
 
+        # Check for duplicate level index
+        if _level_index_in_use(ctx.scene, self.level_index):
+            self.report({"ERROR"}, f"Level index {self.level_index} is already in use by another level")
+            return {"CANCELLED"}
+
+        # Validate + check vis nickname uniqueness
+        nick_clean = self.vis_nick.strip().lower()
+        # Allow empty → auto-resolve (but we've already suggested one; if user cleared it, regenerate)
+        if not nick_clean:
+            nick_clean = _suggest_unique_vis_nick(ctx.scene, name)
+        if len(nick_clean) > 3:
+            self.report({"ERROR"}, f"Vis nickname '{nick_clean}' must be 3 characters or fewer")
+            return {"CANCELLED"}
+        if _vis_nick_in_use(ctx.scene, nick_clean):
+            self.report({"ERROR"}, f"Vis nickname '{nick_clean}' is already used by another level")
+            return {"CANCELLED"}
+
         # Create the level collection
         col = bpy.data.collections.new(name)
         ctx.scene.collection.children.link(col)
@@ -102,8 +128,9 @@ class OG_OT_CreateLevel(Operator):
         col["og_is_level"]          = True
         col["og_level_name"]        = name
         col["og_base_id"]           = self.base_id
+        col["og_level_index"]       = self.level_index
         col["og_bottom_height"]     = -20.0
-        col["og_vis_nick_override"] = ""
+        col["og_vis_nick_override"] = nick_clean
         col["og_sound_bank_1"]      = "none"
         col["og_sound_bank_2"]      = "none"
         col["og_music_bank"]        = "none"
@@ -112,8 +139,8 @@ class OG_OT_CreateLevel(Operator):
         ctx.scene.og_props.active_level = col.name
         _set_blender_active_collection(ctx, col)
 
-        self.report({"INFO"}, f"Created level '{name}' (base ID {self.base_id})")
-        log(f"[collections] Created level collection '{name}' base_id={self.base_id}")
+        self.report({"INFO"}, f"Created level '{name}' (base ID {self.base_id}, index {self.level_index}, nick '{nick_clean}')")
+        log(f"[collections] Created level collection '{name}' base_id={self.base_id} index={self.level_index} nick={nick_clean}")
         return {"FINISHED"}
 
 
@@ -128,13 +155,19 @@ class OG_OT_AssignCollectionAsLevel(Operator):
     level_name: StringProperty(name="Level Name", default="my-level",
                                description="Level name (max 10 chars, lowercase with dashes)")
     base_id:    IntProperty(name="Base Actor ID", default=10000, min=1000, max=60000)
+    level_index: IntProperty(name="Level Index", default=100, min=1, max=10000,
+                             description="Unique level-load-info :index. Must not collide with vanilla or other custom levels. Safe range: 100+")
+    vis_nick:   StringProperty(name="Vis Nickname", default="",
+                               description="3-letter nickname used for DGO/vis files. Auto-suggested from name; must be unique across levels")
 
     def invoke(self, ctx, event):
-        # Auto-increment base_id
+        # Auto-increment base_id + level_index, suggest unique nick
         levels = _all_level_collections(ctx.scene)
         if levels:
             max_id = max(c.get("og_base_id", 10000) for c in levels)
             self.base_id = max_id + 1000
+        self.level_index = _next_free_level_index(ctx.scene)
+        self.vis_nick = _suggest_unique_vis_nick(ctx.scene, self.level_name)
         return ctx.window_manager.invoke_props_dialog(self)
 
     def draw(self, ctx):
@@ -142,6 +175,8 @@ class OG_OT_AssignCollectionAsLevel(Operator):
         layout.prop_search(self, "col_name", bpy.data, "collections", text="Collection")
         layout.prop(self, "level_name")
         layout.prop(self, "base_id")
+        layout.prop(self, "level_index")
+        layout.prop(self, "vis_nick")
 
     def execute(self, ctx):
         if not self.col_name:
@@ -163,6 +198,22 @@ class OG_OT_AssignCollectionAsLevel(Operator):
             if c.get("og_level_name", "") == name:
                 self.report({"ERROR"}, f"A level named '{name}' already exists"); return {"CANCELLED"}
 
+        # Check for duplicate level index
+        if _level_index_in_use(ctx.scene, self.level_index):
+            self.report({"ERROR"}, f"Level index {self.level_index} is already in use by another level")
+            return {"CANCELLED"}
+
+        # Validate + check vis nickname uniqueness
+        nick_clean = self.vis_nick.strip().lower()
+        if not nick_clean:
+            nick_clean = _suggest_unique_vis_nick(ctx.scene, name)
+        if len(nick_clean) > 3:
+            self.report({"ERROR"}, f"Vis nickname '{nick_clean}' must be 3 characters or fewer")
+            return {"CANCELLED"}
+        if _vis_nick_in_use(ctx.scene, nick_clean):
+            self.report({"ERROR"}, f"Vis nickname '{nick_clean}' is already used by another level")
+            return {"CANCELLED"}
+
         # Ensure collection is a direct child of the scene collection
         if col.name not in [c.name for c in ctx.scene.collection.children]:
             # It might be nested — link to scene root
@@ -172,8 +223,9 @@ class OG_OT_AssignCollectionAsLevel(Operator):
         col["og_is_level"]          = True
         col["og_level_name"]        = name
         col["og_base_id"]           = self.base_id
+        col["og_level_index"]       = self.level_index
         col["og_bottom_height"]     = -20.0
-        col["og_vis_nick_override"] = ""
+        col["og_vis_nick_override"] = nick_clean
         col["og_sound_bank_1"]      = "none"
         col["og_sound_bank_2"]      = "none"
         col["og_music_bank"]        = "none"
@@ -182,8 +234,8 @@ class OG_OT_AssignCollectionAsLevel(Operator):
         ctx.scene.og_props.active_level = col.name
         _set_blender_active_collection(ctx, col)
 
-        self.report({"INFO"}, f"Assigned '{self.col_name}' as level '{name}'")
-        log(f"[collections] Assigned existing collection '{self.col_name}' as level '{name}'")
+        self.report({"INFO"}, f"Assigned '{self.col_name}' as level '{name}' (index {self.level_index}, nick '{nick_clean}')")
+        log(f"[collections] Assigned existing collection '{self.col_name}' as level '{name}' index={self.level_index} nick={nick_clean}")
         return {"FINISHED"}
 
 
@@ -397,13 +449,17 @@ class OG_OT_SelectLevelCollection(Operator):
 
 
 class OG_OT_EditLevel(Operator):
-    """Edit the active level's name, base actor ID, and death plane."""
+    """Edit the active level's name, base actor ID, level index, nickname, and death plane."""
     bl_idname   = "og.edit_level"
     bl_label    = "Edit Level Settings"
     bl_options  = {"REGISTER", "UNDO"}
 
     level_name:   StringProperty(name="Level Name", default="")
     base_id:      IntProperty(name="Base Actor ID", default=10000, min=1000, max=60000)
+    level_index:  IntProperty(name="Level Index", default=100, min=1, max=10000,
+                              description="Unique level-load-info :index. Must not collide with vanilla or other custom levels. Safe range: 100+")
+    vis_nick:     StringProperty(name="Vis Nickname", default="",
+                                 description="3-letter nickname used for DGO/vis files. Must be unique across levels")
     bottom_height: FloatProperty(name="Death Plane (m)", default=-20.0, min=-500.0, max=-1.0,
                                  description="Y height below which the player gets an endlessfall death")
 
@@ -411,8 +467,12 @@ class OG_OT_EditLevel(Operator):
         col = _active_level_col(ctx.scene)
         if col is None:
             self.report({"ERROR"}, "No active level"); return {"CANCELLED"}
+        # Lazy-migrate every level missing og_level_index so collision checks see real values
+        _migrate_all_level_indices(ctx.scene)
         self.level_name    = str(col.get("og_level_name", col.name))
         self.base_id       = int(col.get("og_base_id", 10000))
+        self.level_index   = int(col.get("og_level_index", 100))
+        self.vis_nick      = str(col.get("og_vis_nick_override", "") or "")
         self.bottom_height = float(col.get("og_bottom_height", -20.0))
         return ctx.window_manager.invoke_props_dialog(self)
 
@@ -429,13 +489,33 @@ class OG_OT_EditLevel(Operator):
         for c in _all_level_collections(ctx.scene):
             if c.name != col.name and c.get("og_level_name", "") == name:
                 self.report({"ERROR"}, f"A level named '{name}' already exists"); return {"CANCELLED"}
-        col["og_level_name"]    = name
-        col["og_base_id"]       = self.base_id
-        col["og_bottom_height"] = max(-500.0, min(-1.0, self.bottom_height))
+
+        # Check for duplicate level index (excluding self)
+        if _level_index_in_use(ctx.scene, self.level_index, exclude_col=col):
+            self.report({"ERROR"}, f"Level index {self.level_index} is already in use by another level")
+            return {"CANCELLED"}
+
+        # Validate + check vis nickname uniqueness (excluding self)
+        nick_clean = self.vis_nick.strip().lower()
+        # Empty → auto-suggest based on name (respecting existing-self identity)
+        if not nick_clean:
+            nick_clean = _suggest_unique_vis_nick(ctx.scene, name, exclude_col=col)
+        if len(nick_clean) > 3:
+            self.report({"ERROR"}, f"Vis nickname '{nick_clean}' must be 3 characters or fewer")
+            return {"CANCELLED"}
+        if _vis_nick_in_use(ctx.scene, nick_clean, exclude_col=col):
+            self.report({"ERROR"}, f"Vis nickname '{nick_clean}' is already used by another level")
+            return {"CANCELLED"}
+
+        col["og_level_name"]        = name
+        col["og_base_id"]           = self.base_id
+        col["og_level_index"]       = self.level_index
+        col["og_vis_nick_override"] = nick_clean
+        col["og_bottom_height"]     = max(-500.0, min(-1.0, self.bottom_height))
         col.name = name  # Keep collection name in sync
         # Update active_level reference since collection name changed
         ctx.scene.og_props.active_level = col.name
-        self.report({"INFO"}, f"Level updated: '{name}' (ID {self.base_id})")
+        self.report({"INFO"}, f"Level updated: '{name}' (ID {self.base_id}, index {self.level_index}, nick '{nick_clean}')")
         return {"FINISHED"}
 
 

@@ -20,6 +20,7 @@ from .collections import (
     _get_level_prop, _level_objects,
     _active_level_col, _classify_object, _col_path_for_entity,
     _ensure_sub_collection, _recursive_col_objects,
+    _ensure_level_index, _migrate_all_level_indices,
     _COL_PATH_WAYPOINTS, _COL_PATH_NAVMESHES,
 )
 
@@ -2361,6 +2362,8 @@ def patch_level_info(name, spawns, scene=None):
     if not p.exists(): log(f"WARNING: {p} not found"); return
     # Audio settings from scene props (if scene provided)
     if scene is not None:
+        # Lazy-migrate: give any old levels missing og_level_index a unique value
+        _migrate_all_level_indices(scene)
         _bank      = str(_get_level_prop(scene, "og_music_bank",    "none") or "none")
         _music_val = f"'{_bank}" if _bank and _bank != "none" else "#f"
         _sb1       = str(_get_level_prop(scene, "og_sound_bank_1",  "none") or "none")
@@ -2371,11 +2374,13 @@ def patch_level_info(name, spawns, scene=None):
         _bot_h     = float(_get_level_prop(scene, "og_bottom_height", -20.0))
         _vis_ov    = str(_get_level_prop(scene, "og_vis_nick_override", "") or "").strip()
         _vnick     = _vis_ov if _vis_ov else _nick(name)
+        _lindex    = int(_get_level_prop(scene, "og_level_index", 100))
     else:
         _music_val = "#f"
         _sbanks_val = "'()"
         _bot_h   = -20.0
         _vnick   = _nick(name)
+        _lindex  = 100
 
     # ── Auto-compute bsphere from spawn positions ────────────────────────────
     # Centre = mean of all spawn XZ positions, Y = mean spawn Y + 2m.
@@ -2403,7 +2408,7 @@ def patch_level_info(name, spawns, scene=None):
 
     block = (f"\n(define {name}\n"
              f"  (new 'static 'level-load-info\n"
-             f"       :index 27\n"
+             f"       :index {_lindex}\n"
              f"       :name '{name}\n"
              f"       :visname '{name}-vis\n"
              f"       :nickname '{_vnick}\n"
