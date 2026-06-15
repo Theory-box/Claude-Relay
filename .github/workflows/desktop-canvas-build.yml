@@ -1,0 +1,22 @@
+name: desktop-canvas-build
+on:
+  push:
+    branches: [feature/desktop-canvas]
+    paths:
+      - 'desktop-canvas/**'
+      - '.github/workflows/desktop-canvas-build.yml'
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build (release)
+        working-directory: desktop-canvas/src-tauri
+        run: cargo build --release
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-canvas-windows
+          path: desktop-canvas/src-tauri/target/release/desktop-canvas.exe
+          if-no-files-found: error
