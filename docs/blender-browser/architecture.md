@@ -433,3 +433,41 @@ extensions.blender.org distribution requirements. Implications:
   single-user, self-controlled surface makes manual updates acceptable.
 - **Unchanged:** Option 3 architecture, CEF engine, full-frame re-upload, zero-copy
   walled off, Phase 1a/1b split. The scope change only relaxes packaging/distribution.
+
+---
+
+## 15. Session 5 — Phase 1a benchmark results & decision
+
+Ran on owner's machine: **Blender 4.4.3, OpenGL backend.**
+
+| res   | dtype | upload ms | frame ms | fps  |
+|-------|-------|-----------|----------|------|
+| 1080p | FLOAT | 10.71     | 10.71    | 93.4 |
+| 1440p | FLOAT | 21.75     | 25.72    | 38.9 |
+| 4K    | FLOAT | 85.46     | 80.82    | 12.4 |
+
+**Key finding — dtype fell back to FLOAT.** 4.4's `GPUTexture(format='RGBA8',
+data=Buffer)` rejected UBYTE, so every frame ships 4× the bytes (132 MB vs 33 MB at
+4K) *plus* a per-frame CPU uint8→float32 normalize. The superlinear scaling (4× pixels
+→ ~7.5× frame time) is consistent with conversion + bandwidth dominating, not fixed
+overhead — i.e. the FLOAT requirement is inflating these numbers, the wall is partly
+self-imposed.
+
+**Viability (worst-case FLOAT path):** 1080p comfortable (93 fps), 1440p fine for
+browsing/scrolling but not smooth video (39 fps), 4K not viable (12 fps).
+
+**Decisions:**
+- **Phase 1b is NOT blocked.** A browser *panel* renders at its editor-area pixel size
+  — typically ≤1080p, sometimes 1440p — where there's already headroom.
+- **Resolution strategy (locked):** render the page at the browser area's actual pixel
+  size (native DPI), soft-cap ~1440p, offer half-rate frames for video at larger sizes.
+  Do NOT target true-4K/60.
+- **Optimization track (optional, not a gate):** confirm whether a UBYTE / integer-
+  texture path (`RGBA8UI` + in-shader normalize) is reachable in 4.4. If so it removes
+  the float conversion and cuts upload bandwidth 4×, plausibly lifting 1440p past 60 and
+  4K to marginal. Benchmark v2 would split conversion-vs-upload time, preallocate to kill
+  per-frame numpy alloc, and capture the UBYTE rejection reason.
+- **CEF-pipeline note:** CEF `OnPaint` returns BGRA UBYTE. Do the BGRA→RGBA channel swap
+  **in the shader** (free), never on CPU. If FLOAT stays mandatory, the byte→float
+  normalize is the one unavoidable recurring CPU cost — the main reason to chase the
+  UBYTE/integer path.

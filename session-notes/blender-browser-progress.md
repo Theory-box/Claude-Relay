@@ -84,3 +84,13 @@
   set up once; no 150MB bundle needed. §9.1 tilts toward cefpython3 for the real build,
   not just the spike. C++ CEF kept as fallback.
 - Recorded as architecture.md §14. Architecture/engine/Phase plan all unchanged.
+
+## Session 5 (Phase 1a results)
+- Ran benchmark: Blender 4.4.3 / OpenGL. 1080p 93fps, 1440p 39fps, 4K 12fps — all FLOAT.
+- KEY: UBYTE upload rejected → forced FLOAT (4× bytes + per-frame CPU normalize),
+  inflating cost. Superlinear scaling confirms conversion+bandwidth dominate.
+- DECISION: Phase 1b not blocked. Render at browser-area pixel size, soft-cap ~1440p,
+  half-rate video at larger sizes. No true-4K/60.
+- OPT TRACK: probe UBYTE/RGBA8UI + in-shader normalize (benchmark v2) — could lift cap.
+- CEF note: do BGRA→RGBA swap in shader; FLOAT normalize is the only forced CPU cost.
+- Recorded as architecture.md §15.
