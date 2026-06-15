@@ -471,3 +471,48 @@ browsing/scrolling but not smooth video (39 fps), 4K not viable (12 fps).
   **in the shader** (free), never on CPU. If FLOAT stays mandatory, the byte→float
   normalize is the one unavoidable recurring CPU cost — the main reason to chase the
   UBYTE/integer path.
+
+---
+
+## 16. Session 6 — engine staleness resolved (corrects §14); OS = Windows
+
+Instance B flagged, and this confirms independently: **cefpython3 is frozen on Chromium
+66 (2018) and unmaintained.** Current **CEF = 143.0.13 / Chromium 143.0.7499.170 (Dec
+2025)**, actively maintained (BSD), with off-screen rendering as a first-class CEF use
+case; CefSharp ships even newer (147, May 2026). So a *modern* Chromium engine is
+available — just not via any maintained **Python** binding.
+
+**This corrects §14.** §14 leaned toward cefpython3 for the REAL build on packaging
+convenience and missed the Chromium-66 fidelity/security cost. Since "modern web" is the
+whole point, that tradeoff flips. §14's convenience argument now applies ONLY to the
+throwaway spike.
+
+**Engine decision (locked, pending owner confirm):**
+- **Spike (Phase 1b) = cefpython3.** Chromium 66 renders well enough to prove
+  OSR → SHM → GPUTexture → input. Page fidelity is irrelevant to proving the pipe, and
+  cefpython is the fastest route on Windows (both sides Python).
+- **Real build = native C++ CEF (current Chromium 143/147).** The only way to meet the
+  "modern web" requirement on Python-hosted Blender. **The architecture is engine-
+  agnostic** — the helper sits behind the SHM + socket boundary, so swapping
+  cefpython → C++ CEF touches ZERO Blender-side code. Keep the SHM/socket contract
+  language-neutral (it already is).
+- **Alternative for owner to weigh:** an **Electron** helper (current Chromium, JS/Node,
+  no C++ build) using offscreen rendering (`paint` raw frames + `sendInputEvent`). Avoids
+  C++ at the cost of a heavier runtime; OSR API to be verified (task B-4a). Same Option-3
+  architecture.
+- **NOT recommended:** cefpython-only real build (ships Chromium-66 breakage + security
+  liability for live browsing).
+
+**OS = Windows (RESOLVED).** B finalized Windows specifics:
+- *Keyboard:* portable VK table = `windows_key_code`; `native_key_code = 0` for v1; text
+  via `event.unicode` → CEF CHAR event; no IME in v1.
+- *Clipboard:* use `bpy.context.window_manager.clipboard` both directions; no pywin32;
+  text-only v1.
+- *Shared memory:* **Blender add-on creates and OWNS** the
+  `multiprocessing.shared_memory` segment (survives helper restarts); **helper attaches
+  by name** (uuid-named, passed as launch arg). Windows frees the mapping when the last
+  handle closes — no manual unlink, but Blender must hold the reference for the session.
+  A future C++ helper opens the same name via `OpenFileMapping`/`MapViewOfFile`.
+
+**Phase 1b is NOT gated by the engine decision** (the spike uses cefpython regardless).
+Remaining gate: **A-1** — run `phase1a_upload_benchmark_v2.py` to lock the upload path.

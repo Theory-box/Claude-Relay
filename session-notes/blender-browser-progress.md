@@ -130,3 +130,20 @@
   CEF = 143 (Dec 2025). Revises §14: cefpython OK for the Phase 1b SPIKE, but the
   REAL build should be native C++ CEF (current Chromium) to meet the "modern web"
   requirement. Architecture unaffected. Owner/A to confirm.
+
+## Session 6 (Instance A: engine resolution + B integration)
+- Confirmed B's finding: cefpython3 = Chromium 66 (2018), unmaintained. Current CEF =
+  143/Chromium 143 (Dec 2025), maintained, OSR-first. Corrects §14.
+- ENGINE DECISION (owner-pending): cefpython for SPIKE only; native C++ CEF (current)
+  for REAL build. Architecture engine-agnostic behind SHM+socket → zero Blender rework.
+  Alt for owner: Electron OSR (modern Chromium, no C++, heavier). NOT cefpython-only.
+- OS = Windows (resolved by owner via B). Adopted B's Windows key/clipboard/SHM specs
+  (Blender owns SHM, helper attaches by name; wm.clipboard; VK table + Unicode CHAR).
+- Recorded as architecture.md §16.
+- A-2 (SHM naming/watchdog) answered by B's Windows scheme; A-3 folded into scaffold.
+- Phase 1b unblocked except A-1 (owner runs benchmark v2) to lock upload path.
+
+## New tasks queued for Instance B (in handoff)
+- B-4: real-build helper bring-up notes for chosen engine (gated on owner engine confirm).
+- B-4a: verify Electron offscreen-rendering API (paint raw frames, GPU vs software OSR,
+  sendInputEvent, clipboard) so owner can choose C++ CEF vs Electron fully informed.

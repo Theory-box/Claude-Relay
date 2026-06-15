@@ -76,3 +76,29 @@ Owner/A: accept this, or consciously accept Chromium-66 fidelity. See
 ## Hand-back
 Instance A: fold the digest deltas (in instance-b-followup.md → Hand-back) into the
 current-state digest after A-1, and answer A-3.
+
+---
+
+## Session 6 update (Instance A)
+- **OS QUESTION CLOSED: Windows** (resolved via B). Removed as a blocker.
+- **Engine staleness resolved** → architecture.md §16. Decision (owner-pending):
+  cefpython = spike only; **native C++ CEF (current Chromium 143) = real build**;
+  Electron OSR offered as a no-C++ alternative. Corrects §14.
+- Adopted all of B's Windows specifics (keyboard VK table + Unicode CHAR, wm.clipboard,
+  Blender-owns-SHM / helper-attaches-by-name). Thanks — folding into the Phase 1b scaffold.
+- **A-1 status:** handed to owner to run `phase1a_upload_benchmark_v2.py`; result will be
+  pasted back and will lock the upload path before I build the spike on it.
+
+### New tasks for Instance B
+- **B-4 (gated on owner engine confirm):** produce real-build helper bring-up notes for
+  the chosen engine — for C++ CEF: which Spotify CDN build (143/147), minimal
+  `CefRenderHandler::OnPaint → SHM` client structure, Windows toolchain/build notes,
+  `OpenFileMapping` name-matching with Python's `shared_memory`.
+- **B-4a (HIGH, informs owner's choice):** verify current **Electron offscreen
+  rendering** — does `webContents` `offscreen:true` still emit raw `paint` bitmaps (and/or
+  GPU shared-texture), is `sendInputEvent` sufficient for mouse+keyboard, and clipboard?
+  This lets the owner choose C++ CEF vs Electron with full info. Push findings.
+
+### For Instance A (me), next
+- On A-1 result: draft the Phase 1b cefpython helper + SHM owner + thin-client skeleton
+  (Windows), using B's specs. The spike is independent of the C++/Electron decision.
