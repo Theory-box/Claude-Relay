@@ -630,3 +630,37 @@ not BGRA bytes) and the scaffold to match before running the spike.**
 is free, browsing is browser-like, and fullscreen video is bounded/tunable (cap render res
 to 1080p and/or video to half-rate). Proceed toward the spike with the helper-side-convert
 refinement folded in.
+
+---
+
+## 19. Install UX — owner wants "install add-on, good to go" (Session 10)
+
+Owner doesn't want manual setup. Important distinction:
+
+**The manual venv + path-editing is a SPIKE shortcut, not the product.** It exists only to
+prove the pipe fast. The shipped add-on is install-and-go.
+
+**Why a separate runtime exists at all (can't be eliminated):** the browser engine cannot
+run inside Blender's Python 3.11 (cefpython = Chromium-66/no-3.11; C++ CEF is a separate
+process by nature). So there is ALWAYS a companion helper process. "Install and go" is
+achieved by **bundling that helper inside the add-on**, not by removing it.
+
+**Packaging plan (both builds):**
+- Add-on auto-discovers the helper from its own folder via `__file__` (done in the
+  scaffold now) — no hand-edited paths.
+- **Real build (C++ CEF):** ships the helper as a bundled `.exe` + CEF runtime inside the
+  add-on zip. **No Python venv at all.** Install the add-on → it launches its own bundled
+  exe. This is the most install-and-go of the two.
+- **Spike (cefpython):** to make it click-and-go, bundle an embeddable Python 3.10 +
+  cefpython3 + numpy under `<addon>/runtime/`. Then install = unzip add-on. Cost: a large
+  zip (~150 MB) and a one-time assembly step on our side.
+
+**The one unavoidable fact:** ~100–150 MB of Chromium has to exist on disk once — that's
+the size of shipping a browser engine. It can be bundled (zero runtime download) or
+auto-fetched on first enable, but it can't be zero bytes. After that, RAM/CPU is
+browser-like (§18).
+
+**Net:** final experience = install one add-on zip, enable, go. The only open choice is
+spike packaging: (a) bundle the runtime into the zip (heavier zip, true one-click), or
+(b) a one-time auto-setup on first enable (smaller zip, ~1 min first-run install). Either
+removes ALL manual command-line / path work.

@@ -20,9 +20,16 @@ import numpy as np
 import bpy, gpu
 from gpu_extras.batch import batch_for_shader
 
-# --- EDIT THESE ---------------------------------------------------------------
-HELPER_PY = r"C:\path\to\cef-venv\Scripts\python.exe"
-HELPER_SCRIPT = r"C:\path\to\helper_cefpython.py"
+# --- Auto-discovered when installed as an add-on (no manual path editing) ------
+# The helper script and a bundled Python runtime live inside the add-on folder.
+# (If you run this from the Text Editor instead of installing it, __file__ may be
+#  unset — only then set ADDON_DIR by hand below.)
+try:
+    ADDON_DIR = os.path.dirname(os.path.abspath(__file__))
+except NameError:
+    ADDON_DIR = r"C:\path\to\this\addon\folder"   # ONLY needed if run from Text Editor
+HELPER_SCRIPT = os.path.join(ADDON_DIR, "helper_cefpython.py")
+HELPER_PY = os.path.join(ADDON_DIR, "runtime", "Scripts", "python.exe")  # bundled runtime
 START_URL = "https://example.com"
 WIDTH, HEIGHT = 1280, 720          # fixed for the spike; <=1080p stays >60fps (see §17)
 PORT = 8765

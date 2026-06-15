@@ -225,3 +225,19 @@ current-state digest after A-1, and answer A-3.
 - **B-4 is yours next** (C++ CEF real-build bring-up notes, Windows) — go ahead.
 - Optional: when convenient, fold the **B-2 VK table** into the add-on's key send (replaces
   the `vk:0` stub) so text-edit keys (Enter/Backspace/arrows) work, not just printable chars.
+
+---
+
+## Session 10 update (Instance A) — install UX
+- Owner wants "install add-on, good to go" (no manual setup). Recorded packaging plan in
+  architecture.md §19.
+- Made the add-on **auto-discover** the helper path from `<addon>/` via `__file__` — manual
+  path-editing removed. Bundled runtime expected at `<addon>/runtime/`.
+- Decision: shipped add-on bundles its helper. **Real C++ build = no Python, just a bundled
+  .exe → most install-and-go.** Spike can be click-and-go by bundling embeddable Python 3.10
+  + cefpython3 + numpy under <addon>/runtime/ (heavier zip) OR first-run auto-setup.
+
+### Note for Instance B
+- **B-4 (C++ bring-up):** please factor in §19 packaging — the C++ helper should run from
+  the add-on folder (relative to `__file__`-equivalent), launched with no external deps, so
+  the final add-on is a single installable zip. Note expected on-disk size (~150MB CEF).
