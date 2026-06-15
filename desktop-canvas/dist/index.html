@@ -2,15 +2,26 @@
 <html><head><meta charset="utf-8"><title>Desktop Canvas</title>
 <style>
  html,body{margin:0;height:100%;background:#15161a;overflow:hidden;}
- #err{position:fixed;top:0;left:0;right:0;max-height:40%;overflow:auto;padding:10px 14px;background:#3a1d1d;color:#ffd7d7;font:12px/1.45 ui-monospace,Consolas,monospace;white-space:pre-wrap;display:none;z-index:10;}
+ #err{position:fixed;top:0;left:0;right:0;max-height:40%;overflow:auto;padding:10px 14px;background:#3a1d1d;color:#ffd7d7;font:12px/1.45 ui-monospace,Consolas,monospace;white-space:pre-wrap;display:none;z-index:20;}
  #hud{position:fixed;left:14px;bottom:12px;color:#6b6f7a;font:12px system-ui,"Segoe UI",sans-serif;z-index:5;pointer-events:none;letter-spacing:.03em;}
  #diag{position:fixed;right:12px;bottom:12px;color:#52555e;font:11px ui-monospace,Consolas,monospace;z-index:5;pointer-events:none;}
+ #menu{position:fixed;display:none;z-index:30;min-width:168px;background:#1f2229;border:1px solid #353a45;border-radius:8px;padding:5px;box-shadow:0 8px 24px rgba(0,0,0,.5);font:13px system-ui,"Segoe UI",sans-serif;}
+ #menu button{display:block;width:100%;text-align:left;background:none;border:0;color:#d4d7df;padding:8px 12px;border-radius:5px;cursor:pointer;}
+ #menu button:hover{background:#2c313c;}
+ #menu .sep{height:1px;background:#353a45;margin:5px 6px;}
+ #menu .danger:hover{background:#3a2326;color:#ffb0b0;}
  canvas{display:block;}
 </style></head>
 <body>
  <div id="err"></div>
- <div id="hud">Desktop Canvas v0.0.7 &middot; drop a file &middot; drag or two-finger scroll to pan &middot; pinch or Ctrl+scroll to zoom &middot; Esc to quit</div>
+ <div id="hud">Desktop Canvas v0.0.8 &middot; drop a file &middot; drag/scroll to pan &middot; Ctrl+scroll to zoom &middot; double-click to open &middot; right-click for menu &middot; Esc to quit</div>
  <div id="diag"></div>
+ <div id="menu">
+   <button data-act="open">Open</button>
+   <button data-act="folder">Open folder</button>
+   <div class="sep"></div>
+   <button data-act="remove" class="danger">Remove from canvas</button>
+ </div>
  <script src="pixi.min.js"></script>
  <script>
  function showErr(m){ var e=document.getElementById('err'); e.style.display='block'; e.textContent += m + "\n"; }
@@ -37,12 +48,30 @@
 
      var items = [];
      var cards = [];
+     var thumbCache = {};
      var panning = false, last = null, dragTarget = null, dragOff = null;
-     var reloadPending = false;
-     var wheelCount = 0;
+     var reloadPending = false, wheelCount = 0;
+     var IMG = /\.(png|jpe?g|gif|webp|bmp|svg)$/i;
+
+     function isImage(n){ return IMG.test(n || ''); }
+
+     function loadTexture(url){
+       if (PIXI.Assets && PIXI.Assets.load) return PIXI.Assets.load(url);
+       return new Promise(function(res, rej){
+         var t = PIXI.Texture.from(url);
+         if (t.baseTexture && t.baseTexture.valid) { res(t); return; }
+         t.baseTexture.once('loaded', function(){ res(t); });
+         t.baseTexture.once('error', function(){ rej('texture error'); });
+       });
+     }
+     function getThumb(name){
+       if (name in thumbCache) return Promise.resolve(thumbCache[name]);
+       return T.core.invoke('thumb_data', { name: name }).then(function(url){ thumbCache[name] = url; return url; });
+     }
 
      function attachDrag(obj){
        obj.on('pointerdown', function(e){
+         if (e.button === 2) return; // let right-click open the menu
          dragTarget = obj; obj.cursor = 'grabbing'; panning = false;
          var p = e.global;
          dragOff = { x: (p.x - world.x) / world.scale.x - obj.x, y: (p.y - world.y) / world.scale.y - obj.y };
@@ -52,19 +81,36 @@
 
      function buildCard(item){
        var card = new PIXI.Container();
+       card.x = item.x; card.y = item.y;
+       card.eventMode = 'static'; card.cursor = 'grab';
+       card.__item = item;
+
        var g = new PIXI.Graphics();
        g.beginFill(0x232633); g.lineStyle(1, 0x3a3e49); g.drawRoundedRect(0, 0, 210, 66, 10); g.endFill();
        card.addChild(g);
        var label = new PIXI.Text(item.name, { fill: 0xcfd2da, fontSize: 13, fontFamily: 'system-ui', wordWrap: true, wordWrapWidth: 190 });
-       label.x = 12; label.y = 11;
-       card.addChild(label);
-       card.x = item.x; card.y = item.y;
-       card.eventMode = 'static'; card.cursor = 'grab';
+       label.x = 12; label.y = 11; card.addChild(label);
        card.hitArea = new PIXI.Rectangle(0, 0, 210, 66);
-       card.__item = item;
+
        attachDrag(card);
        world.addChild(card);
        cards.push(card);
+
+       if (isImage(item.name)) {
+         getThumb(item.name).then(function(url){
+           if (!url) return;
+           loadTexture(url).then(function(tex){
+             var maxW = 240, maxH = 180;
+             var s = Math.min(maxW / tex.width, maxH / tex.height, 1);
+             var w = Math.max(1, Math.round(tex.width * s)), h = Math.max(1, Math.round(tex.height * s));
+             var sp = new PIXI.Sprite(tex); sp.width = w; sp.height = h; sp.x = 4; sp.y = 4;
+             var frame = new PIXI.Graphics(); frame.beginFill(0x1c1f27); frame.lineStyle(1, 0x3a3e49); frame.drawRoundedRect(0, 0, w + 8, h + 8, 8); frame.endFill();
+             var old = card.removeChildren(); old.forEach(function(o){ try{ o.destroy(); }catch(_){} });
+             card.addChild(frame); card.addChild(sp);
+             card.hitArea = new PIXI.Rectangle(0, 0, w + 8, h + 8);
+           }).catch(function(e){ showErr('tex: ' + e); });
+         }).catch(function(e){ showErr('thumb: ' + e); });
+       }
        return card;
      }
 
@@ -90,9 +136,16 @@
        await loadLayout();
      }
 
+     function removeCard(card){
+       var idx = items.indexOf(card.__item); if (idx >= 0) items.splice(idx, 1);
+       var ci = cards.indexOf(card); if (ci >= 0) cards.splice(ci, 1);
+       world.removeChild(card); card.destroy({ children: true });
+       persist();
+     }
+
      app.stage.eventMode = 'static';
      app.stage.hitArea = app.screen;
-     app.stage.on('pointerdown', function(e){ panning = true; last = { x: e.global.x, y: e.global.y }; });
+     app.stage.on('pointerdown', function(e){ if (e.button === 2) return; panning = true; last = { x: e.global.x, y: e.global.y }; });
      app.stage.on('pointermove', function(e){
        if (dragTarget) {
          var p = e.global;
@@ -111,10 +164,8 @@
      app.stage.on('pointerup', endAll);
      app.stage.on('pointerupoutside', endAll);
 
-     // Wheel: pinch / Ctrl+scroll zooms to cursor; plain (two-finger) scroll pans.
      window.addEventListener('wheel', function(ev){
-       ev.preventDefault();
-       wheelCount++;
+       ev.preventDefault(); wheelCount++;
        if (ev.ctrlKey) {
          var mx = ev.clientX, my = ev.clientY;
          var wx = (mx - world.x) / world.scale.x, wy = (my - world.y) / world.scale.y;
@@ -125,6 +176,46 @@
          world.x -= ev.deltaX; world.y -= ev.deltaY;
        }
      }, { passive: false });
+
+     // hit-test topmost card under a client point (screen space)
+     function cardAt(cx, cy){
+       for (var i = cards.length - 1; i >= 0; i--){
+         var b = cards[i].getBounds();
+         if (cx >= b.x && cx <= b.x + b.width && cy >= b.y && cy <= b.y + b.height) return cards[i];
+       }
+       return null;
+     }
+
+     var menu = document.getElementById('menu');
+     var menuTarget = null;
+     function hideMenu(){ menu.style.display = 'none'; menuTarget = null; }
+     function showMenu(x, y, card){
+       menuTarget = card;
+       menu.style.left = x + 'px'; menu.style.top = y + 'px'; menu.style.display = 'block';
+     }
+     menu.addEventListener('click', function(ev){
+       var act = ev.target && ev.target.getAttribute && ev.target.getAttribute('data-act');
+       if (!act || !menuTarget) { hideMenu(); return; }
+       var name = menuTarget.__item.name, card = menuTarget;
+       try{
+         if (act === 'open') T.core.invoke('open_item', { name: name });
+         else if (act === 'folder') T.core.invoke('open_folder');
+         else if (act === 'remove') removeCard(card);
+       }catch(e){ showErr('menu ' + act + ': ' + e); }
+       hideMenu();
+     });
+
+     app.view.addEventListener('contextmenu', function(ev){
+       ev.preventDefault();
+       var c = cardAt(ev.clientX, ev.clientY);
+       if (c) showMenu(ev.clientX, ev.clientY, c); else hideMenu();
+     });
+     app.view.addEventListener('dblclick', function(ev){
+       var c = cardAt(ev.clientX, ev.clientY);
+       if (c) { try{ T.core.invoke('open_item', { name: c.__item.name }); }catch(e){ showErr('open: ' + e); } }
+     });
+     window.addEventListener('pointerdown', function(ev){ if (menu.style.display === 'block' && !menu.contains(ev.target)) hideMenu(); }, true);
+     window.addEventListener('wheel', hideMenu, true);
 
      function handleDrop(payload){
        try{
@@ -156,9 +247,7 @@
      try{ T.event.listen('layout-changed', function(){ if (dragTarget || panning) { reloadPending = true; return; } reconcile(); }); }catch(e){ showErr('sync listen: ' + e); }
 
      var diag = document.getElementById('diag');
-     app.ticker.add(function(){
-       diag.textContent = 'zoom ' + Math.round(world.scale.x * 100) + '%  dpr ' + (window.devicePixelRatio || 1) + '  scrolls ' + wheelCount;
-     });
+     app.ticker.add(function(){ diag.textContent = 'zoom ' + Math.round(world.scale.x * 100) + '%  dpr ' + (window.devicePixelRatio || 1) + '  items ' + items.length; });
 
      loadLayout();
      wireDrop(handleDrop);

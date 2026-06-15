@@ -15,6 +15,22 @@ fn canvas_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     Ok(dir)
 }
 
+fn b64(data: &[u8]) -> String {
+    const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity((data.len() + 2) / 3 * 4);
+    for chunk in data.chunks(3) {
+        let b0 = chunk[0] as u32;
+        let b1 = if chunk.len() > 1 { chunk[1] as u32 } else { 0 };
+        let b2 = if chunk.len() > 2 { chunk[2] as u32 } else { 0 };
+        let n = (b0 << 16) | (b1 << 8) | b2;
+        out.push(T[((n >> 18) & 63) as usize] as char);
+        out.push(T[((n >> 12) & 63) as usize] as char);
+        if chunk.len() > 1 { out.push(T[((n >> 6) & 63) as usize] as char); } else { out.push('='); }
+        if chunk.len() > 2 { out.push(T[(n & 63) as usize] as char); } else { out.push('='); }
+    }
+    out
+}
+
 #[tauri::command]
 fn quit(app: tauri::AppHandle) {
     app.exit(0);
@@ -44,6 +60,47 @@ fn add_dropped_file(app: tauri::AppHandle, path: String) -> Result<String, Strin
 }
 
 #[tauri::command]
+fn thumb_data(app: tauri::AppHandle, name: String) -> Result<String, String> {
+    let p = canvas_dir(&app)?.join(&name);
+    let ext = p.extension().map(|e| e.to_string_lossy().to_lowercase()).unwrap_or_default();
+    let mime = match ext.as_str() {
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "bmp" => "image/bmp",
+        "svg" => "image/svg+xml",
+        _ => return Ok(String::new()),
+    };
+    let meta = fs::metadata(&p).map_err(|e| e.to_string())?;
+    if meta.len() > 8_000_000 {
+        return Ok(String::new());
+    }
+    let bytes = fs::read(&p).map_err(|e| e.to_string())?;
+    Ok(format!("data:{};base64,{}", mime, b64(&bytes)))
+}
+
+#[tauri::command]
+fn open_item(app: tauri::AppHandle, name: String) -> Result<(), String> {
+    let p = canvas_dir(&app)?.join(&name);
+    std::process::Command::new("cmd")
+        .args(["/C", "start", "", &p.to_string_lossy()])
+        .spawn()
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+fn open_folder(app: tauri::AppHandle) -> Result<(), String> {
+    let dir = canvas_dir(&app)?;
+    std::process::Command::new("explorer")
+        .arg(dir.to_string_lossy().to_string())
+        .spawn()
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
 fn save_layout(app: tauri::AppHandle, data: String) -> Result<(), String> {
     let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
     fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
@@ -60,7 +117,9 @@ fn load_layout(app: tauri::AppHandle) -> Result<String, String> {
 
 fn main() {
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![quit, add_dropped_file, save_layout, load_layout])
+        .invoke_handler(tauri::generate_handler![
+            quit, add_dropped_file, thumb_data, open_item, open_folder, save_layout, load_layout
+        ])
         .setup(|app| {
             let handle = app.handle().clone();
             let _ = canvas_dir(&handle);

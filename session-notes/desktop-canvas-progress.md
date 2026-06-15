@@ -77,3 +77,18 @@ Stack: Tauri v2 (Rust + WebView2), PixiJS planned for canvas. Windows-only.
   (translate by deltaX/deltaY). Pointer drag-to-pan unchanged.
 - Added #diag readout (zoom %, dpr, scroll-event count) for live diagnosis.
 - Extended the sync guard to also defer reconcile while panning. Lightened the grid.
+
+## v0.0.8 — thumbnails + open + app context menu (batched)
+- Image thumbnails: thumb_data Rust cmd returns a base64 data URL (hand-rolled
+  base64, no deps; 8MB cap; png/jpg/jpeg/gif/webp/bmp/svg). CSP is null so data:
+  URLs load fine. Frontend caches data URLs by name (thumbCache) + PIXI.Assets
+  caches textures, so reconcile() is cheap. Image cards show the picture (fit to
+  240x180) with a frame; non-images keep the label card.
+- Double-click a card -> open_item (cmd /C start "" path) opens with default app.
+- Right-click a card -> HTML app menu: Open / Open folder (explorer) / Remove from
+  canvas (removes item+card, file left in folder). Hit-test via getBounds in screen
+  space; menu hidden on outside click / wheel. Right mouse button is excluded from
+  pan/drag so it only opens the menu.
+- NOTE: this is the APP menu, not the real Windows shell context menu. The shell
+  IContextMenu (Win32 COM) is intentionally deferred to its own step (highest risk).
+- Wheel mapping unchanged from 0.0.7 (plain scroll pans, Ctrl+scroll zooms).
