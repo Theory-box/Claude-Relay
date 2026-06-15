@@ -68,3 +68,12 @@ Stack: Tauri v2 (Rust + WebView2), PixiJS planned for canvas. Windows-only.
 - Open design question (not yet decided): all monitors currently render the SAME
   canvas (same layout.json) with independent cameras. Long-term "every folder is a
   canvas" may mean per-screen/per-folder canvases instead. Revisit with folder nav.
+
+## v0.0.7 — fix pan/zoom jitter; wheel mapping
+- Reported: panning/clicking made the canvas zoom in/out and jitter; zoom itself fine.
+- Likely cause: wheel handler mapped ALL scroll to zoom; on a trackpad a two-finger
+  pan is a stream of small wheel events -> read as rapid zoom (jitter).
+- Fix: Ctrl/pinch + wheel = zoom-to-cursor (smooth, exp factor); plain wheel = pan
+  (translate by deltaX/deltaY). Pointer drag-to-pan unchanged.
+- Added #diag readout (zoom %, dpr, scroll-event count) for live diagnosis.
+- Extended the sync guard to also defer reconcile while panning. Lightened the grid.
