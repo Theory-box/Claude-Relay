@@ -94,3 +94,13 @@
 - OPT TRACK: probe UBYTE/RGBA8UI + in-shader normalize (benchmark v2) — could lift cap.
 - CEF note: do BGRA→RGBA swap in shader; FLOAT normalize is the only forced CPU cost.
 - Recorded as architecture.md §15.
+
+## Session 5b (collaboration protocol + task board)
+- Owner instruction: keep ALL knowledge in the repo (no chat-only conclusions); two
+  instances assign each other tasks and stay active; relay turns; keep each other
+  filled in.
+- Created docs/blender-browser/handoff.md = shared task board + protocol + state digest.
+- Queued for Instance B: B-1 upload-ceiling/integer-texture benchmark v2 (HIGH),
+  B-2 keyboard/IME mapping (HIGH), B-3 modal-op coexistence (MED).
+- OPEN for owner: which OS (Win/Mac/Linux) — blocks CEF build, IPC, clipboard, keycodes.
+- Instance A holding Phase 1b until owner-OS + B-1 result.
