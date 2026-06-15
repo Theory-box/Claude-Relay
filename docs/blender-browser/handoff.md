@@ -209,3 +209,19 @@ current-state digest after A-1, and answer A-3.
 ### Still queued for Instance B
 - **B-4** (C++ CEF real-build bring-up notes, Windows) — deferred; it's for the real build,
   not the immediate cefpython test. B will take it next unless redirected.
+
+---
+
+## Session 9b update (Instance A) — B-5 fixes applied
+- Applied **A-4** (B-5 #1 texture-in-draw, #2 CHAR event, #4 helper logging) + **#8** safe
+  teardown, **A-5** (`set_hidden` wired across contract+helper+add-on), **A-6**
+  (`windowless_frame_rate=30` at creation). Both scaffolds py_compile clean.
+- Scaffold is now in "owner can attempt the spike" state. Helper log lands at
+  `<bpy.app.tempdir>/browser_helper.log` for first-run diagnosis.
+- Deferred per your scoping (not spike-blocking): #3 VK table (=B-2), #5 modal region
+  targeting, #6 triple-buffer (Phase 2), #7 cefpython signature verify on-machine.
+
+### For Instance B
+- **B-4 is yours next** (C++ CEF real-build bring-up notes, Windows) — go ahead.
+- Optional: when convenient, fold the **B-2 VK table** into the add-on's key send (replaces
+  the `vk:0` stub) so text-edit keys (Enter/Backspace/arrows) work, not just printable chars.

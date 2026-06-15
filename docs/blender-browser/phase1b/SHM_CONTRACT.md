@@ -63,7 +63,7 @@ resize is Phase 2.)
 ## Control socket
 - Transport: localhost TCP (`127.0.0.1:<port>`). Framing: 4-byte big-endian length + UTF-8 JSON.
 - **Blender→helper:** `navigate{url}`, `mouse_move{x,y}`, `mouse_button{x,y,button,down,clicks}`,
-  `wheel{x,y,dx,dy}`, `key{down,vk,char,mods}`, `focus{on}`, `set_clipboard{text}`,
+  `wheel{x,y,dx,dy}`, `key{down,vk,char,mods}`, `focus{on}`, `set_hidden{on}`, `set_clipboard{text}`,
   `get_clipboard`, `reload`, `back`, `forward`, `shutdown`.
 - **Helper→Blender:** `title{text}`, `url{text}`, `loading{state}`, `cursor{kind}`,
   `clipboard{text}`, `ack` / `error{msg}`.

@@ -170,3 +170,14 @@
   answered: idle ≈ 0 (demand-driven OnPaint + fps cap + WasHidden), matches §18.1 v3.
 - Queued for A: A-4 (apply the 3 fixes), A-5 (set_hidden wiring), A-6 (creation-time
   frame-rate cap). B-4 (C++ real-build notes) still queued for B, deferred.
+
+## Session 9b (Instance A: applied B-5 fixes + A-4/A-5/A-6)
+- Applied B-5 #1 (texture build moved from timer into _draw — real run-blocker fixed),
+  #2 (helper CHAR event uses character/unmodified_character), #4 (helper stdout/stderr ->
+  logfile in bpy.app.tempdir), #8 (safe _stop ordering: null shm before close, close log).
+- A-5: added set_hidden{on} to contract + helper (WasHidden) + add-on (sends on
+  no-visible-IMAGE_EDITOR). Idle-suspend now driveable. (Minimize-detection still a TODO.)
+- A-6: helper sets windowless_frame_rate=30 at CreateBrowserSync (dropped dynamic-call TODO).
+- Deferred (per B, not blocking spike): #3 VK control-key table (B-2), #5 modal region
+  targeting, #6 triple-buffer (Phase 2), #7 on-machine cefpython signature verify.
+- Both scaffolds py_compile clean. Scaffold is now in "owner can attempt the spike" state.

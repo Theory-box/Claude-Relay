@@ -29,8 +29,9 @@ PORT = 8765
 # ------------------------------------------------------------------------------
 
 HEADER = 64
-_S = {"shm": None, "proc": None, "sock": None, "tex": None,
-      "last_seq": -1, "handle": None, "shader": None, "batch": None, "fbuf": None}
+_S = {"shm": None, "proc": None, "sock": None, "tex": None, "last_seq": -1,
+      "handle": None, "shader": None, "batch": None, "dirty": False,
+      "log": None, "hidden": False}
 
 
 # ---- control socket ----------------------------------------------------------
@@ -58,6 +59,16 @@ def _ensure_shader():
 
 
 def _draw():
+    # Build the texture HERE (draw handler = valid GPU context). Timers have none. [B-5 #1]
+    shm = _S["shm"]
+    if shm is not None and _S.get("dirty"):
+        buf = shm.buf
+        active = struct.unpack_from("<I", buf, 24)[0]
+        off = HEADER + active * (WIDTH * HEIGHT * 16)
+        arr = np.frombuffer(buf, dtype=np.float32, count=WIDTH * HEIGHT * 4, offset=off)
+        fb = gpu.types.Buffer('FLOAT', WIDTH * HEIGHT * 4, arr)
+        _S["tex"] = gpu.types.GPUTexture((WIDTH, HEIGHT), format='RGBA8', data=fb)
+        _S["dirty"] = False
     tex = _S["tex"]
     if tex is None:
         return
@@ -83,25 +94,25 @@ def _ortho(w, h):
                    (0, 0, 0, 1)))
 
 
-# ---- frame pump (timer, main thread) ----------------------------------------
+# ---- frame pump (timer, main thread; NO gpu calls — see _draw) --------------
 def _pump():
     shm = _S["shm"]
     if shm is None:
         return None  # stop timer
-    buf = shm.buf
-    seq = struct.unpack_from("<I", buf, 28)[0]
+    # idle-suspend: tell helper when no browser panel is visible (drives WasHidden) [A-5]
+    visible = any(a.type == 'IMAGE_EDITOR'
+                  for w in bpy.context.window_manager.windows for a in w.screen.areas)
+    if visible == _S["hidden"]:               # state changed
+        _S["hidden"] = not visible
+        _send({"t": "set_hidden", "on": not visible})
+    seq = struct.unpack_from("<I", shm.buf, 28)[0]
     if seq != _S["last_seq"]:
         _S["last_seq"] = seq
-        active = struct.unpack_from("<I", buf, 24)[0]
-        slot_bytes = WIDTH * HEIGHT * 16            # RGBA32F prepared by the helper
-        off = HEADER + active * slot_bytes
-        # helper already did BGRA->RGBA + normalize -> just view + upload, no CPU convert
-        arr = np.frombuffer(buf, dtype=np.float32, count=WIDTH * HEIGHT * 4, offset=off)
-        fb = gpu.types.Buffer('FLOAT', WIDTH * HEIGHT * 4, arr)
-        _S["tex"] = gpu.types.GPUTexture((WIDTH, HEIGHT), format='RGBA8', data=fb)
-        for area in bpy.context.screen.areas:
-            if area.type == 'IMAGE_EDITOR':
-                area.tag_redraw()
+        _S["dirty"] = True                    # _draw will view+upload in a valid context
+        for w in bpy.context.window_manager.windows:
+            for a in w.screen.areas:
+                if a.type == 'IMAGE_EDITOR':
+                    a.tag_redraw()
     return 1.0 / 60.0
 
 
@@ -111,9 +122,13 @@ def _start():
     slot_bytes = WIDTH * HEIGHT * 16            # RGBA32F (helper writes FLOAT)
     size = HEADER + 2 * slot_bytes
     _S["shm"] = shared_memory.SharedMemory(create=True, size=size, name=name)  # Blender OWNS it
+    logpath = os.path.join(bpy.app.tempdir, "browser_helper.log")
+    _S["log"] = open(logpath, "w")
+    print("[browser] helper log ->", logpath)
     _S["proc"] = subprocess.Popen(
         [HELPER_PY, HELPER_SCRIPT, "--shm-name", name, "--width", str(WIDTH),
-         "--height", str(HEIGHT), "--port", str(PORT), "--url", START_URL])
+         "--height", str(HEIGHT), "--port", str(PORT), "--url", START_URL],
+        stdout=_S["log"], stderr=subprocess.STDOUT)
     # connect control socket (retry until helper's server is up)
     import time
     for _ in range(50):
@@ -130,20 +145,31 @@ def _stop():
     _send({"t": "shutdown"})
     if _S["handle"]:
         bpy.types.SpaceImageEditor.draw_handler_remove(_S["handle"], 'WINDOW'); _S["handle"] = None
-    for k in ("sock",):
-        try:
-            _S[k] and _S[k].close()
-        except OSError:
-            pass
+    shm = _S["shm"]; _S["shm"] = None          # null first so timer/draw callbacks bail [B-5 #8]
+    _S["tex"] = None; _S["last_seq"] = -1; _S["dirty"] = False
+    try:
+        _S["sock"] and _S["sock"].close()
+    except OSError:
+        pass
+    _S["sock"] = None
     if _S["proc"]:
         try:
             _S["proc"].wait(timeout=2)
         except Exception:
             _S["proc"].kill()
         _S["proc"] = None
-    if _S["shm"]:
-        _S["shm"].close(); _S["shm"].unlink(); _S["shm"] = None
-    _S["tex"] = None; _S["last_seq"] = -1
+    if _S.get("log"):
+        try:
+            _S["log"].close()
+        except Exception:
+            pass
+        _S["log"] = None
+    if shm:
+        shm.close()
+        try:
+            shm.unlink()                       # no-op on Windows; harmless
+        except Exception:
+            pass
 
 
 # ---- operators ---------------------------------------------------------------

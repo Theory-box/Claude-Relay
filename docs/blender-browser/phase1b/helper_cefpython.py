@@ -1,4 +1,4 @@
-"""
+r"""
 Phase 1b helper (SPIKE) — cefpython off-screen → shared memory + control socket.
 v2: helper converts BGRA→RGBA + normalizes to FLOAT and writes FLOAT RGBA into SHM
 (see SHM_CONTRACT.md / architecture.md §18.1). Keeps Blender's main thread off the convert.
@@ -112,11 +112,14 @@ def _dispatch(state: State, msg: dict):
         host.SendKeyEvent({"type": cef.KEYEVENT_KEYDOWN if msg["down"] else cef.KEYEVENT_KEYUP,
                            "windows_key_code": msg.get("vk", 0), "modifiers": msg.get("mods", 0)})
         if msg["down"] and msg.get("char"):
+            cp = ord(msg["char"])             # CHAR carries the char, not a VK code [B-5 #2]
             host.SendKeyEvent({"type": cef.KEYEVENT_CHAR,
-                               "windows_key_code": ord(msg["char"]),
+                               "character": cp, "unmodified_character": cp,
                                "modifiers": msg.get("mods", 0)})
     elif t == "focus":
         host.SendFocusEvent(bool(msg["on"]))
+    elif t == "set_hidden":
+        b.WasHidden(bool(msg["on"]))          # idle-suspend: ~0 frames when hidden [A-5]
     elif t == "reload":
         b.Reload()
     elif t in ("back", "forward"):
@@ -139,11 +142,12 @@ def main():
 
     cef.Initialize(settings={"windowless_rendering_enabled": True})
     win = cef.WindowInfo(); win.SetAsOffscreen(0)
-    state.browser = cef.CreateBrowserSync(win, url=a.url)
+    state.browser = cef.CreateBrowserSync(win, url=a.url,
+                                          settings={"windowless_frame_rate": 30})  # cost cap [A-6/B-6]
     state.browser.SetClientHandler(RenderHandler(state))
     state.browser.SendFocusEvent(True)
     state.browser.WasResized()
-    # TODO(B-6): cap cost via SetWindowlessFrameRate(30); WasHidden(True) when panel hidden.
+    # cost: windowless_frame_rate capped at creation (above); idle-suspend via set_hidden -> WasHidden.
 
     threading.Thread(target=control_server, args=(state, a.port), daemon=True).start()
     cef.MessageLoop()
