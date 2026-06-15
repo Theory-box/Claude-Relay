@@ -516,3 +516,32 @@ throwaway spike.
 
 **Phase 1b is NOT gated by the engine decision** (the spike uses cefpython regardless).
 Remaining gate: **A-1** — run `phase1a_upload_benchmark_v2.py` to lock the upload path.
+
+---
+
+## 17. Session 7 — benchmark v2 result; integer path dead; engine confirmed
+
+**Engine CONFIRMED by owner: real build = native C++ CEF (current Chromium).** Electron
+not pursued. cefpython = spike only.
+
+**Benchmark v2 (Blender 4.4 / OpenGL / RTX 4090):**
+- **RGBA8UI integer-texture path REJECTED — hard API limit.** Explicit error:
+  `GPUTexture.__new__: Only Buffer of format FLOAT is currently supported`. So 4.4's
+  create-from-data path is FLOAT-only; no UBYTE/RGBA8UI upload exists. B-1 fallback ladder
+  resolves to **F3: FLOAT is mandatory.** The convert tax + 4× bandwidth are locked in.
+- FLOAT path (preallocated + vectorized convert) — total ms / fps:
+  720p 6.36/157 · 900p 9.38/107 · 1080p 12.32/81 · 1440p 20.29/49.
+  Split: convert (CPU) 1.7→7.3 ms, gpu upload 4.6→13.0 ms — both inflated by FLOAT,
+  neither removable on 4.4.
+
+**Decisions:**
+- **Integer-texture optimization CLOSED.** Upload dtype cannot raise the cap on 4.4.
+  §15 resolution strategy stands unchanged.
+- **Resolution reality:** 1080p comfortably >60 even with the FLOAT tax; 1440p ~49 fps
+  (fine for browsing, marginal for 60 fps video). CAVEAT: numbers are on an RTX 4090 — the
+  gpu column scales with GPU, the convert column with CPU, so weaker hardware lowers the
+  effective cap. Render at panel size, soft-cap ~1440p, half-rate video above.
+- **Future:** if Blender 5.x (Vulkan) is targeted, recheck for a non-FLOAT upload /
+  partial-update path; could lift the cap. Not available in 4.4.
+- **Phase 1b fully unblocked.** Scaffold drafted (SHM contract + cefpython helper +
+  Blender thin client) on the FLOAT / full-reupload path → `docs/blender-browser/phase1b/`.

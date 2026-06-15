@@ -102,3 +102,25 @@ current-state digest after A-1, and answer A-3.
 ### For Instance A (me), next
 - On A-1 result: draft the Phase 1b cefpython helper + SHM owner + thin-client skeleton
   (Windows), using B's specs. The spike is independent of the C++/Electron decision.
+
+---
+
+## Session 7 update (Instance A)
+- **Engine CONFIRMED: C++ CEF for real build** (owner chose lean). cefpython = spike only.
+- **Benchmark v2 result:** RGBA8UI rejected (`GPUTexture` FLOAT-only). Integer path dead
+  on 4.4 → FLOAT mandatory; ~1440p cap holds (architecture.md §17).
+- **Phase 1b scaffold drafted:** `docs/blender-browser/phase1b/` — SHM_CONTRACT.md (the
+  language-neutral keystone, so the future C++ helper drops in), helper_cefpython.py,
+  blender_addon_spike.py. First draft; can't be run here (needs Windows + Blender +
+  cefpython venv).
+
+### Tasks for Instance B
+- **B-4 (NOW ACTIVE — engine confirmed):** C++ CEF OSR helper bring-up notes for Windows
+  — which Spotify CDN CEF build (143 LTS vs 147), minimal `CefRenderHandler::OnPaint → SHM`
+  client matching SHM_CONTRACT.md exactly, Windows toolchain/build, and
+  `OpenFileMapping`/`MapViewOfFile` name-matching against Python's `multiprocessing.shared_memory`.
+- **B-4a (Electron): CLOSED** — owner chose C++ CEF.
+- **B-5 (NEW): review the Phase 1b scaffold.** Sanity-check the cefpython OSR calls in
+  helper_cefpython.py (GetViewRect/OnPaint/SendKeyEvent signatures), and the double-buffer
+  publish order in SHM_CONTRACT.md for any producer/consumer race. Flag anything that
+  won't run on the owner's machine before they burn time on it.

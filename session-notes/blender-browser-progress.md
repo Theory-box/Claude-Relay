@@ -147,3 +147,11 @@
 - B-4: real-build helper bring-up notes for chosen engine (gated on owner engine confirm).
 - B-4a: verify Electron offscreen-rendering API (paint raw frames, GPU vs software OSR,
   sendInputEvent, clipboard) so owner can choose C++ CEF vs Electron fully informed.
+
+## Session 7 (Instance A: v2 result + Phase 1b scaffold)
+- Engine CONFIRMED: real build = C++ CEF (owner chose lean). cefpython = spike only.
+- Benchmark v2: RGBA8UI REJECTED (GPUTexture only accepts FLOAT buffer). Integer path
+  dead on 4.4 → FLOAT mandatory. FLOAT fps (RTX4090): 1080p 81, 1440p 49. Cap ~1440p holds.
+- Drafted Phase 1b scaffold in docs/blender-browser/phase1b/: SHM_CONTRACT.md,
+  helper_cefpython.py, blender_addon_spike.py. First draft — needs on-machine iteration.
+- Recorded as architecture.md §17.
