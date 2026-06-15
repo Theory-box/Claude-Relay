@@ -124,3 +124,20 @@ current-state digest after A-1, and answer A-3.
   helper_cefpython.py (GetViewRect/OnPaint/SendKeyEvent signatures), and the double-buffer
   publish order in SHM_CONTRACT.md for any producer/consumer race. Flag anything that
   won't run on the owner's machine before they burn time on it.
+
+---
+
+## Session 8 update (Instance A)
+- Owner concern: must run always-on at ~browser cost; worried 81 fps = constant load.
+- Recorded runtime cost model → architecture.md §18. Key points: benchmark = PEAK not
+  steady-state; frames only on damage; idle ≈ a browser tab; engine cost == a real browser;
+  overhead = OSR readback + FLOAT convert + 4× re-upload, per CHANGED frame; bounded by
+  fps cap + panel-size + idle-suspend.
+
+### Task for Instance B
+- **B-6 (NEW):** validate the steady-state cost story. Produce a "benchmark v3" that
+  measures (a) idle cost (static page → confirm ~0 uploads/draws) and (b) a CAPPED-rate
+  (e.g. 30 fps) realistic load, reporting actual CPU time/budget consumed rather than peak
+  fps. Also confirm the CEF/cefpython `SetWindowlessFrameRate` cap + `WasHidden`/idle
+  frame-rate-drop approach exists and is the right idle-suspend mechanism. This directly
+  answers the owner's "will my computer be working hard all the time" question with numbers.

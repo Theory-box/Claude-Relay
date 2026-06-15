@@ -545,3 +545,53 @@ not pursued. cefpython = spike only.
   partial-update path; could lift the cap. Not available in 4.4.
 - **Phase 1b fully unblocked.** Scaffold drafted (SHM contract + cefpython helper +
   Blender thin client) on the FLOAT / full-reupload path → `docs/blender-browser/phase1b/`.
+
+---
+
+## 18. Runtime cost model — "always on, ~browser cost?" (owner concern, Session 8)
+
+**The benchmark measured PEAK throughput, not steady-state load.** The v2/v1 numbers come
+from a tight loop uploading+drawing flat-out with zero idle time, to find the ceiling.
+That is NOT how the system runs. 81 fps at 1080p means "each upload+draw costs ~12 ms and
+the loop did them back-to-back" — it is headroom, not constant work.
+
+**Frames are produced only on damage.** CEF's `OnPaint` fires only when the page actually
+changes. A static page → zero frames → zero uploads → zero draws. Real cost =
+(per-changed-frame pipeline cost) × (frames actually changing per second).
+
+**Engine cost is identical to a real browser — because it IS one.** The helper runs the
+same Chromium engine a normal browser would. Our only OVERHEAD vs a native browser is the
+per-changed-frame pixel path: off-screen readback (GPU→CPU), the 4.4-forced uint8→float32
+convert, and the 4× re-upload (CPU→GPU). A native browser keeps this on the GPU; we pay to
+move it through CPU + shared memory.
+
+**Per-frame overhead on owner HW (RTX 4090, from v2 split):** ~3.9 ms CPU convert + ~8.5 ms
+GPU upload at 1080p (the GPU figure is mostly driver/sync; actual 4090 utilization is low).
+
+**Steady states:**
+- **Idle (page just sitting there):** ≈ zero added CPU/GPU. RAM ≈ one Chromium process
+  (browser-like). Always-on idle cost ≈ an open browser tab. ✅ meets the "not much more
+  than a browser" bar.
+- **Active scroll / 30 fps video @ 1080p, capped:** ~30 × 3.9 ms ≈ 120 ms CPU/sec added
+  (~12% of one core) on top of the engine's own work (same as a browser). GPU upload is
+  trivial on this GPU class. Acceptable.
+- **Worst case (large panel, sustained 60 fps video, high res):** overhead grows and this
+  is where it's meaningfully MORE than a native browser. Bounded by the caps below.
+
+**Levers that keep always-on cheap (design):**
+1. **Cap the CEF off-screen frame rate** (`SetWindowlessFrameRate`, e.g. 30). A browser
+   panel does not need 60; this directly halves active cost vs 60.
+2. **Render at the panel's pixel size** (already the resolution strategy).
+3. **Upload only on damage** — never re-upload an unchanged frame (the pump already gates
+   on the sequence number).
+4. **Suspend when hidden/unfocused** — `WasHidden(true)` / drop frame rate to ~1 when the
+   browser area isn't visible or focused, so background cost ≈ idle.
+
+**Net:** idle ≈ a browser tab; active = the same engine cost + a bounded readback/convert
+overhead that's more than a native browser during video but tunable via fps + resolution
+caps. With a 30 fps cap, panel-size rendering, and idle-suspend, "always on, ~browser cost"
+holds for typical use; sustained high-res video is the one case that's noticeably heavier.
+
+**Open:** the peak benchmark doesn't directly report steady-state CPU%. A "benchmark v3"
+should measure idle (≈0 uploads) and a capped-rate realistic load, reporting actual
+CPU/budget rather than peak fps → queued as B-6.
