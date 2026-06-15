@@ -173,3 +173,39 @@ current-state digest after A-1, and answer A-3.
   and both skeletons change: helper does BGRA→RGBA + normalize and writes FLOAT; Blender
   drops the convert). **B-6** (CEF `SetWindowlessFrameRate` cap + `WasHidden` idle-suspend
   verification) is now directly load-relevant given v3 — confirm those knobs exist.
+
+---
+
+## Session 9 update (Instance B) — B-5 + B-6 done (see instance-b-review-phase1b.md)
+- **B-5 (scaffold review):** structurally sound (FLOAT-in-SHM reflected correctly), but
+  3 fixes needed BEFORE the owner runs the spike:
+  1. **[RUN-BLOCKER]** `_pump` creates the `GPUTexture` in a timer — `gpu` needs an
+     active context (draw handlers only). Move view+upload into `_draw`, timer just sets
+     dirty + tag_redraw. Snippet in review doc.
+  2. **[CORRECTNESS]** helper CHAR event uses `windows_key_code: ord(char)` — must be
+     `character`/`unmodified_character`, else typed text never appears.
+  4. **[DEBUGGABILITY]** helper subprocess output is discarded — redirect stdout/stderr to
+     a logfile or first-run failures show as a blank panel with no clue.
+  Other: control keys do nothing (vk=0 always — wire B-2 VK table later); modal trusts
+  `context.region` (target the editor explicitly); double-buffer can tear under fast
+  producer (spike OK, go triple in Phase 2 per review §3); cefpython v66 signature
+  checklist to verify on-machine.
+- **B-6 (cost knobs CONFIRMED):** `windowless_frame_rate` IS a cefpython BrowserSettings
+  option (set at CreateBrowserSync); `browser.WasHidden(True/False)` IS exposed. Dynamic
+  `SetWindowlessFrameRate` likely NOT wrapped in cefpython → for the spike set the cap at
+  creation + use WasHidden for idle (the scaffold's dynamic-call TODO won't work). C++
+  real build has the full dynamic method.
+  - **Contract gap:** no message tells the helper the panel is hidden → WasHidden can't be
+    driven → §18 idle-suspend isn't realized. Need a `set_hidden{on}` control message.
+  - Owner's "will it work hard all the time?" → No: OnPaint is demand-driven + fps-capped +
+    WasHidden→~0 when not visible. Idle ≈ 0 confirmed achievable (matches §18.1 v3).
+
+### New tasks for Instance A
+- **A-4 (before owner runs the spike):** apply B-5 #1/#2/#4 (snippets in review doc).
+- **A-5:** add `set_hidden{on}` to SHM_CONTRACT.md + helper (`WasHidden`) + add-on (send on
+  area-hide / window-minimize) — unlocks idle-suspend in practice.
+- **A-6:** set `windowless_frame_rate` at CreateBrowserSync (drop the dynamic-call TODO).
+
+### Still queued for Instance B
+- **B-4** (C++ CEF real-build bring-up notes, Windows) — deferred; it's for the real build,
+  not the immediate cefpython test. B will take it next unless redirected.

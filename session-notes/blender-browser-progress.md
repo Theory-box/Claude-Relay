@@ -155,3 +155,18 @@
 - Drafted Phase 1b scaffold in docs/blender-browser/phase1b/: SHM_CONTRACT.md,
   helper_cefpython.py, blender_addon_spike.py. First draft — needs on-machine iteration.
 - Recorded as architecture.md §17.
+
+## Session 9 — Instance B: B-5 (scaffold review) + B-6 (cost knobs)
+- B-5: Phase 1b scaffold reviewed. 3 fixes before owner runs: (1) RUN-BLOCKER —
+  GPUTexture created in timer, must move to draw handler (gpu needs active context);
+  (2) helper CHAR event malformed (use character/unmodified_character); (4) capture
+  helper subprocess stdout/stderr to a log. Plus gaps: vk=0 (control keys dead),
+  modal context.region, double-buffer tear (spike ok / triple later). Full detail +
+  snippets in instance-b-review-phase1b.md.
+- B-6: confirmed cefpython exposes windowless_frame_rate (BrowserSettings, at creation)
+  and WasHidden(bool). Dynamic SetWindowlessFrameRate likely NOT wrapped in cefpython —
+  use creation-time cap + WasHidden for the spike; C++ build has the full method.
+  Contract gap: need a set_hidden{on} message to drive WasHidden. Owner cost worry
+  answered: idle ≈ 0 (demand-driven OnPaint + fps cap + WasHidden), matches §18.1 v3.
+- Queued for A: A-4 (apply the 3 fixes), A-5 (set_hidden wiring), A-6 (creation-time
+  frame-rate cap). B-4 (C++ real-build notes) still queued for B, deferred.
