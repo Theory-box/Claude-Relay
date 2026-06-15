@@ -42,3 +42,7 @@ Stack: Tauri v2 (Rust + WebView2), PixiJS planned for canvas. Windows-only.
 - NOTE: each screen currently independent with identical starting scene; shared-
   vs-separate content toggle deferred to the data-layer increment.
 - WATCH: 3 WebView2 instances => higher RAM; revisit for "lightweight" later.
+
+## v0.0.4 — work-area sizing fix
+- Windows now sized/positioned to each monitor's work_area() (excludes taskbar)
+  instead of full monitor size, so the taskbar no longer covers the canvas.
