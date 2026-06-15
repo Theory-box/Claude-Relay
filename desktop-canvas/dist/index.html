@@ -8,7 +8,7 @@
 </style></head>
 <body>
  <div id="err"></div>
- <div id="hud">Desktop Canvas v0.0.5 &middot; drop a file onto the canvas &middot; drag to pan &middot; scroll to zoom &middot; drag a card to move it &middot; Esc to quit</div>
+ <div id="hud">Desktop Canvas v0.0.6 &middot; drop a file onto the canvas &middot; drag to pan &middot; scroll to zoom &middot; drag a card to move it &middot; Esc to quit</div>
  <script src="pixi.min.js"></script>
  <script>
  function showErr(m){ var e=document.getElementById('err'); e.style.display='block'; e.textContent += m + "\n"; }
@@ -34,6 +34,9 @@
      world.x = app.screen.width / 2; world.y = app.screen.height / 2;
 
      var items = [];
+     var cards = [];
+     var panning = false, last = null, dragTarget = null, dragOff = null;
+     var reloadPending = false;
 
      function attachDrag(obj){
        obj.on('pointerdown', function(e){
@@ -58,10 +61,19 @@
        card.__item = item;
        attachDrag(card);
        world.addChild(card);
+       cards.push(card);
        return card;
      }
 
-     function saveLayout(){ try{ T.core.invoke('save_layout', { data: JSON.stringify(items) }); }catch(e){ showErr('save_layout: ' + e); } }
+     // Save layout, then tell every window to refresh (each window is its own
+     // webview with its own copy of the canvas, so changes must be broadcast).
+     function persist(){
+       try{
+         return T.core.invoke('save_layout', { data: JSON.stringify(items) })
+           .then(function(){ try{ T.event.emit('layout-changed', {}); }catch(_){} })
+           .catch(function(e){ showErr('save_layout: ' + e); });
+       }catch(e){ showErr('persist: ' + e); }
+     }
 
      async function loadLayout(){
        try{
@@ -71,7 +83,12 @@
        }catch(e){ showErr('load_layout: ' + e); }
      }
 
-     var panning = false, last = null, dragTarget = null, dragOff = null;
+     async function reconcile(){
+       for (var i = 0; i < cards.length; i++){ try{ world.removeChild(cards[i]); cards[i].destroy({ children: true }); }catch(_){} }
+       cards = []; items = [];
+       await loadLayout();
+     }
+
      app.stage.eventMode = 'static';
      app.stage.hitArea = app.screen;
      app.stage.on('pointerdown', function(e){ panning = true; last = { x: e.global.x, y: e.global.y }; });
@@ -86,8 +103,9 @@
        }
      });
      function endAll(){
-       if (dragTarget && dragTarget.__item) { dragTarget.__item.x = dragTarget.x; dragTarget.__item.y = dragTarget.y; saveLayout(); }
+       if (dragTarget && dragTarget.__item) { dragTarget.__item.x = dragTarget.x; dragTarget.__item.y = dragTarget.y; persist(); }
        panning = false; last = null; if (dragTarget) dragTarget.cursor = 'grab'; dragTarget = null; dragOff = null;
+       if (reloadPending) { reloadPending = false; reconcile(); }
      }
      app.stage.on('pointerup', endAll);
      app.stage.on('pointerupoutside', endAll);
@@ -118,7 +136,7 @@
                items.push(it); buildCard(it);
              }catch(e){ showErr('add_dropped_file: ' + e); }
            }
-           saveLayout();
+           persist();
          })();
        }catch(e){ showErr('drop: ' + e); }
      }
@@ -128,6 +146,9 @@
        try{ if (T.webview && T.webview.getCurrentWebview){ T.webview.getCurrentWebview().onDragDropEvent(function(e){ if (e.payload && e.payload.type === 'drop') handler(e.payload); }); return; } }catch(_){}
        try{ T.event.listen('tauri://drag-drop', function(e){ handler(e.payload); }); }catch(err){ showErr('drop wiring failed: ' + err); }
      }
+
+     // live cross-window sync: refresh when any window reports a change
+     try{ T.event.listen('layout-changed', function(){ if (dragTarget) { reloadPending = true; return; } reconcile(); }); }catch(e){ showErr('sync listen: ' + e); }
 
      loadLayout();
      wireDrop(handleDrop);

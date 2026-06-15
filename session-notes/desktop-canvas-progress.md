@@ -58,3 +58,13 @@ Stack: Tauri v2 (Rust + WebView2), PixiJS planned for canvas. Windows-only.
 - Default drop action = COPY (Copy/Move/Reference prompt deferred). No image
   thumbnails yet (next: render real images via convertFileSrc + assetProtocol).
 - Docs added to branch: desktop-canvas/PLANNING.md, desktop-canvas/DEVELOPMENT.md.
+
+## v0.0.6 — live cross-window sync
+- Each monitor window is an independent webview with its own copy of the canvas,
+  so a drop/move only changed the originating screen until restart.
+- Fix: after any change, persist() saves layout.json then emits a 'layout-changed'
+  Tauri event to all windows; every window listens and reconcile()s (destroy cards,
+  reload from file, rebuild). Guarded so a window mid-drag defers its reload to drag end.
+- Open design question (not yet decided): all monitors currently render the SAME
+  canvas (same layout.json) with independent cameras. Long-term "every folder is a
+  canvas" may mean per-screen/per-folder canvases instead. Revisit with folder nav.
