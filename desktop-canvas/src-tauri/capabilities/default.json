@@ -1,6 +1,6 @@
 {
   "identifier": "default",
-  "description": "Default capability for the main window",
-  "windows": ["main"],
+  "description": "Default capability for all canvas windows",
+  "windows": ["*"],
   "permissions": ["core:default"]
 }

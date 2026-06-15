@@ -31,3 +31,14 @@ Stack: Tauri v2 (Rust + WebView2), PixiJS planned for canvas. Windows-only.
 - On-screen error readout (frontend runtime debug aid; logging plugin TBD).
 - Rust unchanged from 0.0.1. Next pass (2b): spawn a window per monitor (3),
   each its own independent camera.
+
+## Increment 2b (multi-monitor) — v0.0.3
+- On launch, enumerate monitors; main window covers monitor 0, a window per
+  remaining monitor (screen-N), all borderless / skipTaskbar / always-on-bottom.
+- Physical position+size per monitor (DPI-safe across mixed-scale screens).
+- Each window = own webview = own independent PixiJS camera (independent nav).
+- Extra windows built on a worker thread (avoids the documented Windows
+  build-in-handler deadlock).
+- NOTE: each screen currently independent with identical starting scene; shared-
+  vs-separate content toggle deferred to the data-layer increment.
+- WATCH: 3 WebView2 instances => higher RAM; revisit for "lightweight" later.
