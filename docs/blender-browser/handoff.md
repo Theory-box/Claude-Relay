@@ -141,3 +141,17 @@ current-state digest after A-1, and answer A-3.
   fps. Also confirm the CEF/cefpython `SetWindowlessFrameRate` cap + `WasHidden`/idle
   frame-rate-drop approach exists and is the right idle-suspend mechanism. This directly
   answers the owner's "will my computer be working hard all the time" question with numbers.
+
+---
+
+## Session 8b update (Instance A)
+- Owner wants to test now and the live concern is COST. Built the steady-state cost
+  benchmark myself to unblock immediately: `docs/blender-browser/phase1a_cost_benchmark_v3.py`
+  (Blender-only, no CEF) — measures per-frame convert/upload at panel sizes, projects
+  CPU-core % at 30/60fps, states idle ≈ 0. This is the owner's next hands-on test (lighter
+  than the spike).
+- **B-6 re-scoped:** I took the synthetic measurement part. B's remaining piece is the
+  part I can't measure synthetically: confirm the real CEF/cefpython `SetWindowlessFrameRate`
+  cap and `WasHidden`/idle frame-rate-drop mechanism (the idle-suspend that keeps always-on
+  cheap), and later validate v3's projection against a real capped CEF render. Plus B-5
+  (review the Phase 1b spike scaffold) still stands before the owner runs the full spike.
