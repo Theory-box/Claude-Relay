@@ -39,40 +39,31 @@ The owner is relaying turns between two Claude instances and wants:
   CEF/cefpython build choice, shared-memory specifics, clipboard sync, and keyboard
   key-code mapping. Tasks B-1(e), B-2, and the Phase 1b scaffold need it.
 
-## TASKS FOR INSTANCE B (do/answer, then push results here or as noted)
-**B-1 (HIGH) — Settle the upload ceiling.** §15 shows UBYTE was rejected and FLOAT
-inflates cost ~4×. Determine whether Blender 4.4's `gpu` module can upload raw bytes
-to an integer texture (`RGBA8UI`) and normalize in a custom `GPUShader`
-(`usampler2D`, divide by 255 in GLSL). If yes, provide the exact `GPUTexture` +
-`GPUShader` GLSL + `batch_for_shader` calls. Deliver a **benchmark v2**
-(`docs/blender-browser/phase1a_upload_benchmark_v2.py`) that:
-  (a) separates CPU-conversion time from pure GPU-upload time,
-  (b) preallocates the buffer to remove per-frame numpy allocation,
-  (c) prints the exact exception when UBYTE→RGBA8 is rejected,
-  (d) benchmarks the RGBA8UI+shader path head-to-head against the FLOAT path,
-  (e) tests realistic panel sizes (1280×720, 1600×900, 1920×1080, 2560×1440).
-Outcome decides whether the ~1440p cap can be raised. Push the script + a findings note.
+## TASKS FOR INSTANCE B — DONE (Session 6, see instance-b-followup.md)
+- **B-1 (HIGH) — DONE.** Delivered `phase1a_upload_benchmark_v2.py`: FLOAT vs RGBA8UI
+  head-to-head, splits CPU-convert from GPU-bound time, preallocates, prints exact
+  UBYTE-rejection exception, tests 720p/900p/1080p/1440p. Root cause of v1's FLOAT
+  fallback identified (RGBA8 unorm create-from-data expects a FLOAT buffer). Fix =
+  RGBA8UI + `usampler2D` + in-shader /255 & BGRA→RGBA swap (must be paired — integer
+  format requires integer sampler). Prediction ~0.7 it lifts 1440p past 60. **Needs an
+  owner run to confirm** → that's task A-1 below. Fallback ladder documented.
+- **B-2 (HIGH) — DONE (OS-independent core).** Strategy + portable control-key VK table
+  + KEYDOWN/CHAR/KEYUP ordering + modifier handling in followup doc. Text via
+  `event.unicode`→CHAR (layout-correct, OS-independent). `native_key_code` table + IME
+  pending owner OS; IME excluded from v1.
+- **B-3 (MED) — DONE.** Modal-operator skeleton + hot-region gating / PASS_THROUGH
+  routing rules + focus edge transitions + frame-pump separation, in followup doc.
 
-**B-2 (HIGH) — Keyboard/IME mapping.** Produce a concrete mapping from Blender
-modal-operator key events (`event.type`, `event.ascii`, `event.unicode`, modifier
-flags) to CEF `SendKeyEvent` (KEYDOWN/KEYUP + CHAR) — at least ASCII + common
-modifiers + arrows/enter/backspace/tab/esc. Survey prior art from game-engine CEF
-integrations (Unreal Web Browser Widget, Unity CEF wrappers) for key-code/IME
-handling. Note OS dependence (needs owner OS). Push as a doc section.
-
-**B-3 (MED) — Modal-operator coexistence.** Draft event-routing rules + a modal
-operator skeleton that captures mouse/key/scroll over the browser area WITHOUT
-breaking normal Blender input: when to consume vs `PASS_THROUGH`, focus grab/release
-on region enter/leave, and coexistence with the timer-based frame pump. Push as a doc
-section / skeleton.
-
-## TASKS / NEXT STEPS FOR INSTANCE A (me)
-- **Hold the Phase 1b spike** (CEF OSR → SHM → texture) until (1) owner gives OS and
-  (2) B-1 reports whether the integer-texture path raises the ceiling — so the spike
-  is built on the right upload path from the start, not redone later.
-- On owner-OS + B-1 result: draft the Phase 1b helper + SHM scaffold and the add-on
-  thin-client skeleton.
+## TASKS / NEXT STEPS FOR INSTANCE A
+- **A-1 (HIGH):** Run `phase1a_upload_benchmark_v2.py` on the owner's machine; paste the
+  result table here. Resolves the resolution cap. (B holds further cap work until then.)
+- **A-2:** Design the Phase 1b SHM segment naming + watchdog cleanup (unique-per-session
+  name, unlink-stale-on-restart). OS-flavored → gate on owner OS.
+- **A-3 (question for B):** once OS is known, should B produce the platform `native_key_code`
+  table + clipboard-sync calls, or do you fold those into your Phase 1b scaffold?
+- **Hold the Phase 1b spike** until (1) owner OS and (2) A-1 result, so it's built on the
+  right upload path from the start.
 
 ## Hand-back
-Instance B: after completing the above, update the current-state digest if anything
-changed, and leave new tasks/questions for Instance A here.
+Instance A: fold the digest deltas (in instance-b-followup.md → Hand-back) into the
+current-state digest after A-1, and answer A-3.

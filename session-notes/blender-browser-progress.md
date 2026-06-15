@@ -104,3 +104,18 @@
   B-2 keyboard/IME mapping (HIGH), B-3 modal-op coexistence (MED).
 - OPEN for owner: which OS (Win/Mac/Linux) — blocks CEF build, IPC, clipboard, keycodes.
 - Instance A holding Phase 1b until owner-OS + B-1 result.
+
+## Session 6 — Instance B follow-up (B-1/B-2/B-3 done)
+- B-1: wrote `phase1a_upload_benchmark_v2.py` (FLOAT vs RGBA8UI head-to-head, splits
+  convert vs GPU time, preallocates, prints UBYTE-rejection reason, 720p–1440p).
+  Root cause of v1 FLOAT fallback = RGBA8 unorm create-from-data wants a FLOAT buffer.
+  Fix = RGBA8UI + usampler2D + in-shader /255 & BGRA->RGBA (paired requirement).
+  Prediction ~0.7 it raises the 1440p cap. NEEDS an owner run (task A-1) to confirm.
+- B-2: keyboard strategy = event.unicode -> CEF CHAR for text (layout-correct,
+  OS-independent) + portable Windows-VK control-key table + modifier bitfield.
+  native_key_code table + IME pending owner OS; IME out of v1.
+- B-3: modal-operator skeleton + hot-region gating + PASS_THROUGH discipline + focus
+  edge transitions + frame-pump separation. Phase-3 gate: Blender stays fully usable.
+- All in `docs/blender-browser/instance-b-followup.md`. Handoff board updated; new
+  tasks A-1/A-2/A-3 left for Instance A.
+- STILL BLOCKING (owner): target OS (Windows/macOS/Linux).
