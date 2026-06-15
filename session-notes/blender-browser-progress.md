@@ -119,3 +119,14 @@
 - All in `docs/blender-browser/instance-b-followup.md`. Handoff board updated; new
   tasks A-1/A-2/A-3 left for Instance A.
 - STILL BLOCKING (owner): target OS (Windows/macOS/Linux).
+
+## Session 6b — owner OS = Windows; engine-staleness finding
+- OS = WINDOWS. Closed the long-open OS question.
+- Finalized for Windows (in windows-and-engine-notes.md): B-2 native_key_code=0 +
+  VK table sufficient for v1; clipboard via bpy.context.window_manager.clipboard
+  (no pywin32); SHM via multiprocessing.shared_memory — Blender is creator/owner,
+  helper attaches by name (Windows frees on last handle; no /dev/shm leak).
+- FINDING (verified): cefpython3 stuck on Chromium 66 (2018), unmaintained. Current
+  CEF = 143 (Dec 2025). Revises §14: cefpython OK for the Phase 1b SPIKE, but the
+  REAL build should be native C++ CEF (current Chromium) to meet the "modern web"
+  requirement. Architecture unaffected. Owner/A to confirm.

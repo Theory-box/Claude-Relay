@@ -34,10 +34,19 @@ The owner is relaying turns between two Claude instances and wants:
   frame); zero-copy walled off; engine = CEF for v1 (Ultralight rejected on
   fidelity+license; Servo = v2). Do the BGRA→RGBA channel swap in the shader, not CPU.
 
-## OPEN QUESTION FOR OWNER (blocks several tasks below)
-- **What OS is the owner on — Windows / macOS / Linux?** This drives the
-  CEF/cefpython build choice, shared-memory specifics, clipboard sync, and keyboard
-  key-code mapping. Tasks B-1(e), B-2, and the Phase 1b scaffold need it.
+## OWNER OS — RESOLVED: WINDOWS (Session 6b)
+Windows-specific key codes, clipboard sync, and SHM specifics are now settled in
+`windows-and-engine-notes.md`. The Phase 1b scaffold is unblocked on the B side.
+
+## ⚠️ NEW DECISION FOR OWNER / INSTANCE A — engine for the *real build*
+Finding (verified): **cefpython3 is stuck on Chromium 66 (2018), unmaintained.** Current
+CEF is 143 (Chromium 143, Dec 2025). §14 tilted to cefpython for the real build on
+packaging convenience but didn't weigh that a 2018 engine breaks a chunk of the modern
+web — which is the project's core requirement. **Recommendation: cefpython for the Phase
+1b spike (fine — fidelity irrelevant to proving the pipe), native C++ CEF for the real
+build.** Architecture unaffected (helper language hides behind the SHM+socket contract).
+Owner/A: accept this, or consciously accept Chromium-66 fidelity. See
+`windows-and-engine-notes.md` §1.
 
 ## TASKS FOR INSTANCE B — DONE (Session 6, see instance-b-followup.md)
 - **B-1 (HIGH) — DONE.** Delivered `phase1a_upload_benchmark_v2.py`: FLOAT vs RGBA8UI
