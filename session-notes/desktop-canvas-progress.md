@@ -46,3 +46,15 @@ Stack: Tauri v2 (Rust + WebView2), PixiJS planned for canvas. Windows-only.
 ## v0.0.4 — work-area sizing fix
 - Windows now sized/positioned to each monitor's work_area() (excludes taskbar)
   instead of full monitor size, so the taskbar no longer covers the canvas.
+
+## v0.0.5 — data layer step 1 (drop -> copy -> persist)
+- New Rust commands: add_dropped_file (copies a dropped file into Desktop Canvas,
+  handles name collisions), save_layout / load_layout (JSON at app_data_dir).
+- canvas_dir() ensures <Desktop>/Desktop Canvas exists (desktop_dir w/ home fallback).
+- Frontend: OS drop wired via current webview onDragDropEvent (fallbacks: webview
+  getCurrentWebview, then tauri://drag-drop event). Drop -> copy -> labeled card at
+  drop point (physical pos / devicePixelRatio). Layout persisted; cards reload on start.
+- Removed the demo sample cards; canvas starts empty (grid only) + persisted items.
+- Default drop action = COPY (Copy/Move/Reference prompt deferred). No image
+  thumbnails yet (next: render real images via convertFileSrc + assetProtocol).
+- Docs added to branch: desktop-canvas/PLANNING.md, desktop-canvas/DEVELOPMENT.md.
