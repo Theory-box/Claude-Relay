@@ -1,6 +1,6 @@
 # In-Blender Web Browser — Architecture & Design (Option 3)
 
-**Status:** Exploratory design. Pre-spike. Nothing built yet.
+**Status:** Reviewed (session 2). Pre-spike. See §13 for review outcomes & locked decisions.
 **Branch:** `research/blender-browser`
 **Target host:** Blender 4.4 (user's current build). Forward-looking to 5.0 / 5.1.
 **Audience:** This doc guides implementation and is written to be picked up by a
@@ -362,3 +362,51 @@ Blender as an add-on, propose it.
   new space type) — confirm against 4.4 API in Phase 0.
 - cefpython3: official support tops out around Python 3.9 (unofficial 3.10); no
   3.11/3.13 binding — a key reason the engine lives in a *decoupled* helper.
+
+---
+
+## 13. Session 2 — Collaborator review outcomes (decisions locked)
+
+A second instance reviewed §1–12. Approves Option 3 (~0.85): the decoupling
+argument carries it; architecture not relitigated. Resulting locks:
+
+**Engine — CEF for v1 (locked).**
+- Ultralight rejected: verified no WebGL, no WebRTC, only experimental video, and a
+  paid proprietary license — fails the fidelity requirement outright.
+- Servo: now has WebGL/WebGPU and an offscreen `WebView` API, but its general
+  embedding path isn't production-ready → **v2 watch**, not v1.
+
+**Risk model corrected.** The SHM transport is *not* the main risk (solved
+engineering). The real risks are:
+1. **Python-side full-frame `GPUTexture` upload at 4K** (the worst unknown).
+2. **Keyboard/IME mapping + modal-operator coexistence** with normal Blender events.
+
+**§9.8 resolved — no partial texture update.** The current Blender `gpu` API exposes
+no partial sub-region texture update and no PBO path. **Plan for full re-upload every
+frame.** Dirty rects help SHM *bandwidth*, not the GPU upload cost. This makes risk
+#1 above the thing to measure first.
+
+**§11.5 resolved — zero-copy stays walled off.** CEF `OnAcceleratedPaint`
+shared-texture is Windows-only and version-fragile (a CEF 143 build shipped a
+null-handle regression in Dec 2025), and Blender's `gpu` exposes no device handle to
+import such a texture anyway. **Do not spend spike budget here.**
+
+**§9.2 resolved — distribution.** Official `extensions.blender.org` forbids
+download-at-runtime (must be self-contained, no remote code execution, no
+auto-updater) and treats large unreviewable bundled binaries as an open/unsolved
+review problem. Therefore **v1 = self-hosted (Install-from-Disk or third-party repo)
+with the helper bundled.** Official-platform listing is a later, uncertain goal, not a
+v1 requirement. (Network permission, if ever used, must check `bpy.app.online_access`.)
+
+**Phase 1 split (locked).** De-risk by failing the worst unknown cheaply:
+- **Phase 1a — pre-CEF upload benchmark.** Measure SHM-style full-frame
+  `GPUTexture` upload + draw fps at 1080p / 1440p / 4K with synthetic frames, *before*
+  wiring CEF. If 4K/60 isn't reachable on target hardware, we learn it in an afternoon
+  and adjust (e.g. cap render resolution, half-rate video) instead of after a full CEF
+  integration. Scaffold: `docs/blender-browser/phase1a_upload_benchmark.py`.
+- **Phase 1b — CEF OSR → SHM → texture.** The original Phase-1 spike, run only after
+  1a clears.
+
+**Remaining Phase-0 confirmations** (unchanged): no Python space-type registration;
+no exposed GPU device handle. The benchmark also doubles as a live check of which
+`Buffer` dtype the `GPUTexture` upload path accepts (UBYTE vs FLOAT) on 4.4.

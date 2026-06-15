@@ -53,3 +53,26 @@
 ## Verified facts (Jun 2026)
 - 4.4 = Python 3.11.11; 5.0 = 3.11; 5.1 = Python 3.13 + Vulkan default.
 - cefpython has no 3.11/3.13 binding → engine must live in a decoupled helper.
+
+## Session 3 (other instance — policy + de-risk build)
+- RESOLVED §9.2 distribution policy via web research:
+  - Official extensions.blender.org forbids download-at-runtime (self-contained, no
+    remote code exec, no auto-updater) and treats large unreviewable bundled binaries
+    as an unsolved review problem.
+  - Decision: v1 = self-hosted / Install-from-Disk (or third-party repo) with helper
+    bundled. Official listing = later/uncertain, not a v1 constraint.
+- Folded collaborator corrections into architecture.md §13 (engine=CEF locked,
+  Ultralight rejected, Servo=v2, no partial texture update → full re-upload, zero-copy
+  walled off, Phase 1 split into 1a/1b).
+- Built Phase-1a scaffold: docs/blender-browser/phase1a_upload_benchmark.py
+  (synthetic full-frame GPUTexture upload+draw fps at 1080p/1440p/4K; also live-checks
+  UBYTE vs FLOAT upload dtype on 4.4). Owner runs it interactively; share numbers.
+- Noted (collaborator's flag): bundled live-web Chromium needs an ongoing CEF
+  security-patch cadence. Self-hosted distribution means manual user updates (consistent
+  with the no-auto-updater rule) — track as a maintenance item, not a v1 blocker.
+
+## Next steps (after 1a numbers)
+- If 4K/60 clears: proceed to Phase 1b (CEF OSR → SHM → texture).
+- If 4K short: cap render resolution / half-rate video; re-benchmark.
+- Still open for Phase 0: confirm no Python space-type registration + no GPU device
+  handle against 4.4 API; pick helper impl (cefpython spike vs C++ ship).
