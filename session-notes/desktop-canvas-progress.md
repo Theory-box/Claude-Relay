@@ -24,3 +24,10 @@ Stack: Tauri v2 (Rust + WebView2), PixiJS planned for canvas. Windows-only.
 ## Notes
 - Tauri v2 has native set_always_on_bottom (no Win32 needed for basic Model B).
 - Full design decisions live in Claude's R&D planning doc (to be committed here).
+
+## Increment 2a (canvas, single screen) — v0.0.2
+- PixiJS v7 vendored locally (offline). Infinite-feel dot grid.
+- Pan (drag empty space), zoom-to-cursor (wheel), draggable sample cards.
+- On-screen error readout (frontend runtime debug aid; logging plugin TBD).
+- Rust unchanged from 0.0.1. Next pass (2b): spawn a window per monitor (3),
+  each its own independent camera.
