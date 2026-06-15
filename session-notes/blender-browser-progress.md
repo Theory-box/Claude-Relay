@@ -76,3 +76,11 @@
 - If 4K short: cap render resolution / half-rate video; re-benchmark.
 - Still open for Phase 0: confirm no Python space-type registration + no GPU device
   handle against 4.4 API; pick helper impl (cefpython spike vs C++ ship).
+
+## Session 4 (owner: personal-use scope)
+- Owner confirmed PERSONAL USE only — no distribution requirements.
+- Supersedes §9.2: bundle-vs-download is now free choice; platform rules don't apply.
+- Knock-on: helper runtime can be a local venv (`pip install cefpython3` on Py3.9/3.10)
+  set up once; no 150MB bundle needed. §9.1 tilts toward cefpython3 for the real build,
+  not just the spike. C++ CEF kept as fallback.
+- Recorded as architecture.md §14. Architecture/engine/Phase plan all unchanged.

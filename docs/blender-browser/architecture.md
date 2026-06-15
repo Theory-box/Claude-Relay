@@ -410,3 +410,26 @@ v1 requirement. (Network permission, if ever used, must check `bpy.app.online_ac
 **Remaining Phase-0 confirmations** (unchanged): no Python space-type registration;
 no exposed GPU device handle. The benchmark also doubles as a live check of which
 `Buffer` dtype the `GPUTexture` upload path accepts (UBYTE vs FLOAT) on 4.4.
+
+---
+
+## 14. Session 4 — scope narrowed to PERSONAL USE (supersedes parts of §9.2 / §13)
+
+Owner confirmed this is **personal use only**; it does not need to meet
+extensions.blender.org distribution requirements. Implications:
+
+- **§9.2 distribution analysis is now moot.** No platform review, so the
+  self-contained / no-remote-code / no-auto-updater rules do not apply. Both bundling
+  AND download-on-first-run are fine — choose by convenience, not policy.
+- **Packaging burden drops sharply.** Instead of bundling ~150 MB of CEF per platform,
+  the helper's runtime can be set up once on the owner's own machine (e.g. a dedicated
+  Python 3.9/3.10 venv with `pip install cefpython3`, or a fetched CEF build). A
+  first-run setup step is perfectly acceptable.
+- **§9.1 helper-impl tilts toward cefpython3 (own venv) even for the real build**, not
+  just the spike — there's no need for a clean distributable artifact, and cefpython
+  sidesteps the C++ build entirely. Native C++ CEF stays as a fallback if cefpython's
+  age/stability bites.
+- Security-cadence note still applies (a live-web Chromium wants patches), but a
+  single-user, self-controlled surface makes manual updates acceptable.
+- **Unchanged:** Option 3 architecture, CEF engine, full-frame re-upload, zero-copy
+  walled off, Phase 1a/1b split. The scope change only relaxes packaging/distribution.
