@@ -20,10 +20,35 @@
   scheme, control transport, host display surface, keyboard/IME scope, partial
   texture update availability.
 
+## Session 2 — collaborating-instance review (done)
+- Wrote `docs/blender-browser/collaborator-review.md` answering §11 + §9.
+- Verdict: APPROVE Option 3 as-is. Architecture is right; do not relitigate.
+- Grounded against live sources (CEF accel-paint state, Ultralight/Servo caps,
+  Blender current `gpu` texture API).
+- Key calls: engine = CEF for v1 (Ultralight fails fidelity: no WebGL/WebRTC,
+  paid license; Servo = v2 watch). Helper = cefpython spike → C++ ship (security
+  patchability, not just robustness). Frame proto = triple buffer + atomic publish
+  index, full-frame. Host = SpaceImageEditor for spike. Keyboard = Unicode-CHAR +
+  small VK table, no IME in v1.
+- Verified API limits: Python `gpu` has NO partial sub-region texture update and no
+  PBO path → assume FULL re-upload per frame. Zero-copy is walled off for an add-on
+  (gpu exposes no device handle / external-memory import) — assumption confirmed.
+- Reframed the real risk: NOT the SHM transport. It's (a) Python full-frame
+  GPUTexture upload throughput at 4K, and (b) keyboard/IME + modal-op coexistence.
+- Recommended splitting Phase 1: 1a = pre-CEF SHM→GPUTexture fps benchmark at
+  1080p/1440p/4K (isolates the worst unknown); 1b = swap in CEF OSR.
+- Flagged missing item: ongoing CEF security-patch cadence for a live-web Chromium.
+
+## Open question for owner (next session)
+- Phase 0 policy check: does the official Blender Extensions platform allow
+  fetching native executables at runtime? Decides bundle-vs-download (§9.2).
+
 ## Next steps
-- Get the collaborating instance's answers/critique on §11.
-- Phase 0: confirm 4.4 bpy/gpu API limits + pick helper impl + pin CEF build.
-- Phase 1: the spike (CEF OSR → SHM → GPUTexture → visible page in Blender).
+- Owner reviews collaborator-review.md, accepts/rejects the §9 calls.
+- Phase 0: confirm 4.4 bpy/gpu API limits + pick helper impl + pin CEF build +
+  resolve extensions-platform download policy.
+- Phase 1a: pre-CEF SHM→GPUTexture upload-fps benchmark (the de-risk move).
+- Phase 1b: the spike proper (CEF OSR → SHM → GPUTexture → visible page).
 
 ## Verified facts (Jun 2026)
 - 4.4 = Python 3.11.11; 5.0 = 3.11; 5.1 = Python 3.13 + Vulkan default.
