@@ -595,3 +595,38 @@ holds for typical use; sustained high-res video is the one case that's noticeabl
 **Open:** the peak benchmark doesn't directly report steady-state CPU%. A "benchmark v3"
 should measure idle (≈0 uploads) and a capped-rate realistic load, reporting actual
 CPU/budget rather than peak fps → queued as B-6.
+
+### 18.1 Measured steady-state (v3, RTX 4090 / OpenGL) + a refinement
+
+Measured worst-case (whole panel changing every frame) — convert = CPU tax, % of ONE core:
+
+| panel | convert ms | gpu ms | CPU@30fps | CPU@60fps |
+|-------|-----------|--------|-----------|-----------|
+| 720p  | 3.51 | 3.12 | 10.5% | 21.1% |
+| 900p  | 5.45 | 4.47 | 16.4% | 32.7% |
+| 1080p | 7.83 | 6.41 | 23.5% | 47.0% |
+| 1440p | 14.19| 11.45| 42.6% | 85.2% |
+
+These ran ~2× higher than the v2-based projection in §18 — **treat v3 as authoritative.**
+
+**Read:**
+- **Idle ≈ 0% confirmed.** Always-on with a static page is effectively free. ✅
+- **Active browsing (reading/scrolling)** changes a fraction of the panel and not at full
+  rate → a fraction of these numbers. Close to browser-tab cost.
+- **Fullscreen video is the real divergence from a native browser:** at 1080p ~24% of one
+  core of *added* overhead (acceptable on a modern CPU); at 1440p ~43% (the case to avoid).
+  This overhead is on top of the engine's own decode (which a native browser also pays).
+
+**Refinement this points to (adopt before the spike):** do the uint8→FLOAT convert (the
+dominant CPU cost) **in the helper process, not Blender's main thread.** Helper writes
+normalized FLOAT RGBA straight into SHM; Blender's pump then only wraps + uploads + draws
+(≈ the much smaller `gpu` column). Benefits: (1) Blender's UI stays responsive — a 24–43%
+*main-thread* tax during video would stutter Blender; offloading avoids that; (2) load is
+distributed across processes. Cost: SHM becomes FLOAT (4× size — fine at ≤1440p, e.g.
+~118 MB for two 1440p slots). **Requires updating SHM_CONTRACT.md (helper writes FLOAT RGBA,
+not BGRA bytes) and the scaffold to match before running the spike.**
+
+**Decision:** cost is acceptable for an always-on reference/browsing panel at ≤1080p — idle
+is free, browsing is browser-like, and fullscreen video is bounded/tunable (cap render res
+to 1080p and/or video to half-rate). Proceed toward the spike with the helper-side-convert
+refinement folded in.

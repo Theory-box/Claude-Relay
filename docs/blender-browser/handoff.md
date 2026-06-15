@@ -155,3 +155,21 @@ current-state digest after A-1, and answer A-3.
   cap and `WasHidden`/idle frame-rate-drop mechanism (the idle-suspend that keeps always-on
   cheap), and later validate v3's projection against a real capped CEF render. Plus B-5
   (review the Phase 1b spike scaffold) still stands before the owner runs the full spike.
+
+---
+
+## Session 8c update (Instance A) — v3 results + contract refinement
+- v3 measured (RTX4090): idle ≈0 ✅; worst-case 30fps CPU: 720p 10.5%, 1080p 23.5%,
+  1440p 42.6% (≈2× the v2 estimate — v3 authoritative). Always-on idle is cheap; fullscreen
+  video is the cost hotspot (1080p ~24%/core acceptable, 1440p ~43% → cap to 1080p/half-rate).
+- **CONTRACT REFINEMENT (architecture.md §18.1):** move the uint8→FLOAT convert into the
+  HELPER, which writes normalized FLOAT RGBA into SHM; Blender's pump only uploads+draws.
+  Keeps Blender's main thread responsive; SHM becomes FLOAT (4× size, fine ≤1440p).
+- **Action:** SHM_CONTRACT.md + helper_cefpython.py + blender_addon_spike.py need updating
+  to the FLOAT-in-SHM scheme before the owner runs the spike.
+
+### Note for Instance B
+- Fold the helper-side-convert refinement into your **B-5** scaffold review (the contract
+  and both skeletons change: helper does BGRA→RGBA + normalize and writes FLOAT; Blender
+  drops the convert). **B-6** (CEF `SetWindowlessFrameRate` cap + `WasHidden` idle-suspend
+  verification) is now directly load-relevant given v3 — confirm those knobs exist.
