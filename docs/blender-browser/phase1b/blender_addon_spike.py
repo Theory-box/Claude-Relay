@@ -93,13 +93,11 @@ def _pump():
     if seq != _S["last_seq"]:
         _S["last_seq"] = seq
         active = struct.unpack_from("<I", buf, 24)[0]
-        slot_bytes = WIDTH * HEIGHT * 4
+        slot_bytes = WIDTH * HEIGHT * 16            # RGBA32F prepared by the helper
         off = HEADER + active * slot_bytes
-        raw = bytes(buf[off:off + slot_bytes])
-        # BGRA bytes -> RGBA float32 (4.4 forces FLOAT upload). CPU reorder for the spike.
-        arr = np.frombuffer(raw, dtype=np.uint8).reshape(HEIGHT, WIDTH, 4)
-        rgba = arr[:, :, [2, 1, 0, 3]].astype(np.float32) / 255.0   # BGRA->RGBA + normalize
-        fb = gpu.types.Buffer('FLOAT', WIDTH * HEIGHT * 4, rgba.ravel())
+        # helper already did BGRA->RGBA + normalize -> just view + upload, no CPU convert
+        arr = np.frombuffer(buf, dtype=np.float32, count=WIDTH * HEIGHT * 4, offset=off)
+        fb = gpu.types.Buffer('FLOAT', WIDTH * HEIGHT * 4, arr)
         _S["tex"] = gpu.types.GPUTexture((WIDTH, HEIGHT), format='RGBA8', data=fb)
         for area in bpy.context.screen.areas:
             if area.type == 'IMAGE_EDITOR':
@@ -110,7 +108,7 @@ def _pump():
 # ---- lifecycle ---------------------------------------------------------------
 def _start():
     name = "blndr_browser_" + uuid.uuid4().hex[:12]
-    slot_bytes = WIDTH * HEIGHT * 4
+    slot_bytes = WIDTH * HEIGHT * 16            # RGBA32F (helper writes FLOAT)
     size = HEADER + 2 * slot_bytes
     _S["shm"] = shared_memory.SharedMemory(create=True, size=size, name=name)  # Blender OWNS it
     _S["proc"] = subprocess.Popen(
