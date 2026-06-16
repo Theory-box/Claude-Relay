@@ -8,6 +8,22 @@
       paste target must be writable).
 - [ ] #6 Trash Can as a static screen icon (bottom-left), not a world object.
 
+## Requested — batch 2 (newest)
+- [ ] SPACE = search / find files in current folder. Wants a fast, easy in-folder finder
+      (type-to-filter, jump to / highlight matches). Flagged as SOON / high priority.
+- [ ] Fullscreen image viewer: open an image to full screen at full resolution; LEFT/RIGHT
+      arrows step through the other images in the folder; Esc to exit.
+- [ ] PDF viewing (in-app preview/reader).
+- [ ] Selected-item Properties in the right-click menu (size, type, dates, path, dimensions...).
+- [ ] Drag-OUT to other apps: dragging an item off the canvas/app puts it on the OS clipboard
+      / starts an OS drag so it drops into other apps on release (e.g. pull an image straight
+      into Blender). Needs native drag-source / clipboard support from the Tauri side.
+- [ ] Move/copy items between DIFFERENT canvases (folders/spaces), including across windows:
+      copy or move with a confirm for now.
+- [ ] Favorites / saved places: bookmark folders (e.g. right-click empty space -> "Save this
+      place"), maybe a favorites menu and/or bookmark TABS for quick switching.
+
+
 Running list of deferred work and ideas. Newest context at top of each section.
 
 ## Selection & active items (Blender-style) — requested, not started
