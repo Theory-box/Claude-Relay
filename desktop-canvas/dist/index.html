@@ -82,6 +82,8 @@
      root.appendChild(document.getElementById('paneTpl').content.cloneNode(true));
      root.addEventListener('pointerdown', function(){ if (pm) pm.setFocus(self); }, true);
      function $(s){ return root.querySelector(s); }
+     function lx(c){ return c - root.getBoundingClientRect().left; }
+     function ly(c){ return c - root.getBoundingClientRect().top; }
 
      var app = new PIXI.Application({ resizeTo: root, background: 0x15161a, antialias: true, autoDensity: true, resolution: window.devicePixelRatio || 1 });
      root.appendChild(app.view);
@@ -426,7 +428,7 @@
 
      window.addEventListener('wheel', function(ev){
        ev.preventDefault();
-       if (ev.ctrlKey){ var mx = ev.clientX, my = ev.clientY; var wx = (mx - world.x) / world.scale.x, wy = (my - world.y) / world.scale.y; var ns = Math.min(8, Math.max(0.1, world.scale.x * Math.exp(-ev.deltaY * 0.01))); world.scale.set(ns); world.x = mx - wx * ns; world.y = my - wy * ns; }
+       if (ev.ctrlKey){ var mx = lx(ev.clientX), my = ly(ev.clientY); var wx = (mx - world.x) / world.scale.x, wy = (my - world.y) / world.scale.y; var ns = Math.min(8, Math.max(0.1, world.scale.x * Math.exp(-ev.deltaY * 0.01))); world.scale.set(ns); world.x = mx - wx * ns; world.y = my - wy * ns; }
        else { world.x -= ev.deltaX; world.y -= ev.deltaY; }
        if (carry && !confirming && !animating) refreshPreview();
      }, { passive: false });
@@ -478,10 +480,10 @@
        positionFlyout(anchor);
      }
      function positionFlyout(anchor){
-       var r = anchor.getBoundingClientRect();
+       var r = anchor.getBoundingClientRect(); var pr = root.getBoundingClientRect();
        sortMenu.style.display = 'block';
-       var x = r.right - 2, y = r.top - 5;
-       if (x + sortMenu.offsetWidth > window.innerWidth) x = r.left - sortMenu.offsetWidth + 2;
+       var x = (r.right - pr.left) - 2, y = (r.top - pr.top) - 5;
+       if (x + sortMenu.offsetWidth > pr.width) x = (r.left - pr.left) - sortMenu.offsetWidth + 2;
        sortMenu.style.left = x + 'px'; sortMenu.style.top = y + 'px';
      }
      function showSpacesFlyout(anchor){
@@ -551,7 +553,7 @@
        }
        menu.style.left = x + 'px'; menu.style.top = y + 'px'; menu.style.display = 'block';
      }
-     app.view.addEventListener('contextmenu', function(ev){ ev.preventDefault(); if (confirming || animating) return; if (carry){ cancelCarry(); return; } var c = targetAt(ev.clientX, ev.clientY); if (c){ if (!c.__trash && selection.has(c) && selection.size > 1) openSelectionMenu(ev.clientX, ev.clientY); else openMenu(ev.clientX, ev.clientY, c); } else openEmptyMenu(ev.clientX, ev.clientY); });
+     app.view.addEventListener('contextmenu', function(ev){ ev.preventDefault(); if (confirming || animating) return; if (carry){ cancelCarry(); return; } var lpx = lx(ev.clientX), lpy = ly(ev.clientY); var c = targetAt(lpx, lpy); if (c){ if (!c.__trash && selection.has(c) && selection.size > 1) openSelectionMenu(lpx, lpy); else openMenu(lpx, lpy, c); } else openEmptyMenu(lpx, lpy); });
      function activateItem(c){
        if (!c || !c.__item) return;
        if (c.__trash){ T.core.invoke('open_trash'); return; }
@@ -568,7 +570,7 @@
        }
        T.core.invoke('open_item', { dir: cwd, name: name });
      }
-     app.view.addEventListener('dblclick', function(ev){ if (carry || confirming || animating) return; var c = targetAt(ev.clientX, ev.clientY); if (!c) return; activateItem(c); });
+     app.view.addEventListener('dblclick', function(ev){ if (carry || confirming || animating) return; var c = targetAt(lx(ev.clientX), ly(ev.clientY)); if (!c) return; activateItem(c); });
      window.addEventListener('wheel', function(){ hideMenu(); }, true);
 
      // ---------- address bar ----------
@@ -595,7 +597,7 @@
        else if (carry && carry.source === 'import'){ hud.textContent = 'Placing imported file [' + modeLabel() + ']  \u00b7  left-click confirm  \u00b7  right-click cancel  \u00b7  T toggle  \u00b7  Free mode (1) to drop into a folder'; }
        else if (carry){ hud.textContent = 'Moving ' + (carry.held.length > 1 ? carry.held.length + ' items ' : '') + '[' + (ctrlDown ? 'Free (Ctrl)' : modeLabel()) + ']  \u00b7  hold Ctrl = free / drop into folder  \u00b7  T toggle  \u00b7  release to drop  \u00b7  Esc cancel'; }
        else if (selection.size){ hud.textContent = selection.size + ' selected  \u00b7  drag = move  \u00b7  Ctrl+C copy / Ctrl+X cut  \u00b7  Del trash  \u00b7  Ctrl+F frame  \u00b7  Esc clear'; }
-       else { hud.textContent = 'v0.0.38  \u00b7  click = select  \u00b7  shift/ctrl = add/remove  \u00b7  drag empty = box select  \u00b7  middle-drag = pan  \u00b7  drag item = move  \u00b7  mode: ' + modeLabel() + (writable ? '' : '  \u00b7  read-only'); }
+       else { hud.textContent = 'v0.0.39  \u00b7  click = select  \u00b7  shift/ctrl = add/remove  \u00b7  drag empty = box select  \u00b7  middle-drag = pan  \u00b7  drag item = move  \u00b7  mode: ' + modeLabel() + (writable ? '' : '  \u00b7  read-only'); }
      }
      upBtn.addEventListener('click', function(){ navigate(parentOf(cwd)); });
      gotoBtn.addEventListener('click', function(){ if (pathInput.style.display === 'none'){ pathInput.style.display = 'inline-block'; pathInput.value = cwd; pathInput.focus(); pathInput.select(); } else { navigate(pathInput.value.trim()); pathInput.style.display = 'none'; } });
@@ -689,7 +691,7 @@
        var cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
        camTween = { s: sc, x: sw / 2 - cx * sc, y: sh / 2 - cy * sc, f: 16 };
      }
-     spacesBtn.addEventListener('click', function(ev){ ev.stopPropagation(); if (spacesMenu.style.display === 'block'){ spacesMenu.style.display = 'none'; return; } spacesMenu.innerHTML = ''; if (!spaces.length){ var e0 = mkBtn('(no saved spaces)', '', function(){ spacesMenu.style.display = 'none'; }); e0.style.color = '#777'; spacesMenu.appendChild(e0); } else { spaces.forEach(function(sp){ spacesMenu.appendChild(mkBtn(sp.label, '', function(){ navigate(sp.path); spacesMenu.style.display = 'none'; })); }); } var r = spacesBtn.getBoundingClientRect(); spacesMenu.style.left = r.left + 'px'; spacesMenu.style.top = (r.bottom + 4) + 'px'; spacesMenu.style.display = 'block'; });
+     spacesBtn.addEventListener('click', function(ev){ ev.stopPropagation(); if (spacesMenu.style.display === 'block'){ spacesMenu.style.display = 'none'; return; } spacesMenu.innerHTML = ''; if (!spaces.length){ var e0 = mkBtn('(no saved spaces)', '', function(){ spacesMenu.style.display = 'none'; }); e0.style.color = '#777'; spacesMenu.appendChild(e0); } else { spaces.forEach(function(sp){ spacesMenu.appendChild(mkBtn(sp.label, '', function(){ navigate(sp.path); spacesMenu.style.display = 'none'; })); }); } var r = spacesBtn.getBoundingClientRect(); var pr = root.getBoundingClientRect(); spacesMenu.style.left = (r.left - pr.left) + 'px'; spacesMenu.style.top = (r.bottom - pr.top + 4) + 'px'; spacesMenu.style.display = 'block'; });
 
      // ---------- OS import ----------
      function handleDrop(payload){
