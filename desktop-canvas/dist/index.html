@@ -199,6 +199,8 @@
      var loadSeq = 0, loading = false;
      async function loadView(fromSync){
        var seq = ++loadSeq; loading = true; writable = safetyOn ? inRoot(cwd) : true;
+       var prevPos = {};
+       if (fromSync){ cards.forEach(function(c){ if (c.__item){ prevPos[c.__item.name] = { x: c.x, y: c.y }; } }); }
        clearView();
        var posmap = {};
        try{ var s = await T.core.invoke('load_layout', { key: cwd }); var p = JSON.parse(s || '{}'); var arr = Array.isArray(p) ? p : (p.items || []); arr.forEach(function(it){ posmap[it.name] = { x: it.x, y: it.y }; }); if (!Array.isArray(p) && p.trash) trash = p.trash; }catch(e){ showErr('load_layout: ' + e); }
@@ -210,7 +212,7 @@
        function buildChunk(){
          if (seq !== loadSeq) return; // superseded by a newer load -> abort
          var end = Math.min(bi + 40, list.length);
-         for (; bi < end; bi++){ var f = list[bi]; var pos = posmap[f.name] || { x: 40 + (n % 6) * 250, y: 40 + Math.floor(n / 6) * 200 }; n++; var it = { name: f.name, x: pos.x, y: pos.y, dir: f.dir }; items.push(it); buildCard(it); mtimes[f.name] = f.mtime; meta[f.name] = { size: f.size || 0, mtime: f.mtime || 0, dir: f.dir }; }
+         for (; bi < end; bi++){ var f = list[bi]; var pos = posmap[f.name] || prevPos[f.name] || { x: 40 + (n % 6) * 250, y: 40 + Math.floor(n / 6) * 200 }; n++; var it = { name: f.name, x: pos.x, y: pos.y, dir: f.dir }; items.push(it); buildCard(it); mtimes[f.name] = f.mtime; meta[f.name] = { size: f.size || 0, mtime: f.mtime || 0, dir: f.dir }; }
          if (bi < list.length){ requestAnimationFrame(buildChunk); return; } // paint between batches -> progressive display
          if (cwd && cwd === homePath) trashNode = buildTrash();
          updateBar(); loading = false;
@@ -287,8 +289,10 @@
        }
      }
      function refreshPreview(){ if (carry && lastCursor && (carry.moved || carry.phase === 'float')){ var wx = (lastCursor.x - world.x) / world.scale.x, wy = (lastCursor.y - world.y) / world.scale.y; resolveCarry({ x: wx, y: wy }); } }
-     function endCarry(){ if (carry){ carry.held.forEach(function(h){ h.card.alpha = 1; }); } hl.visible = false; carry = null; updateHud(); drawSelection(); if (reloadPending){ reloadPending = false; loadView(true); } }
-     function placePlain(){ var anchor = carry.anchor; if (anchor.__trash){ trash.x = anchor.x; trash.y = anchor.y; } else { cards.forEach(function(c){ if (c.__item){ c.__item.x = c.x; c.__item.y = c.y; } }); } endCarry(); persist(); }
+     function endCarry(){ if (carry){ carry.held.forEach(function(h){ h.card.alpha = 1; }); } hl.visible = false; carry = null; updateHud(); drawSelection(); }
+     function flushReload(){ if (reloadPending){ reloadPending = false; loadView(true); } }
+     function persistFlush(){ var p = persist(); if (p && p.then){ p.then(flushReload); } else { flushReload(); } } // save THEN apply any deferred remote reload
+     function placePlain(){ var anchor = carry.anchor; if (anchor.__trash){ trash.x = anchor.x; trash.y = anchor.y; } else { cards.forEach(function(c){ if (c.__item){ c.__item.x = c.x; c.__item.y = c.y; } }); } endCarry(); persistFlush(); }
      function commitCarry(){
        if (!carry || confirming) return;
        var dt = carry.dropTarget;
@@ -299,14 +303,14 @@
          var folder = dt.__item.name, src = carry.source;
          var label = names.length === 1 ? '\u201c' + names[0] + '\u201d' : names.length + ' items';
          confirmDialog('Move ' + label + ' into \u201c' + folder + '\u201d?', 'Move',
-           function(){ Promise.all(names.map(function(nm){ return T.core.invoke('move_into', { dir: cwd, name: nm, folder: folder }).catch(function(e){ showErr('move: ' + e); }); })).then(function(){ moveCards.forEach(function(c){ selection.delete(c); removeCardLocal(c); }); endCarry(); persist(); }); },
+           function(){ Promise.all(names.map(function(nm){ return T.core.invoke('move_into', { dir: cwd, name: nm, folder: folder }).catch(function(e){ showErr('move: ' + e); }); })).then(function(){ moveCards.forEach(function(c){ selection.delete(c); removeCardLocal(c); }); endCarry(); persistFlush(); }); },
            function(){ if (carry && src === 'import'){ carry.phase = 'float'; carry.dropTarget = null; hl.visible = false; updateHud(); } else { cancelCarry(); } });
          return;
        }
        if (dt && dt.__trash){
          var tcards = carry.held.map(function(h){ return h.card; }).filter(function(c){ return c.__item; });
          var tnames = tcards.map(function(c){ return c.__item.name; });
-         Promise.all(tnames.map(function(nm){ return T.core.invoke('trash_item', { dir: cwd, name: nm }).catch(function(e){ showErr('trash: ' + e); }); })).then(function(){ tcards.forEach(function(c){ selection.delete(c); removeCardLocal(c); }); persist(); });
+         Promise.all(tnames.map(function(nm){ return T.core.invoke('trash_item', { dir: cwd, name: nm }).catch(function(e){ showErr('trash: ' + e); }); })).then(function(){ tcards.forEach(function(c){ selection.delete(c); removeCardLocal(c); }); persistFlush(); });
          endCarry(); return;
        }
        placePlain();
@@ -315,7 +319,7 @@
        if (!carry) return;
        if (carry.source === 'import'){ var c = carry.anchor, nm = c.__item.name; T.core.invoke('delete_file', { dir: cwd, name: nm }).catch(function(e){ showErr('del: ' + e); }); selection.delete(c); removeCardLocal(c); }
        else { cards.forEach(function(c){ var sn = carry.snap[c.__item.name]; if (sn){ c.x = sn.x; c.y = sn.y; } }); if (carry.snap.__trash && trashNode){ trashNode.x = carry.snap.__trash.x; trashNode.y = carry.snap.__trash.y; } carry.held.forEach(function(h){ h.card.alpha = 1; }); }
-       hl.visible = false; carry = null; updateHud(); drawSelection(); if (reloadPending){ reloadPending = false; loadView(true); }
+       hl.visible = false; carry = null; updateHud(); drawSelection(); flushReload();
      }
 
      // ---------- selection & rubber-band box ----------
@@ -364,7 +368,7 @@
        cards.forEach(function(c){ var g = t[c.__item.name]; if (!g) return; c.x += (g.x - c.x) * 0.18; c.y += (g.y - c.y) * 0.18; });
        if (sortAnim.frames > 30){ separateOnce(); separateOnce(); } // jostle during transit; fades out so targets win
        sortAnim.frames--;
-       if (sortAnim.frames <= 0){ cards.forEach(function(c){ var g = t[c.__item.name]; if (g){ c.x = g.x; c.y = g.y; } if (c.__item){ c.__item.x = c.x; c.__item.y = c.y; } }); sortAnim = null; animating = false; updateHud(); persist(); }
+       if (sortAnim.frames <= 0){ cards.forEach(function(c){ var g = t[c.__item.name]; if (g){ c.x = g.x; c.y = g.y; } if (c.__item){ c.__item.x = c.x; c.__item.y = c.y; } }); sortAnim = null; animating = false; updateHud(); persistFlush(); }
      }
 
      // ---------- pointer wiring ----------
@@ -564,7 +568,7 @@
        else if (carry && carry.source === 'import'){ hud.textContent = 'Placing imported file [' + modeLabel() + ']  \u00b7  left-click confirm  \u00b7  right-click cancel  \u00b7  T toggle  \u00b7  Free mode (1) to drop into a folder'; }
        else if (carry){ hud.textContent = 'Moving ' + (carry.held.length > 1 ? carry.held.length + ' items ' : '') + '[' + (ctrlDown ? 'Free (Ctrl)' : modeLabel()) + ']  \u00b7  hold Ctrl = free / drop into folder  \u00b7  T toggle  \u00b7  release to drop  \u00b7  Esc cancel'; }
        else if (selection.size){ hud.textContent = selection.size + ' selected  \u00b7  drag = move  \u00b7  Ctrl+C copy / Ctrl+X cut  \u00b7  Del trash  \u00b7  Ctrl+F frame  \u00b7  Esc clear'; }
-       else { hud.textContent = 'v0.0.23  \u00b7  click = select  \u00b7  shift/ctrl = add/remove  \u00b7  drag empty = box select  \u00b7  middle-drag = pan  \u00b7  drag item = move  \u00b7  mode: ' + modeLabel() + (writable ? '' : '  \u00b7  read-only'); }
+       else { hud.textContent = 'v0.0.30  \u00b7  click = select  \u00b7  shift/ctrl = add/remove  \u00b7  drag empty = box select  \u00b7  middle-drag = pan  \u00b7  drag item = move  \u00b7  mode: ' + modeLabel() + (writable ? '' : '  \u00b7  read-only'); }
      }
      upBtn.addEventListener('click', function(){ navigate(parentOf(cwd)); });
      gotoBtn.addEventListener('click', function(){ if (pathInput.style.display === 'none'){ pathInput.style.display = 'inline-block'; pathInput.value = cwd; pathInput.focus(); pathInput.select(); } else { navigate(pathInput.value.trim()); pathInput.style.display = 'none'; } });
@@ -695,7 +699,7 @@
          var gone = []; items.forEach(function(it){ if (!present[it.name]) gone.push(it); });
          gone.forEach(function(it){ var c = cardForName(it.name); if (c) removeCardLocal(c); changed = true; });
          edited.forEach(function(nm){ delete thumbCache[cwd + '\u0000' + nm]; var c = cardForName(nm); if (c) applyThumb(c, cwd); try{ T.event.emit('thumb-changed', { key: cwd, name: nm }); }catch(_){} });
-         if (changed) persist();
+         if (changed) saveLayout(false); // quiet: don't broadcast file-presence sync (avoids cross-monitor clobber)
        }catch(e){ showErr('poll: ' + e); }
      }
 

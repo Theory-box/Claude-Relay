@@ -376,3 +376,21 @@ Stack: Tauri v2 (Rust + WebView2), PixiJS planned for canvas. Windows-only.
 - Frontend: new activateItem(card) helper. dir -> navigate; name matches /\.lnk$/i -> resolve_lnk, if
   target is a folder navigate(target) IN-canvas else open_item; otherwise open_item. Used by dblclick and
   the file-menu "Open". Resolved-target navigation works regardless of safety (browsing/reads are unrestricted).
+
+## v0.0.30 — FIX: cross-monitor sync wiping placements / "auto-sort to grid"
+ROOT CAUSE: in placePlain/move-into/trash, endCarry() ran BEFORE persist(). endCarry fired the
+deferred reload (reloadPending, set when a remote broadcast arrived mid-drag) -> loadView(true) ->
+clearView() empties items[] synchronously -> the following persist() saved an EMPTY/stale layout ->
+reload rebuilt from stale data, gridding everything. Only triggered when another monitor showing the
+same folder broadcast during a drag (matches the user's "syncing between monitors" hunch).
+FIXES:
+- Reordered: endCarry() now only does UI cleanup; new persistFlush() saves THEN runs flushReload()
+  (the deferred reload) after the save resolves. Used in placePlain, move-into, trash, sort completion.
+- cancelCarry uses flushReload() (safe: nothing changed locally).
+- Anti-grid: loadView captures prevPos of on-screen cards before clearView on fromSync; position
+  fallback is now saved-layout -> previous on-screen pos -> grid, so a sync reload never scatters
+  existing items to a grid even if the saved layout is momentarily stale.
+- poll() file-presence sync no longer broadcasts (saveLayout(false)); each window polls the FS itself,
+  so poll broadcasts only caused cross-window clobber.
+- Also fixed: idle HUD version label had been stuck at v0.0.23 (cosmetic; version replaces silently
+  no-matched since v0.0.25). Now shows v0.0.30.
