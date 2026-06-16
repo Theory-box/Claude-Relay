@@ -304,3 +304,17 @@ Stack: Tauri v2 (Rust + WebView2), PixiJS planned for canvas. Windows-only.
   home). add/removeSpace persist immediately. Works in read-only folders too (bookmarks are
   app-data, not file writes). Refactored flyout positioning into positionFlyout() shared by
   Sort/Tidy and Spaces flyouts (both reuse the sortMenu element).
+
+## v0.0.23 — FIX spacesMenu crash; add Search + Frame Selected
+- FIX: v0.0.22 shipped without the #spacesMenu div (indentation-mismatched str_replace silently
+  no-op'd), so spacesMenu was null -> 'Cannot read properties of null (reading style)' on click/
+  pointerdown. Added the div. Also added a build-time check (node script) that every
+  getElementById target has a matching element id -> catches this class of bug.
+- SEARCH: Space opens a floating search pill (#search). Typing live-selects all cards whose name
+  contains the query (substring, case-insensitive); count shows "matched / total". Enter = frame
+  + close; Esc = close; Ctrl+F (in or out of search) = Frame Selected. Typing in any INPUT is
+  guarded so Space/Ctrl+F/shortcuts don't fire while typing.
+- FRAME SELECTED (Ctrl+F): animated camera tween (camTween, eased in ticker) to fit the selection's
+  bounding box (margin 90, max zoom 2.2x). Empty selection -> frames ALL items (find lost items:
+  Ctrl+A then Ctrl+F). 
+- TODO batch 3: sort applies to selection (else all); second "gather" move mode.

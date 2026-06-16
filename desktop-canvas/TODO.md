@@ -8,7 +8,12 @@
       paste target must be writable).
 - [ ] #6 Trash Can as a static screen icon (bottom-left), not a world object.
 
-## Requested — batch 2 (newest)
+## Requested — batch 3 (newest)
+- [ ] Sorting should apply to the SELECTED items when any are selected; otherwise sort everything.
+- [ ] Two move modes: (1) rigid group move (current); (2) "gather" — all selected items cluster
+      around the item being dragged while dragging. Toggle between them.
+
+## Requested — batch 2
 - [ ] SPACE = search / find files in current folder. Wants a fast, easy in-folder finder
       (type-to-filter, jump to / highlight matches). Flagged as SOON / high priority.
 - [ ] Fullscreen image viewer: open an image to full screen at full resolution; LEFT/RIGHT
