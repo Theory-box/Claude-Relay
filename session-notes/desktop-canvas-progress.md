@@ -454,3 +454,21 @@ toolbar is still missing in pane 2, check for a red error bar (would indicate ma
   Two toolbar buttons (← →) left of the Up button, disabled at the ends of history. History seeded
   with the initial home folder. Records folders, spaces, breadcrumbs, Up, shortcut-target navigation.
   (Up button unchanged = parent dir; Back/Forward = visited history.)
+
+## v0.0.35 — drag OUT to other apps (export), single file (menu-initiated)
+Design (user-approved): export-drag is started from a right-click menu entry, NOT from dragging the
+card — so it never conflicts with the in-canvas move gesture, no modifier needed. Card stays put; the
+OS drag image (currently the app icon) follows the cursor. Drop onto Blender/any app = it gets the real
+file path and imports.
+- Rust: added `drag = "0.4"` (windows target). New command drag_out(window, paths): builds
+  drag::DragItem::Files, runs drag::start_drag on the MAIN thread via app_handle().run_on_main_thread
+  (DoDragDrop is modal + must be on the UI thread), preview = embedded icons/icon.png, ignores result.
+  Registered in generate_handler. Own command -> no capability change needed (core:default covers ours).
+- Frontend: mkDragOut(target) builds an "↗ Drag out to app" menu button; on POINTERDOWN it invokes
+  drag_out({paths:[abs path]}) and hides the menu (press-drag, not click — so the OS drag attaches to the
+  held button). Placed right after the Open group in BOTH file and folder menu branches — near the top,
+  far from Delete (per user's accidental-delete concern).
+RISK/UNKNOWNS for this build: drag crate 0.4 vs Tauri v2 raw-window-handle compat; whether WebviewWindow
+satisfies HasWindowHandle; IPC timing for the OS drag to attach to the live press. May need a cycle.
+NEXT if it works: multi-select drag-out (paths from selection), and use the card's real thumbnail as the
+drag image instead of the app icon.

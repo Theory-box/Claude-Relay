@@ -463,11 +463,23 @@ fn load_layout(app: tauri::AppHandle, key: String) -> Result<String, String> {
     if f.exists() { fs::read_to_string(f).map_err(|e| e.to_string()) } else { Ok("{}".to_string()) }
 }
 
+#[tauri::command]
+fn drag_out(window: tauri::WebviewWindow, paths: Vec<String>) -> Result<(), String> {
+    let files: Vec<std::path::PathBuf> = paths.into_iter().map(std::path::PathBuf::from).collect();
+    if files.is_empty() { return Err("no files".into()); }
+    let w = window.clone();
+    window.app_handle().run_on_main_thread(move || {
+        let item = drag::DragItem::Files(files);
+        let image = drag::Image::Raw(include_bytes!("../icons/icon.png").to_vec());
+        let _ = drag::start_drag(&w, item, image, |_r, _p| {}, drag::Options::default());
+    }).map_err(|e| e.to_string())
+}
+
 fn main() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
             quit, places, list_dir, add_dropped_file, make_folder, move_into, trash_item,
-            clear_trash, open_trash, thumb_data, open_item, open_folder, shell_verb, delete_file, paste_copy, paste_move, paste_shortcut, resolve_lnk, path_size, set_safety, load_spaces, save_spaces, save_layout, load_layout
+            clear_trash, open_trash, thumb_data, open_item, open_folder, shell_verb, delete_file, paste_copy, paste_move, paste_shortcut, resolve_lnk, path_size, set_safety, load_spaces, save_spaces, save_layout, load_layout, drag_out
         ])
         .setup(|app| {
             let handle = app.handle().clone();
