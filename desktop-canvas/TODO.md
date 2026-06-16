@@ -20,8 +20,9 @@
       into Blender). Needs native drag-source / clipboard support from the Tauri side.
 - [ ] Move/copy items between DIFFERENT canvases (folders/spaces), including across windows:
       copy or move with a confirm for now.
-- [ ] Favorites / saved places: bookmark folders (e.g. right-click empty space -> "Save this
-      place"), maybe a favorites menu and/or bookmark TABS for quick switching.
+- [done v0.0.22] Saved Spaces: bookmark folders via right-click empty -> Spaces > Save/Remove;
+      Spaces dropdown in the bar; persisted to app-data spaces.json (survives exe updates).
+      (Bookmark TABS still possible later.)
 
 
 Running list of deferred work and ideas. Newest context at top of each section.

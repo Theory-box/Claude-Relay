@@ -38,6 +38,7 @@
  <div id="bar">
    <button id="up" title="Up one folder">&#8593;</button>
    <button id="placesBtn">Places &#9662;</button>
+   <button id="spacesBtn">Spaces &#9662;</button>
    <span id="crumbs"></span>
    <span class="spacer"></span>
    <input id="pathInput" placeholder="Type or paste a path, Enter to go" style="display:none">
@@ -79,7 +80,7 @@
      var items = [], cards = [], thumbCache = {}, mtimes = {}, meta = {};
      var trash = { x: -320, y: -210 }, trashNode = null;
      var panning = false, last = null, reloadPending = false, confirming = false, animating = false;
-     var lastCursor = null, sortAnim = null, writable = true;
+     var lastCursor = null, sortAnim = null, writable = true, spaces = [];
      var modes = ['free', 'push'], modeIdx = 1; // default Push (Fit removed)
      function modeLabel(){ return ['Free', 'Push'][modeIdx]; }
      var carry = null;
@@ -401,6 +402,7 @@
        if (carry && carry.source === 'import' && carry.phase === 'float' && ev.button === 0){ commitCarry(); ev.stopPropagation(); ev.preventDefault(); return; }
        if (menu.style.display === 'block' && !menu.contains(ev.target) && !sortMenu.contains(ev.target)){ hideMenu(); }
        if (placesMenu.style.display === 'block' && ev.target !== placesBtn && !placesMenu.contains(ev.target)) placesMenu.style.display = 'none';
+       if (spacesMenu.style.display === 'block' && ev.target !== spacesBtn && !spacesMenu.contains(ev.target)) spacesMenu.style.display = 'none';
      }, true);
      window.addEventListener('keydown', function(e){
        if (confirming) return;
@@ -431,11 +433,20 @@
        sortMenu.appendChild(mkSep());
        var opts = [['Name (A \u2192 Z)', cmpName], ['Name (Z \u2192 A)', rev(cmpName)], ['Size (small \u2192 large)', cmpSize], ['Size (large \u2192 small)', rev(cmpSize)], ['Type', cmpType], ['Date (old \u2192 new)', cmpDate], ['Date (new \u2192 old)', rev(cmpDate)]];
        opts.forEach(function(o){ sortMenu.appendChild(mkBtn(o[0], '', function(){ startSort(o[1]); })); });
+       positionFlyout(anchor);
+     }
+     function positionFlyout(anchor){
        var r = anchor.getBoundingClientRect();
-       var x = r.right - 2, y = r.top - 5;
        sortMenu.style.display = 'block';
+       var x = r.right - 2, y = r.top - 5;
        if (x + sortMenu.offsetWidth > window.innerWidth) x = r.left - sortMenu.offsetWidth + 2;
        sortMenu.style.left = x + 'px'; sortMenu.style.top = y + 'px';
+     }
+     function showSpacesFlyout(anchor){
+       sortMenu.innerHTML = '';
+       if (spaceSaved(cwd)) sortMenu.appendChild(mkBtn('Remove this space', '', function(){ hideMenu(); removeSpace(); }));
+       else sortMenu.appendChild(mkBtn('Save this space', '', function(){ hideMenu(); addSpace(); }));
+       positionFlyout(anchor);
      }
      function openEmptyMenu(x, y){
        menuTarget = null; menu.innerHTML = '';
@@ -444,6 +455,10 @@
        sortBtn.addEventListener('click', function(ev){ ev.stopPropagation(); showSortFlyout(sortBtn); });
        sortBtn.addEventListener('mouseenter', function(){ showSortFlyout(sortBtn); });
        menu.appendChild(sortBtn);
+       var spBtn = document.createElement('button'); spBtn.innerHTML = 'Spaces <span class="arrow">\u25B8</span>';
+       spBtn.addEventListener('click', function(ev){ ev.stopPropagation(); showSpacesFlyout(spBtn); });
+       spBtn.addEventListener('mouseenter', function(){ showSpacesFlyout(spBtn); });
+       menu.appendChild(spBtn);
        menu.style.left = x + 'px'; menu.style.top = y + 'px'; menu.style.display = 'block'; sortMenu.style.display = 'none';
      }
      function openSelectionMenu(x, y){
@@ -484,6 +499,7 @@
      function parentOf(p){ if (!p) return ''; var s = p.replace(/[\\\/]+$/, ''); if (/^[A-Za-z]:$/.test(s)) return ''; var i = Math.max(s.lastIndexOf('\\'), s.lastIndexOf('/')); if (i < 0) return ''; var up = s.slice(0, i); if (/^[A-Za-z]:$/.test(up)) return up + '\\'; return up; }
      var upBtn = document.getElementById('up'), crumbs = document.getElementById('crumbs');
      var placesBtn = document.getElementById('placesBtn'), placesMenu = document.getElementById('placesMenu'), gotoBtn = document.getElementById('goto'), pathInput = document.getElementById('pathInput'), hud = document.getElementById('hud');
+     var spacesBtn = document.getElementById('spacesBtn'), spacesMenu = document.getElementById('spacesMenu');
      function updateBar(){
        upBtn.style.visibility = cwd ? 'visible' : 'hidden';
        crumbs.innerHTML = '';
@@ -498,13 +514,19 @@
        else if (carry && carry.source === 'import'){ hud.textContent = 'Placing imported file [' + modeLabel() + ']  \u00b7  left-click confirm  \u00b7  right-click cancel  \u00b7  T toggle  \u00b7  Free mode (1) to drop into a folder'; }
        else if (carry){ hud.textContent = 'Moving ' + (carry.held.length > 1 ? carry.held.length + ' items ' : '') + '[' + modeLabel() + ']  \u00b7  release to drop  \u00b7  T toggle (1 Free / 2 Push)  \u00b7  Free to drop into a folder  \u00b7  Esc cancel'; }
        else if (selection.size){ hud.textContent = selection.size + ' selected  \u00b7  drag to move all  \u00b7  Del to trash  \u00b7  Esc to clear  \u00b7  Ctrl+A all  \u00b7  mode: ' + modeLabel(); }
-       else { hud.textContent = 'v0.0.21  \u00b7  click = select  \u00b7  shift/ctrl = add/remove  \u00b7  drag empty = box select  \u00b7  middle-drag = pan  \u00b7  drag item = move  \u00b7  mode: ' + modeLabel() + (writable ? '' : '  \u00b7  read-only'); }
+       else { hud.textContent = 'v0.0.22  \u00b7  click = select  \u00b7  shift/ctrl = add/remove  \u00b7  drag empty = box select  \u00b7  middle-drag = pan  \u00b7  drag item = move  \u00b7  mode: ' + modeLabel() + (writable ? '' : '  \u00b7  read-only'); }
      }
      upBtn.addEventListener('click', function(){ navigate(parentOf(cwd)); });
      placesBtn.addEventListener('click', function(ev){ ev.stopPropagation(); if (placesMenu.style.display === 'block'){ placesMenu.style.display = 'none'; return; } placesMenu.innerHTML = ''; placesList.forEach(function(pl){ placesMenu.appendChild(mkBtn(pl.label, '', function(){ navigate(pl.path); placesMenu.style.display = 'none'; })); }); var r = placesBtn.getBoundingClientRect(); placesMenu.style.left = r.left + 'px'; placesMenu.style.top = (r.bottom + 4) + 'px'; placesMenu.style.display = 'block'; });
      gotoBtn.addEventListener('click', function(){ if (pathInput.style.display === 'none'){ pathInput.style.display = 'inline-block'; pathInput.value = cwd; pathInput.focus(); pathInput.select(); } else { navigate(pathInput.value.trim()); pathInput.style.display = 'none'; } });
      pathInput.addEventListener('keydown', function(e){ if (e.key === 'Enter'){ navigate(pathInput.value.trim()); pathInput.style.display = 'none'; } else if (e.key === 'Escape'){ pathInput.style.display = 'none'; } e.stopPropagation(); });
      function createFolder(nm){ T.core.invoke('make_folder', { dir: cwd, name: (nm || 'New Folder') }).then(function(){ loadView(); }).catch(function(e){ showErr('make_folder: ' + e); }); }
+     function spaceLabel(path){ var n = norm(path); if (n.toLowerCase() === norm(homePath).toLowerCase()) return 'Desktop Canvas'; var parts = n ? n.split('\\').filter(Boolean) : []; return parts.length ? parts[parts.length - 1] : 'This PC'; }
+     function spaceSaved(path){ var n = norm(path).toLowerCase(); return spaces.some(function(sp){ return norm(sp.path).toLowerCase() === n; }); }
+     function persistSpaces(){ T.core.invoke('save_spaces', { data: JSON.stringify(spaces) }).catch(function(e){ showErr('save_spaces: ' + e); }); }
+     function addSpace(){ if (!spaceSaved(cwd)){ spaces.push({ label: spaceLabel(cwd), path: cwd }); persistSpaces(); } }
+     function removeSpace(){ var n = norm(cwd).toLowerCase(); spaces = spaces.filter(function(sp){ return norm(sp.path).toLowerCase() !== n; }); persistSpaces(); }
+     spacesBtn.addEventListener('click', function(ev){ ev.stopPropagation(); if (spacesMenu.style.display === 'block'){ spacesMenu.style.display = 'none'; return; } placesMenu.style.display = 'none'; spacesMenu.innerHTML = ''; if (!spaces.length){ var e0 = mkBtn('(no saved spaces)', '', function(){ spacesMenu.style.display = 'none'; }); e0.style.color = '#777'; spacesMenu.appendChild(e0); } else { spaces.forEach(function(sp){ spacesMenu.appendChild(mkBtn(sp.label, '', function(){ navigate(sp.path); spacesMenu.style.display = 'none'; })); }); } var r = spacesBtn.getBoundingClientRect(); spacesMenu.style.left = r.left + 'px'; spacesMenu.style.top = (r.bottom + 4) + 'px'; spacesMenu.style.display = 'block'; });
 
      // ---------- OS import ----------
      function handleDrop(payload){
@@ -554,6 +576,7 @@
      (async function(){
        try{ placesList = JSON.parse(await T.core.invoke('places') || '[]'); }catch(e){ showErr('places: ' + e); }
        var hp = placesList.filter(function(p){ return p.label === 'Desktop Canvas'; })[0]; homePath = hp ? hp.path : ''; cwd = homePath;
+       try{ spaces = JSON.parse(await T.core.invoke('load_spaces') || '[]'); }catch(e){ showErr('load_spaces: ' + e); }
        updateHud();
        await loadView(); poll(); setInterval(poll, 3000);
      })();

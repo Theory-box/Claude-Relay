@@ -294,3 +294,13 @@ Stack: Tauri v2 (Rust + WebView2), PixiJS planned for canvas. Windows-only.
   -> bubbled to the stage -> started a box-select. (Also meant a plain click on a selected card
   cleared the selection.) Fix: selGfx.eventMode='none' (also set hl + grid to 'none') so all
   decorative overlays are ignored by hit-testing and clicks reach the cards beneath.
+
+## v0.0.22 — Saved Spaces (persistent bookmarks)
+- Backend: load_spaces/save_spaces commands store app_data_dir/spaces.json (persists across exe
+  updates, same stable app-data dir as layouts). Default when absent: just the canvas home.
+- Frontend: "Spaces v" dropdown in the bar lists saved spaces (click to navigate). Right-click
+  empty space -> "Spaces >" flyout = "Save this space" / "Remove this space" (toggles on whether
+  cwd is already saved). spaces[] = [{label,path}]; label = folder basename ("Desktop Canvas" for
+  home). add/removeSpace persist immediately. Works in read-only folders too (bookmarks are
+  app-data, not file writes). Refactored flyout positioning into positionFlyout() shared by
+  Sort/Tidy and Spaces flyouts (both reuse the sortMenu element).

@@ -331,6 +331,26 @@ fn delete_file(app: tauri::AppHandle, dir: String, name: String) -> Result<(), S
 }
 
 #[tauri::command]
+fn load_spaces(app: tauri::AppHandle) -> Result<String, String> {
+    let base = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let f = base.join("spaces.json");
+    if f.exists() {
+        return fs::read_to_string(&f).map_err(|e| e.to_string());
+    }
+    // default: only the main canvas folder
+    let home = canvas_dir(&app)?.to_string_lossy().to_string();
+    Ok(format!("[{{\"label\":\"Desktop Canvas\",\"path\":{}}}]",
+        serde_json::to_string(&home).map_err(|e| e.to_string())?))
+}
+
+#[tauri::command]
+fn save_spaces(app: tauri::AppHandle, data: String) -> Result<(), String> {
+    let base = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    fs::create_dir_all(&base).map_err(|e| e.to_string())?;
+    fs::write(base.join("spaces.json"), data).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 fn save_layout(app: tauri::AppHandle, key: String, data: String) -> Result<(), String> {
     let f = layout_file(&app, &key)?;
     if let Some(parent) = f.parent() { fs::create_dir_all(parent).map_err(|e| e.to_string())?; }
@@ -348,7 +368,7 @@ fn main() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
             quit, places, list_dir, add_dropped_file, make_folder, move_into, trash_item,
-            clear_trash, open_trash, thumb_data, open_item, open_folder, shell_verb, delete_file, save_layout, load_layout
+            clear_trash, open_trash, thumb_data, open_item, open_folder, shell_verb, delete_file, load_spaces, save_spaces, save_layout, load_layout
         ])
         .setup(|app| {
             let handle = app.handle().clone();
