@@ -14,7 +14,7 @@
 </style></head>
 <body>
  <div id="err"></div>
- <div id="hud">Desktop Canvas v0.0.8 &middot; drop a file &middot; drag/scroll to pan &middot; Ctrl+scroll to zoom &middot; double-click to open &middot; right-click for menu &middot; Esc to quit</div>
+ <div id="hud">Desktop Canvas v0.0.9 &middot; drop a file &middot; drag/scroll to pan &middot; Ctrl+scroll to zoom &middot; double-click to open &middot; right-click for menu &middot; Esc to quit</div>
  <div id="diag"></div>
  <div id="menu">
    <button data-act="open">Open</button>
@@ -32,6 +32,11 @@
    try{
      if(typeof PIXI==='undefined'){ showErr('PIXI failed to load'); return; }
      var T = window.__TAURI__;
+
+     var myLabel = 'main';
+     try{ if (T.webviewWindow && T.webviewWindow.getCurrentWebviewWindow) myLabel = T.webviewWindow.getCurrentWebviewWindow().label || 'main'; }catch(_){}
+     var isMain = (myLabel === 'main');
+
      var app = new PIXI.Application({ resizeTo: window, background: 0x15161a, antialias: true, autoDensity: true, resolution: window.devicePixelRatio || 1 });
      document.body.appendChild(app.view);
 
@@ -49,11 +54,9 @@
      var items = [];
      var cards = [];
      var thumbCache = {};
+     var mtimes = {};
      var panning = false, last = null, dragTarget = null, dragOff = null;
-     var reloadPending = false, wheelCount = 0;
-     var IMG = /\.(png|jpe?g|gif|webp|bmp|svg)$/i;
-
-     function isImage(n){ return IMG.test(n || ''); }
+     var reloadPending = false;
 
      function loadTexture(url){
        if (PIXI.Assets && PIXI.Assets.load) return PIXI.Assets.load(url);
@@ -69,9 +72,32 @@
        return T.core.invoke('thumb_data', { name: name }).then(function(url){ thumbCache[name] = url; return url; });
      }
 
+     function cardForName(name){ for (var i=0;i<cards.length;i++){ if (cards[i].__item && cards[i].__item.name===name) return cards[i]; } return null; }
+
+     // load (or refresh) the shell thumbnail for a card; falls back to its label card
+     function applyThumb(card){
+       var name = card.__item.name;
+       getThumb(name).then(function(url){
+         if (!url) return;
+         loadTexture(url).then(function(tex){
+           if (!card.__item || card.destroyed) return;
+           var maxW = 240, maxH = 180;
+           var s = Math.min(maxW / tex.width, maxH / tex.height, 1);
+           var w = Math.max(1, Math.round(tex.width * s)), h = Math.max(1, Math.round(tex.height * s));
+           var sp = new PIXI.Sprite(tex); sp.width = w; sp.height = h; sp.x = 4; sp.y = 22;
+           var frame = new PIXI.Graphics(); frame.beginFill(0x1c1f27); frame.lineStyle(1, 0x3a3e49); frame.drawRoundedRect(0, 0, w + 8, h + 30, 8); frame.endFill();
+           var cap = new PIXI.Text(name, { fill: 0xb6bac4, fontSize: 11, fontFamily: 'system-ui', wordWrap: true, wordWrapWidth: w });
+           cap.x = 5; cap.y = 5;
+           var old = card.removeChildren(); old.forEach(function(o){ try{ o.destroy(); }catch(_){} });
+           card.addChild(frame); card.addChild(sp); card.addChild(cap);
+           card.hitArea = new PIXI.Rectangle(0, 0, w + 8, h + 30);
+         }).catch(function(e){ showErr('tex: ' + e); });
+       }).catch(function(e){ showErr('thumb: ' + e); });
+     }
+
      function attachDrag(obj){
        obj.on('pointerdown', function(e){
-         if (e.button === 2) return; // let right-click open the menu
+         if (e.button === 2) return;
          dragTarget = obj; obj.cursor = 'grabbing'; panning = false;
          var p = e.global;
          dragOff = { x: (p.x - world.x) / world.scale.x - obj.x, y: (p.y - world.y) / world.scale.y - obj.y };
@@ -84,33 +110,16 @@
        card.x = item.x; card.y = item.y;
        card.eventMode = 'static'; card.cursor = 'grab';
        card.__item = item;
-
        var g = new PIXI.Graphics();
        g.beginFill(0x232633); g.lineStyle(1, 0x3a3e49); g.drawRoundedRect(0, 0, 210, 66, 10); g.endFill();
        card.addChild(g);
        var label = new PIXI.Text(item.name, { fill: 0xcfd2da, fontSize: 13, fontFamily: 'system-ui', wordWrap: true, wordWrapWidth: 190 });
        label.x = 12; label.y = 11; card.addChild(label);
        card.hitArea = new PIXI.Rectangle(0, 0, 210, 66);
-
        attachDrag(card);
        world.addChild(card);
        cards.push(card);
-
-       if (isImage(item.name)) {
-         getThumb(item.name).then(function(url){
-           if (!url) return;
-           loadTexture(url).then(function(tex){
-             var maxW = 240, maxH = 180;
-             var s = Math.min(maxW / tex.width, maxH / tex.height, 1);
-             var w = Math.max(1, Math.round(tex.width * s)), h = Math.max(1, Math.round(tex.height * s));
-             var sp = new PIXI.Sprite(tex); sp.width = w; sp.height = h; sp.x = 4; sp.y = 4;
-             var frame = new PIXI.Graphics(); frame.beginFill(0x1c1f27); frame.lineStyle(1, 0x3a3e49); frame.drawRoundedRect(0, 0, w + 8, h + 8, 8); frame.endFill();
-             var old = card.removeChildren(); old.forEach(function(o){ try{ o.destroy(); }catch(_){} });
-             card.addChild(frame); card.addChild(sp);
-             card.hitArea = new PIXI.Rectangle(0, 0, w + 8, h + 8);
-           }).catch(function(e){ showErr('tex: ' + e); });
-         }).catch(function(e){ showErr('thumb: ' + e); });
-       }
+       applyThumb(card);
        return card;
      }
 
@@ -143,6 +152,38 @@
        persist();
      }
 
+     // ---- folder sync: main window polls the Desktop Canvas folder ----
+     async function pollFolder(){
+       if (!isMain) return;
+       try{
+         var s = await T.core.invoke('list_canvas');
+         var list = JSON.parse(s || '[]');
+         var present = {}, changed = false, edited = [];
+         var have = {}; items.forEach(function(it){ have[it.name] = it; });
+         for (var i = 0; i < list.length; i++){
+           var f = list[i]; present[f.name] = true;
+           if (!(f.name in have)){
+             var n = items.length;
+             var it = { name: f.name, x: 40 + (n % 6) * 240, y: 40 + Math.floor(n / 6) * 150 };
+             items.push(it); buildCard(it); changed = true;
+           } else if (mtimes[f.name] !== undefined && mtimes[f.name] !== f.mtime){
+             edited.push(f.name);
+           }
+           mtimes[f.name] = f.mtime;
+         }
+         var gone = [];
+         items.forEach(function(it){ if (!present[it.name]) gone.push(it); });
+         gone.forEach(function(it){
+           var c = cardForName(it.name);
+           if (c){ var ci = cards.indexOf(c); if (ci >= 0) cards.splice(ci, 1); world.removeChild(c); c.destroy({ children: true }); }
+           var ii = items.indexOf(it); if (ii >= 0) items.splice(ii, 1);
+           delete mtimes[it.name]; changed = true;
+         });
+         edited.forEach(function(nm){ delete thumbCache[nm]; var c = cardForName(nm); if (c) applyThumb(c); try{ T.event.emit('thumb-changed', { name: nm }); }catch(_){} });
+         if (changed) persist();
+       }catch(e){ showErr('poll: ' + e); }
+     }
+
      app.stage.eventMode = 'static';
      app.stage.hitArea = app.screen;
      app.stage.on('pointerdown', function(e){ if (e.button === 2) return; panning = true; last = { x: e.global.x, y: e.global.y }; });
@@ -165,7 +206,7 @@
      app.stage.on('pointerupoutside', endAll);
 
      window.addEventListener('wheel', function(ev){
-       ev.preventDefault(); wheelCount++;
+       ev.preventDefault();
        if (ev.ctrlKey) {
          var mx = ev.clientX, my = ev.clientY;
          var wx = (mx - world.x) / world.scale.x, wy = (my - world.y) / world.scale.y;
@@ -177,7 +218,6 @@
        }
      }, { passive: false });
 
-     // hit-test topmost card under a client point (screen space)
      function cardAt(cx, cy){
        for (var i = cards.length - 1; i >= 0; i--){
          var b = cards[i].getBounds();
@@ -189,10 +229,7 @@
      var menu = document.getElementById('menu');
      var menuTarget = null;
      function hideMenu(){ menu.style.display = 'none'; menuTarget = null; }
-     function showMenu(x, y, card){
-       menuTarget = card;
-       menu.style.left = x + 'px'; menu.style.top = y + 'px'; menu.style.display = 'block';
-     }
+     function showMenu(x, y, card){ menuTarget = card; menu.style.left = x + 'px'; menu.style.top = y + 'px'; menu.style.display = 'block'; }
      menu.addEventListener('click', function(ev){
        var act = ev.target && ev.target.getAttribute && ev.target.getAttribute('data-act');
        if (!act || !menuTarget) { hideMenu(); return; }
@@ -204,16 +241,8 @@
        }catch(e){ showErr('menu ' + act + ': ' + e); }
        hideMenu();
      });
-
-     app.view.addEventListener('contextmenu', function(ev){
-       ev.preventDefault();
-       var c = cardAt(ev.clientX, ev.clientY);
-       if (c) showMenu(ev.clientX, ev.clientY, c); else hideMenu();
-     });
-     app.view.addEventListener('dblclick', function(ev){
-       var c = cardAt(ev.clientX, ev.clientY);
-       if (c) { try{ T.core.invoke('open_item', { name: c.__item.name }); }catch(e){ showErr('open: ' + e); } }
-     });
+     app.view.addEventListener('contextmenu', function(ev){ ev.preventDefault(); var c = cardAt(ev.clientX, ev.clientY); if (c) showMenu(ev.clientX, ev.clientY, c); else hideMenu(); });
+     app.view.addEventListener('dblclick', function(ev){ var c = cardAt(ev.clientX, ev.clientY); if (c) { try{ T.core.invoke('open_item', { name: c.__item.name }); }catch(e){ showErr('open: ' + e); } } });
      window.addEventListener('pointerdown', function(ev){ if (menu.style.display === 'block' && !menu.contains(ev.target)) hideMenu(); }, true);
      window.addEventListener('wheel', hideMenu, true);
 
@@ -229,6 +258,7 @@
            for (var i = 0; i < paths.length; i++){
              try{
                var name = await T.core.invoke('add_dropped_file', { path: paths[i] });
+               if (cardForName(name)) continue;
                var it = { name: name, x: baseWX + i * 26, y: baseWY + i * 26 };
                items.push(it); buildCard(it);
              }catch(e){ showErr('add_dropped_file: ' + e); }
@@ -245,11 +275,16 @@
      }
 
      try{ T.event.listen('layout-changed', function(){ if (dragTarget || panning) { reloadPending = true; return; } reconcile(); }); }catch(e){ showErr('sync listen: ' + e); }
+     try{ T.event.listen('thumb-changed', function(e){ var nm = e.payload && e.payload.name; if (!nm) return; delete thumbCache[nm]; var c = cardForName(nm); if (c) applyThumb(c); }); }catch(_){}
 
      var diag = document.getElementById('diag');
-     app.ticker.add(function(){ diag.textContent = 'zoom ' + Math.round(world.scale.x * 100) + '%  dpr ' + (window.devicePixelRatio || 1) + '  items ' + items.length; });
+     app.ticker.add(function(){ diag.textContent = 'zoom ' + Math.round(world.scale.x * 100) + '%  items ' + items.length + (isMain ? '  [main]' : ''); });
 
-     loadLayout();
+     (async function(){
+       await loadLayout();
+       await pollFolder();
+       if (isMain) setInterval(pollFolder, 3000);
+     })();
      wireDrop(handleDrop);
    }catch(err){ showErr('init error: ' + (err && err.message ? err.message : err)); }
  })();

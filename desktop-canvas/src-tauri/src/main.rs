@@ -1,7 +1,7 @@
 #![cfg_attr(all(not(debug_assertions), target_os = "windows"), windows_subsystem = "windows")]
 
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tauri::Manager;
 
 fn canvas_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
@@ -29,6 +29,92 @@ fn b64(data: &[u8]) -> String {
         if chunk.len() > 2 { out.push(T[(n & 63) as usize] as char); } else { out.push('='); }
     }
     out
+}
+
+// Ask the Windows shell for a thumbnail (or icon) for any file type, as a PNG data URL.
+#[cfg(windows)]
+fn shell_thumb(path: &Path) -> Option<String> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows::core::PCWSTR;
+    use windows::Win32::Foundation::SIZE;
+    use windows::Win32::Graphics::Gdi::{
+        DeleteObject, GetDC, GetDIBits, GetObjectW, ReleaseDC, BITMAP, BITMAPINFO,
+        BITMAPINFOHEADER, DIB_RGB_COLORS, HGDIOBJ,
+    };
+    use windows::Win32::System::Com::{CoInitializeEx, COINIT_APARTMENTTHREADED};
+    use windows::Win32::UI::Shell::{
+        SHCreateItemFromParsingName, IShellItemImageFactory, SIIGBF_RESIZETOFIT,
+    };
+    unsafe {
+        let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
+        let wide: Vec<u16> = path.as_os_str().encode_wide().chain(std::iter::once(0)).collect();
+        let factory: IShellItemImageFactory =
+            SHCreateItemFromParsingName(PCWSTR(wide.as_ptr()), None).ok()?;
+        let hbm = factory.GetImage(SIZE { cx: 256, cy: 256 }, SIIGBF_RESIZETOFIT).ok()?;
+
+        let mut bmp: BITMAP = std::mem::zeroed();
+        if GetObjectW(HGDIOBJ(hbm.0), std::mem::size_of::<BITMAP>() as i32, Some(&mut bmp as *mut BITMAP as *mut _)) == 0 {
+            let _ = DeleteObject(HGDIOBJ(hbm.0));
+            return None;
+        }
+        let w = bmp.bmWidth;
+        let h = bmp.bmHeight;
+        if w <= 0 || h <= 0 {
+            let _ = DeleteObject(HGDIOBJ(hbm.0));
+            return None;
+        }
+
+        let mut bmi: BITMAPINFO = std::mem::zeroed();
+        bmi.bmiHeader.biSize = std::mem::size_of::<BITMAPINFOHEADER>() as u32;
+        bmi.bmiHeader.biWidth = w;
+        bmi.bmiHeader.biHeight = -h; // top-down
+        bmi.bmiHeader.biPlanes = 1;
+        bmi.bmiHeader.biBitCount = 32;
+        bmi.bmiHeader.biCompression = 0; // BI_RGB
+
+        let mut buf = vec![0u8; (w as usize) * (h as usize) * 4];
+        let hdc = GetDC(None);
+        let scan = GetDIBits(hdc, hbm, 0, h as u32, Some(buf.as_mut_ptr() as *mut _), &mut bmi, DIB_RGB_COLORS);
+        ReleaseDC(None, hdc);
+        let _ = DeleteObject(HGDIOBJ(hbm.0));
+        if scan == 0 {
+            return None;
+        }
+
+        // BGRA -> RGBA; if every alpha is 0 the image is really opaque, so force 255.
+        let mut any_alpha = false;
+        for px in buf.chunks_exact(4) {
+            if px[3] != 0 { any_alpha = true; break; }
+        }
+        let mut rgba = vec![0u8; buf.len()];
+        for (i, px) in buf.chunks_exact(4).enumerate() {
+            rgba[i * 4] = px[2];
+            rgba[i * 4 + 1] = px[1];
+            rgba[i * 4 + 2] = px[0];
+            rgba[i * 4 + 3] = if any_alpha { px[3] } else { 255 };
+        }
+
+        let img = image::RgbaImage::from_raw(w as u32, h as u32, rgba)?;
+        let mut png: Vec<u8> = Vec::new();
+        {
+            use image::ImageEncoder;
+            image::codecs::png::PngEncoder::new(&mut png)
+                .write_image(img.as_raw(), w as u32, h as u32, image::ExtendedColorType::Rgba8)
+                .ok()?;
+        }
+        Some(format!("data:image/png;base64,{}", b64(&png)))
+    }
+}
+
+#[cfg(not(windows))]
+fn shell_thumb(_path: &Path) -> Option<String> {
+    None
+}
+
+#[derive(serde::Serialize)]
+struct FileInfo {
+    name: String,
+    mtime: u64,
 }
 
 #[tauri::command]
@@ -62,22 +148,31 @@ fn add_dropped_file(app: tauri::AppHandle, path: String) -> Result<String, Strin
 #[tauri::command]
 fn thumb_data(app: tauri::AppHandle, name: String) -> Result<String, String> {
     let p = canvas_dir(&app)?.join(&name);
-    let ext = p.extension().map(|e| e.to_string_lossy().to_lowercase()).unwrap_or_default();
-    let mime = match ext.as_str() {
-        "png" => "image/png",
-        "jpg" | "jpeg" => "image/jpeg",
-        "gif" => "image/gif",
-        "webp" => "image/webp",
-        "bmp" => "image/bmp",
-        "svg" => "image/svg+xml",
-        _ => return Ok(String::new()),
-    };
-    let meta = fs::metadata(&p).map_err(|e| e.to_string())?;
-    if meta.len() > 8_000_000 {
+    if !p.is_file() {
         return Ok(String::new());
     }
-    let bytes = fs::read(&p).map_err(|e| e.to_string())?;
-    Ok(format!("data:{};base64,{}", mime, b64(&bytes)))
+    Ok(shell_thumb(&p).unwrap_or_default())
+}
+
+#[tauri::command]
+fn list_canvas(app: tauri::AppHandle) -> Result<String, String> {
+    let dir = canvas_dir(&app)?;
+    let mut out: Vec<FileInfo> = Vec::new();
+    for entry in fs::read_dir(&dir).map_err(|e| e.to_string())? {
+        let entry = entry.map_err(|e| e.to_string())?;
+        if entry.path().is_file() {
+            let name = entry.file_name().to_string_lossy().to_string();
+            let mtime = entry
+                .metadata()
+                .ok()
+                .and_then(|m| m.modified().ok())
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|d| d.as_secs())
+                .unwrap_or(0);
+            out.push(FileInfo { name, mtime });
+        }
+    }
+    serde_json::to_string(&out).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -118,7 +213,7 @@ fn load_layout(app: tauri::AppHandle) -> Result<String, String> {
 fn main() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
-            quit, add_dropped_file, thumb_data, open_item, open_folder, save_layout, load_layout
+            quit, add_dropped_file, thumb_data, list_canvas, open_item, open_folder, save_layout, load_layout
         ])
         .setup(|app| {
             let handle = app.handle().clone();

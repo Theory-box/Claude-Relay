@@ -92,3 +92,19 @@ Stack: Tauri v2 (Rust + WebView2), PixiJS planned for canvas. Windows-only.
 - NOTE: this is the APP menu, not the real Windows shell context menu. The shell
   IContextMenu (Win32 COM) is intentionally deferred to its own step (highest risk).
 - Wheel mapping unchanged from 0.0.7 (plain scroll pans, Ctrl+scroll zooms).
+
+## v0.0.9 — shell thumbnails (all file types) + folder sync (batched)
+- Shell thumbnails: shell_thumb() (Win32 COM) IShellItemImageFactory::GetImage @256px
+  -> HBITMAP -> GetDIBits (BGRA, top-down) -> RGBA (force alpha=255 when all-zero) ->
+  image crate PNG -> base64 data URL. cfg(windows) with a non-windows stub. New deps
+  (windows 0.61, image 0.25) under [target.'cfg(windows)'.dependencies] (already in tree
+  via tauri). thumb_data now calls shell_thumb for ANY file; fixes "large images don't
+  load" (no more 8MB base64 cap) and gives icons/thumbnails for every type.
+- Frontend: applyThumb() factored out; every card requests a thumbnail (label card is the
+  fallback shown until/if the thumb arrives). Card now shows a caption + the thumbnail.
+- Folder sync: list_canvas() returns [{name,mtime}]. The MAIN window polls every 3s:
+  adds new files (placed on a grid), removes deleted ones (both via persist->sync), and
+  on mtime change busts thumbCache + emits 'thumb-changed' so all windows refresh that
+  thumbnail. Non-main windows get structural changes through the existing layout sync.
+- Known: poll add/drop dedupe by name (cardForName) to avoid duplicates; a tiny race
+  window remains if a drop lands exactly between a poll snapshot and processing.
