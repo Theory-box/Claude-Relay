@@ -430,3 +430,15 @@ Scope kept tight to isolate the real unknowns (two live makeCanvas instances + i
   proper pane destroy/close, the Blender edge-hover drag-to-split gesture, and right-click-divider merge
   with side choice. Known minor: divider overlaps the toolbar sliver at the seam (z-index); menu-close on
   wheel/click not focus-gated (harmless).
+
+## v0.0.33 — FIX Stage 2a: second pane blank / divider did nothing
+ROOT CAUSE: PIXI resizeTo only reacts to WINDOW resize, never to the pane ELEMENT being resized by
+PM.relayout. So a split pane's renderer kept full-window size while its box was a half; world centered
+in canvas coords fell outside the clipped half -> blank, no grid. Dragging the divider resized the
+boxes but canvases never reflowed -> looked dead.
+FIX: each pane exposes self.resize() = app.renderer.resize(root.client W/H) + refresh stage.hitArea;
+PM.relayout calls it for every pane after positioning (so split/unsplit/divider-drag/window-resize all
+reflow the renderers). Divider thickened 6->8px + user-select/touch-action none for reliable grabbing.
+TO VERIFY w/ user: whether pane 2 now shows grid+toolbar+content and the divider resizes live. If a
+toolbar is still missing in pane 2, check for a red error bar (would indicate makeCanvas threw on the
+2nd instance) — not expected, since the template clones per pane.

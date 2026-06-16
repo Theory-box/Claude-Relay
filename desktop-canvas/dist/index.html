@@ -2,7 +2,7 @@
 <html><head><meta charset="utf-8"><title>Desktop Canvas</title>
 <style>
  html,body{margin:0;height:100%;background:#15161a;overflow:hidden;font-family:system-ui,"Segoe UI",sans-serif;}
- #root{position:fixed;inset:0;} .pane{position:absolute;overflow:hidden;background:#15161a;} .pane.focused{box-shadow:inset 0 0 0 2px #3a6fd0;} .divider{position:absolute;z-index:9;background:#23262e;} .divider.v{cursor:col-resize;} .divider.h{cursor:row-resize;} .divider:hover{background:#3a6fd0;}
+ #root{position:fixed;inset:0;} .pane{position:absolute;overflow:hidden;background:#15161a;} .pane.focused{box-shadow:inset 0 0 0 2px #3a6fd0;} .divider{position:absolute;z-index:9;background:#2f333d;user-select:none;touch-action:none;} .divider.v{cursor:col-resize;} .divider.h{cursor:row-resize;} .divider:hover{background:#3a6fd0;}
  #err{position:fixed;top:0;left:0;right:0;max-height:40%;overflow:auto;padding:10px 14px;background:#3a1d1d;color:#ffd7d7;font:12px/1.45 ui-monospace,Consolas,monospace;white-space:pre-wrap;display:none;z-index:20;}
  #bar{position:absolute;top:0;left:0;right:0;height:38px;display:flex;align-items:center;gap:8px;padding:0 12px;background:rgba(26,28,33,.92);border-bottom:1px solid #2a2d36;z-index:8;font-size:13px;color:#c4c8d2;}
  #bar button{background:#252934;border:1px solid #353a45;color:#d4d7df;border-radius:6px;padding:5px 10px;cursor:pointer;font:inherit;white-space:nowrap;}
@@ -580,7 +580,7 @@
        else if (carry && carry.source === 'import'){ hud.textContent = 'Placing imported file [' + modeLabel() + ']  \u00b7  left-click confirm  \u00b7  right-click cancel  \u00b7  T toggle  \u00b7  Free mode (1) to drop into a folder'; }
        else if (carry){ hud.textContent = 'Moving ' + (carry.held.length > 1 ? carry.held.length + ' items ' : '') + '[' + (ctrlDown ? 'Free (Ctrl)' : modeLabel()) + ']  \u00b7  hold Ctrl = free / drop into folder  \u00b7  T toggle  \u00b7  release to drop  \u00b7  Esc cancel'; }
        else if (selection.size){ hud.textContent = selection.size + ' selected  \u00b7  drag = move  \u00b7  Ctrl+C copy / Ctrl+X cut  \u00b7  Del trash  \u00b7  Ctrl+F frame  \u00b7  Esc clear'; }
-       else { hud.textContent = 'v0.0.32  \u00b7  click = select  \u00b7  shift/ctrl = add/remove  \u00b7  drag empty = box select  \u00b7  middle-drag = pan  \u00b7  drag item = move  \u00b7  mode: ' + modeLabel() + (writable ? '' : '  \u00b7  read-only'); }
+       else { hud.textContent = 'v0.0.33  \u00b7  click = select  \u00b7  shift/ctrl = add/remove  \u00b7  drag empty = box select  \u00b7  middle-drag = pan  \u00b7  drag item = move  \u00b7  mode: ' + modeLabel() + (writable ? '' : '  \u00b7  read-only'); }
      }
      upBtn.addEventListener('click', function(){ navigate(parentOf(cwd)); });
      gotoBtn.addEventListener('click', function(){ if (pathInput.style.display === 'none'){ pathInput.style.display = 'inline-block'; pathInput.value = cwd; pathInput.focus(); pathInput.select(); } else { navigate(pathInput.value.trim()); pathInput.style.display = 'none'; } });
@@ -730,6 +730,7 @@
        await loadView(); poll(); setInterval(poll, 3000);
      })();
      self.handleDrop = handleDrop; self.getCwd = function(){ return cwd; }; self.navigate = function(pth){ navigate(pth); };
+     self.resize = function(){ var w = Math.max(1, root.clientWidth | 0), h = Math.max(1, root.clientHeight | 0); try{ app.renderer.resize(w, h); app.stage.hitArea = app.screen; }catch(_){} };
      return self;
    }catch(err){ showErr('init error: ' + (err && err.message ? err.message : err)); }
    }
@@ -740,9 +741,10 @@
      paneAt: function(x, y){ for (var i = 0; i < PM.panes.length; i++){ var p = PM.panes[i]; if (p.root.style.display === 'none') continue; var r = p.root.getBoundingClientRect(); if (x >= r.left && x < r.right && y >= r.top && y < r.bottom){ return p; } } return null; },
      setFocus: function(p){ if (!p || PM.focused === p){ return; } PM.focused = p; PM.panes.forEach(function(q){ q.root.classList.toggle('focused', PM.split && q === p); }); },
      relayout: function(){ if (!PM.rootEl){ return; } var r = PM.rootEl.getBoundingClientRect(), W = r.width, H = r.height; var p0 = PM.panes[0], p1 = PM.panes[1];
-       if (!PM.split || !p1){ if (p0){ setRect(p0.root, 0, 0, W, H); } if (p1){ p1.root.style.display = 'none'; } if (PM.divEl){ PM.divEl.style.display = 'none'; } return; }
-       var DIV = 6, wa = Math.round((W - DIV) * PM.ratio); p1.root.style.display = '';
+       if (!PM.split || !p1){ if (p0){ setRect(p0.root, 0, 0, W, H); if (p0.resize){ p0.resize(); } } if (p1){ p1.root.style.display = 'none'; } if (PM.divEl){ PM.divEl.style.display = 'none'; } return; }
+       var DIV = 8, wa = Math.round((W - DIV) * PM.ratio); p1.root.style.display = '';
        setRect(p0.root, 0, 0, wa, H); setRect(p1.root, wa + DIV, 0, W - wa - DIV, H);
+       if (p0.resize){ p0.resize(); } if (p1.resize){ p1.resize(); }
        PM.divEl.style.display = ''; setRect(PM.divEl, wa, 0, DIV, H); },
      doSplit: function(){ if (PM.split){ return; } var src = PM.focused || PM.panes[0];
        if (!PM.panes[1]){ var el = document.createElement('div'); el.className = 'pane'; el.style.inset = '0'; PM.rootEl.appendChild(el); var p = makeCanvas(el, { initPath: src.getCwd(), pm: PM }); PM.panes.push(p); }
