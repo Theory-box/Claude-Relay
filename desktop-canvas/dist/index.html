@@ -597,7 +597,7 @@
        else if (carry && carry.source === 'import'){ hud.textContent = 'Placing imported file [' + modeLabel() + ']  \u00b7  left-click confirm  \u00b7  right-click cancel  \u00b7  T toggle  \u00b7  Free mode (1) to drop into a folder'; }
        else if (carry){ hud.textContent = 'Moving ' + (carry.held.length > 1 ? carry.held.length + ' items ' : '') + '[' + (ctrlDown ? 'Free (Ctrl)' : modeLabel()) + ']  \u00b7  hold Ctrl = free / drop into folder  \u00b7  T toggle  \u00b7  release to drop  \u00b7  Esc cancel'; }
        else if (selection.size){ hud.textContent = selection.size + ' selected  \u00b7  drag = move  \u00b7  Ctrl+C copy / Ctrl+X cut  \u00b7  Del trash  \u00b7  Ctrl+F frame  \u00b7  Esc clear'; }
-       else { hud.textContent = 'v0.0.41  \u00b7  click = select  \u00b7  shift/ctrl = add/remove  \u00b7  drag empty = box select  \u00b7  middle-drag = pan  \u00b7  drag item = move  \u00b7  mode: ' + modeLabel() + (writable ? '' : '  \u00b7  read-only'); }
+       else { hud.textContent = 'v0.0.42  \u00b7  click = select  \u00b7  shift/ctrl = add/remove  \u00b7  drag empty = box select  \u00b7  middle-drag = pan  \u00b7  drag item = move  \u00b7  mode: ' + modeLabel() + (writable ? '' : '  \u00b7  read-only'); }
      }
      upBtn.addEventListener('click', function(){ navigate(parentOf(cwd)); });
      gotoBtn.addEventListener('click', function(){ if (pathInput.style.display === 'none'){ pathInput.style.display = 'inline-block'; pathInput.value = cwd; pathInput.focus(); pathInput.select(); } else { navigate(pathInput.value.trim()); pathInput.style.display = 'none'; } });
@@ -764,9 +764,9 @@
        setRect(p0.root, 0, 0, wa, H); setRect(p1.root, wa + DIV, 0, W - wa - DIV, H);
        PM.divEl.style.display = ''; setRect(PM.divEl, wa, 0, DIV, H);
        if (p0 && p0.resize) p0.resize(); if (p1 && p1.resize) p1.resize(); },
-     doSplit: function(){ if (PM.split) return; var src = PM.focused || PM.panes[0];
-       if (!PM.panes[1]){ var el = document.createElement('div'); el.className = 'pane'; el.style.inset = '0'; PM.rootEl.appendChild(el); var p = makeCanvas(el, { initPath: src.getCwd(), pm: PM }); PM.panes.push(p); }
-       else { PM.panes[1].navigate(src.getCwd()); }
+     doSplit: function(ip){ if (PM.split) return; var src = PM.focused || PM.panes[0];
+       if (!PM.panes[1]){ var el = document.createElement('div'); el.className = 'pane'; el.style.inset = '0'; PM.rootEl.appendChild(el); var p = makeCanvas(el, { initPath: ip || src.getCwd(), pm: PM }); PM.panes.push(p); }
+       else { PM.panes[1].navigate(ip || src.getCwd()); }
        if (!PM.divEl){ var d = document.createElement('div'); d.className = 'divider v'; PM.rootEl.appendChild(d); PM.divEl = d; wireDiv(d); }
        PM.split = true; PM.relayout(); PM.setFocus(PM.panes[1]); if (typeof scheduleSession === 'function') scheduleSession(); },
      unsplit: function(){ if (!PM.split) return; PM.split = false; PM.setFocus(PM.panes[0]); PM.relayout(); if (typeof scheduleSession === 'function') scheduleSession(); }
@@ -779,13 +779,13 @@
    var WL = 'main'; try{ var __T = window.__TAURI__; if (__T.webviewWindow && __T.webviewWindow.getCurrentWebviewWindow) WL = __T.webviewWindow.getCurrentWebviewWindow().label || 'main'; }catch(_){}
    var __saveT = null;
    function scheduleSession(){ clearTimeout(__saveT); __saveT = setTimeout(saveSession, 450); }
-   function saveSession(){ try{ if (!PM.panes.length) return; var n = PM.split ? 2 : 1; var obj = { split: !!PM.split, ratio: PM.ratio, focusedIdx: PM.panes.indexOf(PM.focused), panes: PM.panes.slice(0, n).map(function(p){ return (p && p.getCwd) ? p.getCwd() : ''; }) }; window.__TAURI__.core.invoke('save_session', { key: WL, data: JSON.stringify(obj) }); }catch(_){} }
+   function saveSession(){ try{ if (!PM.panes.length) return; var n = PM.split ? 2 : 1; var cwds = PM.panes.slice(0, n).map(function(p){ return (p && p.getCwd) ? p.getCwd() : ''; }); if (cwds.some(function(c){ return !c; })) return; var obj = { split: !!PM.split, ratio: PM.ratio, focusedIdx: PM.panes.indexOf(PM.focused), panes: cwds }; window.__TAURI__.core.invoke('save_session', { key: WL, data: JSON.stringify(obj) }); }catch(_){} }
    var __el0 = document.createElement('div'); __el0.className = 'pane'; __el0.style.inset = '0'; __root.appendChild(__el0);
    (async function(){
      var sess = null; try{ sess = JSON.parse(await window.__TAURI__.core.invoke('load_session', { key: WL }) || 'null'); }catch(_){}
      var init0 = (sess && sess.panes && sess.panes[0]) ? sess.panes[0] : undefined;
      var __p0 = makeCanvas(__el0, { pm: PM, initPath: init0 }); PM.panes.push(__p0); PM.focused = __p0;
-     if (sess && sess.split && sess.panes && sess.panes[1]){ PM.ratio = (typeof sess.ratio === 'number') ? sess.ratio : 0.5; PM.doSplit(); if (PM.panes[1]) PM.panes[1].navigate(sess.panes[1]); }
+     if (sess && sess.split && sess.panes && sess.panes[1]){ PM.ratio = (typeof sess.ratio === 'number') ? sess.ratio : 0.5; PM.doSplit(sess.panes[1]); }
      PM.relayout();
      if (sess && sess.focusedIdx === 0 && PM.panes[0]) PM.setFocus(PM.panes[0]);
    })();
