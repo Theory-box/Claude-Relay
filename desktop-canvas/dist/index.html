@@ -471,7 +471,7 @@
      function openEmptyMenu(x, y){
        menuTarget = null; menu.innerHTML = '';
        if (writable) menu.appendChild(mkBtn('New Folder', '', function(){ hideMenu(); promptDialog('New folder name', 'New Folder', 'Create', function(name){ createFolder(name); }); }));
-       if (clip && writable){ menu.appendChild(mkBtn('Paste ' + clip.items.length + ' item' + (clip.items.length > 1 ? 's' : '') + (clip.mode === 'cut' ? ' (move)' : ''), '', function(){ hideMenu(); doPaste(); })); menu.appendChild(mkSep()); }
+       if (clip && writable){ menu.appendChild(mkBtn((clip.mode === 'shortcut' ? 'Paste shortcut' : 'Paste') + ' ' + clip.items.length + ' item' + (clip.items.length > 1 ? 's' : '') + (clip.mode === 'cut' ? ' (move)' : ''), '', function(){ hideMenu(); doPaste(); })); menu.appendChild(mkSep()); }
        var sortBtn = document.createElement('button'); sortBtn.innerHTML = 'Sort / Tidy <span class="arrow">\u25B8</span>';
        sortBtn.addEventListener('click', function(ev){ ev.stopPropagation(); showSortFlyout(sortBtn); });
        sortBtn.addEventListener('mouseenter', function(){ showSortFlyout(sortBtn); });
@@ -488,6 +488,7 @@
        var hdr = mkBtn(sel.length + ' items selected', '', function(){ hideMenu(); }); hdr.style.color = '#9aa0ab'; menu.appendChild(hdr);
        menu.appendChild(mkSep());
        menu.appendChild(mkBtn('Copy', '', function(){ copyItems('copy', sel); hideMenu(); }));
+       menu.appendChild(mkBtn('Copy as shortcut', '', function(){ copyItems('shortcut', sel); hideMenu(); }));
        if (writable) menu.appendChild(mkBtn('Cut', '', function(){ copyItems('cut', sel); hideMenu(); }));
        if (writable){ menu.appendChild(mkSep()); menu.appendChild(mkBtn('Delete ' + sel.length + ' items', 'danger', function(){ var del = sel.slice(); hideMenu(); confirmDelete(del.length, function(){ selection.clear(); drawSelection(); updateHud(); Promise.all(del.map(function(c){ return T.core.invoke('trash_item', { dir: cwd, name: c.__item.name }).catch(function(e){ showErr('trash: ' + e); }); })).then(function(){ del.forEach(function(c){ removeCardLocal(c); }); persist(); }); }); })); }
        menu.style.left = x + 'px'; menu.style.top = y + 'px'; menu.style.display = 'block';
@@ -506,6 +507,7 @@
          menu.appendChild(mkBtn('Open in Explorer', '', function(){ T.core.invoke('open_folder', { dir: joinPath(cwd, fname) }); hideMenu(); }));
          menu.appendChild(mkSep());
          menu.appendChild(mkBtn('Copy', '', function(){ copyItems('copy', [target]); hideMenu(); }));
+         menu.appendChild(mkBtn('Copy as shortcut', '', function(){ copyItems('shortcut', [target]); hideMenu(); }));
          if (writable) menu.appendChild(mkBtn('Cut', '', function(){ copyItems('cut', [target]); hideMenu(); }));
          if (writable){ menu.appendChild(mkSep()); menu.appendChild(mkBtn('Delete', 'danger', function(){ hideMenu(); confirmDelete(1, function(){ T.core.invoke('trash_item', { dir: cwd, name: fname }).then(function(){ removeCardLocal(target); persist(); }); }); })); }
        } else {
@@ -515,6 +517,7 @@
          menu.appendChild(mkBtn('Open folder', '', function(){ T.core.invoke('open_folder', { dir: cwd }); hideMenu(); }));
          menu.appendChild(mkSep());
          menu.appendChild(mkBtn('Copy', '', function(){ copyItems('copy', [target]); hideMenu(); }));
+         menu.appendChild(mkBtn('Copy as shortcut', '', function(){ copyItems('shortcut', [target]); hideMenu(); }));
          if (writable) menu.appendChild(mkBtn('Cut', '', function(){ copyItems('cut', [target]); hideMenu(); }));
          if (writable){ menu.appendChild(mkSep()); menu.appendChild(mkBtn('Delete', 'danger', function(){ hideMenu(); confirmDelete(1, function(){ T.core.invoke('trash_item', { dir: cwd, name: name }).then(function(){ removeCardLocal(target); persist(); }); }); })); }
        }
@@ -575,13 +578,21 @@
        updateHud();
      }
      function copySelection(mode){ copyItems(mode, Array.from(selection)); }
-     function doPaste(){
+     function fmtSize(b){ if (b >= 1073741824) return (b / 1073741824).toFixed(2) + ' GB'; if (b >= 1048576) return (b / 1048576).toFixed(1) + ' MB'; if (b >= 1024) return (b / 1024).toFixed(0) + ' KB'; return b + ' B'; }
+     async function doPaste(){
        if (!clip) return;
        if (!writable){ showErr('Read-only here \u2014 turn off Safety to edit outside the Desktop Canvas folder.'); return; }
-       if (outsideHome()){ confirmDialog('Paste ' + clip.items.length + ' item(s) into a folder OUTSIDE the Desktop Canvas folder?', 'Paste', pasteNow); } else pasteNow();
+       var total = 0;
+       if (clip.mode !== 'shortcut'){ try{ for (var i = 0; i < clip.items.length; i++){ total += (await T.core.invoke('path_size', { path: clip.items[i].path })) || 0; } }catch(e){ showErr('size: ' + e); } }
+       var big = total > 1073741824;
+       var reasons = [];
+       if (outsideHome()) reasons.push('OUTSIDE the Desktop Canvas folder');
+       if (big) reasons.push('large \u2014 ' + fmtSize(total));
+       if (reasons.length){ confirmDialog('Paste ' + clip.items.length + ' item' + (clip.items.length > 1 ? 's' : '') + ' (' + reasons.join(', ') + ')?', 'Paste', pasteNow); }
+       else pasteNow();
      }
      function pasteNow(){
-       var mode = clip.mode, cmd = (mode === 'cut') ? 'paste_move' : 'paste_copy', srcs = clip.items.slice();
+       var mode = clip.mode, cmd = (mode === 'cut') ? 'paste_move' : (mode === 'shortcut' ? 'paste_shortcut' : 'paste_copy'), srcs = clip.items.slice();
        var cxw = (app.screen.width / 2 - world.x) / world.scale.x, cyw = (app.screen.height / 2 - world.y) / world.scale.y;
        (async function(){
          var added = [];
@@ -591,7 +602,7 @@
              if (!name || cardForName(name)) continue;
              var obstacles = cards.map(rectOf); if (trashNode) obstacles.push(rectOf(trashNode));
              var pos = nearestFree({ x: cxw, y: cyw, w: 230, h: 96 }, obstacles, { x: cxw + i * 14, y: cyw + i * 14 });
-             var it = { name: name, x: pos.x, y: pos.y, dir: !!srcs[i].dir }; items.push(it); added.push(buildCard(it));
+             var it = { name: name, x: pos.x, y: pos.y, dir: (mode === 'shortcut' ? false : !!srcs[i].dir) }; items.push(it); added.push(buildCard(it));
            }catch(e){ showErr(cmd + ': ' + e); }
          }
          if (mode === 'cut'){ clearClipDim(); clip = null; }

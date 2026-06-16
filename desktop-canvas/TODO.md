@@ -82,3 +82,14 @@ Running list of deferred work and ideas. Newest context at top of each section.
 - [v0.0.25] Runtime Safety toggle (top-right lock, default ON each launch). ON = writes
   confined to canvas; OFF = edit anywhere with confirms for delete/paste OUTSIDE canvas and
   for large deletes (>=10), plus an 'editing outside canvas' marker. Reads always open.
+
+## v0.0.26 done
+- [x] Copy as shortcut (creates real Windows .lnk via WScript.Shell; paste places shortcut).
+- [x] Paste confirm when total size > 1 GiB (and/or pasting outside the canvas folder).
+
+## Queued (one at a time)
+- [ ] Back button (left of Up): history of last-opened folders, not just parent.
+- [ ] Copy/paste should use the native Windows progress dialog AND not freeze the canvas
+      (likely IFileOperation COM on a worker thread).
+- [ ] Undo / redo for ITEM PLACEMENT + MOVEMENT only (skip copy/paste undo for now).
+- [ ] CLARIFY: double-clicking a folder-shortcut -> open in Explorer (current) vs navigate in-canvas?

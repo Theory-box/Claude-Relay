@@ -343,3 +343,16 @@ Stack: Tauri v2 (Rust + WebView2), PixiJS planned for canvas. Windows-only.
   wraps all delete paths (keyboard, selection menu, single-item) -> confirms when outsideHome OR
   count>=10; doPaste confirms when pasting outside home (pasteNow does the work). Bar shows amber
   "editing outside canvas" marker; read-only marker still shows when not writable.
+
+## v0.0.26 — Copy as shortcut (.lnk); >1GB paste confirm
+- Backend: dir_size() recursive; path_size(path)->u64 (read, allowed anywhere). paste_shortcut(dest,src)
+  creates "<base> - Shortcut.lnk" in dest via PowerShell WScript.Shell.CreateShortcut (single-quote
+  escaped, hidden window); in_root(dest) guard. Registered path_size + paste_shortcut.
+- Frontend: clip mode 'shortcut' ("Copy as shortcut" in single-item folder/file menus + selection menu);
+  pasteNow maps shortcut->paste_shortcut, pasted item dir=false (it's a .lnk file). Empty-menu Paste
+  label shows "Paste shortcut" for that mode. doPaste now async: sums path_size over clip items,
+  big=>1GiB, combines with outsideHome into one confirm ("...(OUTSIDE..., large — X GB)?"); fmtSize helper.
+- Double-clicking a .lnk currently resolves via open_item (cmd start) -> opens target in Explorer/app.
+  OPEN QUESTION asked: should folder-shortcuts instead navigate in-canvas?
+- TODO added: back button (history), native copy progress dialog + non-freezing copy, undo/redo for
+  placement/movement only.

@@ -349,6 +349,44 @@ fn copy_tree(src: &PathBuf, dst: &PathBuf) -> Result<(), String> {
     }
 }
 
+fn dir_size(p: &PathBuf) -> u64 {
+    let mut total = 0u64;
+    if let Ok(rd) = fs::read_dir(p) {
+        for e in rd.flatten() {
+            let ep = e.path();
+            if ep.is_dir() { total += dir_size(&ep); }
+            else if let Ok(m) = e.metadata() { total += m.len(); }
+        }
+    }
+    total
+}
+
+#[tauri::command]
+fn path_size(path: String) -> Result<u64, String> {
+    let p = PathBuf::from(&path);
+    if p.is_dir() { Ok(dir_size(&p)) }
+    else { Ok(fs::metadata(&p).map(|m| m.len()).unwrap_or(0)) }
+}
+
+#[tauri::command]
+fn paste_shortcut(app: tauri::AppHandle, dest: String, src: String) -> Result<String, String> {
+    in_root(&app, &dest)?; // creating the .lnk is a write -> destination must be writable
+    let s = PathBuf::from(&src);
+    if !s.exists() { return Err("source missing".into()); }
+    let base = s.file_name().ok_or("no name")?.to_string_lossy().to_string();
+    let d = unique_dest(&PathBuf::from(&dest), &format!("{} - Shortcut.lnk", base));
+    let dest_str = d.to_string_lossy().replace('\'', "''");
+    let src_str = s.to_string_lossy().replace('\'', "''");
+    let ps = format!(
+        "$ws=New-Object -ComObject WScript.Shell; $sc=$ws.CreateShortcut('{}'); $sc.TargetPath='{}'; $sc.Save()",
+        dest_str, src_str);
+    let status = std::process::Command::new("powershell")
+        .args(["-NoProfile", "-WindowStyle", "Hidden", "-Command", &ps])
+        .status().map_err(|e| e.to_string())?;
+    if !status.success() { return Err("shortcut creation failed".into()); }
+    Ok(d.file_name().unwrap().to_string_lossy().to_string())
+}
+
 #[tauri::command]
 fn paste_copy(app: tauri::AppHandle, dest: String, src: String) -> Result<String, String> {
     in_root(&app, &dest)?; // destination must be writable (inside canvas)
@@ -414,7 +452,7 @@ fn main() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
             quit, places, list_dir, add_dropped_file, make_folder, move_into, trash_item,
-            clear_trash, open_trash, thumb_data, open_item, open_folder, shell_verb, delete_file, paste_copy, paste_move, set_safety, load_spaces, save_spaces, save_layout, load_layout
+            clear_trash, open_trash, thumb_data, open_item, open_folder, shell_verb, delete_file, paste_copy, paste_move, paste_shortcut, path_size, set_safety, load_spaces, save_spaces, save_layout, load_layout
         ])
         .setup(|app| {
             let handle = app.handle().clone();
