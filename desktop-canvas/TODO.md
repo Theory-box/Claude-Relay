@@ -95,7 +95,5 @@ Running list of deferred work and ideas. Newest context at top of each section.
 - [ ] Copy/paste should use the native Windows progress dialog AND not freeze the canvas
       (likely IFileOperation COM on a worker thread).
 - [ ] Undo / redo for ITEM PLACEMENT + MOVEMENT only (skip copy/paste undo for now).
-- [ ] NEXT: folder-shortcut (.lnk) = in-canvas bookmark. Double-clicking a .lnk whose target is a
-      FOLDER should resolve the target and navigate INSIDE the canvas (not launch Explorer); .lnk to a
-      FILE still opens normally. Keep them real .lnk files on disk (work as Explorer shortcuts too).
-      Needs backend resolve_lnk(path)->{target,dir} (WScript.Shell .TargetPath) + double-click routing.
+- [x] v0.0.29: folder-shortcut (.lnk) = in-canvas bookmark. Double-clicking a .lnk to a FOLDER resolves
+      the target and navigates INSIDE the canvas; .lnk to a FILE still opens normally. Still real .lnk on disk.

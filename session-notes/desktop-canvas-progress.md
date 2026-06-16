@@ -369,3 +369,10 @@ Stack: Tauri v2 (Rust + WebView2), PixiJS planned for canvas. Windows-only.
 - Removed the "Places ▾" button + #placesMenu dropdown + its click handler and auto-close refs.
 - KEPT the backend places() command and the startup invoke('places') — still used to derive homePath
   (filters label 'Desktop Canvas'); placesList var retained for that. Bar is now: Up · Spaces · crumbs · path · Go to · safety.
+
+## v0.0.29 — folder-shortcuts act as in-canvas bookmarks
+- Backend: resolve_lnk(path)->{target,dir} reads the .lnk TargetPath via PowerShell WScript.Shell
+  (single-quote escaped, hidden), checks is_dir on the resolved target. Read-only, no in_root guard. Registered.
+- Frontend: new activateItem(card) helper. dir -> navigate; name matches /\.lnk$/i -> resolve_lnk, if
+  target is a folder navigate(target) IN-canvas else open_item; otherwise open_item. Used by dblclick and
+  the file-menu "Open". Resolved-target navigation works regardless of safety (browsing/reads are unrestricted).

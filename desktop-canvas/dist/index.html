@@ -511,7 +511,7 @@
          if (writable){ menu.appendChild(mkSep()); menu.appendChild(mkBtn('Delete', 'danger', function(){ hideMenu(); confirmDelete(1, function(){ T.core.invoke('trash_item', { dir: cwd, name: fname }).then(function(){ removeCardLocal(target); persist(); }); }); })); }
        } else {
          var name = target.__item.name;
-         menu.appendChild(mkBtn('Open', '', function(){ T.core.invoke('open_item', { dir: cwd, name: name }); hideMenu(); }));
+         menu.appendChild(mkBtn('Open', '', function(){ hideMenu(); activateItem(target); }));
          menu.appendChild(mkBtn('Open with\u2026', '', function(){ T.core.invoke('shell_verb', { dir: cwd, name: name, verb: 'openas' }); hideMenu(); }));
          menu.appendChild(mkBtn('Open folder', '', function(){ T.core.invoke('open_folder', { dir: cwd }); hideMenu(); }));
          menu.appendChild(mkSep());
@@ -523,7 +523,23 @@
        menu.style.left = x + 'px'; menu.style.top = y + 'px'; menu.style.display = 'block';
      }
      app.view.addEventListener('contextmenu', function(ev){ ev.preventDefault(); if (confirming || animating) return; if (carry){ cancelCarry(); return; } var c = targetAt(ev.clientX, ev.clientY); if (c){ if (!c.__trash && selection.has(c) && selection.size > 1) openSelectionMenu(ev.clientX, ev.clientY); else openMenu(ev.clientX, ev.clientY, c); } else openEmptyMenu(ev.clientX, ev.clientY); });
-     app.view.addEventListener('dblclick', function(ev){ if (carry || confirming || animating) return; var c = targetAt(ev.clientX, ev.clientY); if (!c) return; if (c.__trash){ T.core.invoke('open_trash'); return; } if (c.__item.dir) navigate(joinPath(cwd, c.__item.name)); else T.core.invoke('open_item', { dir: cwd, name: c.__item.name }); });
+     function activateItem(c){
+       if (!c || !c.__item) return;
+       if (c.__trash){ T.core.invoke('open_trash'); return; }
+       var name = c.__item.name;
+       if (c.__item.dir){ navigate(joinPath(cwd, name)); return; }
+       if (/\.lnk$/i.test(name)){ // shortcut: resolve target; folder target opens in-canvas, file opens normally
+         var srcDir = cwd, srcName = name;
+         T.core.invoke('resolve_lnk', { path: joinPath(cwd, name) }).then(function(info){
+           var r = (typeof info === 'string') ? JSON.parse(info) : info;
+           if (r && r.dir && r.target){ navigate(r.target); }
+           else { T.core.invoke('open_item', { dir: srcDir, name: srcName }); }
+         }).catch(function(e){ T.core.invoke('open_item', { dir: srcDir, name: srcName }); });
+         return;
+       }
+       T.core.invoke('open_item', { dir: cwd, name: name });
+     }
+     app.view.addEventListener('dblclick', function(ev){ if (carry || confirming || animating) return; var c = targetAt(ev.clientX, ev.clientY); if (!c) return; activateItem(c); });
      window.addEventListener('wheel', function(){ hideMenu(); }, true);
 
      // ---------- address bar ----------

@@ -387,6 +387,21 @@ fn paste_shortcut(app: tauri::AppHandle, dest: String, src: String) -> Result<St
     Ok(d.file_name().unwrap().to_string_lossy().to_string())
 }
 
+#[derive(serde::Serialize)]
+struct LnkInfo { target: String, dir: bool }
+
+#[tauri::command]
+fn resolve_lnk(path: String) -> Result<LnkInfo, String> {
+    let esc = path.replace('\'', "''");
+    let ps = format!("(New-Object -ComObject WScript.Shell).CreateShortcut('{}').TargetPath", esc);
+    let out = std::process::Command::new("powershell")
+        .args(["-NoProfile", "-WindowStyle", "Hidden", "-Command", &ps])
+        .output().map_err(|e| e.to_string())?;
+    let target = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    let dir = !target.is_empty() && PathBuf::from(&target).is_dir();
+    Ok(LnkInfo { target, dir })
+}
+
 #[tauri::command]
 fn paste_copy(app: tauri::AppHandle, dest: String, src: String) -> Result<String, String> {
     in_root(&app, &dest)?; // destination must be writable (inside canvas)
@@ -452,7 +467,7 @@ fn main() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
             quit, places, list_dir, add_dropped_file, make_folder, move_into, trash_item,
-            clear_trash, open_trash, thumb_data, open_item, open_folder, shell_verb, delete_file, paste_copy, paste_move, paste_shortcut, path_size, set_safety, load_spaces, save_spaces, save_layout, load_layout
+            clear_trash, open_trash, thumb_data, open_item, open_folder, shell_verb, delete_file, paste_copy, paste_move, paste_shortcut, resolve_lnk, path_size, set_safety, load_spaces, save_spaces, save_layout, load_layout
         ])
         .setup(|app| {
             let handle = app.handle().clone();
