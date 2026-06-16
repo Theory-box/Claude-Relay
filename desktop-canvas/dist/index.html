@@ -77,7 +77,7 @@
      var items = [], cards = [], thumbCache = {}, mtimes = {}, meta = {};
      var trash = { x: -320, y: -210 }, trashNode = null;
      var panning = false, last = null, reloadPending = false, confirming = false, animating = false;
-     var lastCursor = null, sortAnim = null;
+     var lastCursor = null, sortAnim = null, writable = true;
      var modes = ['free', 'push'], modeIdx = 1; // default Push (Fit removed)
      function modeLabel(){ return ['Free', 'Push'][modeIdx]; }
      var carry = null;
@@ -185,7 +185,7 @@
      }
      var loadSeq = 0, loading = false;
      async function loadView(fromSync){
-       var seq = ++loadSeq; loading = true;
+       var seq = ++loadSeq; loading = true; writable = inRoot(cwd);
        clearView();
        var posmap = {};
        try{ var s = await T.core.invoke('load_layout', { key: cwd }); var p = JSON.parse(s || '{}'); var arr = Array.isArray(p) ? p : (p.items || []); arr.forEach(function(it){ posmap[it.name] = { x: it.x, y: it.y }; }); if (!Array.isArray(p) && p.trash) trash = p.trash; }catch(e){ showErr('load_layout: ' + e); }
@@ -210,7 +210,7 @@
      }
      function norm(p){ return (p || '').replace(/\//g, '\\').replace(/\\+$/, ''); }
      function inRoot(dir){ var d = norm(dir).toLowerCase(), h = norm(homePath).toLowerCase(); return !h || d === h || d.indexOf(h + '\\') === 0; }
-     function navigate(dir){ if (carry) cancelCarry(); dir = dir || homePath; if (!inRoot(dir)) dir = homePath; cwd = dir; loadView(); }
+     function navigate(dir){ if (carry) cancelCarry(); cwd = dir || ''; loadView(); }
 
      function cardForName(name){ for (var i = 0; i < cards.length; i++){ if (cards[i].__item && cards[i].__item.name === name) return cards[i]; } return null; }
      function removeCardLocal(card){ var it = card.__item; var ii = items.indexOf(it); if (ii >= 0) items.splice(ii, 1); var ci = cards.indexOf(card); if (ci >= 0) cards.splice(ci, 1); world.removeChild(card); card.destroy({ children: true }); delete mtimes[it.name]; delete meta[it.name]; }
@@ -253,7 +253,7 @@
        carry.dropTarget = null; hl.visible = false;
        var mode = held.__trash ? 'free' : modes[modeIdx];
        if (!held.__trash){
-         var dt = dropTargetUnder(heldRect, held, mode === 'free');
+         var dt = dropTargetUnder(heldRect, held, mode === 'free' && writable);
          if (dt){ carry.dropTarget = dt; held.x = desired.x; held.y = desired.y; var w2 = dt.hitArea.width, h2 = dt.hitArea.height; hl.clear(); hl.lineStyle(2, dt.__trash ? 0xe09a9a : 0x6fd08c); hl.drawRoundedRect(0, 0, w2, h2, 10); hl.x = dt.x; hl.y = dt.y; hl.visible = true; world.addChild(hl); return; }
        }
        if (mode === 'free'){ held.x = desired.x; held.y = desired.y; }
@@ -376,6 +376,8 @@
      function mkSep(){ var d = document.createElement('div'); d.className = 'sep'; return d; }
      function showSortFlyout(anchor){
        sortMenu.innerHTML = '';
+       sortMenu.appendChild(mkBtn('Tidy up (remove overlaps)', '', function(){ hideMenu(); relaxBudgeted(cwd, loadSeq, 0, true); }));
+       sortMenu.appendChild(mkSep());
        var opts = [['Name (A \u2192 Z)', cmpName], ['Name (Z \u2192 A)', rev(cmpName)], ['Size (small \u2192 large)', cmpSize], ['Size (large \u2192 small)', rev(cmpSize)], ['Type', cmpType], ['Date (old \u2192 new)', cmpDate], ['Date (new \u2192 old)', rev(cmpDate)]];
        opts.forEach(function(o){ sortMenu.appendChild(mkBtn(o[0], '', function(){ startSort(o[1]); })); });
        var r = anchor.getBoundingClientRect();
@@ -386,9 +388,8 @@
      }
      function openEmptyMenu(x, y){
        menuTarget = null; menu.innerHTML = '';
-       menu.appendChild(mkBtn('New Folder', '', function(){ hideMenu(); promptDialog('New folder name', 'New Folder', 'Create', function(name){ createFolder(name); }); }));
-       menu.appendChild(mkBtn('Tidy up (remove overlaps)', '', function(){ hideMenu(); relaxBudgeted(cwd, loadSeq, 0, true); }));
-       var sortBtn = document.createElement('button'); sortBtn.innerHTML = 'Sort by <span class="arrow">\u25B8</span>';
+       if (writable) menu.appendChild(mkBtn('New Folder', '', function(){ hideMenu(); promptDialog('New folder name', 'New Folder', 'Create', function(name){ createFolder(name); }); }));
+       var sortBtn = document.createElement('button'); sortBtn.innerHTML = 'Sort / Tidy <span class="arrow">\u25B8</span>';
        sortBtn.addEventListener('click', function(ev){ ev.stopPropagation(); showSortFlyout(sortBtn); });
        sortBtn.addEventListener('mouseenter', function(){ showSortFlyout(sortBtn); });
        menu.appendChild(sortBtn);
@@ -406,15 +407,13 @@
          var fname = target.__item.name;
          menu.appendChild(mkBtn('Open', '', function(){ navigate(joinPath(cwd, fname)); hideMenu(); }));
          menu.appendChild(mkBtn('Open in Explorer', '', function(){ T.core.invoke('open_folder', { dir: joinPath(cwd, fname) }); hideMenu(); }));
-         menu.appendChild(mkSep());
-         menu.appendChild(mkBtn('Delete', 'danger', function(){ T.core.invoke('trash_item', { dir: cwd, name: fname }).then(function(){ removeCardLocal(target); persist(); }); hideMenu(); }));
+         if (writable){ menu.appendChild(mkSep()); menu.appendChild(mkBtn('Delete', 'danger', function(){ T.core.invoke('trash_item', { dir: cwd, name: fname }).then(function(){ removeCardLocal(target); persist(); }); hideMenu(); })); }
        } else {
          var name = target.__item.name;
          menu.appendChild(mkBtn('Open', '', function(){ T.core.invoke('open_item', { dir: cwd, name: name }); hideMenu(); }));
          menu.appendChild(mkBtn('Open with\u2026', '', function(){ T.core.invoke('shell_verb', { dir: cwd, name: name, verb: 'openas' }); hideMenu(); }));
          menu.appendChild(mkBtn('Open folder', '', function(){ T.core.invoke('open_folder', { dir: cwd }); hideMenu(); }));
-         menu.appendChild(mkSep());
-         menu.appendChild(mkBtn('Delete', 'danger', function(){ T.core.invoke('trash_item', { dir: cwd, name: name }).then(function(){ removeCardLocal(target); persist(); }); hideMenu(); }));
+         if (writable){ menu.appendChild(mkSep()); menu.appendChild(mkBtn('Delete', 'danger', function(){ T.core.invoke('trash_item', { dir: cwd, name: name }).then(function(){ removeCardLocal(target); persist(); }); hideMenu(); })); }
        }
        menu.style.left = x + 'px'; menu.style.top = y + 'px'; menu.style.display = 'block';
      }
@@ -428,21 +427,19 @@
      var upBtn = document.getElementById('up'), crumbs = document.getElementById('crumbs');
      var placesBtn = document.getElementById('placesBtn'), placesMenu = document.getElementById('placesMenu'), gotoBtn = document.getElementById('goto'), pathInput = document.getElementById('pathInput'), hud = document.getElementById('hud');
      function updateBar(){
-       var hn = norm(homePath), cn = norm(cwd);
-       upBtn.style.visibility = (cn.toLowerCase() !== hn.toLowerCase()) ? 'visible' : 'hidden';
+       upBtn.style.visibility = cwd ? 'visible' : 'hidden';
        crumbs.innerHTML = '';
        function crumb(label, target, isLast){ var s = document.createElement('span'); s.textContent = label; s.className = 'crumb' + (isLast ? ' last' : ''); if (!isLast) s.addEventListener('click', function(){ navigate(target); }); crumbs.appendChild(s); }
-       var rel = (cn.toLowerCase() === hn.toLowerCase()) ? '' : cn.slice(hn.length).replace(/^\\+/, '');
-       var parts = rel ? rel.split('\\').filter(Boolean) : [];
-       crumb('Desktop Canvas', homePath, parts.length === 0);
-       var acc = hn;
-       parts.forEach(function(seg, i){ var sep = document.createElement('span'); sep.textContent = '  \u203a  '; sep.className = 'sep2'; crumbs.appendChild(sep); acc = acc + '\\' + seg; crumb(seg, acc, i === parts.length - 1); });
+       var nm = norm(cwd); var parts = nm ? nm.split('\\').filter(Boolean) : [];
+       crumb('This PC', '', parts.length === 0); var acc = '';
+       parts.forEach(function(seg, i){ var sep = document.createElement('span'); sep.textContent = '  \u203a  '; sep.className = 'sep2'; crumbs.appendChild(sep); if (i === 0){ acc = seg; crumb(seg, seg + '\\', i === parts.length - 1); } else { acc = acc + '\\' + seg; crumb(seg, acc, i === parts.length - 1); } });
+       if (!writable){ var ro = document.createElement('span'); ro.textContent = '   \u2022 read-only'; ro.style.color = '#c9a36a'; crumbs.appendChild(ro); }
      }
      function updateHud(){
        if (animating){ hud.textContent = 'Sorting\u2026 (Esc to snap)'; }
        else if (carry && carry.source === 'import'){ hud.textContent = 'Placing imported file [' + modeLabel() + ']  \u00b7  left-click confirm  \u00b7  right-click cancel  \u00b7  T toggle  \u00b7  Free mode (1) to drop into a folder'; }
        else if (carry){ hud.textContent = 'Moving [' + modeLabel() + ']  \u00b7  release to drop  \u00b7  T toggle (1 Free / 2 Push)  \u00b7  Free mode to drop into a folder  \u00b7  Esc cancel'; }
-       else { hud.textContent = 'v0.0.18  \u00b7  click-drag to move  \u00b7  middle-drag to pan  \u00b7  right-click empty space for sort / new folder / tidy  \u00b7  mode: ' + modeLabel() + ' (T toggles Free/Push)'; }
+       else { hud.textContent = 'v0.0.19  \u00b7  click-drag to move  \u00b7  middle-drag to pan  \u00b7  right-click for sort / tidy' + (writable ? ' / new folder' : '') + '  \u00b7  mode: ' + modeLabel() + (writable ? '' : '  \u00b7  read-only folder (file changes only inside Desktop Canvas)'); }
      }
      upBtn.addEventListener('click', function(){ navigate(parentOf(cwd)); });
      placesBtn.addEventListener('click', function(ev){ ev.stopPropagation(); if (placesMenu.style.display === 'block'){ placesMenu.style.display = 'none'; return; } placesMenu.innerHTML = ''; placesList.forEach(function(pl){ placesMenu.appendChild(mkBtn(pl.label, '', function(){ navigate(pl.path); placesMenu.style.display = 'none'; })); }); var r = placesBtn.getBoundingClientRect(); placesMenu.style.left = r.left + 'px'; placesMenu.style.top = (r.bottom + 4) + 'px'; placesMenu.style.display = 'block'; });
@@ -457,6 +454,7 @@
          var dpr = window.devicePixelRatio || 1; var cssX = pos.x / dpr, cssY = pos.y / dpr;
          var baseWX = (cssX - world.x) / world.scale.x, baseWY = (cssY - world.y) / world.scale.y;
          if (!cwd){ showErr('Pick a folder before dropping (you are at This PC).'); return; }
+         if (!writable){ showErr('Read-only here \u2014 files can only be imported into the Desktop Canvas folder.'); return; }
          if (carry || confirming || animating) return;
          if (paths.length === 1){
            T.core.invoke('add_dropped_file', { dir: cwd, path: paths[0] }).then(function(name){

@@ -1,5 +1,14 @@
 # Desktop Canvas — TODO / Backlog
 
+## Up next (requested, in order)
+- [done v0.0.19] Un-restrict browsing; everything read-only except the Desktop Canvas folder.
+- [done v0.0.19] Move "Tidy up" into the Sort submenu.
+- [ ] #4 Box selection + active/selected items; multi-move must respect collisions and
+      move-into-folder. (Pairs with the Blender-style selection item below.)
+- [ ] #5 Copy / Cut / Paste on item right-click (needs backend copy/move + a clipboard model;
+      paste target must be writable).
+- [ ] #6 Trash Can as a static screen icon (bottom-left), not a world object.
+
 Running list of deferred work and ideas. Newest context at top of each section.
 
 ## Selection & active items (Blender-style) — requested, not started

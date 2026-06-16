@@ -255,3 +255,16 @@ Stack: Tauri v2 (Rust + WebView2), PixiJS planned for canvas. Windows-only.
   spatial hash / distance fields / thumbnail caching, bug watches, UX backlog, safety plan).
 - Still TODO (perf): circle/spatial-hash broad-phase is the real O(n^2) fix; budgeting only
   hides the cost. Thumbnail concurrency cap also pending.
+
+## v0.0.19 — read-only browsing everywhere; writes confined; Tidy into Sort menu
+- SAFE_MODE now confines only WRITE/MOVE/DELETE (add_dropped_file, make_folder, move_into,
+  trash_item, delete_file) to the Desktop Canvas folder. list_dir/thumb_data/open_item/
+  open_folder/shell_verb and places() are unrestricted again -> full browsing/opening anywhere.
+- Frontend: navigate() no longer clamps; breadcrumbs are absolute (This PC > drive > ...);
+  Places shows the full set again. `writable = inRoot(cwd)` computed per folder. A "* read-only"
+  marker shows in the path bar outside home. Gates when !writable: import drop blocked (message),
+  New Folder hidden, item Delete hidden, folder drop-target (move_into) disabled. Rearranging/
+  sorting/tidy still work anywhere (purely positional, saved to app-data layout).
+- #3: "Tidy up (remove overlaps)" moved into the Sort flyout (now labeled "Sort / Tidy >").
+- Remaining requested (queued, one at a time): #4 box selection + multi-move w/ collisions &
+  move-into; #5 copy/cut/paste on items; #6 static bottom-left Trash icon. Added to TODO.md.
