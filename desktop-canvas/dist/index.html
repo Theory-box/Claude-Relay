@@ -45,7 +45,6 @@
  <div id="err"></div>
  <div id="bar">
    <button id="up" title="Up one folder">&#8593;</button>
-   <button id="placesBtn">Places &#9662;</button>
    <button id="spacesBtn">Spaces &#9662;</button>
    <span id="crumbs"></span>
    <span class="spacer"></span>
@@ -57,7 +56,6 @@
  <div id="diag"></div>
  <div id="menu" class="pop"></div>
  <div id="sortMenu" class="pop"></div>
- <div id="placesMenu" class="pop"></div>
  <div id="spacesMenu" class="pop"></div>
  <div id="dialog" class="modal"><div class="box"><div id="dlgMsg"></div><div class="row"><button id="dlgNo">Cancel</button><button id="dlgYes">Move</button></div></div></div>
  <div id="prompt" class="modal"><div class="box"><div id="pmMsg"></div><input id="pmInput"><div class="row"><button id="pmNo">Cancel</button><button id="pmYes">Create</button></div></div></div>
@@ -415,7 +413,6 @@
        if (confirming) return;
        if (carry && carry.source === 'import' && carry.phase === 'float' && ev.button === 0){ commitCarry(); ev.stopPropagation(); ev.preventDefault(); return; }
        if (menu.style.display === 'block' && !menu.contains(ev.target) && !sortMenu.contains(ev.target)){ hideMenu(); }
-       if (placesMenu.style.display === 'block' && ev.target !== placesBtn && !placesMenu.contains(ev.target)) placesMenu.style.display = 'none';
        if (spacesMenu.style.display === 'block' && ev.target !== spacesBtn && !spacesMenu.contains(ev.target)) spacesMenu.style.display = 'none';
      }, true);
      window.addEventListener('keyup', function(e){ if (e.key === 'Control'){ ctrlDown = false; if (carry && carry.moved){ refreshPreview(); updateHud(); } } });
@@ -533,7 +530,7 @@
      function joinPath(base, name){ if (!base) return name; return base.replace(/[\\\/]+$/, '') + '\\' + name; }
      function parentOf(p){ if (!p) return ''; var s = p.replace(/[\\\/]+$/, ''); if (/^[A-Za-z]:$/.test(s)) return ''; var i = Math.max(s.lastIndexOf('\\'), s.lastIndexOf('/')); if (i < 0) return ''; var up = s.slice(0, i); if (/^[A-Za-z]:$/.test(up)) return up + '\\'; return up; }
      var upBtn = document.getElementById('up'), crumbs = document.getElementById('crumbs');
-     var placesBtn = document.getElementById('placesBtn'), placesMenu = document.getElementById('placesMenu'), gotoBtn = document.getElementById('goto'), pathInput = document.getElementById('pathInput'), hud = document.getElementById('hud');
+     var gotoBtn = document.getElementById('goto'), pathInput = document.getElementById('pathInput'), hud = document.getElementById('hud');
      var spacesBtn = document.getElementById('spacesBtn'), spacesMenu = document.getElementById('spacesMenu');
      var safetyChk = document.getElementById('safetyChk'), safetyLbl = document.getElementById('safetyLbl'), safetyIcon = document.getElementById('safetyIcon'), safetyTxt = document.getElementById('safetyTxt');
      safetyChk.addEventListener('change', function(){ safetyOn = safetyChk.checked; T.core.invoke('set_safety', { on: safetyOn }).catch(function(e){ showErr('set_safety: ' + e); }); safetyLbl.classList.toggle('off', !safetyOn); safetyIcon.textContent = safetyOn ? '\uD83D\uDD12' : '\uD83D\uDD13'; safetyTxt.textContent = safetyOn ? 'safe' : 'edit anywhere'; writable = safetyOn ? inRoot(cwd) : true; updateBar(); updateHud(); });
@@ -554,7 +551,6 @@
        else { hud.textContent = 'v0.0.23  \u00b7  click = select  \u00b7  shift/ctrl = add/remove  \u00b7  drag empty = box select  \u00b7  middle-drag = pan  \u00b7  drag item = move  \u00b7  mode: ' + modeLabel() + (writable ? '' : '  \u00b7  read-only'); }
      }
      upBtn.addEventListener('click', function(){ navigate(parentOf(cwd)); });
-     placesBtn.addEventListener('click', function(ev){ ev.stopPropagation(); if (placesMenu.style.display === 'block'){ placesMenu.style.display = 'none'; return; } placesMenu.innerHTML = ''; placesList.forEach(function(pl){ placesMenu.appendChild(mkBtn(pl.label, '', function(){ navigate(pl.path); placesMenu.style.display = 'none'; })); }); var r = placesBtn.getBoundingClientRect(); placesMenu.style.left = r.left + 'px'; placesMenu.style.top = (r.bottom + 4) + 'px'; placesMenu.style.display = 'block'; });
      gotoBtn.addEventListener('click', function(){ if (pathInput.style.display === 'none'){ pathInput.style.display = 'inline-block'; pathInput.value = cwd; pathInput.focus(); pathInput.select(); } else { navigate(pathInput.value.trim()); pathInput.style.display = 'none'; } });
      pathInput.addEventListener('keydown', function(e){ if (e.key === 'Enter'){ navigate(pathInput.value.trim()); pathInput.style.display = 'none'; } else if (e.key === 'Escape'){ pathInput.style.display = 'none'; } e.stopPropagation(); });
      function createFolder(nm){ T.core.invoke('make_folder', { dir: cwd, name: (nm || 'New Folder') }).then(function(){ loadView(); }).catch(function(e){ showErr('make_folder: ' + e); }); }
@@ -646,7 +642,7 @@
        var cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
        camTween = { s: sc, x: sw / 2 - cx * sc, y: sh / 2 - cy * sc, f: 16 };
      }
-     spacesBtn.addEventListener('click', function(ev){ ev.stopPropagation(); if (spacesMenu.style.display === 'block'){ spacesMenu.style.display = 'none'; return; } placesMenu.style.display = 'none'; spacesMenu.innerHTML = ''; if (!spaces.length){ var e0 = mkBtn('(no saved spaces)', '', function(){ spacesMenu.style.display = 'none'; }); e0.style.color = '#777'; spacesMenu.appendChild(e0); } else { spaces.forEach(function(sp){ spacesMenu.appendChild(mkBtn(sp.label, '', function(){ navigate(sp.path); spacesMenu.style.display = 'none'; })); }); } var r = spacesBtn.getBoundingClientRect(); spacesMenu.style.left = r.left + 'px'; spacesMenu.style.top = (r.bottom + 4) + 'px'; spacesMenu.style.display = 'block'; });
+     spacesBtn.addEventListener('click', function(ev){ ev.stopPropagation(); if (spacesMenu.style.display === 'block'){ spacesMenu.style.display = 'none'; return; } spacesMenu.innerHTML = ''; if (!spaces.length){ var e0 = mkBtn('(no saved spaces)', '', function(){ spacesMenu.style.display = 'none'; }); e0.style.color = '#777'; spacesMenu.appendChild(e0); } else { spaces.forEach(function(sp){ spacesMenu.appendChild(mkBtn(sp.label, '', function(){ navigate(sp.path); spacesMenu.style.display = 'none'; })); }); } var r = spacesBtn.getBoundingClientRect(); spacesMenu.style.left = r.left + 'px'; spacesMenu.style.top = (r.bottom + 4) + 'px'; spacesMenu.style.display = 'block'; });
 
      // ---------- OS import ----------
      function handleDrop(payload){

@@ -364,3 +364,8 @@ Stack: Tauri v2 (Rust + WebView2), PixiJS planned for canvas. Windows-only.
 - Triggers on Up/breadcrumb/Places/Go to/space-switch (all go through navigate -> loadView).
 - DECISION (user): folder-shortcuts should act as in-canvas BOOKMARKS (resolve .lnk -> navigate in canvas)
   while remaining real Explorer .lnk files. Queued as next dedicated build (needs resolve_lnk backend).
+
+## v0.0.28 — removed Places button (Spaces covers it)
+- Removed the "Places ▾" button + #placesMenu dropdown + its click handler and auto-close refs.
+- KEPT the backend places() command and the startup invoke('places') — still used to derive homePath
+  (filters label 'Desktop Canvas'); placesList var retained for that. Bar is now: Up · Spaces · crumbs · path · Go to · safety.
