@@ -485,7 +485,7 @@ fn drag_out(window: tauri::WebviewWindow, paths: Vec<String>) -> Result<(), Stri
                 for p in &paths {
                     let wide = to_wide(p);
                     let mut pidl: *mut ITEMIDLIST = std::ptr::null_mut();
-                    if SHParseDisplayName(PCWSTR(wide.as_ptr()), None, &mut pidl, 0, std::ptr::null_mut()).is_ok() && !pidl.is_null() {
+                    if SHParseDisplayName(PCWSTR(wide.as_ptr()), None, &mut pidl, 0, None).is_ok() && !pidl.is_null() {
                         pidls.push(pidl as *const ITEMIDLIST);
                     }
                 }
