@@ -160,3 +160,21 @@ Stack: Tauri v2 (Rust + WebView2), PixiJS planned for canvas. Windows-only.
   (no folder). Default landing = Desktop Canvas home.
 - trash_item from any folder still moves into the Desktop Canvas/Trash Can (one app trash;
   real Recycle Bin integration could come later via IFileOperation).
+
+## v0.0.13 — placement engine v1 (carry/preview + 3 modes)
+- Design doc: desktop-canvas/ENGINE.md (pure resolve() contract, primitives, roadmap).
+- Engine primitives (pure JS): intersects, mtv (min translation vector), nearestFree
+  (spiral search). rectOf(card) reads world-space AABB from card.hitArea.
+- Carry/preview interaction: drag an existing card & RELEASE -> it detaches and floats
+  on the cursor showing the live effect; left-click commits, right-click cancels (reverts
+  from a snapshot captured at grab). Click without moving past 5px = not a carry (so
+  double-click open/navigate still works). Confirm intercepted via window-capture
+  pointerdown; mode keys + Escape-cancel via capture keydown (so quit doesn't fire mid-carry).
+- Modes (cycle T; 1/2/3): Free (overlap ok, = stack-on-purpose), Fit (nearestFree near
+  cursor), Push (neighbors displaced by mtv, bounded 6-pass relaxation incl light
+  other-other separation). Recomputed from the snapshot each frame so pushed items return.
+- Drop targets take precedence on the cursor rect: hover a folder/Trash -> green highlight
+  + "move into/delete" instead of placement, in any mode. Trash node carryable (free only).
+- poll/layout-changed suppressed during carry (reloadPending applied on commit/cancel).
+- Scope: applies to MOVING existing items. OS imports still place immediately (carry for
+  fresh imports is a possible follow-up). No grid snapping yet (next: snap() + guides).

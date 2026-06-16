@@ -7,8 +7,7 @@
  #bar button{background:#252934;border:1px solid #353a45;color:#d4d7df;border-radius:6px;padding:5px 10px;cursor:pointer;font:inherit;white-space:nowrap;}
  #bar button:hover{background:#2f3440;}
  #bar input{background:#1c1f27;border:1px solid #3a4150;color:#e6e8ee;border-radius:6px;padding:5px 8px;font:inherit;}
- #pathInput{width:320px;}
- #nfInput{width:150px;}
+ #pathInput{width:320px;} #nfInput{width:150px;}
  .spacer{flex:1;}
  #crumbs{overflow:hidden;white-space:nowrap;text-overflow:ellipsis;max-width:46vw;}
  .crumb{cursor:pointer;color:#8d93a0;padding:2px 4px;border-radius:4px;}
@@ -16,7 +15,7 @@
  .crumb.last{color:#e6e8ee;cursor:default;font-weight:600;}
  .crumb.last:hover{background:none;}
  .sep2{color:#565b64;}
- #hud{position:fixed;left:14px;bottom:12px;color:#6b6f7a;font-size:12px;z-index:5;pointer-events:none;letter-spacing:.03em;}
+ #hud{position:fixed;left:14px;bottom:12px;color:#8a8f9a;font-size:12px;z-index:5;pointer-events:none;letter-spacing:.02em;}
  #diag{position:fixed;right:12px;bottom:12px;color:#52555e;font:11px ui-monospace,Consolas,monospace;z-index:5;pointer-events:none;}
  .pop{position:fixed;display:none;z-index:30;min-width:172px;background:#1f2229;border:1px solid #353a45;border-radius:8px;padding:5px;box-shadow:0 8px 24px rgba(0,0,0,.5);font-size:13px;max-height:70vh;overflow:auto;}
  .pop button{display:block;width:100%;text-align:left;background:none;border:0;color:#d4d7df;padding:8px 12px;border-radius:5px;cursor:pointer;font:inherit;}
@@ -37,7 +36,7 @@
    <input id="nfInput" placeholder="Folder name" style="display:none">
    <button id="nf">+ Folder</button>
  </div>
- <div id="hud">v0.0.12 &middot; Places / Go to / breadcrumbs to navigate anywhere &middot; double-click folder to enter &middot; drag onto folder/Trash to move</div>
+ <div id="hud"></div>
  <div id="diag"></div>
  <div id="menu" class="pop"></div>
  <div id="placesMenu" class="pop"></div>
@@ -63,60 +62,60 @@
      grid.endFill();
      world.addChild(grid);
      world.x = app.screen.width / 2; world.y = app.screen.height / 2;
+     var hl = new PIXI.Graphics(); hl.visible = false; world.addChild(hl);
 
-     var cwd = '';
-     var homePath = '';
-     var placesList = [];
-     var items = [];
-     var cards = [];
-     var thumbCache = {};
-     var mtimes = {};
-     var trash = { x: -320, y: -210 };
-     var trashNode = null;
-     var panning = false, last = null, dragTarget = null, dragOff = null;
-     var reloadPending = false;
+     var cwd = '', homePath = '', placesList = [];
+     var items = [], cards = [], thumbCache = {}, mtimes = {};
+     var trash = { x: -320, y: -210 }, trashNode = null;
+     var panning = false, last = null, reloadPending = false;
+     var lastCursor = null;
+     var modes = ['free', 'fit', 'push'], modeIdx = 1;
+     function modeLabel(){ return ['Free', 'Fit', 'Push'][modeIdx]; }
+     // carry = { card, offset:{x,y}, phase:'drag'|'float', moved, start:{x,y}, snap:{} } | null
+     var carry = null;
 
-     function joinPath(base, name){ if (!base) return name; return base.replace(/[\\\/]+$/, '') + '\\' + name; }
-     function parentOf(p){
-       if (!p) return '';
-       var s = p.replace(/[\\\/]+$/, '');
-       if (/^[A-Za-z]:$/.test(s)) return '';
-       var i = Math.max(s.lastIndexOf('\\'), s.lastIndexOf('/'));
-       if (i < 0) return '';
-       var up = s.slice(0, i);
-       if (/^[A-Za-z]:$/.test(up)) return up + '\\';
-       return up;
+     // ---------- engine primitives (pure) ----------
+     function intersects(a, b){ return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y; }
+     function mtv(a, b){ // smallest shove to move b out of a
+       var ox = Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x);
+       var oy = Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y);
+       if (ox <= 0 || oy <= 0) return null;
+       if (ox < oy){ var dx = (b.x + b.w/2) >= (a.x + a.w/2) ? ox : -ox; return { dx: dx, dy: 0 }; }
+       var dy = (b.y + b.h/2) >= (a.y + a.h/2) ? oy : -oy; return { dx: 0, dy: dy };
      }
-     function rectsOverlap(a,b){ return a.x < b.x+b.width && a.x+a.width > b.x && a.y < b.y+b.height && a.y+a.height > b.y; }
-     function cardForName(name){ for (var i=0;i<cards.length;i++){ if (cards[i].__item && cards[i].__item.name===name) return cards[i]; } return null; }
+     function nearestFree(rect, obstacles, near){
+       function free(x, y){ var r = { x: x, y: y, w: rect.w, h: rect.h }; for (var i = 0; i < obstacles.length; i++){ if (intersects(r, obstacles[i])) return false; } return true; }
+       if (free(near.x, near.y)) return { x: near.x, y: near.y };
+       var stepR = 16, maxR = 1600;
+       for (var rad = stepR; rad <= maxR; rad += stepR){
+         var samples = Math.max(8, Math.floor(rad / 7));
+         for (var s = 0; s < samples; s++){
+           var a = (s / samples) * Math.PI * 2;
+           var x = near.x + Math.cos(a) * rad, y = near.y + Math.sin(a) * rad;
+           if (free(x, y)) return { x: x, y: y };
+         }
+       }
+       return { x: near.x, y: near.y };
+     }
+     function rectOf(card){ return { x: card.x, y: card.y, w: card.hitArea.width, h: card.hitArea.height }; }
 
+     // ---------- thumbnails ----------
      function loadTexture(url){
        if (PIXI.Assets && PIXI.Assets.load) return PIXI.Assets.load(url);
-       return new Promise(function(res, rej){
-         var t = PIXI.Texture.from(url);
-         if (t.baseTexture && t.baseTexture.valid) { res(t); return; }
-         t.baseTexture.once('loaded', function(){ res(t); });
-         t.baseTexture.once('error', function(){ rej('texture error'); });
-       });
+       return new Promise(function(res, rej){ var t = PIXI.Texture.from(url); if (t.baseTexture && t.baseTexture.valid){ res(t); return; } t.baseTexture.once('loaded', function(){ res(t); }); t.baseTexture.once('error', function(){ rej('texture error'); }); });
      }
-     function getThumb(name, dir){
-       var k = dir + '\u0000' + name;
-       if (k in thumbCache) return Promise.resolve(thumbCache[k]);
-       return T.core.invoke('thumb_data', { dir: dir, name: name }).then(function(url){ thumbCache[k] = url; return url; });
-     }
+     function getThumb(name, dir){ var k = dir + '\u0000' + name; if (k in thumbCache) return Promise.resolve(thumbCache[k]); return T.core.invoke('thumb_data', { dir: dir, name: name }).then(function(url){ thumbCache[k] = url; return url; }); }
      function applyThumb(card, dir){
        var name = card.__item.name;
        getThumb(name, dir).then(function(url){
          if (!url || !card.__item || card.destroyed) return;
          loadTexture(url).then(function(tex){
            if (!card.__item || card.destroyed) return;
-           var maxW = 240, maxH = 180;
-           var s = Math.min(maxW / tex.width, maxH / tex.height, 1);
+           var maxW = 240, maxH = 180, s = Math.min(maxW / tex.width, maxH / tex.height, 1);
            var w = Math.max(1, Math.round(tex.width * s)), h = Math.max(1, Math.round(tex.height * s));
            var sp = new PIXI.Sprite(tex); sp.width = w; sp.height = h; sp.x = 4; sp.y = 22;
            var frame = new PIXI.Graphics(); frame.beginFill(card.__item.dir ? 0x222a22 : 0x1c1f27); frame.lineStyle(1, 0x3a3e49); frame.drawRoundedRect(0, 0, w + 8, h + 30, 8); frame.endFill();
-           var cap = new PIXI.Text(name, { fill: 0xb6bac4, fontSize: 11, fontFamily: 'system-ui', wordWrap: true, wordWrapWidth: w });
-           cap.x = 5; cap.y = 5;
+           var cap = new PIXI.Text(name, { fill: 0xb6bac4, fontSize: 11, fontFamily: 'system-ui', wordWrap: true, wordWrapWidth: w }); cap.x = 5; cap.y = 5;
            var old = card.removeChildren(); old.forEach(function(o){ try{ o.destroy(); }catch(_){} });
            card.addChild(frame); card.addChild(sp); card.addChild(cap);
            card.hitArea = new PIXI.Rectangle(0, 0, w + 8, h + 30);
@@ -124,183 +123,162 @@
        }).catch(function(e){ showErr('thumb: ' + e); });
      }
 
-     function attachDrag(obj){
-       obj.on('pointerdown', function(e){
-         if (e.button === 2) return;
-         dragTarget = obj; obj.cursor = 'grabbing'; panning = false;
-         var p = e.global;
-         dragOff = { x: (p.x - world.x) / world.scale.x - obj.x, y: (p.y - world.y) / world.scale.y - obj.y };
-         e.stopPropagation();
-       });
+     // ---------- nodes ----------
+     function attachGrab(node){
+       node.on('pointerdown', function(e){ if (e.button === 2) return; if (carry) return; startCarry(node, e); e.stopPropagation(); });
      }
-
      function buildCard(item){
        var dir = cwd;
        var card = new PIXI.Container();
-       card.x = item.x; card.y = item.y;
-       card.eventMode = 'static'; card.cursor = 'grab';
-       card.__item = item;
-       var g = new PIXI.Graphics();
-       g.beginFill(item.dir ? 0x26301f : 0x232633); g.lineStyle(1, item.dir ? 0x4a5a3a : 0x3a3e49); g.drawRoundedRect(0, 0, 210, 66, 10); g.endFill();
-       card.addChild(g);
-       var label = new PIXI.Text((item.dir ? '\uD83D\uDCC1 ' : '') + item.name, { fill: 0xcfd2da, fontSize: 13, fontFamily: 'system-ui', wordWrap: true, wordWrapWidth: 190 });
-       label.x = 12; label.y = 11; card.addChild(label);
+       card.x = item.x; card.y = item.y; card.eventMode = 'static'; card.cursor = 'grab'; card.__item = item;
+       var g = new PIXI.Graphics(); g.beginFill(item.dir ? 0x26301f : 0x232633); g.lineStyle(1, item.dir ? 0x4a5a3a : 0x3a3e49); g.drawRoundedRect(0, 0, 210, 66, 10); g.endFill(); card.addChild(g);
+       var label = new PIXI.Text((item.dir ? '\uD83D\uDCC1 ' : '') + item.name, { fill: 0xcfd2da, fontSize: 13, fontFamily: 'system-ui', wordWrap: true, wordWrapWidth: 190 }); label.x = 12; label.y = 11; card.addChild(label);
        card.hitArea = new PIXI.Rectangle(0, 0, 210, 66);
-       attachDrag(card);
-       world.addChild(card);
-       cards.push(card);
-       applyThumb(card, dir);
+       attachGrab(card); world.addChild(card); cards.push(card); applyThumb(card, dir);
        return card;
      }
-
      function buildTrash(){
-       var t = new PIXI.Container();
-       t.__trash = true;
+       var t = new PIXI.Container(); t.__trash = true;
        var g = new PIXI.Graphics();
        g.lineStyle(2, 0x6b7079); g.beginFill(0x2a2e36); g.drawRoundedRect(12, 26, 56, 60, 6); g.endFill();
        g.beginFill(0x3a3f49); g.lineStyle(0); g.drawRoundedRect(6, 14, 68, 12, 3); g.endFill();
        g.beginFill(0x3a3f49); g.drawRoundedRect(31, 6, 18, 8, 3); g.endFill();
-       g.lineStyle(2, 0x565b64);
-       g.moveTo(30, 34); g.lineTo(30, 78); g.moveTo(40, 34); g.lineTo(40, 78); g.moveTo(50, 34); g.lineTo(50, 78);
+       g.lineStyle(2, 0x565b64); g.moveTo(30, 34); g.lineTo(30, 78); g.moveTo(40, 34); g.lineTo(40, 78); g.moveTo(50, 34); g.lineTo(50, 78);
        t.addChild(g);
-       var lbl = new PIXI.Text('Trash Can', { fill: 0x9aa0ab, fontSize: 12, fontFamily: 'system-ui' });
-       lbl.x = 40 - lbl.width / 2; lbl.y = 90; t.addChild(lbl);
-       t.eventMode = 'static'; t.cursor = 'grab';
-       t.hitArea = new PIXI.Rectangle(0, 0, 80, 106);
-       t.x = trash.x; t.y = trash.y;
-       attachDrag(t);
-       world.addChild(t);
-       return t;
+       var lbl = new PIXI.Text('Trash Can', { fill: 0x9aa0ab, fontSize: 12, fontFamily: 'system-ui' }); lbl.x = 40 - lbl.width / 2; lbl.y = 90; t.addChild(lbl);
+       t.eventMode = 'static'; t.cursor = 'grab'; t.hitArea = new PIXI.Rectangle(0, 0, 80, 106); t.x = trash.x; t.y = trash.y;
+       attachGrab(t); world.addChild(t); return t;
      }
 
      function persist(){
-       try{
-         return T.core.invoke('save_layout', { key: cwd, data: JSON.stringify({ items: items, trash: trash }) })
-           .then(function(){ try{ T.event.emit('layout-changed', { key: cwd }); }catch(_){} })
-           .catch(function(e){ showErr('save_layout: ' + e); });
-       }catch(e){ showErr('persist: ' + e); }
+       try{ return T.core.invoke('save_layout', { key: cwd, data: JSON.stringify({ items: items, trash: trash }) }).then(function(){ try{ T.event.emit('layout-changed', { key: cwd }); }catch(_){} }).catch(function(e){ showErr('save_layout: ' + e); }); }catch(e){ showErr('persist: ' + e); }
      }
-
      function clearView(){
        for (var i = 0; i < cards.length; i++){ try{ world.removeChild(cards[i]); cards[i].destroy({ children: true }); }catch(_){} }
        cards = []; items = []; mtimes = {};
        if (trashNode){ try{ world.removeChild(trashNode); trashNode.destroy({ children: true }); }catch(_){} trashNode = null; }
+       hl.visible = false;
      }
-
      async function loadView(){
        clearView();
        var posmap = {};
-       try{
-         var s = await T.core.invoke('load_layout', { key: cwd });
-         var p = JSON.parse(s || '{}');
-         var arr = Array.isArray(p) ? p : (p.items || []);
-         arr.forEach(function(it){ posmap[it.name] = { x: it.x, y: it.y }; });
-         if (!Array.isArray(p) && p.trash) trash = p.trash;
-       }catch(e){ showErr('load_layout: ' + e); }
+       try{ var s = await T.core.invoke('load_layout', { key: cwd }); var p = JSON.parse(s || '{}'); var arr = Array.isArray(p) ? p : (p.items || []); arr.forEach(function(it){ posmap[it.name] = { x: it.x, y: it.y }; }); if (!Array.isArray(p) && p.trash) trash = p.trash; }catch(e){ showErr('load_layout: ' + e); }
        var list = [];
        try{ list = JSON.parse(await T.core.invoke('list_dir', { dir: cwd }) || '[]'); }catch(e){ showErr('list_dir: ' + e); }
        var n = 0;
-       list.forEach(function(f){
-         var pos = posmap[f.name] || { x: 40 + (n % 6) * 240, y: 40 + Math.floor(n / 6) * 150 };
-         n++;
-         var it = { name: f.name, x: pos.x, y: pos.y, dir: f.dir };
-         items.push(it); buildCard(it); mtimes[f.name] = f.mtime;
-       });
+       list.forEach(function(f){ var pos = posmap[f.name] || { x: 40 + (n % 6) * 240, y: 40 + Math.floor(n / 6) * 150 }; n++; var it = { name: f.name, x: pos.x, y: pos.y, dir: f.dir }; items.push(it); buildCard(it); mtimes[f.name] = f.mtime; });
        if (cwd && cwd === homePath) trashNode = buildTrash();
        updateBar();
      }
+     function navigate(dir){ if (carry) cancelCarry(); cwd = dir || ''; loadView(); }
 
-     function navigate(dir){ cwd = dir || ''; loadView(); }
+     function cardForName(name){ for (var i = 0; i < cards.length; i++){ if (cards[i].__item && cards[i].__item.name === name) return cards[i]; } return null; }
+     function removeCardLocal(card){ var it = card.__item; var ii = items.indexOf(it); if (ii >= 0) items.splice(ii, 1); var ci = cards.indexOf(card); if (ci >= 0) cards.splice(ci, 1); world.removeChild(card); card.destroy({ children: true }); delete mtimes[it.name]; }
 
-     function removeCardLocal(card){
-       var it = card.__item;
-       var ii = items.indexOf(it); if (ii >= 0) items.splice(ii, 1);
-       var ci = cards.indexOf(card); if (ci >= 0) cards.splice(ci, 1);
-       world.removeChild(card); card.destroy({ children: true });
-       delete mtimes[it.name];
+     // ---------- carry / preview ----------
+     function startCarry(node, e){
+       var p = e.global; var wx = (p.x - world.x) / world.scale.x, wy = (p.y - world.y) / world.scale.y;
+       var snap = {}; items.forEach(function(it){ snap[it.name] = { x: it.x, y: it.y }; });
+       if (trashNode) snap.__trash = { x: trashNode.x, y: trashNode.y };
+       carry = { card: node, offset: { x: wx - node.x, y: wy - node.y }, phase: 'drag', moved: false, start: { x: p.x, y: p.y }, snap: snap };
+       updateHud();
      }
-     function moveToTrash(card){
-       var name = card.__item.name;
-       T.core.invoke('trash_item', { dir: cwd, name: name }).then(function(){ removeCardLocal(card); persist(); }).catch(function(e){ showErr('trash: ' + e); });
-     }
-     function moveIntoFolder(card, folderCard){
-       var name = card.__item.name, folder = folderCard.__item.name;
-       if (name === folder) return;
-       T.core.invoke('move_into', { dir: cwd, name: name, folder: folder }).then(function(){ removeCardLocal(card); persist(); }).catch(function(e){ showErr('move: ' + e); });
-     }
-     function folderUnder(card){
-       var b = card.getBounds();
-       for (var i = 0; i < cards.length; i++){ var c = cards[i]; if (c === card) continue; if (c.__item && c.__item.dir && rectsOverlap(b, c.getBounds())) return c; }
+     function dropTargetUnder(heldRect, held){
+       if (trashNode && !held.__trash){ var tr = rectOf(trashNode); if (intersects(heldRect, tr)) return trashNode; }
+       for (var i = cards.length - 1; i >= 0; i--){ var c = cards[i]; if (c === held) continue; if (c.__item && c.__item.dir && intersects(heldRect, rectOf(c))) return c; }
        return null;
      }
-
-     async function poll(){
-       try{
-         var list = JSON.parse(await T.core.invoke('list_dir', { dir: cwd }) || '[]');
-         var present = {}, changed = false, edited = [];
-         var have = {}; items.forEach(function(it){ have[it.name] = it; });
-         var n = items.length;
-         list.forEach(function(f){
-           present[f.name] = true;
-           if (!(f.name in have)){ var it = { name: f.name, x: 40 + (n % 6) * 240, y: 40 + Math.floor(n / 6) * 150, dir: f.dir }; n++; items.push(it); buildCard(it); changed = true; }
-           else if (mtimes[f.name] !== undefined && mtimes[f.name] !== f.mtime){ edited.push(f.name); }
-           mtimes[f.name] = f.mtime;
-         });
-         var gone = []; items.forEach(function(it){ if (!present[it.name]) gone.push(it); });
-         gone.forEach(function(it){ var c = cardForName(it.name); if (c) removeCardLocal(c); changed = true; });
-         edited.forEach(function(nm){ delete thumbCache[cwd + '\u0000' + nm]; var c = cardForName(nm); if (c) applyThumb(c, cwd); try{ T.event.emit('thumb-changed', { key: cwd, name: nm }); }catch(_){} });
-         if (changed) persist();
-       }catch(e){ showErr('poll: ' + e); }
-     }
-
-     app.stage.eventMode = 'static';
-     app.stage.hitArea = app.screen;
-     app.stage.on('pointerdown', function(e){ if (e.button === 2) return; panning = true; last = { x: e.global.x, y: e.global.y }; });
-     app.stage.on('pointermove', function(e){
-       if (dragTarget) {
-         var p = e.global;
-         dragTarget.x = (p.x - world.x) / world.scale.x - dragOff.x;
-         dragTarget.y = (p.y - world.y) / world.scale.y - dragOff.y;
-       } else if (panning && last) {
-         world.x += e.global.x - last.x; world.y += e.global.y - last.y;
-         last = { x: e.global.x, y: e.global.y };
+     function resolveCarry(desired){
+       var held = carry.card; var w = held.hitArea.width, h = held.hitArea.height;
+       var heldRect = { x: desired.x, y: desired.y, w: w, h: h };
+       // reset movable others to snapshot
+       cards.forEach(function(c){ if (c === held) return; var s = carry.snap[c.__item.name]; if (s){ c.x = s.x; c.y = s.y; } });
+       carry.dropTarget = null; hl.visible = false;
+       if (!held.__trash){
+         var dt = dropTargetUnder(heldRect, held);
+         if (dt){ carry.dropTarget = dt; held.x = desired.x; held.y = desired.y; var w2 = dt.hitArea.width, h2 = dt.hitArea.height; hl.clear(); hl.lineStyle(2, 0x6fd08c); hl.drawRoundedRect(0, 0, w2, h2, 10); hl.x = dt.x; hl.y = dt.y; hl.visible = true; world.addChild(hl); return; }
        }
-     });
-     function endAll(){
-       if (dragTarget) {
-         if (dragTarget.__trash) {
-           trash.x = dragTarget.x; trash.y = dragTarget.y; persist();
-         } else if (dragTarget.__item) {
-           var b = dragTarget.getBounds();
-           if (trashNode && rectsOverlap(b, trashNode.getBounds())) { moveToTrash(dragTarget); }
-           else { var f = folderUnder(dragTarget); if (f) { moveIntoFolder(dragTarget, f); } else { dragTarget.__item.x = dragTarget.x; dragTarget.__item.y = dragTarget.y; persist(); } }
+       var mode = held.__trash ? 'free' : modes[modeIdx];
+       if (mode === 'free'){ held.x = desired.x; held.y = desired.y; }
+       else if (mode === 'fit'){
+         var obs = []; cards.forEach(function(c){ if (c === held) return; obs.push(rectOf(c)); }); if (trashNode && !held.__trash) obs.push(rectOf(trashNode));
+         var pos = nearestFree(heldRect, obs, desired); held.x = pos.x; held.y = pos.y;
+       } else { // push
+         held.x = desired.x; held.y = desired.y;
+         var others = []; cards.forEach(function(c){ if (c === held) return; others.push(c); });
+         for (var pass = 0; pass < 6; pass++){
+           var moved = false;
+           for (var i = 0; i < others.length; i++){ var v = mtv(heldRect, rectOf(others[i])); if (v){ others[i].x += v.dx; others[i].y += v.dy; moved = true; } }
+           for (var a = 0; a < others.length; a++){ for (var b = a + 1; b < others.length; b++){ var v2 = mtv(rectOf(others[a]), rectOf(others[b])); if (v2){ others[a].x -= v2.dx / 2; others[a].y -= v2.dy / 2; others[b].x += v2.dx / 2; others[b].y += v2.dy / 2; moved = true; } } }
+           if (!moved) break;
          }
        }
-       panning = false; last = null; if (dragTarget) dragTarget.cursor = 'grab'; dragTarget = null; dragOff = null;
-       if (reloadPending) { reloadPending = false; loadView(); }
      }
-     app.stage.on('pointerup', endAll);
-     app.stage.on('pointerupoutside', endAll);
+     function refreshPreview(){ if (carry && lastCursor && (carry.moved || carry.phase === 'float')){ var wx = (lastCursor.x - world.x) / world.scale.x, wy = (lastCursor.y - world.y) / world.scale.y; resolveCarry({ x: wx - carry.offset.x, y: wy - carry.offset.y }); } }
+     function commitCarry(){
+       if (!carry) return; var held = carry.card;
+       if (carry.dropTarget){
+         var dt = carry.dropTarget; held.alpha = 1; hl.visible = false; var heldCard = held; carry = null; updateHud();
+         if (dt.__trash){ var nm = heldCard.__item.name; T.core.invoke('trash_item', { dir: cwd, name: nm }).then(function(){ removeCardLocal(heldCard); persist(); }).catch(function(e){ showErr('trash: ' + e); }); }
+         else { var n = heldCard.__item.name, folder = dt.__item.name; if (n !== folder){ T.core.invoke('move_into', { dir: cwd, name: n, folder: folder }).then(function(){ removeCardLocal(heldCard); persist(); }).catch(function(e){ showErr('move: ' + e); }); } }
+         if (reloadPending){ reloadPending = false; loadView(); }
+         return;
+       }
+       if (held.__trash){ trash.x = held.x; trash.y = held.y; }
+       else { cards.forEach(function(c){ if (c.__item){ c.__item.x = c.x; c.__item.y = c.y; } }); }
+       held.alpha = 1; hl.visible = false; carry = null; updateHud(); persist();
+       if (reloadPending){ reloadPending = false; loadView(); }
+     }
+     function cancelCarry(){
+       if (!carry) return;
+       cards.forEach(function(c){ var s = carry.snap[c.__item.name]; if (s){ c.x = s.x; c.y = s.y; } });
+       if (carry.snap.__trash && trashNode){ trashNode.x = carry.snap.__trash.x; trashNode.y = carry.snap.__trash.y; }
+       if (carry.card) carry.card.alpha = 1;
+       hl.visible = false; carry = null; updateHud();
+       if (reloadPending){ reloadPending = false; loadView(); }
+     }
+
+     // ---------- pointer wiring ----------
+     app.stage.eventMode = 'static'; app.stage.hitArea = app.screen;
+     app.stage.on('pointerdown', function(e){ if (carry || e.button === 2) return; panning = true; last = { x: e.global.x, y: e.global.y }; });
+     app.stage.on('pointermove', function(e){
+       lastCursor = { x: e.global.x, y: e.global.y };
+       if (carry){
+         if (carry.phase === 'drag'){ if (Math.hypot(e.global.x - carry.start.x, e.global.y - carry.start.y) > 5){ if (!carry.moved){ carry.moved = true; carry.card.alpha = 0.85; } } if (!carry.moved) return; }
+         var wx = (e.global.x - world.x) / world.scale.x, wy = (e.global.y - world.y) / world.scale.y;
+         resolveCarry({ x: wx - carry.offset.x, y: wy - carry.offset.y });
+       } else if (panning && last){ world.x += e.global.x - last.x; world.y += e.global.y - last.y; last = { x: e.global.x, y: e.global.y }; }
+     });
+     function onUp(){ if (carry){ if (carry.phase === 'drag'){ if (carry.moved){ carry.phase = 'float'; updateHud(); } else { cancelCarry(); } } return; } panning = false; last = null; }
+     app.stage.on('pointerup', onUp); app.stage.on('pointerupoutside', onUp);
 
      window.addEventListener('wheel', function(ev){
        ev.preventDefault();
-       if (ev.ctrlKey) {
-         var mx = ev.clientX, my = ev.clientY;
-         var wx = (mx - world.x) / world.scale.x, wy = (my - world.y) / world.scale.y;
-         var ns = Math.min(8, Math.max(0.1, world.scale.x * Math.exp(-ev.deltaY * 0.01)));
-         world.scale.set(ns);
-         world.x = mx - wx * ns; world.y = my - wy * ns;
-       } else { world.x -= ev.deltaX; world.y -= ev.deltaY; }
+       if (ev.ctrlKey){ var mx = ev.clientX, my = ev.clientY; var wx = (mx - world.x) / world.scale.x, wy = (my - world.y) / world.scale.y; var ns = Math.min(8, Math.max(0.1, world.scale.x * Math.exp(-ev.deltaY * 0.01))); world.scale.set(ns); world.x = mx - wx * ns; world.y = my - wy * ns; }
+       else { world.x -= ev.deltaX; world.y -= ev.deltaY; }
+       if (carry) refreshPreview();
      }, { passive: false });
+
+     // commit on left-click while floating (capture so Pixi never sees it)
+     window.addEventListener('pointerdown', function(ev){
+       if (carry && carry.phase === 'float' && ev.button === 0){ commitCarry(); ev.stopPropagation(); ev.preventDefault(); return; }
+       if (menu.style.display === 'block' && !menu.contains(ev.target)) hideMenu();
+       if (placesMenu.style.display === 'block' && ev.target !== placesBtn && !placesMenu.contains(ev.target)) placesMenu.style.display = 'none';
+     }, true);
+     // mode hotkeys + Escape-cancel during carry (capture so quit doesn't fire)
+     window.addEventListener('keydown', function(e){
+       if (!carry) return;
+       if (e.key === 'Escape'){ cancelCarry(); e.stopPropagation(); return; }
+       if (e.key === 't' || e.key === 'T'){ modeIdx = (modeIdx + 1) % modes.length; refreshPreview(); updateHud(); e.stopPropagation(); }
+       else if (e.key === '1' || e.key === '2' || e.key === '3'){ modeIdx = (+e.key) - 1; refreshPreview(); updateHud(); e.stopPropagation(); }
+     }, true);
 
      function targetAt(cx, cy){
        for (var i = cards.length - 1; i >= 0; i--){ var b = cards[i].getBounds(); if (cx >= b.x && cx <= b.x + b.width && cy >= b.y && cy <= b.y + b.height) return cards[i]; }
        if (trashNode){ var tb = trashNode.getBounds(); if (cx >= tb.x && cx <= tb.x + tb.width && cy >= tb.y && cy <= tb.y + tb.height) return trashNode; }
        return null;
      }
-
-     var menu = document.getElementById('menu');
-     var menuTarget = null;
+     var menu = document.getElementById('menu'), menuTarget = null;
      function hideMenu(){ menu.style.display = 'none'; menuTarget = null; }
      function mkBtn(label, cls, fn){ var b = document.createElement('button'); b.textContent = label; if (cls) b.className = cls; b.addEventListener('click', function(ev){ ev.stopPropagation(); fn(); }); return b; }
      function mkSep(){ var d = document.createElement('div'); d.className = 'sep'; return d; }
@@ -309,8 +287,7 @@
        if (target.__trash){
          menu.appendChild(mkBtn('Open Trash Can folder', '', function(){ T.core.invoke('open_trash'); hideMenu(); }));
          menu.appendChild(mkSep());
-         var armed = false;
-         var clr = document.createElement('button'); clr.textContent = 'Clear Trash Can'; clr.className = 'danger';
+         var armed = false; var clr = document.createElement('button'); clr.textContent = 'Clear Trash Can'; clr.className = 'danger';
          clr.addEventListener('click', function(ev){ ev.stopPropagation(); if (!armed){ armed = true; clr.textContent = 'Confirm: delete all?'; return; } T.core.invoke('clear_trash'); hideMenu(); });
          menu.appendChild(clr);
        } else if (target.__item.dir){
@@ -318,88 +295,50 @@
          menu.appendChild(mkBtn('Open', '', function(){ navigate(joinPath(cwd, fname)); hideMenu(); }));
          menu.appendChild(mkBtn('Open in Explorer', '', function(){ T.core.invoke('open_folder', { dir: joinPath(cwd, fname) }); hideMenu(); }));
          menu.appendChild(mkSep());
-         menu.appendChild(mkBtn('Delete', 'danger', function(){ moveToTrash(target); hideMenu(); }));
+         menu.appendChild(mkBtn('Delete', 'danger', function(){ T.core.invoke('trash_item', { dir: cwd, name: fname }).then(function(){ removeCardLocal(target); persist(); }); hideMenu(); }));
        } else {
          var name = target.__item.name;
          menu.appendChild(mkBtn('Open', '', function(){ T.core.invoke('open_item', { dir: cwd, name: name }); hideMenu(); }));
          menu.appendChild(mkBtn('Open with\u2026', '', function(){ T.core.invoke('shell_verb', { dir: cwd, name: name, verb: 'openas' }); hideMenu(); }));
          menu.appendChild(mkBtn('Open folder', '', function(){ T.core.invoke('open_folder', { dir: cwd }); hideMenu(); }));
          menu.appendChild(mkSep());
-         menu.appendChild(mkBtn('Delete', 'danger', function(){ moveToTrash(target); hideMenu(); }));
+         menu.appendChild(mkBtn('Delete', 'danger', function(){ T.core.invoke('trash_item', { dir: cwd, name: name }).then(function(){ removeCardLocal(target); persist(); }); hideMenu(); }));
        }
        menu.style.left = x + 'px'; menu.style.top = y + 'px'; menu.style.display = 'block';
      }
-     app.view.addEventListener('contextmenu', function(ev){ ev.preventDefault(); var c = targetAt(ev.clientX, ev.clientY); if (c) openMenu(ev.clientX, ev.clientY, c); else hideMenu(); });
-     app.view.addEventListener('dblclick', function(ev){ var c = targetAt(ev.clientX, ev.clientY); if (!c) return; if (c.__trash) { T.core.invoke('open_trash'); return; } if (c.__item.dir) navigate(joinPath(cwd, c.__item.name)); else T.core.invoke('open_item', { dir: cwd, name: c.__item.name }); });
-     window.addEventListener('pointerdown', function(ev){ if (menu.style.display === 'block' && !menu.contains(ev.target)) hideMenu(); if (placesMenu.style.display === 'block' && ev.target !== placesBtn && !placesMenu.contains(ev.target)) placesMenu.style.display = 'none'; }, true);
-     window.addEventListener('wheel', hideMenu, true);
+     app.view.addEventListener('contextmenu', function(ev){ ev.preventDefault(); if (carry){ cancelCarry(); return; } var c = targetAt(ev.clientX, ev.clientY); if (c) openMenu(ev.clientX, ev.clientY, c); else hideMenu(); });
+     app.view.addEventListener('dblclick', function(ev){ if (carry) return; var c = targetAt(ev.clientX, ev.clientY); if (!c) return; if (c.__trash){ T.core.invoke('open_trash'); return; } if (c.__item.dir) navigate(joinPath(cwd, c.__item.name)); else T.core.invoke('open_item', { dir: cwd, name: c.__item.name }); });
+     window.addEventListener('wheel', function(){ hideMenu(); }, true);
 
-     // ---- address bar ----
-     var upBtn = document.getElementById('up');
-     var crumbs = document.getElementById('crumbs');
-     var nfBtn = document.getElementById('nf');
-     var nfInput = document.getElementById('nfInput');
-     var placesBtn = document.getElementById('placesBtn');
-     var placesMenu = document.getElementById('placesMenu');
-     var gotoBtn = document.getElementById('goto');
-     var pathInput = document.getElementById('pathInput');
-
+     // ---------- address bar ----------
+     function joinPath(base, name){ if (!base) return name; return base.replace(/[\\\/]+$/, '') + '\\' + name; }
+     function parentOf(p){ if (!p) return ''; var s = p.replace(/[\\\/]+$/, ''); if (/^[A-Za-z]:$/.test(s)) return ''; var i = Math.max(s.lastIndexOf('\\'), s.lastIndexOf('/')); if (i < 0) return ''; var up = s.slice(0, i); if (/^[A-Za-z]:$/.test(up)) return up + '\\'; return up; }
+     var upBtn = document.getElementById('up'), crumbs = document.getElementById('crumbs'), nfBtn = document.getElementById('nf'), nfInput = document.getElementById('nfInput');
+     var placesBtn = document.getElementById('placesBtn'), placesMenu = document.getElementById('placesMenu'), gotoBtn = document.getElementById('goto'), pathInput = document.getElementById('pathInput'), hud = document.getElementById('hud');
      function updateBar(){
-       upBtn.style.visibility = cwd ? 'visible' : 'hidden';
-       crumbs.innerHTML = '';
-       function crumb(label, target, isLast){
-         var s = document.createElement('span'); s.textContent = label; s.className = 'crumb' + (isLast ? ' last' : '');
-         if (!isLast) s.addEventListener('click', function(){ navigate(target); });
-         crumbs.appendChild(s);
-       }
-       var norm = cwd.replace(/\//g, '\\').replace(/\\+$/, '');
-       var parts = norm ? norm.split('\\').filter(Boolean) : [];
-       crumb('This PC', '', parts.length === 0);
-       var acc = '';
-       parts.forEach(function(seg, i){
-         var sep = document.createElement('span'); sep.textContent = '  \u203a  '; sep.className = 'sep2'; crumbs.appendChild(sep);
-         if (i === 0){ acc = seg; crumb(seg, seg + '\\', i === parts.length - 1); }
-         else { acc = acc + '\\' + seg; crumb(seg, acc, i === parts.length - 1); }
-       });
+       upBtn.style.visibility = cwd ? 'visible' : 'hidden'; crumbs.innerHTML = '';
+       function crumb(label, target, isLast){ var s = document.createElement('span'); s.textContent = label; s.className = 'crumb' + (isLast ? ' last' : ''); if (!isLast) s.addEventListener('click', function(){ navigate(target); }); crumbs.appendChild(s); }
+       var norm = cwd.replace(/\//g, '\\').replace(/\\+$/, ''); var parts = norm ? norm.split('\\').filter(Boolean) : [];
+       crumb('This PC', '', parts.length === 0); var acc = '';
+       parts.forEach(function(seg, i){ var sep = document.createElement('span'); sep.textContent = '  \u203a  '; sep.className = 'sep2'; crumbs.appendChild(sep); if (i === 0){ acc = seg; crumb(seg, seg + '\\', i === parts.length - 1); } else { acc = acc + '\\' + seg; crumb(seg, acc, i === parts.length - 1); } });
      }
+     function updateHud(){ if (carry){ hud.textContent = 'Placing [' + modeLabel() + ']  \u00b7  T cycle (1 Free / 2 Fit / 3 Push)  \u00b7  left-click confirm  \u00b7  right-click cancel'; } else { hud.textContent = 'v0.0.13  \u00b7  drag an item & release, then move and left-click to place  \u00b7  current mode: ' + modeLabel() + ' (press T while placing)'; } }
      upBtn.addEventListener('click', function(){ navigate(parentOf(cwd)); });
-     placesBtn.addEventListener('click', function(ev){
-       ev.stopPropagation();
-       if (placesMenu.style.display === 'block'){ placesMenu.style.display = 'none'; return; }
-       placesMenu.innerHTML = '';
-       placesList.forEach(function(pl){ placesMenu.appendChild(mkBtn(pl.label, '', function(){ navigate(pl.path); placesMenu.style.display = 'none'; })); });
-       var r = placesBtn.getBoundingClientRect();
-       placesMenu.style.left = r.left + 'px'; placesMenu.style.top = (r.bottom + 4) + 'px'; placesMenu.style.display = 'block';
-     });
-     gotoBtn.addEventListener('click', function(){
-       if (pathInput.style.display === 'none'){ pathInput.style.display = 'inline-block'; pathInput.value = cwd; pathInput.focus(); pathInput.select(); }
-       else { navigate(pathInput.value.trim()); pathInput.style.display = 'none'; }
-     });
+     placesBtn.addEventListener('click', function(ev){ ev.stopPropagation(); if (placesMenu.style.display === 'block'){ placesMenu.style.display = 'none'; return; } placesMenu.innerHTML = ''; placesList.forEach(function(pl){ placesMenu.appendChild(mkBtn(pl.label, '', function(){ navigate(pl.path); placesMenu.style.display = 'none'; })); }); var r = placesBtn.getBoundingClientRect(); placesMenu.style.left = r.left + 'px'; placesMenu.style.top = (r.bottom + 4) + 'px'; placesMenu.style.display = 'block'; });
+     gotoBtn.addEventListener('click', function(){ if (pathInput.style.display === 'none'){ pathInput.style.display = 'inline-block'; pathInput.value = cwd; pathInput.focus(); pathInput.select(); } else { navigate(pathInput.value.trim()); pathInput.style.display = 'none'; } });
      pathInput.addEventListener('keydown', function(e){ if (e.key === 'Enter'){ navigate(pathInput.value.trim()); pathInput.style.display = 'none'; } else if (e.key === 'Escape'){ pathInput.style.display = 'none'; } e.stopPropagation(); });
      function createFolder(nm){ T.core.invoke('make_folder', { dir: cwd, name: (nm || 'New Folder') }).then(function(){ nfInput.style.display = 'none'; loadView(); }).catch(function(e){ showErr('make_folder: ' + e); }); }
      nfBtn.addEventListener('click', function(){ if (nfInput.style.display === 'none'){ nfInput.style.display = 'inline-block'; nfInput.value = 'New Folder'; nfInput.focus(); nfInput.select(); } else { createFolder(nfInput.value); } });
      nfInput.addEventListener('keydown', function(e){ if (e.key === 'Enter'){ createFolder(nfInput.value); } else if (e.key === 'Escape'){ nfInput.style.display = 'none'; } e.stopPropagation(); });
 
+     // ---------- OS import (unchanged: immediate add) ----------
      function handleDrop(payload){
        try{
-         var paths = (payload && payload.paths) || [];
-         var pos = (payload && payload.position) || { x: 0, y: 0 };
-         var dpr = window.devicePixelRatio || 1;
-         var cssX = pos.x / dpr, cssY = pos.y / dpr;
-         var baseWX = (cssX - world.x) / world.scale.x;
-         var baseWY = (cssY - world.y) / world.scale.y;
+         var paths = (payload && payload.paths) || []; var pos = (payload && payload.position) || { x: 0, y: 0 };
+         var dpr = window.devicePixelRatio || 1; var cssX = pos.x / dpr, cssY = pos.y / dpr;
+         var baseWX = (cssX - world.x) / world.scale.x, baseWY = (cssY - world.y) / world.scale.y;
          if (!cwd){ showErr('Pick a folder before dropping (you are at This PC).'); return; }
-         (async function(){
-           for (var i = 0; i < paths.length; i++){
-             try{
-               var name = await T.core.invoke('add_dropped_file', { dir: cwd, path: paths[i] });
-               if (cardForName(name)) continue;
-               var it = { name: name, x: baseWX + i * 26, y: baseWY + i * 26, dir: false };
-               items.push(it); buildCard(it);
-             }catch(e){ showErr('add_dropped_file: ' + e); }
-           }
-           persist();
-         })();
+         (async function(){ for (var i = 0; i < paths.length; i++){ try{ var name = await T.core.invoke('add_dropped_file', { dir: cwd, path: paths[i] }); if (cardForName(name)) continue; var it = { name: name, x: baseWX + i * 26, y: baseWY + i * 26, dir: false }; items.push(it); buildCard(it); }catch(e){ showErr('add_dropped_file: ' + e); } } persist(); })();
        }catch(e){ showErr('drop: ' + e); }
      }
      function wireDrop(handler){
@@ -408,20 +347,30 @@
        try{ T.event.listen('tauri://drag-drop', function(e){ handler(e.payload); }); }catch(err){ showErr('drop wiring failed: ' + err); }
      }
 
-     try{ T.event.listen('layout-changed', function(e){ var k = e.payload && e.payload.key; if (k !== cwd) return; if (dragTarget || panning) { reloadPending = true; return; } loadView(); }); }catch(e){ showErr('sync listen: ' + e); }
+     async function poll(){
+       if (carry) return;
+       try{
+         var list = JSON.parse(await T.core.invoke('list_dir', { dir: cwd }) || '[]');
+         var present = {}, changed = false, edited = []; var have = {}; items.forEach(function(it){ have[it.name] = it; }); var n = items.length;
+         list.forEach(function(f){ present[f.name] = true; if (!(f.name in have)){ var it = { name: f.name, x: 40 + (n % 6) * 240, y: 40 + Math.floor(n / 6) * 150, dir: f.dir }; n++; items.push(it); buildCard(it); changed = true; } else if (mtimes[f.name] !== undefined && mtimes[f.name] !== f.mtime){ edited.push(f.name); } mtimes[f.name] = f.mtime; });
+         var gone = []; items.forEach(function(it){ if (!present[it.name]) gone.push(it); });
+         gone.forEach(function(it){ var c = cardForName(it.name); if (c) removeCardLocal(c); changed = true; });
+         edited.forEach(function(nm){ delete thumbCache[cwd + '\u0000' + nm]; var c = cardForName(nm); if (c) applyThumb(c, cwd); try{ T.event.emit('thumb-changed', { key: cwd, name: nm }); }catch(_){} });
+         if (changed) persist();
+       }catch(e){ showErr('poll: ' + e); }
+     }
+
+     try{ T.event.listen('layout-changed', function(e){ var k = e.payload && e.payload.key; if (k !== cwd) return; if (carry || panning){ reloadPending = true; return; } loadView(); }); }catch(e){ showErr('sync listen: ' + e); }
      try{ T.event.listen('thumb-changed', function(e){ var p = e.payload || {}; if (p.key !== cwd || !p.name) return; delete thumbCache[cwd + '\u0000' + p.name]; var c = cardForName(p.name); if (c) applyThumb(c, cwd); }); }catch(_){}
 
      var diag = document.getElementById('diag');
-     app.ticker.add(function(){ diag.textContent = 'zoom ' + Math.round(world.scale.x * 100) + '%  items ' + items.length; });
+     app.ticker.add(function(){ diag.textContent = 'zoom ' + Math.round(world.scale.x * 100) + '%  items ' + items.length + (carry ? '  placing' : ''); });
 
      (async function(){
        try{ placesList = JSON.parse(await T.core.invoke('places') || '[]'); }catch(e){ showErr('places: ' + e); }
-       var hp = placesList.filter(function(p){ return p.label === 'Desktop Canvas'; })[0];
-       homePath = hp ? hp.path : '';
-       cwd = homePath;
-       await loadView();
-       poll();
-       setInterval(poll, 3000);
+       var hp = placesList.filter(function(p){ return p.label === 'Desktop Canvas'; })[0]; homePath = hp ? hp.path : ''; cwd = homePath;
+       updateHud();
+       await loadView(); poll(); setInterval(poll, 3000);
      })();
      wireDrop(handleDrop);
    }catch(err){ showErr('init error: ' + (err && err.message ? err.message : err)); }
