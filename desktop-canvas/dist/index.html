@@ -1,11 +1,21 @@
 <!doctype html>
 <html><head><meta charset="utf-8"><title>Desktop Canvas</title>
 <style>
- html,body{margin:0;height:100%;background:#15161a;overflow:hidden;}
+ html,body{margin:0;height:100%;background:#15161a;overflow:hidden;font-family:system-ui,"Segoe UI",sans-serif;}
  #err{position:fixed;top:0;left:0;right:0;max-height:40%;overflow:auto;padding:10px 14px;background:#3a1d1d;color:#ffd7d7;font:12px/1.45 ui-monospace,Consolas,monospace;white-space:pre-wrap;display:none;z-index:20;}
- #hud{position:fixed;left:14px;bottom:12px;color:#6b6f7a;font:12px system-ui,"Segoe UI",sans-serif;z-index:5;pointer-events:none;letter-spacing:.03em;}
+ #bar{position:fixed;top:0;left:0;right:0;height:38px;display:flex;align-items:center;gap:8px;padding:0 12px;background:rgba(26,28,33,.92);border-bottom:1px solid #2a2d36;z-index:8;font-size:13px;color:#c4c8d2;}
+ #bar button{background:#252934;border:1px solid #353a45;color:#d4d7df;border-radius:6px;padding:5px 10px;cursor:pointer;font:inherit;}
+ #bar button:hover{background:#2f3440;}
+ #bar input{background:#1c1f27;border:1px solid #3a4150;color:#e6e8ee;border-radius:6px;padding:5px 8px;font:inherit;width:150px;}
+ .spacer{flex:1;}
+ .crumb{cursor:pointer;color:#8d93a0;padding:2px 4px;border-radius:4px;}
+ .crumb:hover{color:#cfd3db;background:#252934;}
+ .crumb.last{color:#e6e8ee;cursor:default;font-weight:600;}
+ .crumb.last:hover{background:none;}
+ .sep2{color:#52566040;color:#565b64;}
+ #hud{position:fixed;left:14px;bottom:12px;color:#6b6f7a;font-size:12px;z-index:5;pointer-events:none;letter-spacing:.03em;}
  #diag{position:fixed;right:12px;bottom:12px;color:#52555e;font:11px ui-monospace,Consolas,monospace;z-index:5;pointer-events:none;}
- #menu{position:fixed;display:none;z-index:30;min-width:172px;background:#1f2229;border:1px solid #353a45;border-radius:8px;padding:5px;box-shadow:0 8px 24px rgba(0,0,0,.5);font:13px system-ui,"Segoe UI",sans-serif;}
+ #menu{position:fixed;display:none;z-index:30;min-width:172px;background:#1f2229;border:1px solid #353a45;border-radius:8px;padding:5px;box-shadow:0 8px 24px rgba(0,0,0,.5);font-size:13px;}
  #menu button{display:block;width:100%;text-align:left;background:none;border:0;color:#d4d7df;padding:8px 12px;border-radius:5px;cursor:pointer;font:inherit;}
  #menu button:hover{background:#2c313c;}
  #menu .sep{height:1px;background:#353a45;margin:5px 6px;}
@@ -15,7 +25,14 @@
 </style></head>
 <body>
  <div id="err"></div>
- <div id="hud">Desktop Canvas v0.0.10 &middot; drop a file &middot; drag onto Trash Can to delete &middot; drag/scroll to pan &middot; Ctrl+scroll zoom &middot; double-click open &middot; right-click menu &middot; Esc quit</div>
+ <div id="bar">
+   <button id="up" title="Up one folder">&#8593;</button>
+   <span id="crumbs"></span>
+   <span class="spacer"></span>
+   <input id="nfInput" placeholder="Folder name" style="display:none">
+   <button id="nf">+ Folder</button>
+ </div>
+ <div id="hud">v0.0.11 &middot; double-click a folder to enter &middot; drag onto a folder/Trash to move &middot; drag/scroll pan &middot; Ctrl+scroll zoom</div>
  <div id="diag"></div>
  <div id="menu"></div>
  <script src="pixi.min.js"></script>
@@ -29,13 +46,8 @@
      if(typeof PIXI==='undefined'){ showErr('PIXI failed to load'); return; }
      var T = window.__TAURI__;
 
-     var myLabel = 'main';
-     try{ if (T.webviewWindow && T.webviewWindow.getCurrentWebviewWindow) myLabel = T.webviewWindow.getCurrentWebviewWindow().label || 'main'; }catch(_){}
-     var isMain = (myLabel === 'main');
-
      var app = new PIXI.Application({ resizeTo: window, background: 0x15161a, antialias: true, autoDensity: true, resolution: window.devicePixelRatio || 1 });
      document.body.appendChild(app.view);
-
      var world = new PIXI.Container();
      app.stage.addChild(world);
 
@@ -47,6 +59,7 @@
      world.addChild(grid);
      world.x = app.screen.width / 2; world.y = app.screen.height / 2;
 
+     var cwd = '';
      var items = [];
      var cards = [];
      var thumbCache = {};
@@ -55,6 +68,11 @@
      var trashNode = null;
      var panning = false, last = null, dragTarget = null, dragOff = null;
      var reloadPending = false;
+
+     function parentOf(p){ var i = p.lastIndexOf('/'); return i < 0 ? '' : p.slice(0, i); }
+     function childPath(name){ return cwd ? cwd + '/' + name : name; }
+     function rectsOverlap(a,b){ return a.x < b.x+b.width && a.x+a.width > b.x && a.y < b.y+b.height && a.y+a.height > b.y; }
+     function cardForName(name){ for (var i=0;i<cards.length;i++){ if (cards[i].__item && cards[i].__item.name===name) return cards[i]; } return null; }
 
      function loadTexture(url){
        if (PIXI.Assets && PIXI.Assets.load) return PIXI.Assets.load(url);
@@ -65,24 +83,22 @@
          t.baseTexture.once('error', function(){ rej('texture error'); });
        });
      }
-     function getThumb(name){
-       if (name in thumbCache) return Promise.resolve(thumbCache[name]);
-       return T.core.invoke('thumb_data', { name: name }).then(function(url){ thumbCache[name] = url; return url; });
+     function getThumb(name, rel){
+       var k = rel + '\u0000' + name;
+       if (k in thumbCache) return Promise.resolve(thumbCache[k]);
+       return T.core.invoke('thumb_data', { rel: rel, name: name }).then(function(url){ thumbCache[k] = url; return url; });
      }
-     function cardForName(name){ for (var i=0;i<cards.length;i++){ if (cards[i].__item && cards[i].__item.name===name) return cards[i]; } return null; }
-     function rectsOverlap(a,b){ return a.x < b.x+b.width && a.x+a.width > b.x && a.y < b.y+b.height && a.y+a.height > b.y; }
-
-     function applyThumb(card){
+     function applyThumb(card, rel){
        var name = card.__item.name;
-       getThumb(name).then(function(url){
-         if (!url) return;
+       getThumb(name, rel).then(function(url){
+         if (!url || !card.__item || card.destroyed) return;
          loadTexture(url).then(function(tex){
            if (!card.__item || card.destroyed) return;
            var maxW = 240, maxH = 180;
            var s = Math.min(maxW / tex.width, maxH / tex.height, 1);
            var w = Math.max(1, Math.round(tex.width * s)), h = Math.max(1, Math.round(tex.height * s));
            var sp = new PIXI.Sprite(tex); sp.width = w; sp.height = h; sp.x = 4; sp.y = 22;
-           var frame = new PIXI.Graphics(); frame.beginFill(0x1c1f27); frame.lineStyle(1, 0x3a3e49); frame.drawRoundedRect(0, 0, w + 8, h + 30, 8); frame.endFill();
+           var frame = new PIXI.Graphics(); frame.beginFill(card.__item.dir ? 0x222a22 : 0x1c1f27); frame.lineStyle(1, 0x3a3e49); frame.drawRoundedRect(0, 0, w + 8, h + 30, 8); frame.endFill();
            var cap = new PIXI.Text(name, { fill: 0xb6bac4, fontSize: 11, fontFamily: 'system-ui', wordWrap: true, wordWrapWidth: w });
            cap.x = 5; cap.y = 5;
            var old = card.removeChildren(); old.forEach(function(o){ try{ o.destroy(); }catch(_){} });
@@ -103,20 +119,21 @@
      }
 
      function buildCard(item){
+       var rel = cwd;
        var card = new PIXI.Container();
        card.x = item.x; card.y = item.y;
        card.eventMode = 'static'; card.cursor = 'grab';
        card.__item = item;
        var g = new PIXI.Graphics();
-       g.beginFill(0x232633); g.lineStyle(1, 0x3a3e49); g.drawRoundedRect(0, 0, 210, 66, 10); g.endFill();
+       g.beginFill(item.dir ? 0x26301f : 0x232633); g.lineStyle(1, item.dir ? 0x4a5a3a : 0x3a3e49); g.drawRoundedRect(0, 0, 210, 66, 10); g.endFill();
        card.addChild(g);
-       var label = new PIXI.Text(item.name, { fill: 0xcfd2da, fontSize: 13, fontFamily: 'system-ui', wordWrap: true, wordWrapWidth: 190 });
+       var label = new PIXI.Text((item.dir ? '\uD83D\uDCC1 ' : '') + item.name, { fill: 0xcfd2da, fontSize: 13, fontFamily: 'system-ui', wordWrap: true, wordWrapWidth: 190 });
        label.x = 12; label.y = 11; card.addChild(label);
        card.hitArea = new PIXI.Rectangle(0, 0, 210, 66);
        attachDrag(card);
        world.addChild(card);
        cards.push(card);
-       applyThumb(card);
+       applyThumb(card, rel);
        return card;
      }
 
@@ -142,70 +159,80 @@
 
      function persist(){
        try{
-         return T.core.invoke('save_layout', { data: JSON.stringify({ items: items, trash: trash }) })
-           .then(function(){ try{ T.event.emit('layout-changed', {}); }catch(_){} })
+         return T.core.invoke('save_layout', { key: cwd, data: JSON.stringify({ items: items, trash: trash }) })
+           .then(function(){ try{ T.event.emit('layout-changed', { key: cwd }); }catch(_){} })
            .catch(function(e){ showErr('save_layout: ' + e); });
        }catch(e){ showErr('persist: ' + e); }
      }
 
-     async function loadLayout(){
-       try{
-         var s = await T.core.invoke('load_layout');
-         var parsed = JSON.parse(s || '{}');
-         var arr, tr;
-         if (Array.isArray(parsed)) { arr = parsed; tr = null; } else { arr = parsed.items || []; tr = parsed.trash || null; }
-         if (tr) trash = tr;
-         arr.forEach(function(it){ items.push(it); buildCard(it); });
-         if (trashNode) { trashNode.x = trash.x; trashNode.y = trash.y; }
-       }catch(e){ showErr('load_layout: ' + e); }
-     }
-
-     async function reconcile(){
+     function clearView(){
        for (var i = 0; i < cards.length; i++){ try{ world.removeChild(cards[i]); cards[i].destroy({ children: true }); }catch(_){} }
-       cards = []; items = [];
-       await loadLayout();
+       cards = []; items = []; mtimes = {};
+       if (trashNode){ try{ world.removeChild(trashNode); trashNode.destroy({ children: true }); }catch(_){} trashNode = null; }
      }
 
+     async function loadView(){
+       clearView();
+       var posmap = {};
+       try{
+         var s = await T.core.invoke('load_layout', { key: cwd });
+         var p = JSON.parse(s || '{}');
+         var arr = Array.isArray(p) ? p : (p.items || []);
+         arr.forEach(function(it){ posmap[it.name] = { x: it.x, y: it.y }; });
+         if (!Array.isArray(p) && p.trash) trash = p.trash;
+       }catch(e){ showErr('load_layout: ' + e); }
+       var list = [];
+       try{ list = JSON.parse(await T.core.invoke('list_dir', { rel: cwd }) || '[]'); }catch(e){ showErr('list_dir: ' + e); }
+       var n = 0;
+       list.forEach(function(f){
+         var pos = posmap[f.name] || { x: 40 + (n % 6) * 240, y: 40 + Math.floor(n / 6) * 150 };
+         n++;
+         var it = { name: f.name, x: pos.x, y: pos.y, dir: f.dir };
+         items.push(it); buildCard(it); mtimes[f.name] = f.mtime;
+       });
+       if (cwd === '') trashNode = buildTrash();
+       updateBar();
+     }
+
+     function navigate(rel){ cwd = rel || ''; loadView(); }
+
+     function removeCardLocal(card){
+       var it = card.__item;
+       var ii = items.indexOf(it); if (ii >= 0) items.splice(ii, 1);
+       var ci = cards.indexOf(card); if (ci >= 0) cards.splice(ci, 1);
+       world.removeChild(card); card.destroy({ children: true });
+       delete mtimes[it.name];
+     }
      function moveToTrash(card){
        var name = card.__item.name;
-       try{
-         T.core.invoke('trash_item', { name: name }).then(function(){
-           var idx = items.indexOf(card.__item); if (idx >= 0) items.splice(idx, 1);
-           var ci = cards.indexOf(card); if (ci >= 0) cards.splice(ci, 1);
-           world.removeChild(card); card.destroy({ children: true });
-           delete mtimes[name]; delete thumbCache[name];
-           persist();
-         }).catch(function(e){ showErr('trash: ' + e); });
-       }catch(e){ showErr('trash: ' + e); }
+       T.core.invoke('trash_item', { rel: cwd, name: name }).then(function(){ removeCardLocal(card); persist(); }).catch(function(e){ showErr('trash: ' + e); });
+     }
+     function moveIntoFolder(card, folderCard){
+       var name = card.__item.name, folder = folderCard.__item.name;
+       if (name === folder) return;
+       T.core.invoke('move_into', { rel: cwd, name: name, folder: folder }).then(function(){ removeCardLocal(card); persist(); }).catch(function(e){ showErr('move: ' + e); });
+     }
+     function folderUnder(card){
+       var b = card.getBounds();
+       for (var i = 0; i < cards.length; i++){ var c = cards[i]; if (c === card) continue; if (c.__item && c.__item.dir && rectsOverlap(b, c.getBounds())) return c; }
+       return null;
      }
 
-     async function pollFolder(){
-       if (!isMain) return;
+     async function poll(){
        try{
-         var s = await T.core.invoke('list_canvas');
-         var list = JSON.parse(s || '[]');
+         var list = JSON.parse(await T.core.invoke('list_dir', { rel: cwd }) || '[]');
          var present = {}, changed = false, edited = [];
          var have = {}; items.forEach(function(it){ have[it.name] = it; });
-         for (var i = 0; i < list.length; i++){
-           var f = list[i]; present[f.name] = true;
-           if (!(f.name in have)){
-             var n = items.length;
-             var it = { name: f.name, x: 40 + (n % 6) * 240, y: 40 + Math.floor(n / 6) * 150 };
-             items.push(it); buildCard(it); changed = true;
-           } else if (mtimes[f.name] !== undefined && mtimes[f.name] !== f.mtime){
-             edited.push(f.name);
-           }
+         var n = items.length;
+         list.forEach(function(f){
+           present[f.name] = true;
+           if (!(f.name in have)){ var it = { name: f.name, x: 40 + (n % 6) * 240, y: 40 + Math.floor(n / 6) * 150, dir: f.dir }; n++; items.push(it); buildCard(it); changed = true; }
+           else if (mtimes[f.name] !== undefined && mtimes[f.name] !== f.mtime){ edited.push(f.name); }
            mtimes[f.name] = f.mtime;
-         }
-         var gone = [];
-         items.forEach(function(it){ if (!present[it.name]) gone.push(it); });
-         gone.forEach(function(it){
-           var c = cardForName(it.name);
-           if (c){ var ci = cards.indexOf(c); if (ci >= 0) cards.splice(ci, 1); world.removeChild(c); c.destroy({ children: true }); }
-           var ii = items.indexOf(it); if (ii >= 0) items.splice(ii, 1);
-           delete mtimes[it.name]; changed = true;
          });
-         edited.forEach(function(nm){ delete thumbCache[nm]; var c = cardForName(nm); if (c) applyThumb(c); try{ T.event.emit('thumb-changed', { name: nm }); }catch(_){} });
+         var gone = []; items.forEach(function(it){ if (!present[it.name]) gone.push(it); });
+         gone.forEach(function(it){ var c = cardForName(it.name); if (c) removeCardLocal(c); changed = true; });
+         edited.forEach(function(nm){ delete thumbCache[cwd + '\u0000' + nm]; var c = cardForName(nm); if (c) applyThumb(c, cwd); try{ T.event.emit('thumb-changed', { key: cwd, name: nm }); }catch(_){} });
          if (changed) persist();
        }catch(e){ showErr('poll: ' + e); }
      }
@@ -228,15 +255,13 @@
          if (dragTarget.__trash) {
            trash.x = dragTarget.x; trash.y = dragTarget.y; persist();
          } else if (dragTarget.__item) {
-           if (trashNode && rectsOverlap(dragTarget.getBounds(), trashNode.getBounds())) {
-             moveToTrash(dragTarget);
-           } else {
-             dragTarget.__item.x = dragTarget.x; dragTarget.__item.y = dragTarget.y; persist();
-           }
+           var b = dragTarget.getBounds();
+           if (trashNode && rectsOverlap(b, trashNode.getBounds())) { moveToTrash(dragTarget); }
+           else { var f = folderUnder(dragTarget); if (f) { moveIntoFolder(dragTarget, f); } else { dragTarget.__item.x = dragTarget.x; dragTarget.__item.y = dragTarget.y; persist(); } }
          }
        }
        panning = false; last = null; if (dragTarget) dragTarget.cursor = 'grab'; dragTarget = null; dragOff = null;
-       if (reloadPending) { reloadPending = false; reconcile(); }
+       if (reloadPending) { reloadPending = false; loadView(); }
      }
      app.stage.on('pointerup', endAll);
      app.stage.on('pointerupoutside', endAll);
@@ -249,16 +274,11 @@
          var ns = Math.min(8, Math.max(0.1, world.scale.x * Math.exp(-ev.deltaY * 0.01)));
          world.scale.set(ns);
          world.x = mx - wx * ns; world.y = my - wy * ns;
-       } else {
-         world.x -= ev.deltaX; world.y -= ev.deltaY;
-       }
+       } else { world.x -= ev.deltaX; world.y -= ev.deltaY; }
      }, { passive: false });
 
      function targetAt(cx, cy){
-       for (var i = cards.length - 1; i >= 0; i--){
-         var b = cards[i].getBounds();
-         if (cx >= b.x && cx <= b.x + b.width && cy >= b.y && cy <= b.y + b.height) return cards[i];
-       }
+       for (var i = cards.length - 1; i >= 0; i--){ var b = cards[i].getBounds(); if (cx >= b.x && cx <= b.x + b.width && cy >= b.y && cy <= b.y + b.height) return cards[i]; }
        if (trashNode){ var tb = trashNode.getBounds(); if (cx >= tb.x && cx <= tb.x + tb.width && cy >= tb.y && cy <= tb.y + tb.height) return trashNode; }
        return null;
      }
@@ -277,20 +297,53 @@
          var clr = document.createElement('button'); clr.textContent = 'Clear Trash Can'; clr.className = 'danger';
          clr.addEventListener('click', function(ev){ ev.stopPropagation(); if (!armed){ armed = true; clr.textContent = 'Confirm: delete all?'; return; } T.core.invoke('clear_trash'); hideMenu(); });
          menu.appendChild(clr);
+       } else if (target.__item.dir){
+         var fname = target.__item.name;
+         menu.appendChild(mkBtn('Open', '', function(){ navigate(childPath(fname)); hideMenu(); }));
+         menu.appendChild(mkBtn('Open in Explorer', '', function(){ T.core.invoke('open_folder', { rel: childPath(fname) }); hideMenu(); }));
+         menu.appendChild(mkSep());
+         menu.appendChild(mkBtn('Delete', 'danger', function(){ moveToTrash(target); hideMenu(); }));
        } else {
          var name = target.__item.name;
-         menu.appendChild(mkBtn('Open', '', function(){ T.core.invoke('open_item', { name: name }); hideMenu(); }));
-         menu.appendChild(mkBtn('Open with\u2026', '', function(){ T.core.invoke('shell_verb', { name: name, verb: 'openas' }); hideMenu(); }));
-         menu.appendChild(mkBtn('Open folder', '', function(){ T.core.invoke('open_folder'); hideMenu(); }));
+         menu.appendChild(mkBtn('Open', '', function(){ T.core.invoke('open_item', { rel: cwd, name: name }); hideMenu(); }));
+         menu.appendChild(mkBtn('Open with\u2026', '', function(){ T.core.invoke('shell_verb', { rel: cwd, name: name, verb: 'openas' }); hideMenu(); }));
+         menu.appendChild(mkBtn('Open folder', '', function(){ T.core.invoke('open_folder', { rel: cwd }); hideMenu(); }));
          menu.appendChild(mkSep());
          menu.appendChild(mkBtn('Delete', 'danger', function(){ moveToTrash(target); hideMenu(); }));
        }
        menu.style.left = x + 'px'; menu.style.top = y + 'px'; menu.style.display = 'block';
      }
      app.view.addEventListener('contextmenu', function(ev){ ev.preventDefault(); var c = targetAt(ev.clientX, ev.clientY); if (c) openMenu(ev.clientX, ev.clientY, c); else hideMenu(); });
-     app.view.addEventListener('dblclick', function(ev){ var c = targetAt(ev.clientX, ev.clientY); if (!c) return; if (c.__trash) T.core.invoke('open_trash'); else T.core.invoke('open_item', { name: c.__item.name }); });
+     app.view.addEventListener('dblclick', function(ev){ var c = targetAt(ev.clientX, ev.clientY); if (!c) return; if (c.__trash) { T.core.invoke('open_trash'); return; } if (c.__item.dir) navigate(childPath(c.__item.name)); else T.core.invoke('open_item', { rel: cwd, name: c.__item.name }); });
      window.addEventListener('pointerdown', function(ev){ if (menu.style.display === 'block' && !menu.contains(ev.target)) hideMenu(); }, true);
      window.addEventListener('wheel', hideMenu, true);
+
+     // address bar
+     var upBtn = document.getElementById('up');
+     var crumbs = document.getElementById('crumbs');
+     var nfBtn = document.getElementById('nf');
+     var nfInput = document.getElementById('nfInput');
+     function updateBar(){
+       upBtn.style.visibility = cwd ? 'visible' : 'hidden';
+       crumbs.innerHTML = '';
+       function crumb(label, target, isLast){
+         var s = document.createElement('span'); s.textContent = label; s.className = 'crumb' + (isLast ? ' last' : '');
+         if (!isLast) s.addEventListener('click', function(){ navigate(target); });
+         crumbs.appendChild(s);
+       }
+       var segs = cwd ? cwd.split('/') : [];
+       crumb('Desktop Canvas', '', segs.length === 0);
+       var acc = '';
+       segs.forEach(function(seg, i){
+         var sep = document.createElement('span'); sep.textContent = '  ›  '; sep.className = 'sep2'; crumbs.appendChild(sep);
+         acc = acc ? acc + '/' + seg : seg;
+         crumb(seg, acc, i === segs.length - 1);
+       });
+     }
+     upBtn.addEventListener('click', function(){ if (cwd) navigate(parentOf(cwd)); });
+     function createFolder(nm){ T.core.invoke('make_folder', { rel: cwd, name: (nm || 'New Folder') }).then(function(){ nfInput.style.display = 'none'; loadView(); }).catch(function(e){ showErr('make_folder: ' + e); }); }
+     nfBtn.addEventListener('click', function(){ if (nfInput.style.display === 'none'){ nfInput.style.display = 'inline-block'; nfInput.value = 'New Folder'; nfInput.focus(); nfInput.select(); } else { createFolder(nfInput.value); } });
+     nfInput.addEventListener('keydown', function(e){ if (e.key === 'Enter'){ createFolder(nfInput.value); } else if (e.key === 'Escape'){ nfInput.style.display = 'none'; } e.stopPropagation(); });
 
      function handleDrop(payload){
        try{
@@ -303,9 +356,9 @@
          (async function(){
            for (var i = 0; i < paths.length; i++){
              try{
-               var name = await T.core.invoke('add_dropped_file', { path: paths[i] });
+               var name = await T.core.invoke('add_dropped_file', { rel: cwd, path: paths[i] });
                if (cardForName(name)) continue;
-               var it = { name: name, x: baseWX + i * 26, y: baseWY + i * 26 };
+               var it = { name: name, x: baseWX + i * 26, y: baseWY + i * 26, dir: false };
                items.push(it); buildCard(it);
              }catch(e){ showErr('add_dropped_file: ' + e); }
            }
@@ -313,25 +366,19 @@
          })();
        }catch(e){ showErr('drop: ' + e); }
      }
-
      function wireDrop(handler){
        try{ if (T.webviewWindow && T.webviewWindow.getCurrentWebviewWindow){ T.webviewWindow.getCurrentWebviewWindow().onDragDropEvent(function(e){ if (e.payload && e.payload.type === 'drop') handler(e.payload); }); return; } }catch(_){}
        try{ if (T.webview && T.webview.getCurrentWebview){ T.webview.getCurrentWebview().onDragDropEvent(function(e){ if (e.payload && e.payload.type === 'drop') handler(e.payload); }); return; } }catch(_){}
        try{ T.event.listen('tauri://drag-drop', function(e){ handler(e.payload); }); }catch(err){ showErr('drop wiring failed: ' + err); }
      }
 
-     try{ T.event.listen('layout-changed', function(){ if (dragTarget || panning) { reloadPending = true; return; } reconcile(); }); }catch(e){ showErr('sync listen: ' + e); }
-     try{ T.event.listen('thumb-changed', function(e){ var nm = e.payload && e.payload.name; if (!nm) return; delete thumbCache[nm]; var c = cardForName(nm); if (c) applyThumb(c); }); }catch(_){}
+     try{ T.event.listen('layout-changed', function(e){ var k = e.payload && e.payload.key; if (k !== cwd) return; if (dragTarget || panning) { reloadPending = true; return; } loadView(); }); }catch(e){ showErr('sync listen: ' + e); }
+     try{ T.event.listen('thumb-changed', function(e){ var p = e.payload || {}; if (p.key !== cwd || !p.name) return; delete thumbCache[cwd + '\u0000' + p.name]; var c = cardForName(p.name); if (c) applyThumb(c, cwd); }); }catch(_){}
 
      var diag = document.getElementById('diag');
-     app.ticker.add(function(){ diag.textContent = 'zoom ' + Math.round(world.scale.x * 100) + '%  items ' + items.length + (isMain ? '  [main]' : ''); });
+     app.ticker.add(function(){ diag.textContent = 'zoom ' + Math.round(world.scale.x * 100) + '%  items ' + items.length; });
 
-     (async function(){
-       await loadLayout();
-       trashNode = buildTrash();
-       await pollFolder();
-       if (isMain) setInterval(pollFolder, 3000);
-     })();
+     (async function(){ await loadView(); poll(); setInterval(poll, 3000); })();
      wireDrop(handleDrop);
    }catch(err){ showErr('init error: ' + (err && err.message ? err.message : err)); }
  })();

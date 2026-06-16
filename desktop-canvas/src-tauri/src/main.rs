@@ -15,6 +15,24 @@ fn canvas_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     Ok(dir)
 }
 
+// Normalize a relative folder path, rejecting parent escapes.
+fn safe_rel(rel: &str) -> String {
+    let mut parts: Vec<String> = Vec::new();
+    for seg in rel.split(|c| c == '/' || c == '\\') {
+        if seg.is_empty() || seg == "." || seg == ".." { continue; }
+        parts.push(seg.to_string());
+    }
+    parts.join("/")
+}
+
+fn resolve(app: &tauri::AppHandle, rel: &str) -> Result<PathBuf, String> {
+    let mut p = canvas_dir(app)?;
+    for seg in safe_rel(rel).split('/') {
+        if !seg.is_empty() { p.push(seg); }
+    }
+    Ok(p)
+}
+
 fn b64(data: &[u8]) -> String {
     const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut out = String::with_capacity((data.len() + 2) / 3 * 4);
@@ -31,7 +49,6 @@ fn b64(data: &[u8]) -> String {
     out
 }
 
-// Ask the Windows shell for a thumbnail (or icon) for any file type, as a PNG data URL.
 #[cfg(windows)]
 fn shell_thumb(path: &Path) -> Option<String> {
     use std::os::windows::ffi::OsStrExt;
@@ -51,7 +68,6 @@ fn shell_thumb(path: &Path) -> Option<String> {
         let factory: IShellItemImageFactory =
             SHCreateItemFromParsingName(PCWSTR(wide.as_ptr()), None).ok()?;
         let hbm = factory.GetImage(SIZE { cx: 256, cy: 256 }, SIIGBF_RESIZETOFIT).ok()?;
-
         let mut bmp: BITMAP = std::mem::zeroed();
         if GetObjectW(HGDIOBJ(hbm.0), std::mem::size_of::<BITMAP>() as i32, Some(&mut bmp as *mut BITMAP as *mut _)) == 0 {
             let _ = DeleteObject(HGDIOBJ(hbm.0));
@@ -63,29 +79,21 @@ fn shell_thumb(path: &Path) -> Option<String> {
             let _ = DeleteObject(HGDIOBJ(hbm.0));
             return None;
         }
-
         let mut bmi: BITMAPINFO = std::mem::zeroed();
         bmi.bmiHeader.biSize = std::mem::size_of::<BITMAPINFOHEADER>() as u32;
         bmi.bmiHeader.biWidth = w;
-        bmi.bmiHeader.biHeight = -h; // top-down
+        bmi.bmiHeader.biHeight = -h;
         bmi.bmiHeader.biPlanes = 1;
         bmi.bmiHeader.biBitCount = 32;
-        bmi.bmiHeader.biCompression = 0; // BI_RGB
-
+        bmi.bmiHeader.biCompression = 0;
         let mut buf = vec![0u8; (w as usize) * (h as usize) * 4];
         let hdc = GetDC(None);
         let scan = GetDIBits(hdc, hbm, 0, h as u32, Some(buf.as_mut_ptr() as *mut _), &mut bmi, DIB_RGB_COLORS);
         ReleaseDC(None, hdc);
         let _ = DeleteObject(HGDIOBJ(hbm.0));
-        if scan == 0 {
-            return None;
-        }
-
-        // BGRA -> RGBA; if every alpha is 0 the image is really opaque, so force 255.
+        if scan == 0 { return None; }
         let mut any_alpha = false;
-        for px in buf.chunks_exact(4) {
-            if px[3] != 0 { any_alpha = true; break; }
-        }
+        for px in buf.chunks_exact(4) { if px[3] != 0 { any_alpha = true; break; } }
         let mut rgba = vec![0u8; buf.len()];
         for (i, px) in buf.chunks_exact(4).enumerate() {
             rgba[i * 4] = px[2];
@@ -93,7 +101,6 @@ fn shell_thumb(path: &Path) -> Option<String> {
             rgba[i * 4 + 2] = px[0];
             rgba[i * 4 + 3] = if any_alpha { px[3] } else { 255 };
         }
-
         let img = image::RgbaImage::from_raw(w as u32, h as u32, rgba)?;
         let mut png: Vec<u8> = Vec::new();
         {
@@ -107,18 +114,17 @@ fn shell_thumb(path: &Path) -> Option<String> {
 }
 
 #[cfg(not(windows))]
-fn shell_thumb(_path: &Path) -> Option<String> {
-    None
-}
+fn shell_thumb(_path: &Path) -> Option<String> { None }
 
-// Invoke a native shell verb (e.g. "openas" = Open With dialog) on a file.
 #[cfg(windows)]
 fn run_verb(path: &Path, verb: &str) -> Option<()> {
     use std::os::windows::ffi::OsStrExt;
     use windows::core::PCWSTR;
+    use windows::Win32::System::Com::{CoInitializeEx, COINIT_APARTMENTTHREADED};
     use windows::Win32::UI::Shell::ShellExecuteW;
     use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
     unsafe {
+        let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
         let f: Vec<u16> = path.as_os_str().encode_wide().chain(std::iter::once(0)).collect();
         let v: Vec<u16> = std::ffi::OsStr::new(verb).encode_wide().chain(std::iter::once(0)).collect();
         let _ = ShellExecuteW(None, PCWSTR(v.as_ptr()), PCWSTR(f.as_ptr()), PCWSTR::null(), PCWSTR::null(), SW_SHOWNORMAL);
@@ -127,9 +133,7 @@ fn run_verb(path: &Path, verb: &str) -> Option<()> {
 }
 
 #[cfg(not(windows))]
-fn run_verb(_path: &Path, _verb: &str) -> Option<()> {
-    None
-}
+fn run_verb(_path: &Path, _verb: &str) -> Option<()> { None }
 
 fn unique_dest(dir: &Path, name: &str) -> PathBuf {
     let mut dest = dir.join(name);
@@ -147,10 +151,32 @@ fn unique_dest(dir: &Path, name: &str) -> PathBuf {
     dest
 }
 
+fn move_path(src: &Path, dest: &Path) -> Result<(), String> {
+    if fs::rename(src, dest).is_ok() { return Ok(()); }
+    if src.is_file() {
+        fs::copy(src, dest).map_err(|e| e.to_string())?;
+        fs::remove_file(src).map_err(|e| e.to_string())?;
+        Ok(())
+    } else {
+        Err("could not move".into())
+    }
+}
+
 #[derive(serde::Serialize)]
-struct FileInfo {
+struct Entry {
     name: String,
     mtime: u64,
+    dir: bool,
+}
+
+fn layout_file(app: &tauri::AppHandle, key: &str) -> Result<PathBuf, String> {
+    let base = app.path().app_data_dir().map_err(|e| e.to_string())?.join("layouts");
+    let safe: String = if key.is_empty() {
+        "_root".to_string()
+    } else {
+        key.chars().map(|c| if c == '/' || c == '\\' || c == ':' { '_' } else { c }).collect()
+    };
+    Ok(base.join(format!("{}.json", safe)))
 }
 
 #[tauri::command]
@@ -159,103 +185,69 @@ fn quit(app: tauri::AppHandle) {
 }
 
 #[tauri::command]
-fn add_dropped_file(app: tauri::AppHandle, path: String) -> Result<String, String> {
-    let src = PathBuf::from(&path);
-    if !src.is_file() {
-        return Err(format!("not a file: {}", path));
-    }
-    let name = src.file_name().ok_or("no file name")?.to_string_lossy().to_string();
-    let dir = canvas_dir(&app)?;
-    let mut dest = dir.join(&name);
-    if dest.exists() {
-        let stem = src.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| name.clone());
-        let ext = src.extension().map(|s| format!(".{}", s.to_string_lossy())).unwrap_or_default();
-        let mut i = 1;
-        loop {
-            let candidate = dir.join(format!("{} ({}){}", stem, i, ext));
-            if !candidate.exists() { dest = candidate; break; }
-            i += 1;
-        }
-    }
-    fs::copy(&src, &dest).map_err(|e| e.to_string())?;
-    Ok(dest.file_name().unwrap().to_string_lossy().to_string())
-}
-
-#[tauri::command]
-fn thumb_data(app: tauri::AppHandle, name: String) -> Result<String, String> {
-    let p = canvas_dir(&app)?.join(&name);
-    if !p.is_file() {
-        return Ok(String::new());
-    }
-    Ok(shell_thumb(&p).unwrap_or_default())
-}
-
-#[tauri::command]
-fn list_canvas(app: tauri::AppHandle) -> Result<String, String> {
-    let dir = canvas_dir(&app)?;
-    let mut out: Vec<FileInfo> = Vec::new();
-    for entry in fs::read_dir(&dir).map_err(|e| e.to_string())? {
-        let entry = entry.map_err(|e| e.to_string())?;
-        if entry.path().is_file() {
+fn list_dir(app: tauri::AppHandle, rel: String) -> Result<String, String> {
+    let dir = resolve(&app, &rel)?;
+    let mut out: Vec<Entry> = Vec::new();
+    if dir.is_dir() {
+        for entry in fs::read_dir(&dir).map_err(|e| e.to_string())? {
+            let entry = entry.map_err(|e| e.to_string())?;
+            let p = entry.path();
             let name = entry.file_name().to_string_lossy().to_string();
-            let mtime = entry
-                .metadata()
-                .ok()
+            let is_dir = p.is_dir();
+            if safe_rel(&rel).is_empty() && is_dir && name == "Trash Can" { continue; }
+            let mtime = entry.metadata().ok()
                 .and_then(|m| m.modified().ok())
                 .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                .map(|d| d.as_secs())
-                .unwrap_or(0);
-            out.push(FileInfo { name, mtime });
+                .map(|d| d.as_secs()).unwrap_or(0);
+            out.push(Entry { name, mtime, dir: is_dir });
         }
     }
     serde_json::to_string(&out).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-fn open_item(app: tauri::AppHandle, name: String) -> Result<(), String> {
-    let p = canvas_dir(&app)?.join(&name);
-    std::process::Command::new("cmd")
-        .args(["/C", "start", "", &p.to_string_lossy()])
-        .spawn()
-        .map_err(|e| e.to_string())?;
-    Ok(())
-}
-
-#[tauri::command]
-fn open_folder(app: tauri::AppHandle) -> Result<(), String> {
-    let dir = canvas_dir(&app)?;
-    std::process::Command::new("explorer")
-        .arg(dir.to_string_lossy().to_string())
-        .spawn()
-        .map_err(|e| e.to_string())?;
-    Ok(())
-}
-
-#[tauri::command]
-fn shell_verb(app: tauri::AppHandle, name: String, verb: String) -> Result<(), String> {
-    let p = canvas_dir(&app)?.join(&name);
-    if !p.exists() {
-        return Err("file not found".into());
+fn add_dropped_file(app: tauri::AppHandle, rel: String, path: String) -> Result<String, String> {
+    let src = PathBuf::from(&path);
+    if !src.is_file() {
+        return Err(format!("not a file: {}", path));
     }
-    run_verb(&p, &verb);
-    Ok(())
+    let name = src.file_name().ok_or("no file name")?.to_string_lossy().to_string();
+    let dir = resolve(&app, &rel)?;
+    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let dest = unique_dest(&dir, &name);
+    fs::copy(&src, &dest).map_err(|e| e.to_string())?;
+    Ok(dest.file_name().unwrap().to_string_lossy().to_string())
 }
 
 #[tauri::command]
-fn trash_item(app: tauri::AppHandle, name: String) -> Result<(), String> {
-    let dir = canvas_dir(&app)?;
+fn make_folder(app: tauri::AppHandle, rel: String, name: String) -> Result<String, String> {
+    let dir = resolve(&app, &rel)?;
+    let clean = name.trim();
+    let clean = if clean.is_empty() { "New Folder" } else { clean };
+    let dest = unique_dest(&dir, clean);
+    fs::create_dir_all(&dest).map_err(|e| e.to_string())?;
+    Ok(dest.file_name().unwrap().to_string_lossy().to_string())
+}
+
+#[tauri::command]
+fn move_into(app: tauri::AppHandle, rel: String, name: String, folder: String) -> Result<(), String> {
+    let dir = resolve(&app, &rel)?;
     let src = dir.join(&name);
-    if !src.exists() {
-        return Ok(());
-    }
-    let trash = dir.join("Trash Can");
+    if !src.exists() { return Ok(()); }
+    let dst_dir = dir.join(&folder);
+    fs::create_dir_all(&dst_dir).map_err(|e| e.to_string())?;
+    let dest = unique_dest(&dst_dir, &name);
+    move_path(&src, &dest)
+}
+
+#[tauri::command]
+fn trash_item(app: tauri::AppHandle, rel: String, name: String) -> Result<(), String> {
+    let src = resolve(&app, &rel)?.join(&name);
+    if !src.exists() { return Ok(()); }
+    let trash = canvas_dir(&app)?.join("Trash Can");
     fs::create_dir_all(&trash).map_err(|e| e.to_string())?;
     let dest = unique_dest(&trash, &name);
-    if fs::rename(&src, &dest).is_err() {
-        fs::copy(&src, &dest).map_err(|e| e.to_string())?;
-        fs::remove_file(&src).map_err(|e| e.to_string())?;
-    }
-    Ok(())
+    move_path(&src, &dest)
 }
 
 #[tauri::command]
@@ -274,33 +266,59 @@ fn clear_trash(app: tauri::AppHandle) -> Result<(), String> {
 fn open_trash(app: tauri::AppHandle) -> Result<(), String> {
     let trash = canvas_dir(&app)?.join("Trash Can");
     fs::create_dir_all(&trash).map_err(|e| e.to_string())?;
-    std::process::Command::new("explorer")
-        .arg(trash.to_string_lossy().to_string())
-        .spawn()
-        .map_err(|e| e.to_string())?;
+    std::process::Command::new("explorer").arg(trash.to_string_lossy().to_string()).spawn().map_err(|e| e.to_string())?;
     Ok(())
 }
 
 #[tauri::command]
-fn save_layout(app: tauri::AppHandle, data: String) -> Result<(), String> {
-    let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+fn thumb_data(app: tauri::AppHandle, rel: String, name: String) -> Result<String, String> {
+    let p = resolve(&app, &rel)?.join(&name);
+    if !p.exists() { return Ok(String::new()); }
+    Ok(shell_thumb(&p).unwrap_or_default())
+}
+
+#[tauri::command]
+fn open_item(app: tauri::AppHandle, rel: String, name: String) -> Result<(), String> {
+    let p = resolve(&app, &rel)?.join(&name);
+    std::process::Command::new("cmd").args(["/C", "start", "", &p.to_string_lossy()]).spawn().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+fn open_folder(app: tauri::AppHandle, rel: String) -> Result<(), String> {
+    let dir = resolve(&app, &rel)?;
     fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    fs::write(dir.join("layout.json"), data).map_err(|e| e.to_string())?;
+    std::process::Command::new("explorer").arg(dir.to_string_lossy().to_string()).spawn().map_err(|e| e.to_string())?;
     Ok(())
 }
 
 #[tauri::command]
-fn load_layout(app: tauri::AppHandle) -> Result<String, String> {
-    let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
-    let p = dir.join("layout.json");
-    if p.exists() { fs::read_to_string(p).map_err(|e| e.to_string()) } else { Ok("[]".to_string()) }
+fn shell_verb(app: tauri::AppHandle, rel: String, name: String, verb: String) -> Result<(), String> {
+    let p = resolve(&app, &rel)?.join(&name);
+    if !p.exists() { return Err("file not found".into()); }
+    run_verb(&p, &verb);
+    Ok(())
+}
+
+#[tauri::command]
+fn save_layout(app: tauri::AppHandle, key: String, data: String) -> Result<(), String> {
+    let f = layout_file(&app, &key)?;
+    if let Some(parent) = f.parent() { fs::create_dir_all(parent).map_err(|e| e.to_string())?; }
+    fs::write(f, data).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+fn load_layout(app: tauri::AppHandle, key: String) -> Result<String, String> {
+    let f = layout_file(&app, &key)?;
+    if f.exists() { fs::read_to_string(f).map_err(|e| e.to_string()) } else { Ok("{}".to_string()) }
 }
 
 fn main() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
-            quit, add_dropped_file, thumb_data, list_canvas, open_item, open_folder,
-            shell_verb, trash_item, clear_trash, open_trash, save_layout, load_layout
+            quit, list_dir, add_dropped_file, make_folder, move_into, trash_item, clear_trash,
+            open_trash, thumb_data, open_item, open_folder, shell_verb, save_layout, load_layout
         ])
         .setup(|app| {
             let handle = app.handle().clone();
@@ -314,10 +332,8 @@ fn main() {
                     }
                     let _ = main.set_always_on_bottom(true);
                     let _ = main.show();
-
                     let extra: Vec<(tauri::PhysicalPosition<i32>, tauri::PhysicalSize<u32>)> =
                         monitors.iter().skip(1).map(|m| { let wa = m.work_area(); (wa.position, wa.size) }).collect();
-
                     if !extra.is_empty() {
                         let h2 = handle.clone();
                         std::thread::spawn(move || {

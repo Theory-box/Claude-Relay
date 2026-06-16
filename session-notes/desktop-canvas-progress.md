@@ -126,3 +126,21 @@ Stack: Tauri v2 (Rust + WebView2), PixiJS planned for canvas. Windows-only.
   the webview) is the high-risk piece and stays deferred; we keep our own menu and pull
   in native actions via shell verbs as needed.
 - list_canvas already skips dirs, so the "Trash Can" subfolder never shows as an item.
+
+## v0.0.11 — folders + navigation (every folder is a canvas)
+- Backend now PATH-AWARE: all file ops take a `rel` folder path under Desktop Canvas
+  (safe_rel rejects ..). New/changed cmds: list_dir(rel)->[{name,mtime,dir}],
+  add_dropped_file(rel,path), make_folder(rel,name), move_into(rel,name,folder),
+  trash_item(rel,name) [-> root Trash Can], open_item(rel,name), open_folder(rel),
+  shell_verb(rel,name,verb), thumb_data(rel,name). list_dir hides root "Trash Can".
+- Per-folder layouts: save_layout/load_layout now take a `key` (the rel path) and store
+  app_data_dir/layouts/<sanitized>.json. NOTE: old single layout.json is not migrated,
+  so existing arrangements reset once (files are safe; positions re-grid).
+- Frontend: cwd state; loadView() rebuilds from saved positions + live disk listing
+  (disk authoritative for existence/dir-ness, layout for positions). Folder cards get a
+  folder icon (shell thumb of the dir) + a small folder glyph; double-click enters them.
+  Address bar (#bar) with Up, clickable breadcrumbs, and +Folder (inline name input).
+- Drag-onto-target generalized: file onto a folder card -> move_into; file onto Trash ->
+  trash. Each window navigates independently; sync events ('layout-changed','thumb-changed')
+  are now KEYED by folder so only same-folder windows react. Each window polls its own cwd.
+- Trash Can shown only at root. Fixed "Open with" by adding CoInitializeEx in run_verb.
