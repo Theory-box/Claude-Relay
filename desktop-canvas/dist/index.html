@@ -22,6 +22,12 @@
  .pop button:hover{background:#2c313c;}
  .pop .sep{height:1px;background:#353a45;margin:5px 6px;}
  .pop .danger{color:#e7a3a3;} .pop .danger:hover{background:#3a2326;color:#ffb0b0;}
+ .modal{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:40;display:none;align-items:center;justify-content:center;}
+ .modal .box{background:#1f2229;border:1px solid #353a45;border-radius:10px;padding:18px 20px;min-width:300px;max-width:80vw;color:#e6e8ee;font-size:14px;line-height:1.5;box-shadow:0 12px 40px rgba(0,0,0,.6);}
+ .modal .row{display:flex;justify-content:flex-end;gap:10px;margin-top:18px;}
+ .modal button{background:#2a2f3a;border:1px solid #3a4150;color:#e6e8ee;border-radius:7px;padding:7px 16px;cursor:pointer;font:inherit;}
+ .modal #dlgYes{background:#2f5fbf;border-color:#3a6fd0;}
+ .modal button:hover{filter:brightness(1.18);}
  canvas{display:block;}
 </style></head>
 <body>
@@ -40,6 +46,7 @@
  <div id="diag"></div>
  <div id="menu" class="pop"></div>
  <div id="placesMenu" class="pop"></div>
+ <div id="dialog" class="modal"><div class="box"><div id="dlgMsg"></div><div class="row"><button id="dlgNo">Cancel</button><button id="dlgYes">Move</button></div></div></div>
  <script src="pixi.min.js"></script>
  <script>
  function showErr(m){ var e=document.getElementById('err'); e.style.display='block'; e.textContent += m + "\n"; }
@@ -67,16 +74,16 @@
      var cwd = '', homePath = '', placesList = [];
      var items = [], cards = [], thumbCache = {}, mtimes = {};
      var trash = { x: -320, y: -210 }, trashNode = null;
-     var panning = false, last = null, reloadPending = false;
+     var panning = false, last = null, reloadPending = false, confirming = false;
      var lastCursor = null;
      var modes = ['free', 'fit', 'push'], modeIdx = 1;
      function modeLabel(){ return ['Free', 'Fit', 'Push'][modeIdx]; }
-     // carry = { card, offset:{x,y}, phase:'drag'|'float', moved, start:{x,y}, snap:{} } | null
+     // carry = { card, source:'move'|'import', offset:{x,y}, phase:'drag'|'float', moved, start:{x,y}, snap:{}, dropTarget } | null
      var carry = null;
 
      // ---------- engine primitives (pure) ----------
      function intersects(a, b){ return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y; }
-     function mtv(a, b){ // smallest shove to move b out of a
+     function mtv(a, b){
        var ox = Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x);
        var oy = Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y);
        if (ox <= 0 || oy <= 0) return null;
@@ -125,7 +132,7 @@
 
      // ---------- nodes ----------
      function attachGrab(node){
-       node.on('pointerdown', function(e){ if (e.button === 2) return; if (carry) return; startCarry(node, e); e.stopPropagation(); });
+       node.on('pointerdown', function(e){ if (e.button === 2) return; if (carry || confirming) return; startCarry(node, e); e.stopPropagation(); });
      }
      function buildCard(item){
        var dir = cwd;
@@ -175,13 +182,25 @@
      function cardForName(name){ for (var i = 0; i < cards.length; i++){ if (cards[i].__item && cards[i].__item.name === name) return cards[i]; } return null; }
      function removeCardLocal(card){ var it = card.__item; var ii = items.indexOf(it); if (ii >= 0) items.splice(ii, 1); var ci = cards.indexOf(card); if (ci >= 0) cards.splice(ci, 1); world.removeChild(card); card.destroy({ children: true }); delete mtimes[it.name]; }
 
+     // ---------- confirm dialog ----------
+     var dialog = document.getElementById('dialog'), dlgMsg = document.getElementById('dlgMsg'), dlgYes = document.getElementById('dlgYes'), dlgNo = document.getElementById('dlgNo');
+     function confirmDialog(msg, yesLabel, onYes, onNo){
+       confirming = true; dlgMsg.textContent = msg; dlgYes.textContent = yesLabel || 'OK'; dialog.style.display = 'flex';
+       function done(fn){ dialog.style.display = 'none'; dlgYes.onclick = null; dlgNo.onclick = null; confirming = false; if (fn) fn(); }
+       dlgYes.onclick = function(){ done(onYes); };
+       dlgNo.onclick = function(){ done(onNo); };
+     }
+
      // ---------- carry / preview ----------
-     function startCarry(node, e){
+     function captureSnap(){ var snap = {}; items.forEach(function(it){ snap[it.name] = { x: it.x, y: it.y }; }); if (trashNode) snap.__trash = { x: trashNode.x, y: trashNode.y }; return snap; }
+     function startCarry(node, e){ // existing canvas item -> direct drag, commits on release
        var p = e.global; var wx = (p.x - world.x) / world.scale.x, wy = (p.y - world.y) / world.scale.y;
-       var snap = {}; items.forEach(function(it){ snap[it.name] = { x: it.x, y: it.y }; });
-       if (trashNode) snap.__trash = { x: trashNode.x, y: trashNode.y };
-       carry = { card: node, offset: { x: wx - node.x, y: wy - node.y }, phase: 'drag', moved: false, start: { x: p.x, y: p.y }, snap: snap };
+       carry = { card: node, source: 'move', offset: { x: wx - node.x, y: wy - node.y }, phase: 'drag', moved: false, start: { x: p.x, y: p.y }, snap: captureSnap() };
        updateHud();
+     }
+     function startImportCarry(card, atScreen){ // freshly imported file -> sticky float, commits on click
+       carry = { card: card, source: 'import', offset: { x: 0, y: 0 }, phase: 'float', moved: true, start: { x: atScreen.x, y: atScreen.y }, snap: captureSnap() };
+       card.alpha = 0.85; lastCursor = { x: atScreen.x, y: atScreen.y }; updateHud();
      }
      function dropTargetUnder(heldRect, held){
        if (trashNode && !held.__trash){ var tr = rectOf(trashNode); if (intersects(heldRect, tr)) return trashNode; }
@@ -191,19 +210,18 @@
      function resolveCarry(desired){
        var held = carry.card; var w = held.hitArea.width, h = held.hitArea.height;
        var heldRect = { x: desired.x, y: desired.y, w: w, h: h };
-       // reset movable others to snapshot
        cards.forEach(function(c){ if (c === held) return; var s = carry.snap[c.__item.name]; if (s){ c.x = s.x; c.y = s.y; } });
        carry.dropTarget = null; hl.visible = false;
        if (!held.__trash){
          var dt = dropTargetUnder(heldRect, held);
-         if (dt){ carry.dropTarget = dt; held.x = desired.x; held.y = desired.y; var w2 = dt.hitArea.width, h2 = dt.hitArea.height; hl.clear(); hl.lineStyle(2, 0x6fd08c); hl.drawRoundedRect(0, 0, w2, h2, 10); hl.x = dt.x; hl.y = dt.y; hl.visible = true; world.addChild(hl); return; }
+         if (dt){ carry.dropTarget = dt; held.x = desired.x; held.y = desired.y; var w2 = dt.hitArea.width, h2 = dt.hitArea.height; hl.clear(); hl.lineStyle(2, dt.__trash ? 0xe09a9a : 0x6fd08c); hl.drawRoundedRect(0, 0, w2, h2, 10); hl.x = dt.x; hl.y = dt.y; hl.visible = true; world.addChild(hl); return; }
        }
        var mode = held.__trash ? 'free' : modes[modeIdx];
        if (mode === 'free'){ held.x = desired.x; held.y = desired.y; }
        else if (mode === 'fit'){
          var obs = []; cards.forEach(function(c){ if (c === held) return; obs.push(rectOf(c)); }); if (trashNode && !held.__trash) obs.push(rectOf(trashNode));
          var pos = nearestFree(heldRect, obs, desired); held.x = pos.x; held.y = pos.y;
-       } else { // push
+       } else {
          held.x = desired.x; held.y = desired.y;
          var others = []; cards.forEach(function(c){ if (c === held) return; others.push(c); });
          for (var pass = 0; pass < 6; pass++){
@@ -215,32 +233,33 @@
        }
      }
      function refreshPreview(){ if (carry && lastCursor && (carry.moved || carry.phase === 'float')){ var wx = (lastCursor.x - world.x) / world.scale.x, wy = (lastCursor.y - world.y) / world.scale.y; resolveCarry({ x: wx - carry.offset.x, y: wy - carry.offset.y }); } }
+     function endCarry(){ if (carry && carry.card) carry.card.alpha = 1; hl.visible = false; carry = null; updateHud(); if (reloadPending){ reloadPending = false; loadView(); } }
+     function placePlain(){ var held = carry.card; if (held.__trash){ trash.x = held.x; trash.y = held.y; } else { cards.forEach(function(c){ if (c.__item){ c.__item.x = c.x; c.__item.y = c.y; } }); } endCarry(); persist(); }
      function commitCarry(){
-       if (!carry) return; var held = carry.card;
-       if (carry.dropTarget){
-         var dt = carry.dropTarget; held.alpha = 1; hl.visible = false; var heldCard = held; carry = null; updateHud();
-         if (dt.__trash){ var nm = heldCard.__item.name; T.core.invoke('trash_item', { dir: cwd, name: nm }).then(function(){ removeCardLocal(heldCard); persist(); }).catch(function(e){ showErr('trash: ' + e); }); }
-         else { var n = heldCard.__item.name, folder = dt.__item.name; if (n !== folder){ T.core.invoke('move_into', { dir: cwd, name: n, folder: folder }).then(function(){ removeCardLocal(heldCard); persist(); }).catch(function(e){ showErr('move: ' + e); }); } }
-         if (reloadPending){ reloadPending = false; loadView(); }
+       if (!carry || confirming) return;
+       var held = carry.card, dt = carry.dropTarget;
+       if (dt && !dt.__trash){ // into a folder -> confirm
+         var n = held.__item.name, folder = dt.__item.name;
+         if (n === folder){ placePlain(); return; }
+         var src = carry.source;
+         confirmDialog('Move \u201c' + n + '\u201d into \u201c' + folder + '\u201d?', 'Move',
+           function(){ T.core.invoke('move_into', { dir: cwd, name: n, folder: folder }).then(function(){ removeCardLocal(held); endCarry(); persist(); }).catch(function(e){ showErr('move: ' + e); endCarry(); }); },
+           function(){ if (carry && src === 'import'){ carry.phase = 'float'; carry.dropTarget = null; hl.visible = false; updateHud(); } else { cancelCarry(); } });
          return;
        }
-       if (held.__trash){ trash.x = held.x; trash.y = held.y; }
-       else { cards.forEach(function(c){ if (c.__item){ c.__item.x = c.x; c.__item.y = c.y; } }); }
-       held.alpha = 1; hl.visible = false; carry = null; updateHud(); persist();
-       if (reloadPending){ reloadPending = false; loadView(); }
+       if (dt && dt.__trash){ var nm = held.__item.name; T.core.invoke('trash_item', { dir: cwd, name: nm }).then(function(){ removeCardLocal(held); persist(); }).catch(function(e){ showErr('trash: ' + e); }); endCarry(); return; }
+       placePlain();
      }
      function cancelCarry(){
        if (!carry) return;
-       cards.forEach(function(c){ var s = carry.snap[c.__item.name]; if (s){ c.x = s.x; c.y = s.y; } });
-       if (carry.snap.__trash && trashNode){ trashNode.x = carry.snap.__trash.x; trashNode.y = carry.snap.__trash.y; }
-       if (carry.card) carry.card.alpha = 1;
-       hl.visible = false; carry = null; updateHud();
-       if (reloadPending){ reloadPending = false; loadView(); }
+       if (carry.source === 'import'){ var c = carry.card, nm = c.__item.name; T.core.invoke('delete_file', { dir: cwd, name: nm }).catch(function(e){ showErr('del: ' + e); }); removeCardLocal(c); }
+       else { cards.forEach(function(c){ var s = carry.snap[c.__item.name]; if (s){ c.x = s.x; c.y = s.y; } }); if (carry.snap.__trash && trashNode){ trashNode.x = carry.snap.__trash.x; trashNode.y = carry.snap.__trash.y; } if (carry.card) carry.card.alpha = 1; }
+       hl.visible = false; carry = null; updateHud(); if (reloadPending){ reloadPending = false; loadView(); }
      }
 
      // ---------- pointer wiring ----------
      app.stage.eventMode = 'static'; app.stage.hitArea = app.screen;
-     app.stage.on('pointerdown', function(e){ if (carry || e.button === 2) return; panning = true; last = { x: e.global.x, y: e.global.y }; });
+     app.stage.on('pointerdown', function(e){ if (carry || confirming || e.button === 2) return; panning = true; last = { x: e.global.x, y: e.global.y }; });
      app.stage.on('pointermove', function(e){
        lastCursor = { x: e.global.x, y: e.global.y };
        if (carry){
@@ -249,7 +268,13 @@
          resolveCarry({ x: wx - carry.offset.x, y: wy - carry.offset.y });
        } else if (panning && last){ world.x += e.global.x - last.x; world.y += e.global.y - last.y; last = { x: e.global.x, y: e.global.y }; }
      });
-     function onUp(){ if (carry){ if (carry.phase === 'drag'){ if (carry.moved){ carry.phase = 'float'; updateHud(); } else { cancelCarry(); } } return; } panning = false; last = null; }
+     function onUp(){
+       if (carry){
+         if (carry.source === 'move' && carry.phase === 'drag'){ if (carry.moved) commitCarry(); else { carry = null; updateHud(); } }
+         return; // import (float) commits on a separate click; nothing on release
+       }
+       panning = false; last = null;
+     }
      app.stage.on('pointerup', onUp); app.stage.on('pointerupoutside', onUp);
 
      window.addEventListener('wheel', function(ev){
@@ -259,14 +284,15 @@
        if (carry) refreshPreview();
      }, { passive: false });
 
-     // commit on left-click while floating (capture so Pixi never sees it)
+     // import float: left-click commits, right-click cancels (via contextmenu)
      window.addEventListener('pointerdown', function(ev){
-       if (carry && carry.phase === 'float' && ev.button === 0){ commitCarry(); ev.stopPropagation(); ev.preventDefault(); return; }
+       if (confirming) return;
+       if (carry && carry.source === 'import' && carry.phase === 'float' && ev.button === 0){ commitCarry(); ev.stopPropagation(); ev.preventDefault(); return; }
        if (menu.style.display === 'block' && !menu.contains(ev.target)) hideMenu();
        if (placesMenu.style.display === 'block' && ev.target !== placesBtn && !placesMenu.contains(ev.target)) placesMenu.style.display = 'none';
      }, true);
-     // mode hotkeys + Escape-cancel during carry (capture so quit doesn't fire)
      window.addEventListener('keydown', function(e){
+       if (confirming){ if (e.key === 'Enter'){ dlgYes.click(); e.stopPropagation(); } else if (e.key === 'Escape'){ dlgNo.click(); e.stopPropagation(); } return; }
        if (!carry) return;
        if (e.key === 'Escape'){ cancelCarry(); e.stopPropagation(); return; }
        if (e.key === 't' || e.key === 'T'){ modeIdx = (modeIdx + 1) % modes.length; refreshPreview(); updateHud(); e.stopPropagation(); }
@@ -306,8 +332,8 @@
        }
        menu.style.left = x + 'px'; menu.style.top = y + 'px'; menu.style.display = 'block';
      }
-     app.view.addEventListener('contextmenu', function(ev){ ev.preventDefault(); if (carry){ cancelCarry(); return; } var c = targetAt(ev.clientX, ev.clientY); if (c) openMenu(ev.clientX, ev.clientY, c); else hideMenu(); });
-     app.view.addEventListener('dblclick', function(ev){ if (carry) return; var c = targetAt(ev.clientX, ev.clientY); if (!c) return; if (c.__trash){ T.core.invoke('open_trash'); return; } if (c.__item.dir) navigate(joinPath(cwd, c.__item.name)); else T.core.invoke('open_item', { dir: cwd, name: c.__item.name }); });
+     app.view.addEventListener('contextmenu', function(ev){ ev.preventDefault(); if (confirming) return; if (carry){ cancelCarry(); return; } var c = targetAt(ev.clientX, ev.clientY); if (c) openMenu(ev.clientX, ev.clientY, c); else hideMenu(); });
+     app.view.addEventListener('dblclick', function(ev){ if (carry || confirming) return; var c = targetAt(ev.clientX, ev.clientY); if (!c) return; if (c.__trash){ T.core.invoke('open_trash'); return; } if (c.__item.dir) navigate(joinPath(cwd, c.__item.name)); else T.core.invoke('open_item', { dir: cwd, name: c.__item.name }); });
      window.addEventListener('wheel', function(){ hideMenu(); }, true);
 
      // ---------- address bar ----------
@@ -322,7 +348,11 @@
        crumb('This PC', '', parts.length === 0); var acc = '';
        parts.forEach(function(seg, i){ var sep = document.createElement('span'); sep.textContent = '  \u203a  '; sep.className = 'sep2'; crumbs.appendChild(sep); if (i === 0){ acc = seg; crumb(seg, seg + '\\', i === parts.length - 1); } else { acc = acc + '\\' + seg; crumb(seg, acc, i === parts.length - 1); } });
      }
-     function updateHud(){ if (carry){ hud.textContent = 'Placing [' + modeLabel() + ']  \u00b7  T cycle (1 Free / 2 Fit / 3 Push)  \u00b7  left-click confirm  \u00b7  right-click cancel'; } else { hud.textContent = 'v0.0.13  \u00b7  drag an item & release, then move and left-click to place  \u00b7  current mode: ' + modeLabel() + ' (press T while placing)'; } }
+     function updateHud(){
+       if (carry && carry.source === 'import'){ hud.textContent = 'Placing imported file [' + modeLabel() + ']  \u00b7  left-click to confirm  \u00b7  right-click to cancel  \u00b7  T cycle mode'; }
+       else if (carry){ hud.textContent = 'Moving [' + modeLabel() + ']  \u00b7  release to drop  \u00b7  T cycle (1 Free / 2 Fit / 3 Push)  \u00b7  Esc cancel'; }
+       else { hud.textContent = 'v0.0.14  \u00b7  click-drag to move (release to drop)  \u00b7  drag a file in to import  \u00b7  mode: ' + modeLabel() + ' (T while moving)'; }
+     }
      upBtn.addEventListener('click', function(){ navigate(parentOf(cwd)); });
      placesBtn.addEventListener('click', function(ev){ ev.stopPropagation(); if (placesMenu.style.display === 'block'){ placesMenu.style.display = 'none'; return; } placesMenu.innerHTML = ''; placesList.forEach(function(pl){ placesMenu.appendChild(mkBtn(pl.label, '', function(){ navigate(pl.path); placesMenu.style.display = 'none'; })); }); var r = placesBtn.getBoundingClientRect(); placesMenu.style.left = r.left + 'px'; placesMenu.style.top = (r.bottom + 4) + 'px'; placesMenu.style.display = 'block'; });
      gotoBtn.addEventListener('click', function(){ if (pathInput.style.display === 'none'){ pathInput.style.display = 'inline-block'; pathInput.value = cwd; pathInput.focus(); pathInput.select(); } else { navigate(pathInput.value.trim()); pathInput.style.display = 'none'; } });
@@ -331,14 +361,23 @@
      nfBtn.addEventListener('click', function(){ if (nfInput.style.display === 'none'){ nfInput.style.display = 'inline-block'; nfInput.value = 'New Folder'; nfInput.focus(); nfInput.select(); } else { createFolder(nfInput.value); } });
      nfInput.addEventListener('keydown', function(e){ if (e.key === 'Enter'){ createFolder(nfInput.value); } else if (e.key === 'Escape'){ nfInput.style.display = 'none'; } e.stopPropagation(); });
 
-     // ---------- OS import (unchanged: immediate add) ----------
+     // ---------- OS import: single file -> sticky float; multiple -> placed immediately ----------
      function handleDrop(payload){
        try{
          var paths = (payload && payload.paths) || []; var pos = (payload && payload.position) || { x: 0, y: 0 };
          var dpr = window.devicePixelRatio || 1; var cssX = pos.x / dpr, cssY = pos.y / dpr;
          var baseWX = (cssX - world.x) / world.scale.x, baseWY = (cssY - world.y) / world.scale.y;
          if (!cwd){ showErr('Pick a folder before dropping (you are at This PC).'); return; }
-         (async function(){ for (var i = 0; i < paths.length; i++){ try{ var name = await T.core.invoke('add_dropped_file', { dir: cwd, path: paths[i] }); if (cardForName(name)) continue; var it = { name: name, x: baseWX + i * 26, y: baseWY + i * 26, dir: false }; items.push(it); buildCard(it); }catch(e){ showErr('add_dropped_file: ' + e); } } persist(); })();
+         if (carry || confirming) return;
+         if (paths.length === 1){
+           T.core.invoke('add_dropped_file', { dir: cwd, path: paths[0] }).then(function(name){
+             var ex = cardForName(name); if (ex){ return; }
+             var it = { name: name, x: baseWX, y: baseWY, dir: false }; items.push(it); var card = buildCard(it);
+             startImportCarry(card, { x: cssX, y: cssY }); refreshPreview();
+           }).catch(function(e){ showErr('add_dropped_file: ' + e); });
+         } else {
+           (async function(){ for (var i = 0; i < paths.length; i++){ try{ var name = await T.core.invoke('add_dropped_file', { dir: cwd, path: paths[i] }); if (cardForName(name)) continue; var it = { name: name, x: baseWX + i * 26, y: baseWY + i * 26, dir: false }; items.push(it); buildCard(it); }catch(e){ showErr('add_dropped_file: ' + e); } } persist(); })();
+         }
        }catch(e){ showErr('drop: ' + e); }
      }
      function wireDrop(handler){
@@ -348,7 +387,7 @@
      }
 
      async function poll(){
-       if (carry) return;
+       if (carry || confirming) return;
        try{
          var list = JSON.parse(await T.core.invoke('list_dir', { dir: cwd }) || '[]');
          var present = {}, changed = false, edited = []; var have = {}; items.forEach(function(it){ have[it.name] = it; }); var n = items.length;
@@ -360,11 +399,11 @@
        }catch(e){ showErr('poll: ' + e); }
      }
 
-     try{ T.event.listen('layout-changed', function(e){ var k = e.payload && e.payload.key; if (k !== cwd) return; if (carry || panning){ reloadPending = true; return; } loadView(); }); }catch(e){ showErr('sync listen: ' + e); }
+     try{ T.event.listen('layout-changed', function(e){ var k = e.payload && e.payload.key; if (k !== cwd) return; if (carry || confirming || panning){ reloadPending = true; return; } loadView(); }); }catch(e){ showErr('sync listen: ' + e); }
      try{ T.event.listen('thumb-changed', function(e){ var p = e.payload || {}; if (p.key !== cwd || !p.name) return; delete thumbCache[cwd + '\u0000' + p.name]; var c = cardForName(p.name); if (c) applyThumb(c, cwd); }); }catch(_){}
 
      var diag = document.getElementById('diag');
-     app.ticker.add(function(){ diag.textContent = 'zoom ' + Math.round(world.scale.x * 100) + '%  items ' + items.length + (carry ? '  placing' : ''); });
+     app.ticker.add(function(){ diag.textContent = 'zoom ' + Math.round(world.scale.x * 100) + '%  items ' + items.length + (carry ? '  ' + carry.source : ''); });
 
      (async function(){
        try{ placesList = JSON.parse(await T.core.invoke('places') || '[]'); }catch(e){ showErr('places: ' + e); }

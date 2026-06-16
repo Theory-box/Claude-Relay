@@ -304,6 +304,15 @@ fn shell_verb(_app: tauri::AppHandle, dir: String, name: String, verb: String) -
 }
 
 #[tauri::command]
+fn delete_file(_app: tauri::AppHandle, dir: String, name: String) -> Result<(), String> {
+    let p = PathBuf::from(&dir).join(&name);
+    if p.is_file() {
+        fs::remove_file(&p).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
 fn save_layout(app: tauri::AppHandle, key: String, data: String) -> Result<(), String> {
     let f = layout_file(&app, &key)?;
     if let Some(parent) = f.parent() { fs::create_dir_all(parent).map_err(|e| e.to_string())?; }
@@ -321,7 +330,7 @@ fn main() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
             quit, places, list_dir, add_dropped_file, make_folder, move_into, trash_item,
-            clear_trash, open_trash, thumb_data, open_item, open_folder, shell_verb, save_layout, load_layout
+            clear_trash, open_trash, thumb_data, open_item, open_folder, shell_verb, delete_file, save_layout, load_layout
         ])
         .setup(|app| {
             let handle = app.handle().clone();

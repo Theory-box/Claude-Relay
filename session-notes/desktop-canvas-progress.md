@@ -178,3 +178,15 @@ Stack: Tauri v2 (Rust + WebView2), PixiJS planned for canvas. Windows-only.
 - poll/layout-changed suppressed during carry (reloadPending applied on commit/cancel).
 - Scope: applies to MOVING existing items. OS imports still place immediately (carry for
   fresh imports is a possible follow-up). No grid snapping yet (next: snap() + guides).
+
+## v0.0.14 — drag semantics split + folder-move confirm
+- Existing canvas items: plain click-drag, commits IMMEDIATELY on release (no sticky/second-click).
+  Engine preview (Free/Fit/Push) still applies live during the drag; Esc cancels mid-drag (revert).
+- Sticky float (release -> rides cursor -> left-click confirm / right-click cancel) is now ONLY for
+  files dragged IN from Explorer. Single-file import enters float; right-click cancel deletes the
+  freshly-copied file (delete_file cmd) so nothing is left behind. Multi-file import still placed at once.
+- Moving a file/folder INTO a folder now shows a confirm dialog ("Move X into Y?" Move/Cancel) before
+  acting, for both move and import sources. Cancel: move -> revert to snapshot; import -> return to float.
+  Trash drops are not gated (per request). Dialog: HTML modal, Enter=Move / Esc=Cancel.
+- Added `confirming` flag; poll/layout-changed/grab/pan all suppressed while a dialog is open.
+- Backend: added delete_file(dir,name) (permanent remove of a file) + registered in handler.
