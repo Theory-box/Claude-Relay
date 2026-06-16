@@ -218,3 +218,25 @@ Stack: Tauri v2 (Rust + WebView2), PixiJS planned for canvas. Windows-only.
   size/mtime/dir for sort keys.
 - Removed the +Folder bar button; New Folder now lives in the empty-space menu via a prompt
   dialog (modal with text input). Tidy-up exposes relaxLayout on demand.
+
+## v0.0.17 — FIX reload-storm "explosion"; safety confinement to canvas folder
+- ROOT CAUSE of the explosion/lag/duplicate-cards in v0.0.16: loadView() called
+  relaxLayout(true) which persist()ed, and persist() broadcasts 'layout-changed';
+  the listener reacts to that by calling loadView() again -> relax -> persist ->
+  broadcast -> ... a self/cross-window feedback loop. With 3 windows it grew
+  exponentially; cards were rebuilt faster than cleared (looked like 50 cards for
+  20 files) and periodic reloads looked like "reset & explode". Never touched disk.
+- FIX: (a) saveLayout(broadcast) split out; relax-on-open saves QUIET (no broadcast).
+  (b) emits tagged with a per-window myId; listener ignores its own broadcasts.
+  (c) sync-triggered reloads use loadView(true) which SKIPS relax (no churn).
+  (d) load-generation token (loadSeq) + loading flag: async loads abort if superseded,
+  and poll/sync are gated on `loading`, so overlapping loads can't stack duplicate cards.
+- SAFETY: added SAFE_MODE (const true) + in_root(app,dir) guard in main.rs. Every
+  path command (list_dir, add_dropped_file, make_folder, move_into, trash_item,
+  thumb_data, open_item, open_folder, shell_verb, delete_file) now rejects anything
+  outside the Desktop Canvas folder (canonicalized prefix check). places() returns only
+  the canvas home in safe mode. Frontend: navigate() clamps to the home subtree,
+  breadcrumbs are home-relative ("Desktop Canvas > sub > ..."), Up hidden at home.
+  Generalized filesystem code is intact behind SAFE_MODE=false.
+- Selection/active-items (click=active, shift=add, ctrl=remove, box-select, ctrl-box
+  =subtract; Blender-style) requested — DEFERRED per user.

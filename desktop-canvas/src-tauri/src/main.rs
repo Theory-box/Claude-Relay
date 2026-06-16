@@ -15,6 +15,18 @@ fn canvas_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     Ok(dir)
 }
 
+// Safety: while SAFE_MODE is true, every file operation is confined to the
+// Desktop Canvas folder tree. Flip to false to restore full filesystem access.
+const SAFE_MODE: bool = true;
+fn in_root(app: &tauri::AppHandle, dir: &str) -> Result<(), String> {
+    if !SAFE_MODE { return Ok(()); }
+    let root = canvas_dir(app)?.canonicalize().map_err(|e| e.to_string())?;
+    let d = PathBuf::from(dir)
+        .canonicalize()
+        .map_err(|_| "Blocked: outside the Desktop Canvas folder".to_string())?;
+    if d == root || d.starts_with(&root) { Ok(()) } else { Err("Blocked: outside the Desktop Canvas folder".into()) }
+}
+
 fn b64(data: &[u8]) -> String {
     const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut out = String::with_capacity((data.len() + 2) / 3 * 4);
@@ -174,13 +186,15 @@ fn quit(app: tauri::AppHandle) { app.exit(0); }
 fn places(app: tauri::AppHandle) -> Result<String, String> {
     let mut v: Vec<Place> = Vec::new();
     if let Ok(p) = canvas_dir(&app) { v.push(Place { label: "Desktop Canvas".into(), path: p.to_string_lossy().to_string() }); }
-    let path = app.path();
-    if let Ok(p) = path.home_dir() { v.push(Place { label: "Home".into(), path: p.to_string_lossy().to_string() }); }
-    if let Ok(p) = path.desktop_dir() { v.push(Place { label: "Desktop".into(), path: p.to_string_lossy().to_string() }); }
-    if let Ok(p) = path.download_dir() { v.push(Place { label: "Downloads".into(), path: p.to_string_lossy().to_string() }); }
-    if let Ok(p) = path.document_dir() { v.push(Place { label: "Documents".into(), path: p.to_string_lossy().to_string() }); }
-    v.push(Place { label: "This PC".into(), path: String::new() });
-    for d in drives() { v.push(Place { label: d.clone(), path: d }); }
+    if !SAFE_MODE {
+        let path = app.path();
+        if let Ok(p) = path.home_dir() { v.push(Place { label: "Home".into(), path: p.to_string_lossy().to_string() }); }
+        if let Ok(p) = path.desktop_dir() { v.push(Place { label: "Desktop".into(), path: p.to_string_lossy().to_string() }); }
+        if let Ok(p) = path.download_dir() { v.push(Place { label: "Downloads".into(), path: p.to_string_lossy().to_string() }); }
+        if let Ok(p) = path.document_dir() { v.push(Place { label: "Documents".into(), path: p.to_string_lossy().to_string() }); }
+        v.push(Place { label: "This PC".into(), path: String::new() });
+        for d in drives() { v.push(Place { label: d.clone(), path: d }); }
+    }
     serde_json::to_string(&v).map_err(|e| e.to_string())
 }
 
@@ -188,9 +202,11 @@ fn places(app: tauri::AppHandle) -> Result<String, String> {
 fn list_dir(app: tauri::AppHandle, dir: String) -> Result<String, String> {
     let mut out: Vec<Entry> = Vec::new();
     if dir.is_empty() {
+        if SAFE_MODE { return Err("Blocked: outside the Desktop Canvas folder".into()); }
         for d in drives() { out.push(Entry { name: d.clone(), mtime: 0, dir: true, size: 0 }); }
         return serde_json::to_string(&out).map_err(|e| e.to_string());
     }
+    in_root(&app, &dir)?;
     let p = PathBuf::from(&dir);
     let home = canvas_dir(&app).ok();
     if p.is_dir() {
@@ -213,7 +229,7 @@ fn list_dir(app: tauri::AppHandle, dir: String) -> Result<String, String> {
 
 #[tauri::command]
 fn add_dropped_file(app: tauri::AppHandle, dir: String, path: String) -> Result<String, String> {
-    let _ = &app;
+    in_root(&app, &dir)?;
     let src = PathBuf::from(&path);
     if !src.is_file() { return Err(format!("not a file: {}", path)); }
     let name = src.file_name().ok_or("no file name")?.to_string_lossy().to_string();
@@ -225,7 +241,8 @@ fn add_dropped_file(app: tauri::AppHandle, dir: String, path: String) -> Result<
 }
 
 #[tauri::command]
-fn make_folder(_app: tauri::AppHandle, dir: String, name: String) -> Result<String, String> {
+fn make_folder(app: tauri::AppHandle, dir: String, name: String) -> Result<String, String> {
+    in_root(&app, &dir)?;
     let base = PathBuf::from(&dir);
     let clean = name.trim();
     let clean = if clean.is_empty() { "New Folder" } else { clean };
@@ -235,7 +252,8 @@ fn make_folder(_app: tauri::AppHandle, dir: String, name: String) -> Result<Stri
 }
 
 #[tauri::command]
-fn move_into(_app: tauri::AppHandle, dir: String, name: String, folder: String) -> Result<(), String> {
+fn move_into(app: tauri::AppHandle, dir: String, name: String, folder: String) -> Result<(), String> {
+    in_root(&app, &dir)?;
     let base = PathBuf::from(&dir);
     let src = base.join(&name);
     if !src.exists() { return Ok(()); }
@@ -247,6 +265,7 @@ fn move_into(_app: tauri::AppHandle, dir: String, name: String, folder: String) 
 
 #[tauri::command]
 fn trash_item(app: tauri::AppHandle, dir: String, name: String) -> Result<(), String> {
+    in_root(&app, &dir)?;
     let src = PathBuf::from(&dir).join(&name);
     if !src.exists() { return Ok(()); }
     let trash = canvas_dir(&app)?.join("Trash Can");
@@ -276,28 +295,32 @@ fn open_trash(app: tauri::AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn thumb_data(_app: tauri::AppHandle, dir: String, name: String) -> Result<String, String> {
+fn thumb_data(app: tauri::AppHandle, dir: String, name: String) -> Result<String, String> {
+    in_root(&app, &dir)?;
     let p = PathBuf::from(&dir).join(&name);
     if !p.exists() { return Ok(String::new()); }
     Ok(shell_thumb(&p).unwrap_or_default())
 }
 
 #[tauri::command]
-fn open_item(_app: tauri::AppHandle, dir: String, name: String) -> Result<(), String> {
+fn open_item(app: tauri::AppHandle, dir: String, name: String) -> Result<(), String> {
+    in_root(&app, &dir)?;
     let p = PathBuf::from(&dir).join(&name);
     std::process::Command::new("cmd").args(["/C", "start", "", &p.to_string_lossy()]).spawn().map_err(|e| e.to_string())?;
     Ok(())
 }
 
 #[tauri::command]
-fn open_folder(_app: tauri::AppHandle, dir: String) -> Result<(), String> {
+fn open_folder(app: tauri::AppHandle, dir: String) -> Result<(), String> {
+    in_root(&app, &dir)?;
     let p = PathBuf::from(&dir);
     std::process::Command::new("explorer").arg(p.to_string_lossy().to_string()).spawn().map_err(|e| e.to_string())?;
     Ok(())
 }
 
 #[tauri::command]
-fn shell_verb(_app: tauri::AppHandle, dir: String, name: String, verb: String) -> Result<(), String> {
+fn shell_verb(app: tauri::AppHandle, dir: String, name: String, verb: String) -> Result<(), String> {
+    in_root(&app, &dir)?;
     let p = PathBuf::from(&dir).join(&name);
     if !p.exists() { return Err("file not found".into()); }
     run_verb(&p, &verb);
@@ -305,7 +328,8 @@ fn shell_verb(_app: tauri::AppHandle, dir: String, name: String, verb: String) -
 }
 
 #[tauri::command]
-fn delete_file(_app: tauri::AppHandle, dir: String, name: String) -> Result<(), String> {
+fn delete_file(app: tauri::AppHandle, dir: String, name: String) -> Result<(), String> {
+    in_root(&app, &dir)?;
     let p = PathBuf::from(&dir).join(&name);
     if p.is_file() {
         fs::remove_file(&p).map_err(|e| e.to_string())?;

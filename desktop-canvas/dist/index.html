@@ -109,11 +109,11 @@
        if (trashNode){ for (var k = 0; k < cards.length; k++){ var tv = mtv(rectOf(trashNode), rectOf(cards[k])); if (tv){ cards[k].x += tv.dx; cards[k].y += tv.dy; moved = true; } } }
        return moved;
      }
-     function relaxLayout(doPersist){
+     function relaxLayout(saveMode){
        if (carry || confirming || animating) return;
        for (var pass = 0; pass < 60; pass++){ if (!separateOnce()) break; }
        cards.forEach(function(c){ if (c.__item){ c.__item.x = c.x; c.__item.y = c.y; } });
-       if (doPersist) persist();
+       if (saveMode === 'quiet') saveLayout(false); else if (saveMode === 'broadcast') saveLayout(true);
      }
 
      // ---------- thumbnails ----------
@@ -167,31 +167,41 @@
        attachGrab(t); world.addChild(t); return t;
      }
 
-     function persist(){
-       try{ return T.core.invoke('save_layout', { key: cwd, data: JSON.stringify({ items: items, trash: trash }) }).then(function(){ try{ T.event.emit('layout-changed', { key: cwd }); }catch(_){} }).catch(function(e){ showErr('save_layout: ' + e); }); }catch(e){ showErr('persist: ' + e); }
+     var myId = Math.random().toString(36).slice(2);
+     function saveLayout(broadcast){
+       try{ return T.core.invoke('save_layout', { key: cwd, data: JSON.stringify({ items: items, trash: trash }) }).then(function(){ if (broadcast){ try{ T.event.emit('layout-changed', { key: cwd, from: myId }); }catch(_){} } }).catch(function(e){ showErr('save_layout: ' + e); }); }catch(e){ showErr('persist: ' + e); }
      }
+     function persist(){ return saveLayout(true); }
      function clearView(){
        for (var i = 0; i < cards.length; i++){ try{ world.removeChild(cards[i]); cards[i].destroy({ children: true }); }catch(_){} }
        cards = []; items = []; mtimes = {}; meta = {};
        if (trashNode){ try{ world.removeChild(trashNode); trashNode.destroy({ children: true }); }catch(_){} trashNode = null; }
        hl.visible = false; sortAnim = null; animating = false;
      }
-     async function loadView(){
+     var loadSeq = 0, loading = false;
+     async function loadView(fromSync){
+       var seq = ++loadSeq; loading = true;
        clearView();
        var posmap = {};
        try{ var s = await T.core.invoke('load_layout', { key: cwd }); var p = JSON.parse(s || '{}'); var arr = Array.isArray(p) ? p : (p.items || []); arr.forEach(function(it){ posmap[it.name] = { x: it.x, y: it.y }; }); if (!Array.isArray(p) && p.trash) trash = p.trash; }catch(e){ showErr('load_layout: ' + e); }
+       if (seq !== loadSeq) return;
        var list = [];
        try{ list = JSON.parse(await T.core.invoke('list_dir', { dir: cwd }) || '[]'); }catch(e){ showErr('list_dir: ' + e); }
+       if (seq !== loadSeq) return;
        var n = 0;
        list.forEach(function(f){ var pos = posmap[f.name] || { x: 40 + (n % 6) * 250, y: 40 + Math.floor(n / 6) * 200 }; n++; var it = { name: f.name, x: pos.x, y: pos.y, dir: f.dir }; items.push(it); buildCard(it); mtimes[f.name] = f.mtime; meta[f.name] = { size: f.size || 0, mtime: f.mtime || 0, dir: f.dir }; });
        if (cwd && cwd === homePath) trashNode = buildTrash();
        updateBar();
-       // de-overlap on open (no-op when already clean); second pass after thumbnails grow cards
-       relaxLayout(true);
-       var openedFor = cwd;
-       setTimeout(function(){ if (cwd === openedFor && !carry && !confirming && !animating) relaxLayout(true); }, 750);
+       loading = false;
+       if (!fromSync){ // de-overlap on open only (never on a sync-triggered reload -> avoids cross-window churn)
+         relaxLayout('quiet');
+         var openedFor = cwd, mseq = seq;
+         setTimeout(function(){ if (mseq === loadSeq && cwd === openedFor && !carry && !confirming && !animating) relaxLayout('quiet'); }, 750);
+       }
      }
-     function navigate(dir){ if (carry) cancelCarry(); cwd = dir || ''; loadView(); }
+     function norm(p){ return (p || '').replace(/\//g, '\\').replace(/\\+$/, ''); }
+     function inRoot(dir){ var d = norm(dir).toLowerCase(), h = norm(homePath).toLowerCase(); return !h || d === h || d.indexOf(h + '\\') === 0; }
+     function navigate(dir){ if (carry) cancelCarry(); dir = dir || homePath; if (!inRoot(dir)) dir = homePath; cwd = dir; loadView(); }
 
      function cardForName(name){ for (var i = 0; i < cards.length; i++){ if (cards[i].__item && cards[i].__item.name === name) return cards[i]; } return null; }
      function removeCardLocal(card){ var it = card.__item; var ii = items.indexOf(it); if (ii >= 0) items.splice(ii, 1); var ci = cards.indexOf(card); if (ci >= 0) cards.splice(ci, 1); world.removeChild(card); card.destroy({ children: true }); delete mtimes[it.name]; delete meta[it.name]; }
@@ -253,7 +263,7 @@
        }
      }
      function refreshPreview(){ if (carry && lastCursor && (carry.moved || carry.phase === 'float')){ var wx = (lastCursor.x - world.x) / world.scale.x, wy = (lastCursor.y - world.y) / world.scale.y; resolveCarry({ x: wx - carry.offset.x, y: wy - carry.offset.y }); } }
-     function endCarry(){ if (carry && carry.card) carry.card.alpha = 1; hl.visible = false; carry = null; updateHud(); if (reloadPending){ reloadPending = false; loadView(); } }
+     function endCarry(){ if (carry && carry.card) carry.card.alpha = 1; hl.visible = false; carry = null; updateHud(); if (reloadPending){ reloadPending = false; loadView(true); } }
      function placePlain(){ var held = carry.card; if (held.__trash){ trash.x = held.x; trash.y = held.y; } else { cards.forEach(function(c){ if (c.__item){ c.__item.x = c.x; c.__item.y = c.y; } }); } endCarry(); persist(); }
      function commitCarry(){
        if (!carry || confirming) return;
@@ -274,7 +284,7 @@
        if (!carry) return;
        if (carry.source === 'import'){ var c = carry.card, nm = c.__item.name; T.core.invoke('delete_file', { dir: cwd, name: nm }).catch(function(e){ showErr('del: ' + e); }); removeCardLocal(c); }
        else { cards.forEach(function(c){ var s = carry.snap[c.__item.name]; if (s){ c.x = s.x; c.y = s.y; } }); if (carry.snap.__trash && trashNode){ trashNode.x = carry.snap.__trash.x; trashNode.y = carry.snap.__trash.y; } if (carry.card) carry.card.alpha = 1; }
-       hl.visible = false; carry = null; updateHud(); if (reloadPending){ reloadPending = false; loadView(); }
+       hl.visible = false; carry = null; updateHud(); if (reloadPending){ reloadPending = false; loadView(true); }
      }
 
      // ---------- collision-driven sort ----------
@@ -370,7 +380,7 @@
      function openEmptyMenu(x, y){
        menuTarget = null; menu.innerHTML = '';
        menu.appendChild(mkBtn('New Folder', '', function(){ hideMenu(); promptDialog('New folder name', 'New Folder', 'Create', function(name){ createFolder(name); }); }));
-       menu.appendChild(mkBtn('Tidy up (remove overlaps)', '', function(){ hideMenu(); relaxLayout(true); }));
+       menu.appendChild(mkBtn('Tidy up (remove overlaps)', '', function(){ hideMenu(); relaxLayout('broadcast'); }));
        var sortBtn = document.createElement('button'); sortBtn.innerHTML = 'Sort by <span class="arrow">\u25B8</span>';
        sortBtn.addEventListener('click', function(ev){ ev.stopPropagation(); showSortFlyout(sortBtn); });
        sortBtn.addEventListener('mouseenter', function(){ showSortFlyout(sortBtn); });
@@ -411,17 +421,21 @@
      var upBtn = document.getElementById('up'), crumbs = document.getElementById('crumbs');
      var placesBtn = document.getElementById('placesBtn'), placesMenu = document.getElementById('placesMenu'), gotoBtn = document.getElementById('goto'), pathInput = document.getElementById('pathInput'), hud = document.getElementById('hud');
      function updateBar(){
-       upBtn.style.visibility = cwd ? 'visible' : 'hidden'; crumbs.innerHTML = '';
+       var hn = norm(homePath), cn = norm(cwd);
+       upBtn.style.visibility = (cn.toLowerCase() !== hn.toLowerCase()) ? 'visible' : 'hidden';
+       crumbs.innerHTML = '';
        function crumb(label, target, isLast){ var s = document.createElement('span'); s.textContent = label; s.className = 'crumb' + (isLast ? ' last' : ''); if (!isLast) s.addEventListener('click', function(){ navigate(target); }); crumbs.appendChild(s); }
-       var norm = cwd.replace(/\//g, '\\').replace(/\\+$/, ''); var parts = norm ? norm.split('\\').filter(Boolean) : [];
-       crumb('This PC', '', parts.length === 0); var acc = '';
-       parts.forEach(function(seg, i){ var sep = document.createElement('span'); sep.textContent = '  \u203a  '; sep.className = 'sep2'; crumbs.appendChild(sep); if (i === 0){ acc = seg; crumb(seg, seg + '\\', i === parts.length - 1); } else { acc = acc + '\\' + seg; crumb(seg, acc, i === parts.length - 1); } });
+       var rel = (cn.toLowerCase() === hn.toLowerCase()) ? '' : cn.slice(hn.length).replace(/^\\+/, '');
+       var parts = rel ? rel.split('\\').filter(Boolean) : [];
+       crumb('Desktop Canvas', homePath, parts.length === 0);
+       var acc = hn;
+       parts.forEach(function(seg, i){ var sep = document.createElement('span'); sep.textContent = '  \u203a  '; sep.className = 'sep2'; crumbs.appendChild(sep); acc = acc + '\\' + seg; crumb(seg, acc, i === parts.length - 1); });
      }
      function updateHud(){
        if (animating){ hud.textContent = 'Sorting\u2026 (Esc to snap)'; }
        else if (carry && carry.source === 'import'){ hud.textContent = 'Placing imported file [' + modeLabel() + ']  \u00b7  left-click confirm  \u00b7  right-click cancel  \u00b7  T cycle  \u00b7  Free mode (1) to drop into a folder'; }
        else if (carry){ hud.textContent = 'Moving [' + modeLabel() + ']  \u00b7  release to drop  \u00b7  T cycle (1 Free / 2 Fit / 3 Push)  \u00b7  Free mode to drop into a folder  \u00b7  Esc cancel'; }
-       else { hud.textContent = 'v0.0.16  \u00b7  click-drag to move  \u00b7  middle-drag to pan  \u00b7  right-click empty space for sort & new folder  \u00b7  mode: ' + modeLabel() + ' (T while moving)'; }
+       else { hud.textContent = 'v0.0.17  \u00b7  click-drag to move  \u00b7  middle-drag to pan  \u00b7  right-click empty space for sort / new folder / tidy  \u00b7  mode: ' + modeLabel() + ' (T while moving)'; }
      }
      upBtn.addEventListener('click', function(){ navigate(parentOf(cwd)); });
      placesBtn.addEventListener('click', function(ev){ ev.stopPropagation(); if (placesMenu.style.display === 'block'){ placesMenu.style.display = 'none'; return; } placesMenu.innerHTML = ''; placesList.forEach(function(pl){ placesMenu.appendChild(mkBtn(pl.label, '', function(){ navigate(pl.path); placesMenu.style.display = 'none'; })); }); var r = placesBtn.getBoundingClientRect(); placesMenu.style.left = r.left + 'px'; placesMenu.style.top = (r.bottom + 4) + 'px'; placesMenu.style.display = 'block'; });
@@ -455,7 +469,7 @@
      }
 
      async function poll(){
-       if (carry || confirming || animating) return;
+       if (carry || confirming || animating || loading) return;
        try{
          var list = JSON.parse(await T.core.invoke('list_dir', { dir: cwd }) || '[]');
          var present = {}, changed = false, edited = []; var have = {}; items.forEach(function(it){ have[it.name] = it; }); var n = items.length;
@@ -467,7 +481,7 @@
        }catch(e){ showErr('poll: ' + e); }
      }
 
-     try{ T.event.listen('layout-changed', function(e){ var k = e.payload && e.payload.key; if (k !== cwd) return; if (carry || confirming || animating || panning){ reloadPending = true; return; } loadView(); }); }catch(e){ showErr('sync listen: ' + e); }
+     try{ T.event.listen('layout-changed', function(e){ var pl = e.payload || {}; if (pl.from === myId) return; if (pl.key !== cwd) return; if (carry || confirming || animating || panning || loading){ reloadPending = true; return; } loadView(true); }); }catch(e){ showErr('sync listen: ' + e); }
      try{ T.event.listen('thumb-changed', function(e){ var p = e.payload || {}; if (p.key !== cwd || !p.name) return; delete thumbCache[cwd + '\u0000' + p.name]; var c = cardForName(p.name); if (c) applyThumb(c, cwd); }); }catch(_){}
 
      var diag = document.getElementById('diag');
