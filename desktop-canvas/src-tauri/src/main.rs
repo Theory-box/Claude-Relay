@@ -466,18 +466,35 @@ fn load_layout(app: tauri::AppHandle, key: String) -> Result<String, String> {
 #[tauri::command]
 fn drag_out(window: tauri::WebviewWindow, paths: Vec<String>) -> Result<(), String> {
     if paths.is_empty() { return Err("no files".into()); }
-    let first = paths[0].clone();
     window.app_handle().run_on_main_thread(move || {
         use std::os::windows::ffi::OsStrExt;
         use windows::core::PCWSTR;
-        use windows::Win32::System::Com::IDataObject;
+        use windows::Win32::System::Com::{IDataObject, CoTaskMemFree};
         use windows::Win32::System::Ole::{OleInitialize, DROPEFFECT_COPY, DROPEFFECT_LINK};
-        use windows::Win32::UI::Shell::{SHCreateItemFromParsingName, IShellItem, BHID_DataObject, SHDoDragDrop};
+        use windows::Win32::UI::Shell::{SHCreateItemFromParsingName, IShellItem, IShellItemArray, BHID_DataObject, SHDoDragDrop, SHParseDisplayName, SHCreateShellItemArrayFromIDLists};
+        use windows::Win32::UI::Shell::Common::ITEMIDLIST;
+        let to_wide = |s: &str| -> Vec<u16> { std::path::Path::new(s).as_os_str().encode_wide().chain(std::iter::once(0)).collect() };
         unsafe {
             let _ = OleInitialize(None);
-            let wide: Vec<u16> = std::path::Path::new(&first).as_os_str().encode_wide().chain(std::iter::once(0)).collect();
-            let item: IShellItem = match SHCreateItemFromParsingName(PCWSTR(wide.as_ptr()), None) { Ok(i) => i, Err(_) => return };
-            let data: IDataObject = match item.BindToHandler(None, &BHID_DataObject) { Ok(d) => d, Err(_) => return };
+            let data: IDataObject = if paths.len() == 1 {
+                let wide = to_wide(&paths[0]);
+                let item: IShellItem = match SHCreateItemFromParsingName(PCWSTR(wide.as_ptr()), None) { Ok(i) => i, Err(_) => return };
+                match item.BindToHandler(None, &BHID_DataObject) { Ok(d) => d, Err(_) => return }
+            } else {
+                let mut pidls: Vec<*const ITEMIDLIST> = Vec::new();
+                for p in &paths {
+                    let wide = to_wide(p);
+                    let mut pidl: *mut ITEMIDLIST = std::ptr::null_mut();
+                    if SHParseDisplayName(PCWSTR(wide.as_ptr()), None, &mut pidl, 0, std::ptr::null_mut()).is_ok() && !pidl.is_null() {
+                        pidls.push(pidl as *const ITEMIDLIST);
+                    }
+                }
+                if pidls.is_empty() { return; }
+                let made = SHCreateShellItemArrayFromIDLists(&pidls);
+                for pidl in &pidls { CoTaskMemFree(Some(*pidl as *const core::ffi::c_void)); }
+                let arr: IShellItemArray = match made { Ok(a) => a, Err(_) => return };
+                match arr.BindToHandler(None, &BHID_DataObject) { Ok(d) => d, Err(_) => return }
+            };
             let _ = SHDoDragDrop(None, Some(&data), None, DROPEFFECT_COPY | DROPEFFECT_LINK);
         }
     }).map_err(|e| e.to_string())

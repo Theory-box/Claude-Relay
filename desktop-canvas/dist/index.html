@@ -505,6 +505,7 @@
        menu.innerHTML = ''; sortMenu.style.display = 'none';
        var sel = []; selection.forEach(function(c){ if (c.__item && !c.__trash) sel.push(c); });
        var hdr = mkBtn(sel.length + ' items selected', '', function(){ hideMenu(); }); hdr.style.color = '#9aa0ab'; menu.appendChild(hdr);
+       menu.appendChild(mkDragOut(sel));
        menu.appendChild(mkSep());
        menu.appendChild(mkBtn('Copy', '', function(){ copyItems('copy', sel); hideMenu(); }));
        menu.appendChild(mkBtn('Copy as shortcut', '', function(){ copyItems('shortcut', sel); hideMenu(); }));
@@ -512,7 +513,7 @@
        if (writable){ menu.appendChild(mkSep()); menu.appendChild(mkBtn('Delete ' + sel.length + ' items', 'danger', function(){ var del = sel.slice(); hideMenu(); confirmDelete(del.length, function(){ selection.clear(); drawSelection(); updateHud(); Promise.all(del.map(function(c){ return T.core.invoke('trash_item', { dir: cwd, name: c.__item.name }).catch(function(e){ showErr('trash: ' + e); }); })).then(function(){ del.forEach(function(c){ removeCardLocal(c); }); persist(); }); }); })); }
        menu.style.left = x + 'px'; menu.style.top = y + 'px'; menu.style.display = 'block';
      }
-     function mkDragOut(tg){ var b = document.createElement('button'); b.innerHTML = '\u2197 Drag out to app'; b.title = 'Press and drag this onto another program (e.g. Blender). The card stays put.'; b.addEventListener('pointerdown', function(ev){ ev.stopPropagation(); var path = joinPath(cwd, tg.__item.name); hideMenu(); T.core.invoke('drag_out', { paths: [path] }).catch(function(e){ showErr('drag_out: ' + e); }); }); return b; }
+     function mkDragOut(list){ var b = document.createElement('button'); var n = list.length; b.innerHTML = n > 1 ? ('\u2197 Drag out ' + n + ' items') : '\u2197 Drag out to app'; b.title = 'Press and drag onto another program (e.g. Blender). Originals stay put.'; b.addEventListener('pointerdown', function(ev){ ev.stopPropagation(); var paths = list.map(function(c){ return joinPath(cwd, c.__item.name); }); hideMenu(); T.core.invoke('drag_out', { paths: paths }).catch(function(e){ showErr('drag_out: ' + e); }); }); return b; }
      function openMenu(x, y, target){
        menuTarget = target; menu.innerHTML = ''; sortMenu.style.display = 'none';
        if (target.__trash){
@@ -525,7 +526,7 @@
          var fname = target.__item.name;
          menu.appendChild(mkBtn('Open', '', function(){ navigate(joinPath(cwd, fname)); hideMenu(); }));
          menu.appendChild(mkBtn('Open in Explorer', '', function(){ T.core.invoke('open_folder', { dir: joinPath(cwd, fname) }); hideMenu(); }));
-         menu.appendChild(mkDragOut(target));
+         menu.appendChild(mkDragOut([target]));
          menu.appendChild(mkSep());
          menu.appendChild(mkBtn('Copy', '', function(){ copyItems('copy', [target]); hideMenu(); }));
          menu.appendChild(mkBtn('Copy as shortcut', '', function(){ copyItems('shortcut', [target]); hideMenu(); }));
@@ -536,7 +537,7 @@
          menu.appendChild(mkBtn('Open', '', function(){ hideMenu(); activateItem(target); }));
          menu.appendChild(mkBtn('Open with\u2026', '', function(){ T.core.invoke('shell_verb', { dir: cwd, name: name, verb: 'openas' }); hideMenu(); }));
          menu.appendChild(mkBtn('Open folder', '', function(){ T.core.invoke('open_folder', { dir: cwd }); hideMenu(); }));
-         menu.appendChild(mkDragOut(target));
+         menu.appendChild(mkDragOut([target]));
          menu.appendChild(mkSep());
          menu.appendChild(mkBtn('Copy', '', function(){ copyItems('copy', [target]); hideMenu(); }));
          menu.appendChild(mkBtn('Copy as shortcut', '', function(){ copyItems('shortcut', [target]); hideMenu(); }));
@@ -589,7 +590,7 @@
        else if (carry && carry.source === 'import'){ hud.textContent = 'Placing imported file [' + modeLabel() + ']  \u00b7  left-click confirm  \u00b7  right-click cancel  \u00b7  T toggle  \u00b7  Free mode (1) to drop into a folder'; }
        else if (carry){ hud.textContent = 'Moving ' + (carry.held.length > 1 ? carry.held.length + ' items ' : '') + '[' + (ctrlDown ? 'Free (Ctrl)' : modeLabel()) + ']  \u00b7  hold Ctrl = free / drop into folder  \u00b7  T toggle  \u00b7  release to drop  \u00b7  Esc cancel'; }
        else if (selection.size){ hud.textContent = selection.size + ' selected  \u00b7  drag = move  \u00b7  Ctrl+C copy / Ctrl+X cut  \u00b7  Del trash  \u00b7  Ctrl+F frame  \u00b7  Esc clear'; }
-       else { hud.textContent = 'v0.0.35  \u00b7  click = select  \u00b7  shift/ctrl = add/remove  \u00b7  drag empty = box select  \u00b7  middle-drag = pan  \u00b7  drag item = move  \u00b7  mode: ' + modeLabel() + (writable ? '' : '  \u00b7  read-only'); }
+       else { hud.textContent = 'v0.0.36  \u00b7  click = select  \u00b7  shift/ctrl = add/remove  \u00b7  drag empty = box select  \u00b7  middle-drag = pan  \u00b7  drag item = move  \u00b7  mode: ' + modeLabel() + (writable ? '' : '  \u00b7  read-only'); }
      }
      upBtn.addEventListener('click', function(){ navigate(parentOf(cwd)); });
      gotoBtn.addEventListener('click', function(){ if (pathInput.style.display === 'none'){ pathInput.style.display = 'inline-block'; pathInput.value = cwd; pathInput.focus(); pathInput.select(); } else { navigate(pathInput.value.trim()); pathInput.style.display = 'none'; } });
