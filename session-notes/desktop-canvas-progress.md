@@ -144,3 +144,19 @@ Stack: Tauri v2 (Rust + WebView2), PixiJS planned for canvas. Windows-only.
   trash. Each window navigates independently; sync events ('layout-changed','thumb-changed')
   are now KEYED by folder so only same-folder windows react. Each window polls its own cwd.
 - Trash Can shown only at root. Fixed "Open with" by adding CoInitializeEx in run_verb.
+
+## v0.0.12 — browse the whole filesystem (absolute paths)
+- Backend now absolute-path based: cwd is a full path. list_dir(dir) lists any folder;
+  dir="" => This PC (drives via GetLogicalDrives, feature Win32_Storage_FileSystem).
+  All file ops take `dir` (absolute) instead of a Desktop-Canvas-relative `rel`.
+  New places() cmd returns quick links: Desktop Canvas (home/start), Home, Desktop,
+  Downloads, Documents, This PC, + drives.
+- Layouts/metadata still central (app_data_dir/layouts keyed by the absolute path),
+  so real folders (Downloads, etc.) stay clean. NOTE: keying changed again => previous
+  positions reset once more; now stable (keyed by absolute path).
+- Frontend: absolute joinPath/parentOf, breadcrumbs start at "This PC" then drive then
+  segments. Address bar gains a Places dropdown and a "Go to..." path box (type/paste).
+  Trash Can shows only at the Desktop Canvas home. Dropping while at This PC is blocked
+  (no folder). Default landing = Desktop Canvas home.
+- trash_item from any folder still moves into the Desktop Canvas/Trash Can (one app trash;
+  real Recycle Bin integration could come later via IFileOperation).
