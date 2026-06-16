@@ -356,3 +356,11 @@ Stack: Tauri v2 (Rust + WebView2), PixiJS planned for canvas. Windows-only.
   OPEN QUESTION asked: should folder-shortcuts instead navigate in-canvas?
 - TODO added: back button (history), native copy progress dialog + non-freezing copy, undo/redo for
   placement/movement only.
+
+## v0.0.27 — auto-frame on navigation
+- frameAll(): fits all cards to view (margin 90, zoom cap 2.2x); empty folder -> neutral scale-1 view.
+- Called ~140ms after a user navigation finishes building (guarded by seq===loadSeq && !carry), so it
+  reflects the settled layout. Skipped on fromSync background reloads so the camera isn't yanked while working.
+- Triggers on Up/breadcrumb/Places/Go to/space-switch (all go through navigate -> loadView).
+- DECISION (user): folder-shortcuts should act as in-canvas BOOKMARKS (resolve .lnk -> navigate in canvas)
+  while remaining real Explorer .lnk files. Queued as next dedicated build (needs resolve_lnk backend).

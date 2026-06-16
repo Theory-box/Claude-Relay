@@ -219,6 +219,8 @@
          if (!fromSync){ // de-overlap after first paint, time-budgeted; second pass catches thumbnail growth
            scheduleRelax(cwd, seq);
            setTimeout(function(){ relaxBudgeted(cwd, seq, 0, false); }, 900);
+           // auto-frame everything on open / space switch (after the first relax pass settles)
+           setTimeout(function(){ if (seq === loadSeq && !carry) frameAll(); }, 140);
          }
        }
        buildChunk();
@@ -629,6 +631,17 @@
        list.forEach(function(c){ var w = c.hitArea.width, h = c.hitArea.height; minX = Math.min(minX, c.x); minY = Math.min(minY, c.y); maxX = Math.max(maxX, c.x + w); maxY = Math.max(maxY, c.y + h); });
        var bw = Math.max(1, maxX - minX), bh = Math.max(1, maxY - minY), margin = 90;
        var sw = app.screen.width, sh = app.screen.height;
+       var sc = Math.max(0.05, Math.min((sw - 2 * margin) / bw, (sh - 2 * margin) / bh, 2.2));
+       var cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
+       camTween = { s: sc, x: sw / 2 - cx * sc, y: sh / 2 - cy * sc, f: 16 };
+     }
+     function frameAll(){
+       var list = cards.filter(function(c){ return c.__item; });
+       var sw = app.screen.width, sh = app.screen.height;
+       if (!list.length){ camTween = { s: 1, x: sw / 2 - 200, y: sh / 2 - 150, f: 16 }; return; }
+       var minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+       list.forEach(function(c){ var w = c.hitArea.width, h = c.hitArea.height; minX = Math.min(minX, c.x); minY = Math.min(minY, c.y); maxX = Math.max(maxX, c.x + w); maxY = Math.max(maxY, c.y + h); });
+       var bw = Math.max(1, maxX - minX), bh = Math.max(1, maxY - minY), margin = 90;
        var sc = Math.max(0.05, Math.min((sw - 2 * margin) / bw, (sh - 2 * margin) / bh, 2.2));
        var cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
        camTween = { s: sc, x: sw / 2 - cx * sc, y: sh / 2 - cy * sc, f: 16 };

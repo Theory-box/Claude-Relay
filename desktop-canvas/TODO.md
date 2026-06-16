@@ -83,6 +83,9 @@ Running list of deferred work and ideas. Newest context at top of each section.
   confined to canvas; OFF = edit anywhere with confirms for delete/paste OUTSIDE canvas and
   for large deletes (>=10), plus an 'editing outside canvas' marker. Reads always open.
 
+## v0.0.27 done
+- [x] Auto-frame everything on folder open / space switch (user navigation only, not background sync).
+
 ## v0.0.26 done
 - [x] Copy as shortcut (creates real Windows .lnk via WScript.Shell; paste places shortcut).
 - [x] Paste confirm when total size > 1 GiB (and/or pasting outside the canvas folder).
@@ -92,4 +95,7 @@ Running list of deferred work and ideas. Newest context at top of each section.
 - [ ] Copy/paste should use the native Windows progress dialog AND not freeze the canvas
       (likely IFileOperation COM on a worker thread).
 - [ ] Undo / redo for ITEM PLACEMENT + MOVEMENT only (skip copy/paste undo for now).
-- [ ] CLARIFY: double-clicking a folder-shortcut -> open in Explorer (current) vs navigate in-canvas?
+- [ ] NEXT: folder-shortcut (.lnk) = in-canvas bookmark. Double-clicking a .lnk whose target is a
+      FOLDER should resolve the target and navigate INSIDE the canvas (not launch Explorer); .lnk to a
+      FILE still opens normally. Keep them real .lnk files on disk (work as Explorer shortcuts too).
+      Needs backend resolve_lnk(path)->{target,dir} (WScript.Shell .TargetPath) + double-click routing.
