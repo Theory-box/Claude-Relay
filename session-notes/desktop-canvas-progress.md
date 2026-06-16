@@ -481,3 +481,15 @@ OPEN (needs user test): whether the native drag reliably attaches to the in-prog
 small pointerdown->IPC->main-thread delay. If it doesn't fire on first press, that timing is the cause.
 NEXT if it works: multi-select drag-out (paths from selection), and use the card's real thumbnail as the
 drag image instead of the app icon.
+
+## v0.0.36 — multi-select drag-out
+Frontend: mkDragOut(list) generalized to take a list of cards; single-item menu calls mkDragOut([target]);
+selection menu (openSelectionMenu) gets a "↗ Drag out N items" entry placed right under the header (top,
+far from the Delete-N-items at the bottom). Drags ALL selected items (user accepts that mixing e.g. objs+
+images into Blender at once is on them).
+Rust drag_out: len==1 keeps the verified IShellItem path; len>1 builds PIDLs via SHParseDisplayName ->
+SHCreateShellItemArrayFromIDLists -> IShellItemArray::BindToHandler(BHID_DataObject) -> combined IDataObject
+-> SHDoDragDrop. PIDLs freed with CoTaskMemFree. Added windows feature Win32_UI_Shell_Common (ITEMIDLIST).
+Gotcha fixed: SHParseDisplayName's final psfgaoout arg is Option<*mut u32> (pass None).
+BUILT + DELIVERED DesktopCanvas-v0.0.36.exe (run 27642772503). v0.0.35 single-file confirmed working by
+user (images + objs). Drag-OUT feature now complete (single + multi).
