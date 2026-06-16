@@ -493,3 +493,20 @@ SHCreateShellItemArrayFromIDLists -> IShellItemArray::BindToHandler(BHID_DataObj
 Gotcha fixed: SHParseDisplayName's final psfgaoout arg is Option<*mut u32> (pass None).
 BUILT + DELIVERED DesktopCanvas-v0.0.36.exe (run 27642772503). v0.0.35 single-file confirmed working by
 user (images + objs). Drag-OUT feature now complete (single + multi).
+
+## v0.0.40 — fix cross-pane zoom/scroll bleed
+Wheel handler was window-level (both panes reacted). Bound it to per-pane app.view so only the pane
+under the cursor zooms/pans. (Keyboard was already focus-guarded; wheel was the last window-level holdout.)
+
+## v0.0.41 — session restore (per window)
+Persist & restore where you were on relaunch: split state, divider ratio, focused pane index, and each
+pane's folder. NOT camera/zoom (folder auto-frames on open) — camera restore is a possible follow-up.
+- Rust: save_session(key,data)/load_session(key) -> app_data/sessions/<label>.json (mirrors save_layout;
+  load returns "null" when absent). Keyed by WINDOW LABEL so each monitor restores its own layout.
+- Frontend: WL = current webview label; debounced (450ms) saveSession() builds {split,ratio,focusedIdx,
+  panes:[cwd...]}; triggered from navTo/goBack/goForward/setFocus/doSplit/unsplit/divider-drag-end.
+  Launch: async IIFE loads session BEFORE building pane0 (passes saved cwd as opts.initPath), then if
+  split: set ratio, doSplit, navigate pane1 to saved cwd, relayout, restore focus.
+- Shared top menu bar (focused-pane-controlled) added to TODO.md (deferred).
+Split panes now: side-by-side, draggable divider, focus routing, per-pane menus/zoom, and session restore.
+Stage 3 still pending: edge-drag-to-split gesture, divider merge, stacked/recursive splits.
