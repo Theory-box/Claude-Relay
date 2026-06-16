@@ -78,8 +78,8 @@
      var trash = { x: -320, y: -210 }, trashNode = null;
      var panning = false, last = null, reloadPending = false, confirming = false, animating = false;
      var lastCursor = null, sortAnim = null;
-     var modes = ['free', 'fit', 'push'], modeIdx = 2; // default Push
-     function modeLabel(){ return ['Free', 'Fit', 'Push'][modeIdx]; }
+     var modes = ['free', 'push'], modeIdx = 1; // default Push (Fit removed)
+     function modeLabel(){ return ['Free', 'Push'][modeIdx]; }
      var carry = null;
 
      // ---------- engine primitives ----------
@@ -102,18 +102,23 @@
        return { x: near.x, y: near.y };
      }
      function rectOf(card){ return { x: card.x, y: card.y, w: card.hitArea.width, h: card.hitArea.height }; }
+     var PAD = 9; // breathing room kept between items during collision/separation
+     function padR(r){ return { x: r.x - PAD, y: r.y - PAD, w: r.w + 2 * PAD, h: r.h + 2 * PAD }; }
      // one pass of pairwise separation across all cards (trash pinned). returns true if anything moved.
      function separateOnce(){
        var moved = false;
-       for (var i = 0; i < cards.length; i++){ for (var j = i + 1; j < cards.length; j++){ var v = mtv(rectOf(cards[i]), rectOf(cards[j])); if (v){ cards[i].x -= v.dx/2; cards[i].y -= v.dy/2; cards[j].x += v.dx/2; cards[j].y += v.dy/2; moved = true; } } }
-       if (trashNode){ for (var k = 0; k < cards.length; k++){ var tv = mtv(rectOf(trashNode), rectOf(cards[k])); if (tv){ cards[k].x += tv.dx; cards[k].y += tv.dy; moved = true; } } }
+       for (var i = 0; i < cards.length; i++){ for (var j = i + 1; j < cards.length; j++){ var v = mtv(padR(rectOf(cards[i])), padR(rectOf(cards[j]))); if (v){ cards[i].x -= v.dx/2; cards[i].y -= v.dy/2; cards[j].x += v.dx/2; cards[j].y += v.dy/2; moved = true; } } }
+       if (trashNode){ for (var k = 0; k < cards.length; k++){ var tv = mtv(padR(rectOf(trashNode)), padR(rectOf(cards[k]))); if (tv){ cards[k].x += tv.dx; cards[k].y += tv.dy; moved = true; } } }
        return moved;
      }
-     function relaxLayout(saveMode){
-       if (carry || confirming || animating) return;
-       for (var pass = 0; pass < 60; pass++){ if (!separateOnce()) break; }
-       cards.forEach(function(c){ if (c.__item){ c.__item.x = c.x; c.__item.y = c.y; } });
-       if (saveMode === 'quiet') saveLayout(false); else if (saveMode === 'broadcast') saveLayout(true);
+     function scheduleRelax(forCwd, seq){ requestAnimationFrame(function(){ relaxBudgeted(forCwd, seq, 0, false); }); }
+     function relaxBudgeted(forCwd, seq, passDone, broadcast){
+       if (seq !== loadSeq || cwd !== forCwd || carry || confirming || animating) return;
+       var t0 = performance.now(), moved = true, passes = 0;
+       while (moved && passes < 8 && (performance.now() - t0) < 14){ moved = separateOnce(); passes++; }
+       passDone += passes;
+       if (moved && passDone < 140){ requestAnimationFrame(function(){ relaxBudgeted(forCwd, seq, passDone, broadcast); }); }
+       else { cards.forEach(function(c){ if (c.__item){ c.__item.x = c.x; c.__item.y = c.y; } }); saveLayout(!!broadcast); }
      }
 
      // ---------- thumbnails ----------
@@ -188,16 +193,20 @@
        var list = [];
        try{ list = JSON.parse(await T.core.invoke('list_dir', { dir: cwd }) || '[]'); }catch(e){ showErr('list_dir: ' + e); }
        if (seq !== loadSeq) return;
-       var n = 0;
-       list.forEach(function(f){ var pos = posmap[f.name] || { x: 40 + (n % 6) * 250, y: 40 + Math.floor(n / 6) * 200 }; n++; var it = { name: f.name, x: pos.x, y: pos.y, dir: f.dir }; items.push(it); buildCard(it); mtimes[f.name] = f.mtime; meta[f.name] = { size: f.size || 0, mtime: f.mtime || 0, dir: f.dir }; });
-       if (cwd && cwd === homePath) trashNode = buildTrash();
-       updateBar();
-       loading = false;
-       if (!fromSync){ // de-overlap on open only (never on a sync-triggered reload -> avoids cross-window churn)
-         relaxLayout('quiet');
-         var openedFor = cwd, mseq = seq;
-         setTimeout(function(){ if (mseq === loadSeq && cwd === openedFor && !carry && !confirming && !animating) relaxLayout('quiet'); }, 750);
+       var n = 0, bi = 0;
+       function buildChunk(){
+         if (seq !== loadSeq) return; // superseded by a newer load -> abort
+         var end = Math.min(bi + 40, list.length);
+         for (; bi < end; bi++){ var f = list[bi]; var pos = posmap[f.name] || { x: 40 + (n % 6) * 250, y: 40 + Math.floor(n / 6) * 200 }; n++; var it = { name: f.name, x: pos.x, y: pos.y, dir: f.dir }; items.push(it); buildCard(it); mtimes[f.name] = f.mtime; meta[f.name] = { size: f.size || 0, mtime: f.mtime || 0, dir: f.dir }; }
+         if (bi < list.length){ requestAnimationFrame(buildChunk); return; } // paint between batches -> progressive display
+         if (cwd && cwd === homePath) trashNode = buildTrash();
+         updateBar(); loading = false;
+         if (!fromSync){ // de-overlap after first paint, time-budgeted; second pass catches thumbnail growth
+           scheduleRelax(cwd, seq);
+           setTimeout(function(){ relaxBudgeted(cwd, seq, 0, false); }, 900);
+         }
        }
+       buildChunk();
      }
      function norm(p){ return (p || '').replace(/\//g, '\\').replace(/\\+$/, ''); }
      function inRoot(dir){ var d = norm(dir).toLowerCase(), h = norm(homePath).toLowerCase(); return !h || d === h || d.indexOf(h + '\\') === 0; }
@@ -248,16 +257,14 @@
          if (dt){ carry.dropTarget = dt; held.x = desired.x; held.y = desired.y; var w2 = dt.hitArea.width, h2 = dt.hitArea.height; hl.clear(); hl.lineStyle(2, dt.__trash ? 0xe09a9a : 0x6fd08c); hl.drawRoundedRect(0, 0, w2, h2, 10); hl.x = dt.x; hl.y = dt.y; hl.visible = true; world.addChild(hl); return; }
        }
        if (mode === 'free'){ held.x = desired.x; held.y = desired.y; }
-       else if (mode === 'fit'){
-         var obs = []; cards.forEach(function(c){ if (c === held) return; obs.push(rectOf(c)); }); if (trashNode && !held.__trash) obs.push(rectOf(trashNode));
-         var pos = nearestFree(heldRect, obs, desired); held.x = pos.x; held.y = pos.y;
-       } else {
+       else { // push neighbours out of the way, with padding
          held.x = desired.x; held.y = desired.y;
+         var hp = padR(heldRect);
          var others = []; cards.forEach(function(c){ if (c === held) return; others.push(c); });
          for (var pass = 0; pass < 6; pass++){
            var moved = false;
-           for (var i = 0; i < others.length; i++){ var v = mtv(heldRect, rectOf(others[i])); if (v){ others[i].x += v.dx; others[i].y += v.dy; moved = true; } }
-           for (var a = 0; a < others.length; a++){ for (var b = a + 1; b < others.length; b++){ var v2 = mtv(rectOf(others[a]), rectOf(others[b])); if (v2){ others[a].x -= v2.dx / 2; others[a].y -= v2.dy / 2; others[b].x += v2.dx / 2; others[b].y += v2.dy / 2; moved = true; } } }
+           for (var i = 0; i < others.length; i++){ var v = mtv(hp, padR(rectOf(others[i]))); if (v){ others[i].x += v.dx; others[i].y += v.dy; moved = true; } }
+           for (var a = 0; a < others.length; a++){ for (var b = a + 1; b < others.length; b++){ var v2 = mtv(padR(rectOf(others[a])), padR(rectOf(others[b]))); if (v2){ others[a].x -= v2.dx / 2; others[a].y -= v2.dy / 2; others[b].x += v2.dx / 2; others[b].y += v2.dy / 2; moved = true; } } }
            if (!moved) break;
          }
        }
@@ -355,7 +362,7 @@
        if (!carry) return;
        if (e.key === 'Escape'){ cancelCarry(); e.stopPropagation(); return; }
        if (e.key === 't' || e.key === 'T'){ modeIdx = (modeIdx + 1) % modes.length; refreshPreview(); updateHud(); e.stopPropagation(); }
-       else if (e.key === '1' || e.key === '2' || e.key === '3'){ modeIdx = (+e.key) - 1; refreshPreview(); updateHud(); e.stopPropagation(); }
+       else if (e.key === '1' || e.key === '2'){ modeIdx = (+e.key) - 1; refreshPreview(); updateHud(); e.stopPropagation(); }
      }, true);
 
      function targetAt(cx, cy){
@@ -380,7 +387,7 @@
      function openEmptyMenu(x, y){
        menuTarget = null; menu.innerHTML = '';
        menu.appendChild(mkBtn('New Folder', '', function(){ hideMenu(); promptDialog('New folder name', 'New Folder', 'Create', function(name){ createFolder(name); }); }));
-       menu.appendChild(mkBtn('Tidy up (remove overlaps)', '', function(){ hideMenu(); relaxLayout('broadcast'); }));
+       menu.appendChild(mkBtn('Tidy up (remove overlaps)', '', function(){ hideMenu(); relaxBudgeted(cwd, loadSeq, 0, true); }));
        var sortBtn = document.createElement('button'); sortBtn.innerHTML = 'Sort by <span class="arrow">\u25B8</span>';
        sortBtn.addEventListener('click', function(ev){ ev.stopPropagation(); showSortFlyout(sortBtn); });
        sortBtn.addEventListener('mouseenter', function(){ showSortFlyout(sortBtn); });
@@ -433,9 +440,9 @@
      }
      function updateHud(){
        if (animating){ hud.textContent = 'Sorting\u2026 (Esc to snap)'; }
-       else if (carry && carry.source === 'import'){ hud.textContent = 'Placing imported file [' + modeLabel() + ']  \u00b7  left-click confirm  \u00b7  right-click cancel  \u00b7  T cycle  \u00b7  Free mode (1) to drop into a folder'; }
-       else if (carry){ hud.textContent = 'Moving [' + modeLabel() + ']  \u00b7  release to drop  \u00b7  T cycle (1 Free / 2 Fit / 3 Push)  \u00b7  Free mode to drop into a folder  \u00b7  Esc cancel'; }
-       else { hud.textContent = 'v0.0.17  \u00b7  click-drag to move  \u00b7  middle-drag to pan  \u00b7  right-click empty space for sort / new folder / tidy  \u00b7  mode: ' + modeLabel() + ' (T while moving)'; }
+       else if (carry && carry.source === 'import'){ hud.textContent = 'Placing imported file [' + modeLabel() + ']  \u00b7  left-click confirm  \u00b7  right-click cancel  \u00b7  T toggle  \u00b7  Free mode (1) to drop into a folder'; }
+       else if (carry){ hud.textContent = 'Moving [' + modeLabel() + ']  \u00b7  release to drop  \u00b7  T toggle (1 Free / 2 Push)  \u00b7  Free mode to drop into a folder  \u00b7  Esc cancel'; }
+       else { hud.textContent = 'v0.0.18  \u00b7  click-drag to move  \u00b7  middle-drag to pan  \u00b7  right-click empty space for sort / new folder / tidy  \u00b7  mode: ' + modeLabel() + ' (T toggles Free/Push)'; }
      }
      upBtn.addEventListener('click', function(){ navigate(parentOf(cwd)); });
      placesBtn.addEventListener('click', function(ev){ ev.stopPropagation(); if (placesMenu.style.display === 'block'){ placesMenu.style.display = 'none'; return; } placesMenu.innerHTML = ''; placesList.forEach(function(pl){ placesMenu.appendChild(mkBtn(pl.label, '', function(){ navigate(pl.path); placesMenu.style.display = 'none'; })); }); var r = placesBtn.getBoundingClientRect(); placesMenu.style.left = r.left + 'px'; placesMenu.style.top = (r.bottom + 4) + 'px'; placesMenu.style.display = 'block'; });

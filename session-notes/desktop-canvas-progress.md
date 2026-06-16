@@ -240,3 +240,18 @@ Stack: Tauri v2 (Rust + WebView2), PixiJS planned for canvas. Windows-only.
   Generalized filesystem code is intact behind SAFE_MODE=false.
 - Selection/active-items (click=active, shift=add, ctrl=remove, box-select, ctrl-box
   =subtract; Blender-style) requested — DEFERRED per user.
+
+## v0.0.18 — drop Fit mode; faster folder open; collision padding; TODO.md
+- Placement modes reduced to Free + Push (Fit/"move around objects" removed). Default Push.
+  Keys 1=Free, 2=Push, T toggles. nearestFree() left defined but unused.
+- Faster open / no more multi-second freeze: cards now build in batches of 40 per
+  animation frame (progressive display), and the de-overlap relax runs AFTER first paint,
+  time-budgeted (~8 passes or 14ms per frame, capped ~140 passes) via relaxBudgeted(),
+  with a second pass at 900ms to catch thumbnail-driven growth. Tidy-up also uses the
+  budgeted relax (broadcasts at end). Old synchronous relaxLayout() removed.
+- Collision padding: PAD=9 via padR(); separateOnce + push now separate padded rects so
+  items keep a gap. Drop-target hit-testing still uses true (unpadded) rects.
+- Added desktop-canvas/TODO.md (selection/active-items, perf ideas: circle broad-phase /
+  spatial hash / distance fields / thumbnail caching, bug watches, UX backlog, safety plan).
+- Still TODO (perf): circle/spatial-hash broad-phase is the real O(n^2) fix; budgeting only
+  hides the cost. Thumbnail concurrency cap also pending.
