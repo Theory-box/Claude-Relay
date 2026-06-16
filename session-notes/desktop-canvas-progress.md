@@ -200,3 +200,21 @@ Stack: Tauri v2 (Rust + WebView2), PixiJS planned for canvas. Windows-only.
   of stage pointermove (and guarded wheel refreshPreview), so the card no longer trails the
   cursor while you reach for the dialog button.
 - HUD hints updated; grid snapping intentionally dropped (collision covers it).
+
+## v0.0.16 — relax-on-open, Push default, middle-pan, collision SORT, menu reshuffle
+- De-overlap on open: relaxLayout() runs separateOnce() (pairwise half-mtv, trash pinned)
+  up to 60 passes after loadView, plus a second pass ~750ms later to catch cards that grew
+  when thumbnails loaded; persists the cleaned layout. NOTE: also separates intentional
+  Free-mode stacks on open — gate later if that becomes annoying.
+- Default move mode is now Push (modeIdx=2).
+- Middle-click always pans: attachGrab only starts on button 0; stage pan accepts left+middle;
+  middle-click autoscroll suppressed (pointerdown/auxclick preventDefault on button 1).
+- Collision-driven SORT: right-click empty space -> menu (New Folder / Tidy up / Sort by >).
+  Sort by flyout (sortMenu .pop to the side): Name A-Z / Z-A, Size small/large, Type, Date old/new.
+  startSort computes sorted-grid target slots (cell = max card size, cols from viewport),
+  animates ~88 frames easing (0.18) toward slots; separateOnce x2 per frame while frames>30 so
+  items jostle in transit then settle cleanly. Esc snaps immediately. animating flag guards
+  grab/pan/poll/drop/sync/dblclick. Backend: added `size` to Entry/list_dir; meta{} map holds
+  size/mtime/dir for sort keys.
+- Removed the +Folder bar button; New Folder now lives in the empty-space menu via a prompt
+  dialog (modal with text input). Tidy-up exposes relaxLayout on demand.

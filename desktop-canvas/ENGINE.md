@@ -58,11 +58,22 @@ commits / right-click cancels (reverts everything).
   bar shows the current mode + keys. Remappable once preferences land.
 
 ## Roadmap
-1. (v0.0.13) engine core + carry/preview + 3 modes.  <-- current
-2. grid + edge snapping with alignment guide lines (snap() pre-step).
-3. richer push (better cascade/settling) and optional animation.
-4. multi-select operations: align / distribute / tidy (same engine, multi-node op).
+1. (v0.0.13) engine core + carry/preview + 3 modes.  [done]
+2. (v0.0.15) folders collide; drop-into-folder is a Free-mode action.  [done]
+3. (v0.0.16) de-overlap on open (separateOnce relaxation); collision-driven
+   animated SORT (ease toward sorted-grid slots + live separation that fades so
+   slots win); Tidy-up + Sort menu on empty-space right-click.  [done]
+   Grid snapping intentionally skipped — collision spacing replaces it.
+4. NEXT: richer push settling; multi-select align / distribute.
 5. containers: folders/rows/columns/stacks that auto-arrange children.
+
+## Sort (collision-driven)
+sort(items, key) -> sorted order -> target slots in a row-major grid sized to the
+biggest card (so the resting grid is overlap-free by construction). Animate each
+card easing toward its slot; for the first ~2/3 of frames also run separateOnce()
+so cards crossing paths jostle; separation then stops and the easing converges
+cleanly onto the slots. O(n^2) per frame (fine for normal folders; cap/skip for
+huge ones). Same primitive (mtv) as Push and the open-time relax.
 
 ## Seams already in place
 - snap() slots in before collision resolution and only adds guides.

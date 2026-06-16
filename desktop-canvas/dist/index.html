@@ -7,9 +7,9 @@
  #bar button{background:#252934;border:1px solid #353a45;color:#d4d7df;border-radius:6px;padding:5px 10px;cursor:pointer;font:inherit;white-space:nowrap;}
  #bar button:hover{background:#2f3440;}
  #bar input{background:#1c1f27;border:1px solid #3a4150;color:#e6e8ee;border-radius:6px;padding:5px 8px;font:inherit;}
- #pathInput{width:320px;} #nfInput{width:150px;}
+ #pathInput{width:320px;}
  .spacer{flex:1;}
- #crumbs{overflow:hidden;white-space:nowrap;text-overflow:ellipsis;max-width:46vw;}
+ #crumbs{overflow:hidden;white-space:nowrap;text-overflow:ellipsis;max-width:52vw;}
  .crumb{cursor:pointer;color:#8d93a0;padding:2px 4px;border-radius:4px;}
  .crumb:hover{color:#cfd3db;background:#252934;}
  .crumb.last{color:#e6e8ee;cursor:default;font-weight:600;}
@@ -17,17 +17,19 @@
  .sep2{color:#565b64;}
  #hud{position:fixed;left:14px;bottom:12px;color:#8a8f9a;font-size:12px;z-index:5;pointer-events:none;letter-spacing:.02em;}
  #diag{position:fixed;right:12px;bottom:12px;color:#52555e;font:11px ui-monospace,Consolas,monospace;z-index:5;pointer-events:none;}
- .pop{position:fixed;display:none;z-index:30;min-width:172px;background:#1f2229;border:1px solid #353a45;border-radius:8px;padding:5px;box-shadow:0 8px 24px rgba(0,0,0,.5);font-size:13px;max-height:70vh;overflow:auto;}
+ .pop{position:fixed;display:none;z-index:30;min-width:178px;background:#1f2229;border:1px solid #353a45;border-radius:8px;padding:5px;box-shadow:0 8px 24px rgba(0,0,0,.5);font-size:13px;max-height:78vh;overflow:auto;}
  .pop button{display:block;width:100%;text-align:left;background:none;border:0;color:#d4d7df;padding:8px 12px;border-radius:5px;cursor:pointer;font:inherit;}
  .pop button:hover{background:#2c313c;}
+ .pop .arrow{float:right;color:#7d828c;}
  .pop .sep{height:1px;background:#353a45;margin:5px 6px;}
  .pop .danger{color:#e7a3a3;} .pop .danger:hover{background:#3a2326;color:#ffb0b0;}
  .modal{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:40;display:none;align-items:center;justify-content:center;}
  .modal .box{background:#1f2229;border:1px solid #353a45;border-radius:10px;padding:18px 20px;min-width:300px;max-width:80vw;color:#e6e8ee;font-size:14px;line-height:1.5;box-shadow:0 12px 40px rgba(0,0,0,.6);}
  .modal .row{display:flex;justify-content:flex-end;gap:10px;margin-top:18px;}
  .modal button{background:#2a2f3a;border:1px solid #3a4150;color:#e6e8ee;border-radius:7px;padding:7px 16px;cursor:pointer;font:inherit;}
- .modal #dlgYes{background:#2f5fbf;border-color:#3a6fd0;}
+ .modal #dlgYes,.modal #pmYes{background:#2f5fbf;border-color:#3a6fd0;}
  .modal button:hover{filter:brightness(1.18);}
+ .modal input{margin-top:12px;width:100%;box-sizing:border-box;background:#1c1f27;border:1px solid #3a4150;color:#e6e8ee;border-radius:7px;padding:8px;font:inherit;}
  canvas{display:block;}
 </style></head>
 <body>
@@ -39,14 +41,14 @@
    <span class="spacer"></span>
    <input id="pathInput" placeholder="Type or paste a path, Enter to go" style="display:none">
    <button id="goto">Go to&#8230;</button>
-   <input id="nfInput" placeholder="Folder name" style="display:none">
-   <button id="nf">+ Folder</button>
  </div>
  <div id="hud"></div>
  <div id="diag"></div>
  <div id="menu" class="pop"></div>
+ <div id="sortMenu" class="pop"></div>
  <div id="placesMenu" class="pop"></div>
  <div id="dialog" class="modal"><div class="box"><div id="dlgMsg"></div><div class="row"><button id="dlgNo">Cancel</button><button id="dlgYes">Move</button></div></div></div>
+ <div id="prompt" class="modal"><div class="box"><div id="pmMsg"></div><input id="pmInput"><div class="row"><button id="pmNo">Cancel</button><button id="pmYes">Create</button></div></div></div>
  <script src="pixi.min.js"></script>
  <script>
  function showErr(m){ var e=document.getElementById('err'); e.style.display='block'; e.textContent += m + "\n"; }
@@ -72,16 +74,15 @@
      var hl = new PIXI.Graphics(); hl.visible = false; world.addChild(hl);
 
      var cwd = '', homePath = '', placesList = [];
-     var items = [], cards = [], thumbCache = {}, mtimes = {};
+     var items = [], cards = [], thumbCache = {}, mtimes = {}, meta = {};
      var trash = { x: -320, y: -210 }, trashNode = null;
-     var panning = false, last = null, reloadPending = false, confirming = false;
-     var lastCursor = null;
-     var modes = ['free', 'fit', 'push'], modeIdx = 1;
+     var panning = false, last = null, reloadPending = false, confirming = false, animating = false;
+     var lastCursor = null, sortAnim = null;
+     var modes = ['free', 'fit', 'push'], modeIdx = 2; // default Push
      function modeLabel(){ return ['Free', 'Fit', 'Push'][modeIdx]; }
-     // carry = { card, source:'move'|'import', offset:{x,y}, phase:'drag'|'float', moved, start:{x,y}, snap:{}, dropTarget } | null
      var carry = null;
 
-     // ---------- engine primitives (pure) ----------
+     // ---------- engine primitives ----------
      function intersects(a, b){ return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y; }
      function mtv(a, b){
        var ox = Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x);
@@ -96,15 +97,24 @@
        var stepR = 16, maxR = 1600;
        for (var rad = stepR; rad <= maxR; rad += stepR){
          var samples = Math.max(8, Math.floor(rad / 7));
-         for (var s = 0; s < samples; s++){
-           var a = (s / samples) * Math.PI * 2;
-           var x = near.x + Math.cos(a) * rad, y = near.y + Math.sin(a) * rad;
-           if (free(x, y)) return { x: x, y: y };
-         }
+         for (var s = 0; s < samples; s++){ var a = (s / samples) * Math.PI * 2; var x = near.x + Math.cos(a) * rad, y = near.y + Math.sin(a) * rad; if (free(x, y)) return { x: x, y: y }; }
        }
        return { x: near.x, y: near.y };
      }
      function rectOf(card){ return { x: card.x, y: card.y, w: card.hitArea.width, h: card.hitArea.height }; }
+     // one pass of pairwise separation across all cards (trash pinned). returns true if anything moved.
+     function separateOnce(){
+       var moved = false;
+       for (var i = 0; i < cards.length; i++){ for (var j = i + 1; j < cards.length; j++){ var v = mtv(rectOf(cards[i]), rectOf(cards[j])); if (v){ cards[i].x -= v.dx/2; cards[i].y -= v.dy/2; cards[j].x += v.dx/2; cards[j].y += v.dy/2; moved = true; } } }
+       if (trashNode){ for (var k = 0; k < cards.length; k++){ var tv = mtv(rectOf(trashNode), rectOf(cards[k])); if (tv){ cards[k].x += tv.dx; cards[k].y += tv.dy; moved = true; } } }
+       return moved;
+     }
+     function relaxLayout(doPersist){
+       if (carry || confirming || animating) return;
+       for (var pass = 0; pass < 60; pass++){ if (!separateOnce()) break; }
+       cards.forEach(function(c){ if (c.__item){ c.__item.x = c.x; c.__item.y = c.y; } });
+       if (doPersist) persist();
+     }
 
      // ---------- thumbnails ----------
      function loadTexture(url){
@@ -132,7 +142,7 @@
 
      // ---------- nodes ----------
      function attachGrab(node){
-       node.on('pointerdown', function(e){ if (e.button === 2) return; if (carry || confirming) return; startCarry(node, e); e.stopPropagation(); });
+       node.on('pointerdown', function(e){ if (e.button !== 0) return; if (carry || confirming || animating) return; startCarry(node, e); e.stopPropagation(); });
      }
      function buildCard(item){
        var dir = cwd;
@@ -162,9 +172,9 @@
      }
      function clearView(){
        for (var i = 0; i < cards.length; i++){ try{ world.removeChild(cards[i]); cards[i].destroy({ children: true }); }catch(_){} }
-       cards = []; items = []; mtimes = {};
+       cards = []; items = []; mtimes = {}; meta = {};
        if (trashNode){ try{ world.removeChild(trashNode); trashNode.destroy({ children: true }); }catch(_){} trashNode = null; }
-       hl.visible = false;
+       hl.visible = false; sortAnim = null; animating = false;
      }
      async function loadView(){
        clearView();
@@ -173,32 +183,42 @@
        var list = [];
        try{ list = JSON.parse(await T.core.invoke('list_dir', { dir: cwd }) || '[]'); }catch(e){ showErr('list_dir: ' + e); }
        var n = 0;
-       list.forEach(function(f){ var pos = posmap[f.name] || { x: 40 + (n % 6) * 240, y: 40 + Math.floor(n / 6) * 150 }; n++; var it = { name: f.name, x: pos.x, y: pos.y, dir: f.dir }; items.push(it); buildCard(it); mtimes[f.name] = f.mtime; });
+       list.forEach(function(f){ var pos = posmap[f.name] || { x: 40 + (n % 6) * 250, y: 40 + Math.floor(n / 6) * 200 }; n++; var it = { name: f.name, x: pos.x, y: pos.y, dir: f.dir }; items.push(it); buildCard(it); mtimes[f.name] = f.mtime; meta[f.name] = { size: f.size || 0, mtime: f.mtime || 0, dir: f.dir }; });
        if (cwd && cwd === homePath) trashNode = buildTrash();
        updateBar();
+       // de-overlap on open (no-op when already clean); second pass after thumbnails grow cards
+       relaxLayout(true);
+       var openedFor = cwd;
+       setTimeout(function(){ if (cwd === openedFor && !carry && !confirming && !animating) relaxLayout(true); }, 750);
      }
      function navigate(dir){ if (carry) cancelCarry(); cwd = dir || ''; loadView(); }
 
      function cardForName(name){ for (var i = 0; i < cards.length; i++){ if (cards[i].__item && cards[i].__item.name === name) return cards[i]; } return null; }
-     function removeCardLocal(card){ var it = card.__item; var ii = items.indexOf(it); if (ii >= 0) items.splice(ii, 1); var ci = cards.indexOf(card); if (ci >= 0) cards.splice(ci, 1); world.removeChild(card); card.destroy({ children: true }); delete mtimes[it.name]; }
+     function removeCardLocal(card){ var it = card.__item; var ii = items.indexOf(it); if (ii >= 0) items.splice(ii, 1); var ci = cards.indexOf(card); if (ci >= 0) cards.splice(ci, 1); world.removeChild(card); card.destroy({ children: true }); delete mtimes[it.name]; delete meta[it.name]; }
 
-     // ---------- confirm dialog ----------
+     // ---------- dialogs ----------
      var dialog = document.getElementById('dialog'), dlgMsg = document.getElementById('dlgMsg'), dlgYes = document.getElementById('dlgYes'), dlgNo = document.getElementById('dlgNo');
      function confirmDialog(msg, yesLabel, onYes, onNo){
        confirming = true; dlgMsg.textContent = msg; dlgYes.textContent = yesLabel || 'OK'; dialog.style.display = 'flex';
        function done(fn){ dialog.style.display = 'none'; dlgYes.onclick = null; dlgNo.onclick = null; confirming = false; if (fn) fn(); }
-       dlgYes.onclick = function(){ done(onYes); };
-       dlgNo.onclick = function(){ done(onNo); };
+       dlgYes.onclick = function(){ done(onYes); }; dlgNo.onclick = function(){ done(onNo); };
+     }
+     var prompt = document.getElementById('prompt'), pmMsg = document.getElementById('pmMsg'), pmInput = document.getElementById('pmInput'), pmYes = document.getElementById('pmYes'), pmNo = document.getElementById('pmNo');
+     function promptDialog(msg, def, okLabel, onOk){
+       confirming = true; pmMsg.textContent = msg; pmInput.value = def || ''; pmYes.textContent = okLabel || 'OK'; prompt.style.display = 'flex'; setTimeout(function(){ pmInput.focus(); pmInput.select(); }, 0);
+       function done(ok){ prompt.style.display = 'none'; confirming = false; pmYes.onclick = null; pmNo.onclick = null; pmInput.onkeydown = null; if (ok){ var v = pmInput.value.trim(); if (v && onOk) onOk(v); } }
+       pmYes.onclick = function(){ done(true); }; pmNo.onclick = function(){ done(false); };
+       pmInput.onkeydown = function(e){ if (e.key === 'Enter') done(true); else if (e.key === 'Escape') done(false); e.stopPropagation(); };
      }
 
      // ---------- carry / preview ----------
      function captureSnap(){ var snap = {}; items.forEach(function(it){ snap[it.name] = { x: it.x, y: it.y }; }); if (trashNode) snap.__trash = { x: trashNode.x, y: trashNode.y }; return snap; }
-     function startCarry(node, e){ // existing canvas item -> direct drag, commits on release
+     function startCarry(node, e){
        var p = e.global; var wx = (p.x - world.x) / world.scale.x, wy = (p.y - world.y) / world.scale.y;
        carry = { card: node, source: 'move', offset: { x: wx - node.x, y: wy - node.y }, phase: 'drag', moved: false, start: { x: p.x, y: p.y }, snap: captureSnap() };
        updateHud();
      }
-     function startImportCarry(card, atScreen){ // freshly imported file -> sticky float, commits on click
+     function startImportCarry(card, atScreen){
        carry = { card: card, source: 'import', offset: { x: 0, y: 0 }, phase: 'float', moved: true, start: { x: atScreen.x, y: atScreen.y }, snap: captureSnap() };
        card.alpha = 0.85; lastCursor = { x: atScreen.x, y: atScreen.y }; updateHud();
      }
@@ -238,7 +258,7 @@
      function commitCarry(){
        if (!carry || confirming) return;
        var held = carry.card, dt = carry.dropTarget;
-       if (dt && !dt.__trash){ // into a folder -> confirm
+       if (dt && !dt.__trash){
          var n = held.__item.name, folder = dt.__item.name;
          if (n === folder){ placePlain(); return; }
          var src = carry.source;
@@ -257,11 +277,39 @@
        hl.visible = false; carry = null; updateHud(); if (reloadPending){ reloadPending = false; loadView(); }
      }
 
+     // ---------- collision-driven sort ----------
+     function extOf(n){ var i = n.lastIndexOf('.'); return i > 0 ? n.slice(i + 1).toLowerCase() : ''; }
+     function metaOf(n){ return meta[n] || { size: 0, mtime: 0, dir: false }; }
+     function cmpName(a, b){ return a.name.toLowerCase().localeCompare(b.name.toLowerCase()); }
+     function cmpSize(a, b){ return metaOf(a.name).size - metaOf(b.name).size || cmpName(a, b); }
+     function cmpDate(a, b){ return metaOf(a.name).mtime - metaOf(b.name).mtime || cmpName(a, b); }
+     function cmpType(a, b){ if (a.dir !== b.dir) return a.dir ? -1 : 1; var ea = a.dir ? '' : extOf(a.name), eb = b.dir ? '' : extOf(b.name); if (ea !== eb) return ea < eb ? -1 : 1; return cmpName(a, b); }
+     function rev(c){ return function(a, b){ return -c(a, b); }; }
+     function startSort(cmp){
+       if (animating || carry || confirming || !items.length) return;
+       hideMenu(); sortMenu.style.display = 'none';
+       var arr = items.slice().sort(cmp);
+       var maxW = 90, maxH = 90; cards.forEach(function(c){ maxW = Math.max(maxW, c.hitArea.width); maxH = Math.max(maxH, c.hitArea.height); });
+       var cellW = maxW + 30, cellH = maxH + 30, sc = world.scale.x;
+       var cols = Math.max(1, Math.floor((app.screen.width / sc - 120) / cellW));
+       var ox = (80 - world.x) / sc, oy = (80 - world.y) / sc;
+       var targets = {};
+       arr.forEach(function(it, i){ var r = Math.floor(i / cols), c = i % cols; targets[it.name] = { x: ox + c * cellW, y: oy + r * cellH }; });
+       animating = true; sortAnim = { targets: targets, frames: 88 }; updateHud();
+     }
+     function stepSort(){
+       var t = sortAnim.targets;
+       cards.forEach(function(c){ var g = t[c.__item.name]; if (!g) return; c.x += (g.x - c.x) * 0.18; c.y += (g.y - c.y) * 0.18; });
+       if (sortAnim.frames > 30){ separateOnce(); separateOnce(); } // jostle during transit; fades out so targets win
+       sortAnim.frames--;
+       if (sortAnim.frames <= 0){ cards.forEach(function(c){ var g = t[c.__item.name]; if (g){ c.x = g.x; c.y = g.y; } if (c.__item){ c.__item.x = c.x; c.__item.y = c.y; } }); sortAnim = null; animating = false; updateHud(); persist(); }
+     }
+
      // ---------- pointer wiring ----------
      app.stage.eventMode = 'static'; app.stage.hitArea = app.screen;
-     app.stage.on('pointerdown', function(e){ if (carry || confirming || e.button === 2) return; panning = true; last = { x: e.global.x, y: e.global.y }; });
+     app.stage.on('pointerdown', function(e){ if (carry || confirming || animating) return; if (e.button === 2) return; panning = true; last = { x: e.global.x, y: e.global.y }; }); // left or middle pans
      app.stage.on('pointermove', function(e){
-       if (confirming) return;
+       if (confirming || animating) return;
        lastCursor = { x: e.global.x, y: e.global.y };
        if (carry){
          if (carry.phase === 'drag'){ if (Math.hypot(e.global.x - carry.start.x, e.global.y - carry.start.y) > 5){ if (!carry.moved){ carry.moved = true; carry.card.alpha = 0.85; } } if (!carry.moved) return; }
@@ -270,30 +318,30 @@
        } else if (panning && last){ world.x += e.global.x - last.x; world.y += e.global.y - last.y; last = { x: e.global.x, y: e.global.y }; }
      });
      function onUp(){
-       if (carry){
-         if (carry.source === 'move' && carry.phase === 'drag'){ if (carry.moved) commitCarry(); else { carry = null; updateHud(); } }
-         return; // import (float) commits on a separate click; nothing on release
-       }
+       if (carry){ if (carry.source === 'move' && carry.phase === 'drag'){ if (carry.moved) commitCarry(); else { carry = null; updateHud(); } } return; }
        panning = false; last = null;
      }
      app.stage.on('pointerup', onUp); app.stage.on('pointerupoutside', onUp);
+     // suppress middle-click autoscroll in the webview
+     app.view.addEventListener('pointerdown', function(e){ if (e.button === 1) e.preventDefault(); });
+     app.view.addEventListener('auxclick', function(e){ if (e.button === 1) e.preventDefault(); });
 
      window.addEventListener('wheel', function(ev){
        ev.preventDefault();
        if (ev.ctrlKey){ var mx = ev.clientX, my = ev.clientY; var wx = (mx - world.x) / world.scale.x, wy = (my - world.y) / world.scale.y; var ns = Math.min(8, Math.max(0.1, world.scale.x * Math.exp(-ev.deltaY * 0.01))); world.scale.set(ns); world.x = mx - wx * ns; world.y = my - wy * ns; }
        else { world.x -= ev.deltaX; world.y -= ev.deltaY; }
-       if (carry && !confirming) refreshPreview();
+       if (carry && !confirming && !animating) refreshPreview();
      }, { passive: false });
 
-     // import float: left-click commits, right-click cancels (via contextmenu)
      window.addEventListener('pointerdown', function(ev){
        if (confirming) return;
        if (carry && carry.source === 'import' && carry.phase === 'float' && ev.button === 0){ commitCarry(); ev.stopPropagation(); ev.preventDefault(); return; }
-       if (menu.style.display === 'block' && !menu.contains(ev.target)) hideMenu();
+       if (menu.style.display === 'block' && !menu.contains(ev.target) && !sortMenu.contains(ev.target)){ hideMenu(); }
        if (placesMenu.style.display === 'block' && ev.target !== placesBtn && !placesMenu.contains(ev.target)) placesMenu.style.display = 'none';
      }, true);
      window.addEventListener('keydown', function(e){
-       if (confirming){ if (e.key === 'Enter'){ dlgYes.click(); e.stopPropagation(); } else if (e.key === 'Escape'){ dlgNo.click(); e.stopPropagation(); } return; }
+       if (confirming) return;
+       if (animating && e.key === 'Escape'){ if (sortAnim){ sortAnim.frames = 1; } e.stopPropagation(); return; }
        if (!carry) return;
        if (e.key === 'Escape'){ cancelCarry(); e.stopPropagation(); return; }
        if (e.key === 't' || e.key === 'T'){ modeIdx = (modeIdx + 1) % modes.length; refreshPreview(); updateHud(); e.stopPropagation(); }
@@ -305,12 +353,32 @@
        if (trashNode){ var tb = trashNode.getBounds(); if (cx >= tb.x && cx <= tb.x + tb.width && cy >= tb.y && cy <= tb.y + tb.height) return trashNode; }
        return null;
      }
-     var menu = document.getElementById('menu'), menuTarget = null;
-     function hideMenu(){ menu.style.display = 'none'; menuTarget = null; }
+     var menu = document.getElementById('menu'), sortMenu = document.getElementById('sortMenu'), menuTarget = null;
+     function hideMenu(){ menu.style.display = 'none'; sortMenu.style.display = 'none'; menuTarget = null; }
      function mkBtn(label, cls, fn){ var b = document.createElement('button'); b.textContent = label; if (cls) b.className = cls; b.addEventListener('click', function(ev){ ev.stopPropagation(); fn(); }); return b; }
      function mkSep(){ var d = document.createElement('div'); d.className = 'sep'; return d; }
+     function showSortFlyout(anchor){
+       sortMenu.innerHTML = '';
+       var opts = [['Name (A \u2192 Z)', cmpName], ['Name (Z \u2192 A)', rev(cmpName)], ['Size (small \u2192 large)', cmpSize], ['Size (large \u2192 small)', rev(cmpSize)], ['Type', cmpType], ['Date (old \u2192 new)', cmpDate], ['Date (new \u2192 old)', rev(cmpDate)]];
+       opts.forEach(function(o){ sortMenu.appendChild(mkBtn(o[0], '', function(){ startSort(o[1]); })); });
+       var r = anchor.getBoundingClientRect();
+       var x = r.right - 2, y = r.top - 5;
+       sortMenu.style.display = 'block';
+       if (x + sortMenu.offsetWidth > window.innerWidth) x = r.left - sortMenu.offsetWidth + 2;
+       sortMenu.style.left = x + 'px'; sortMenu.style.top = y + 'px';
+     }
+     function openEmptyMenu(x, y){
+       menuTarget = null; menu.innerHTML = '';
+       menu.appendChild(mkBtn('New Folder', '', function(){ hideMenu(); promptDialog('New folder name', 'New Folder', 'Create', function(name){ createFolder(name); }); }));
+       menu.appendChild(mkBtn('Tidy up (remove overlaps)', '', function(){ hideMenu(); relaxLayout(true); }));
+       var sortBtn = document.createElement('button'); sortBtn.innerHTML = 'Sort by <span class="arrow">\u25B8</span>';
+       sortBtn.addEventListener('click', function(ev){ ev.stopPropagation(); showSortFlyout(sortBtn); });
+       sortBtn.addEventListener('mouseenter', function(){ showSortFlyout(sortBtn); });
+       menu.appendChild(sortBtn);
+       menu.style.left = x + 'px'; menu.style.top = y + 'px'; menu.style.display = 'block'; sortMenu.style.display = 'none';
+     }
      function openMenu(x, y, target){
-       menuTarget = target; menu.innerHTML = '';
+       menuTarget = target; menu.innerHTML = ''; sortMenu.style.display = 'none';
        if (target.__trash){
          menu.appendChild(mkBtn('Open Trash Can folder', '', function(){ T.core.invoke('open_trash'); hideMenu(); }));
          menu.appendChild(mkSep());
@@ -333,14 +401,14 @@
        }
        menu.style.left = x + 'px'; menu.style.top = y + 'px'; menu.style.display = 'block';
      }
-     app.view.addEventListener('contextmenu', function(ev){ ev.preventDefault(); if (confirming) return; if (carry){ cancelCarry(); return; } var c = targetAt(ev.clientX, ev.clientY); if (c) openMenu(ev.clientX, ev.clientY, c); else hideMenu(); });
-     app.view.addEventListener('dblclick', function(ev){ if (carry || confirming) return; var c = targetAt(ev.clientX, ev.clientY); if (!c) return; if (c.__trash){ T.core.invoke('open_trash'); return; } if (c.__item.dir) navigate(joinPath(cwd, c.__item.name)); else T.core.invoke('open_item', { dir: cwd, name: c.__item.name }); });
+     app.view.addEventListener('contextmenu', function(ev){ ev.preventDefault(); if (confirming || animating) return; if (carry){ cancelCarry(); return; } var c = targetAt(ev.clientX, ev.clientY); if (c) openMenu(ev.clientX, ev.clientY, c); else openEmptyMenu(ev.clientX, ev.clientY); });
+     app.view.addEventListener('dblclick', function(ev){ if (carry || confirming || animating) return; var c = targetAt(ev.clientX, ev.clientY); if (!c) return; if (c.__trash){ T.core.invoke('open_trash'); return; } if (c.__item.dir) navigate(joinPath(cwd, c.__item.name)); else T.core.invoke('open_item', { dir: cwd, name: c.__item.name }); });
      window.addEventListener('wheel', function(){ hideMenu(); }, true);
 
      // ---------- address bar ----------
      function joinPath(base, name){ if (!base) return name; return base.replace(/[\\\/]+$/, '') + '\\' + name; }
      function parentOf(p){ if (!p) return ''; var s = p.replace(/[\\\/]+$/, ''); if (/^[A-Za-z]:$/.test(s)) return ''; var i = Math.max(s.lastIndexOf('\\'), s.lastIndexOf('/')); if (i < 0) return ''; var up = s.slice(0, i); if (/^[A-Za-z]:$/.test(up)) return up + '\\'; return up; }
-     var upBtn = document.getElementById('up'), crumbs = document.getElementById('crumbs'), nfBtn = document.getElementById('nf'), nfInput = document.getElementById('nfInput');
+     var upBtn = document.getElementById('up'), crumbs = document.getElementById('crumbs');
      var placesBtn = document.getElementById('placesBtn'), placesMenu = document.getElementById('placesMenu'), gotoBtn = document.getElementById('goto'), pathInput = document.getElementById('pathInput'), hud = document.getElementById('hud');
      function updateBar(){
        upBtn.style.visibility = cwd ? 'visible' : 'hidden'; crumbs.innerHTML = '';
@@ -350,29 +418,28 @@
        parts.forEach(function(seg, i){ var sep = document.createElement('span'); sep.textContent = '  \u203a  '; sep.className = 'sep2'; crumbs.appendChild(sep); if (i === 0){ acc = seg; crumb(seg, seg + '\\', i === parts.length - 1); } else { acc = acc + '\\' + seg; crumb(seg, acc, i === parts.length - 1); } });
      }
      function updateHud(){
-       if (carry && carry.source === 'import'){ hud.textContent = 'Placing imported file [' + modeLabel() + ']  \u00b7  left-click confirm  \u00b7  right-click cancel  \u00b7  T cycle  \u00b7  Free mode (1) to drop into a folder'; }
+       if (animating){ hud.textContent = 'Sorting\u2026 (Esc to snap)'; }
+       else if (carry && carry.source === 'import'){ hud.textContent = 'Placing imported file [' + modeLabel() + ']  \u00b7  left-click confirm  \u00b7  right-click cancel  \u00b7  T cycle  \u00b7  Free mode (1) to drop into a folder'; }
        else if (carry){ hud.textContent = 'Moving [' + modeLabel() + ']  \u00b7  release to drop  \u00b7  T cycle (1 Free / 2 Fit / 3 Push)  \u00b7  Free mode to drop into a folder  \u00b7  Esc cancel'; }
-       else { hud.textContent = 'v0.0.15  \u00b7  click-drag to move  \u00b7  drag a file in to import  \u00b7  folders collide \u2014 use Free mode (1) to drop into one  \u00b7  mode: ' + modeLabel() + ' (T while moving)'; }
+       else { hud.textContent = 'v0.0.16  \u00b7  click-drag to move  \u00b7  middle-drag to pan  \u00b7  right-click empty space for sort & new folder  \u00b7  mode: ' + modeLabel() + ' (T while moving)'; }
      }
      upBtn.addEventListener('click', function(){ navigate(parentOf(cwd)); });
      placesBtn.addEventListener('click', function(ev){ ev.stopPropagation(); if (placesMenu.style.display === 'block'){ placesMenu.style.display = 'none'; return; } placesMenu.innerHTML = ''; placesList.forEach(function(pl){ placesMenu.appendChild(mkBtn(pl.label, '', function(){ navigate(pl.path); placesMenu.style.display = 'none'; })); }); var r = placesBtn.getBoundingClientRect(); placesMenu.style.left = r.left + 'px'; placesMenu.style.top = (r.bottom + 4) + 'px'; placesMenu.style.display = 'block'; });
      gotoBtn.addEventListener('click', function(){ if (pathInput.style.display === 'none'){ pathInput.style.display = 'inline-block'; pathInput.value = cwd; pathInput.focus(); pathInput.select(); } else { navigate(pathInput.value.trim()); pathInput.style.display = 'none'; } });
      pathInput.addEventListener('keydown', function(e){ if (e.key === 'Enter'){ navigate(pathInput.value.trim()); pathInput.style.display = 'none'; } else if (e.key === 'Escape'){ pathInput.style.display = 'none'; } e.stopPropagation(); });
-     function createFolder(nm){ T.core.invoke('make_folder', { dir: cwd, name: (nm || 'New Folder') }).then(function(){ nfInput.style.display = 'none'; loadView(); }).catch(function(e){ showErr('make_folder: ' + e); }); }
-     nfBtn.addEventListener('click', function(){ if (nfInput.style.display === 'none'){ nfInput.style.display = 'inline-block'; nfInput.value = 'New Folder'; nfInput.focus(); nfInput.select(); } else { createFolder(nfInput.value); } });
-     nfInput.addEventListener('keydown', function(e){ if (e.key === 'Enter'){ createFolder(nfInput.value); } else if (e.key === 'Escape'){ nfInput.style.display = 'none'; } e.stopPropagation(); });
+     function createFolder(nm){ T.core.invoke('make_folder', { dir: cwd, name: (nm || 'New Folder') }).then(function(){ loadView(); }).catch(function(e){ showErr('make_folder: ' + e); }); }
 
-     // ---------- OS import: single file -> sticky float; multiple -> placed immediately ----------
+     // ---------- OS import ----------
      function handleDrop(payload){
        try{
          var paths = (payload && payload.paths) || []; var pos = (payload && payload.position) || { x: 0, y: 0 };
          var dpr = window.devicePixelRatio || 1; var cssX = pos.x / dpr, cssY = pos.y / dpr;
          var baseWX = (cssX - world.x) / world.scale.x, baseWY = (cssY - world.y) / world.scale.y;
          if (!cwd){ showErr('Pick a folder before dropping (you are at This PC).'); return; }
-         if (carry || confirming) return;
+         if (carry || confirming || animating) return;
          if (paths.length === 1){
            T.core.invoke('add_dropped_file', { dir: cwd, path: paths[0] }).then(function(name){
-             var ex = cardForName(name); if (ex){ return; }
+             if (cardForName(name)) return;
              var it = { name: name, x: baseWX, y: baseWY, dir: false }; items.push(it); var card = buildCard(it);
              startImportCarry(card, { x: cssX, y: cssY }); refreshPreview();
            }).catch(function(e){ showErr('add_dropped_file: ' + e); });
@@ -388,11 +455,11 @@
      }
 
      async function poll(){
-       if (carry || confirming) return;
+       if (carry || confirming || animating) return;
        try{
          var list = JSON.parse(await T.core.invoke('list_dir', { dir: cwd }) || '[]');
          var present = {}, changed = false, edited = []; var have = {}; items.forEach(function(it){ have[it.name] = it; }); var n = items.length;
-         list.forEach(function(f){ present[f.name] = true; if (!(f.name in have)){ var it = { name: f.name, x: 40 + (n % 6) * 240, y: 40 + Math.floor(n / 6) * 150, dir: f.dir }; n++; items.push(it); buildCard(it); changed = true; } else if (mtimes[f.name] !== undefined && mtimes[f.name] !== f.mtime){ edited.push(f.name); } mtimes[f.name] = f.mtime; });
+         list.forEach(function(f){ present[f.name] = true; meta[f.name] = { size: f.size || 0, mtime: f.mtime || 0, dir: f.dir }; if (!(f.name in have)){ var it = { name: f.name, x: 40 + (n % 6) * 250, y: 40 + Math.floor(n / 6) * 200, dir: f.dir }; n++; items.push(it); buildCard(it); changed = true; } else if (mtimes[f.name] !== undefined && mtimes[f.name] !== f.mtime){ edited.push(f.name); } mtimes[f.name] = f.mtime; });
          var gone = []; items.forEach(function(it){ if (!present[it.name]) gone.push(it); });
          gone.forEach(function(it){ var c = cardForName(it.name); if (c) removeCardLocal(c); changed = true; });
          edited.forEach(function(nm){ delete thumbCache[cwd + '\u0000' + nm]; var c = cardForName(nm); if (c) applyThumb(c, cwd); try{ T.event.emit('thumb-changed', { key: cwd, name: nm }); }catch(_){} });
@@ -400,11 +467,11 @@
        }catch(e){ showErr('poll: ' + e); }
      }
 
-     try{ T.event.listen('layout-changed', function(e){ var k = e.payload && e.payload.key; if (k !== cwd) return; if (carry || confirming || panning){ reloadPending = true; return; } loadView(); }); }catch(e){ showErr('sync listen: ' + e); }
+     try{ T.event.listen('layout-changed', function(e){ var k = e.payload && e.payload.key; if (k !== cwd) return; if (carry || confirming || animating || panning){ reloadPending = true; return; } loadView(); }); }catch(e){ showErr('sync listen: ' + e); }
      try{ T.event.listen('thumb-changed', function(e){ var p = e.payload || {}; if (p.key !== cwd || !p.name) return; delete thumbCache[cwd + '\u0000' + p.name]; var c = cardForName(p.name); if (c) applyThumb(c, cwd); }); }catch(_){}
 
      var diag = document.getElementById('diag');
-     app.ticker.add(function(){ diag.textContent = 'zoom ' + Math.round(world.scale.x * 100) + '%  items ' + items.length + (carry ? '  ' + carry.source : ''); });
+     app.ticker.add(function(){ if (sortAnim) stepSort(); diag.textContent = 'zoom ' + Math.round(world.scale.x * 100) + '%  items ' + items.length + (animating ? '  sorting' : (carry ? '  ' + carry.source : '')); });
 
      (async function(){
        try{ placesList = JSON.parse(await T.core.invoke('places') || '[]'); }catch(e){ showErr('places: ' + e); }

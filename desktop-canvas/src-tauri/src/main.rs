@@ -152,7 +152,7 @@ fn move_path(src: &Path, dest: &Path) -> Result<(), String> {
 }
 
 #[derive(serde::Serialize)]
-struct Entry { name: String, mtime: u64, dir: bool }
+struct Entry { name: String, mtime: u64, dir: bool, size: u64 }
 
 #[derive(serde::Serialize)]
 struct Place { label: String, path: String }
@@ -188,7 +188,7 @@ fn places(app: tauri::AppHandle) -> Result<String, String> {
 fn list_dir(app: tauri::AppHandle, dir: String) -> Result<String, String> {
     let mut out: Vec<Entry> = Vec::new();
     if dir.is_empty() {
-        for d in drives() { out.push(Entry { name: d.clone(), mtime: 0, dir: true }); }
+        for d in drives() { out.push(Entry { name: d.clone(), mtime: 0, dir: true, size: 0 }); }
         return serde_json::to_string(&out).map_err(|e| e.to_string());
     }
     let p = PathBuf::from(&dir);
@@ -204,7 +204,8 @@ fn list_dir(app: tauri::AppHandle, dir: String) -> Result<String, String> {
                 .and_then(|m| m.modified().ok())
                 .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
                 .map(|d| d.as_secs()).unwrap_or(0);
-            out.push(Entry { name, mtime, dir: is_dir });
+            let size = if is_dir { 0 } else { entry.metadata().ok().map(|m| m.len()).unwrap_or(0) };
+            out.push(Entry { name, mtime, dir: is_dir, size });
         }
     }
     serde_json::to_string(&out).map_err(|e| e.to_string())
