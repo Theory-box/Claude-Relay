@@ -2,7 +2,7 @@
 <html><head><meta charset="utf-8"><title>Desktop Canvas</title>
 <style>
  html,body{margin:0;height:100%;background:#15161a;overflow:hidden;font-family:system-ui,"Segoe UI",sans-serif;}
- #root{position:fixed;inset:0;} .pane{position:absolute;overflow:hidden;background:#15161a;}
+ #root{position:fixed;inset:0;} .pane{position:absolute;overflow:hidden;background:#15161a;} .pane.focused{box-shadow:inset 0 0 0 2px #3a6fd0;} .divider{position:absolute;z-index:9;background:#23262e;} .divider.v{cursor:col-resize;} .divider:hover{background:#3a6fd0;}
  #err{position:fixed;top:0;left:0;right:0;max-height:40%;overflow:auto;padding:10px 14px;background:#3a1d1d;color:#ffd7d7;font:12px/1.45 ui-monospace,Consolas,monospace;white-space:pre-wrap;display:none;z-index:20;}
  #bar{position:absolute;top:0;left:0;right:0;height:38px;display:flex;align-items:center;gap:8px;padding:0 12px;background:rgba(26,28,33,.92);border-bottom:1px solid #2a2d36;z-index:8;font-size:13px;color:#c4c8d2;}
  #bar button{background:#252934;border:1px solid #353a45;color:#d4d7df;border-radius:6px;padding:5px 10px;cursor:pointer;font:inherit;white-space:nowrap;}
@@ -74,11 +74,13 @@
  window.addEventListener('error', function(ev){ showErr('JS error: ' + (ev.message || ev.error)); });
  window.addEventListener('keydown', function(e){ if(e.key==='Escape'){ try{ window.__TAURI__.core.invoke('quit'); }catch(_){} } });
 
- function makeCanvas(root){
+ function makeCanvas(root, opts){
    try{
      if(typeof PIXI==='undefined'){ showErr('PIXI failed to load'); return; }
      var T = window.__TAURI__;
+     var self = { root: root }; opts = opts || {}; var pm = opts.pm || null;
      root.appendChild(document.getElementById('paneTpl').content.cloneNode(true));
+     root.addEventListener('pointerdown', function(){ if (pm) pm.setFocus(self); }, true);
      function $(s){ return root.querySelector(s); }
 
      var app = new PIXI.Application({ resizeTo: root, background: 0x15161a, antialias: true, autoDensity: true, resolution: window.devicePixelRatio || 1 });
@@ -435,8 +437,9 @@
        if (menu.style.display === 'block' && !menu.contains(ev.target) && !sortMenu.contains(ev.target)){ hideMenu(); }
        if (spacesMenu.style.display === 'block' && ev.target !== spacesBtn && !spacesMenu.contains(ev.target)) spacesMenu.style.display = 'none';
      }, true);
-     window.addEventListener('keyup', function(e){ if (e.key === 'Control'){ ctrlDown = false; if (carry && carry.moved){ refreshPreview(); updateHud(); } } });
+     window.addEventListener('keyup', function(e){ if (pm && pm.focused !== self) return; if (e.key === 'Control'){ ctrlDown = false; if (carry && carry.moved){ refreshPreview(); updateHud(); } } });
      window.addEventListener('keydown', function(e){
+       if (pm && pm.focused !== self) return;
        if (e.key === 'Control' && !ctrlDown){ ctrlDown = true; if (carry && carry.moved){ refreshPreview(); updateHud(); } }
        if (confirming) return;
        if (animating && e.key === 'Escape'){ if (sortAnim){ sortAnim.frames = 1; } e.stopPropagation(); return; }
@@ -489,6 +492,8 @@
      }
      function openEmptyMenu(x, y){
        menuTarget = null; menu.innerHTML = '';
+       menu.appendChild(mkBtn(PM.split ? 'Unsplit (single view)' : 'Split \u2192 side by side', '', function(){ hideMenu(); if (PM.split) PM.unsplit(); else PM.doSplit(); }));
+       menu.appendChild(mkSep());
        if (writable) menu.appendChild(mkBtn('New Folder', '', function(){ hideMenu(); promptDialog('New folder name', 'New Folder', 'Create', function(name){ createFolder(name); }); }));
        if (clip && writable){ menu.appendChild(mkBtn((clip.mode === 'shortcut' ? 'Paste shortcut' : 'Paste') + ' ' + clip.items.length + ' item' + (clip.items.length > 1 ? 's' : '') + (clip.mode === 'cut' ? ' (move)' : ''), '', function(){ hideMenu(); doPaste(); })); menu.appendChild(mkSep()); }
        var sortBtn = document.createElement('button'); sortBtn.innerHTML = 'Sort / Tidy <span class="arrow">\u25B8</span>';
@@ -590,7 +595,7 @@
        else if (carry && carry.source === 'import'){ hud.textContent = 'Placing imported file [' + modeLabel() + ']  \u00b7  left-click confirm  \u00b7  right-click cancel  \u00b7  T toggle  \u00b7  Free mode (1) to drop into a folder'; }
        else if (carry){ hud.textContent = 'Moving ' + (carry.held.length > 1 ? carry.held.length + ' items ' : '') + '[' + (ctrlDown ? 'Free (Ctrl)' : modeLabel()) + ']  \u00b7  hold Ctrl = free / drop into folder  \u00b7  T toggle  \u00b7  release to drop  \u00b7  Esc cancel'; }
        else if (selection.size){ hud.textContent = selection.size + ' selected  \u00b7  drag = move  \u00b7  Ctrl+C copy / Ctrl+X cut  \u00b7  Del trash  \u00b7  Ctrl+F frame  \u00b7  Esc clear'; }
-       else { hud.textContent = 'v0.0.37  \u00b7  click = select  \u00b7  shift/ctrl = add/remove  \u00b7  drag empty = box select  \u00b7  middle-drag = pan  \u00b7  drag item = move  \u00b7  mode: ' + modeLabel() + (writable ? '' : '  \u00b7  read-only'); }
+       else { hud.textContent = 'v0.0.38  \u00b7  click = select  \u00b7  shift/ctrl = add/remove  \u00b7  drag empty = box select  \u00b7  middle-drag = pan  \u00b7  drag item = move  \u00b7  mode: ' + modeLabel() + (writable ? '' : '  \u00b7  read-only'); }
      }
      upBtn.addEventListener('click', function(){ navigate(parentOf(cwd)); });
      gotoBtn.addEventListener('click', function(){ if (pathInput.style.display === 'none'){ pathInput.style.display = 'inline-block'; pathInput.value = cwd; pathInput.focus(); pathInput.select(); } else { navigate(pathInput.value.trim()); pathInput.style.display = 'none'; } });
@@ -733,48 +738,48 @@
 
      (async function(){
        try{ placesList = JSON.parse(await T.core.invoke('places') || '[]'); }catch(e){ showErr('places: ' + e); }
-       var hp = placesList.filter(function(p){ return p.label === 'Desktop Canvas'; })[0]; homePath = hp ? hp.path : ''; cwd = homePath; history = [cwd]; histIdx = 0; updateNavButtons();
+       var hp = placesList.filter(function(p){ return p.label === 'Desktop Canvas'; })[0]; homePath = hp ? hp.path : ''; cwd = opts.initPath || homePath; history = [cwd]; histIdx = 0; updateNavButtons();
        try{ spaces = JSON.parse(await T.core.invoke('load_spaces') || '[]'); }catch(e){ showErr('load_spaces: ' + e); }
        try{ await T.core.invoke('set_safety', { on: true }); }catch(e){ showErr('set_safety: ' + e); }
        updateHud();
        await loadView(); poll(); setInterval(poll, 3000);
      })();
-     wireDrop(handleDrop);
+     self.handleDrop = handleDrop; self.getCwd = function(){ return cwd; }; self.navigate = function(pp){ navigate(pp); };
+     self.resize = function(){ var r = root.getBoundingClientRect(); if (r.width < 2 || r.height < 2) return; var pw = app.screen.width, ph = app.screen.height; app.renderer.resize(r.width, r.height); world.x += (app.screen.width - pw) / 2; world.y += (app.screen.height - ph) / 2; app.stage.hitArea = app.screen; };
+     if (!pm) wireDrop(handleDrop);
+     return self;
    }catch(err){ showErr('init error: ' + (err && err.message ? err.message : err)); }
    }
 
-   var __root = document.getElementById('root');
-   var __pane = document.createElement('div'); __pane.className = 'pane'; __pane.style.inset = '0';
-   __root.appendChild(__pane);
-   makeCanvas(__pane);
-   /* ---- v0.0.37 split diagnostic probe (temporary) ---- */
-   (function(){
-     var errEl = document.getElementById('err');
-     function showProbe(m){ errEl.style.display='block'; errEl.style.background='#102a3a'; errEl.style.color='#cdeaff'; errEl.textContent = 'PROBE  ' + m; }
-     var btn = document.createElement('button');
-     btn.textContent = 'probe split';
-     btn.style.cssText = 'position:fixed;left:10px;bottom:10px;z-index:30;padding:8px 12px;background:#2b6cb0;color:#fff;border:0;border-radius:8px;font:13px system-ui;cursor:pointer;';
-     document.body.appendChild(btn);
-     var done=false;
-     btn.addEventListener('click', function(){
-       if(done) return; done=true; btn.textContent='probing...';
-       try {
-         __pane.style.inset=''; __pane.style.left='0'; __pane.style.top='0'; __pane.style.width='50%'; __pane.style.height='100%';
-         var p2=document.createElement('div'); p2.className='pane'; p2.style.left='50%'; p2.style.top='0'; p2.style.width='50%'; p2.style.height='100%'; p2.style.background='#2a0a2a';
-         __root.appendChild(p2);
-         var rb=p2.getBoundingClientRect();
-         var app2=new PIXI.Application({ resizeTo:p2, background:0x33104a, antialias:true, autoDensity:true, resolution:window.devicePixelRatio||1 });
-         p2.appendChild(app2.view);
-         app2.renderer.resize(rb.width, rb.height);
-         var world2=new PIXI.Container(); app2.stage.addChild(world2); world2.x=rb.width/2; world2.y=rb.height/2;
-         var g=new PIXI.Graphics(); g.beginFill(0xff35d1); var R=1200, step=64; for(var gx=-R;gx<=R;gx+=step) for(var gy=-R;gy<=R;gy+=step) g.drawCircle(gx,gy,1.6); g.endFill(); world2.addChild(g);
-         var bx=new PIXI.Graphics(); bx.beginFill(0x00ff88,0.22); bx.drawRect(8,8,rb.width-16,rb.height-16); bx.endFill(); app2.stage.addChild(bx);
-         var t=new PIXI.Text('PANE 2 PIXI OK\n'+Math.round(rb.width)+' x '+Math.round(rb.height), { fill:0xffffff, fontSize:22, fontFamily:'monospace' }); t.x=22; t.y=22; app2.stage.addChild(t);
-         app2.render();
-         showProbe('app2 created. paneRect='+Math.round(rb.width)+'x'+Math.round(rb.height)+'  viewInDOM='+(!!app2.view.parentNode)+'  canvasPx='+app2.view.width+'x'+app2.view.height+'. If you SEE magenta dots + green box + white text on the RIGHT half, two PIXI apps coexist & size OK.');
-         btn.textContent='probed';
-       } catch(e){ showProbe('PIXI ERROR: '+(e&&e.message||e)); btn.textContent='probe FAILED'; }
-     });
-   })();
+   function setRect(el, x, y, w, h){ el.style.inset = ''; el.style.left = x + 'px'; el.style.top = y + 'px'; el.style.width = w + 'px'; el.style.height = h + 'px'; }
+   var PM = {
+     panes: [], focused: null, rootEl: null, split: false, ratio: 0.5, divEl: null,
+     paneAt: function(x, y){ for (var i = 0; i < PM.panes.length; i++){ var p = PM.panes[i]; if (p.root.style.display === 'none') continue; var r = p.root.getBoundingClientRect(); if (x >= r.left && x < r.right && y >= r.top && y < r.bottom) return p; } return null; },
+     setFocus: function(p){ if (!p || PM.focused === p) return; PM.focused = p; PM.panes.forEach(function(q){ q.root.classList.toggle('focused', PM.split && q === p); }); },
+     relayout: function(){ if (!PM.rootEl) return; var r = PM.rootEl.getBoundingClientRect(), W = r.width, H = r.height; var p0 = PM.panes[0], p1 = PM.panes[1];
+       if (!PM.split || !p1){ if (p0) setRect(p0.root, 0, 0, W, H); if (p1) p1.root.style.display = 'none'; if (PM.divEl) PM.divEl.style.display = 'none'; if (p0 && p0.resize) p0.resize(); return; }
+       var DIV = 6, wa = Math.round((W - DIV) * PM.ratio); p1.root.style.display = '';
+       setRect(p0.root, 0, 0, wa, H); setRect(p1.root, wa + DIV, 0, W - wa - DIV, H);
+       PM.divEl.style.display = ''; setRect(PM.divEl, wa, 0, DIV, H);
+       if (p0 && p0.resize) p0.resize(); if (p1 && p1.resize) p1.resize(); },
+     doSplit: function(){ if (PM.split) return; var src = PM.focused || PM.panes[0];
+       if (!PM.panes[1]){ var el = document.createElement('div'); el.className = 'pane'; el.style.inset = '0'; PM.rootEl.appendChild(el); var p = makeCanvas(el, { initPath: src.getCwd(), pm: PM }); PM.panes.push(p); }
+       else { PM.panes[1].navigate(src.getCwd()); }
+       if (!PM.divEl){ var d = document.createElement('div'); d.className = 'divider v'; PM.rootEl.appendChild(d); PM.divEl = d; wireDiv(d); }
+       PM.split = true; PM.relayout(); PM.setFocus(PM.panes[1]); },
+     unsplit: function(){ if (!PM.split) return; PM.split = false; PM.setFocus(PM.panes[0]); PM.relayout(); }
+   };
+   function wireDiv(d){ d.addEventListener('pointerdown', function(ev){ ev.preventDefault(); try{ d.setPointerCapture(ev.pointerId); }catch(_){}
+     function mv(e){ var r = PM.rootEl.getBoundingClientRect(); PM.ratio = Math.min(0.85, Math.max(0.15, (e.clientX - r.left) / r.width)); PM.relayout(); }
+     function up(){ try{ d.releasePointerCapture(ev.pointerId); }catch(_){} window.removeEventListener('pointermove', mv); window.removeEventListener('pointerup', up); }
+     window.addEventListener('pointermove', mv); window.addEventListener('pointerup', up); }); }
+   var __root = document.getElementById('root'); PM.rootEl = __root;
+   var __el0 = document.createElement('div'); __el0.className = 'pane'; __el0.style.inset = '0'; __root.appendChild(__el0);
+   var __p0 = makeCanvas(__el0, { pm: PM }); PM.panes.push(__p0); PM.focused = __p0; PM.relayout();
+   window.addEventListener('resize', PM.relayout);
+   (function(){ var T = window.__TAURI__; function disp(pl){ var pos = (pl && pl.position) || { x: 0, y: 0 }; var dpr = window.devicePixelRatio || 1; var p = PM.paneAt(pos.x / dpr, pos.y / dpr) || PM.focused; if (p && p.handleDrop) p.handleDrop(pl); }
+     try{ if (T.webviewWindow && T.webviewWindow.getCurrentWebviewWindow){ T.webviewWindow.getCurrentWebviewWindow().onDragDropEvent(function(e){ if (e.payload && e.payload.type === 'drop') disp(e.payload); }); return; } }catch(_){}
+     try{ if (T.webview && T.webview.getCurrentWebview){ T.webview.getCurrentWebview().onDragDropEvent(function(e){ if (e.payload && e.payload.type === 'drop') disp(e.payload); }); return; } }catch(_){}
+     try{ T.event.listen('tauri://drag-drop', function(e){ disp(e.payload); }); }catch(_){} })();
  </script>
 </body></html>

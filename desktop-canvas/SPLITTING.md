@@ -1,6 +1,25 @@
 # Split panes — status & resume notes
 
-Status as of v0.0.34: **paused / reverted.** The canvas was rolled back to the v0.0.31
+Status as of v0.0.38: **re-attempted with root cause fixed** (see below). Earlier status was
+paused/reverted at v0.0.34.
+
+## ROOT CAUSE of the blank 2nd pane (found via v0.0.37 probe)
+The v0.0.37 diagnostic mounted a bare 2nd PIXI app in a half pane: its grid rendered fine, so
+**two PIXI apps DO coexist in WebView2** — the worst-case branch is off the table. The real bug:
+the canvas centers `world` using `app.screen` captured at construction. v0.0.32's doSplit created
+the 2nd pane at FULL-window size, ran makeCanvas (which centered world at full/2 and set
+hitArea=full), THEN relayout shrank the pane to half — leaving world centered OUTSIDE the visible
+half = blank. v0.0.33 resized the renderer but never re-centered world, so still blank.
+
+## THE FIX (v0.0.38)
+makeCanvas now returns a `self` api with `self.resize()` that does renderer.resize(paneRect) AND
+translates world by half the size delta (`world.x += (newW - oldW)/2`, same for y) so the centered
+world-point stays centered after any pane size change; it also refreshes `app.stage.hitArea`.
+PM.relayout() calls `p.resize()` on every pane after setting rects (and wireDiv drag → relayout).
+Ported from v0.0.32: PM (panes/focused/split/ratio/divider), draggable divider, click-to-focus
+(`.pane.focused` ring), keyboard guarded by `pm.focused !== self`, single manager-level OS-drop
+router by position (per-instance wireDrop only runs when there's no pane manager). Split toggle is
+in the empty-area right-click menu ("Split → side by side" / "Unsplit (single view)"). The canvas was rolled back to the v0.0.31
 instanced foundation. The splitting attempt (v0.0.32 / v0.0.33) is preserved in git history
 and can be cherry-picked or referenced when we resume.
 
