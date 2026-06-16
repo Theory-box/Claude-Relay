@@ -330,6 +330,47 @@ fn delete_file(app: tauri::AppHandle, dir: String, name: String) -> Result<(), S
     Ok(())
 }
 
+fn copy_tree(src: &PathBuf, dst: &PathBuf) -> Result<(), String> {
+    if src.is_dir() {
+        fs::create_dir_all(dst).map_err(|e| e.to_string())?;
+        for entry in fs::read_dir(src).map_err(|e| e.to_string())? {
+            let e = entry.map_err(|e| e.to_string())?;
+            copy_tree(&e.path(), &dst.join(e.file_name()))?;
+        }
+        Ok(())
+    } else {
+        fs::copy(src, dst).map_err(|e| e.to_string())?;
+        Ok(())
+    }
+}
+
+#[tauri::command]
+fn paste_copy(app: tauri::AppHandle, dest: String, src: String) -> Result<String, String> {
+    in_root(&app, &dest)?; // destination must be writable (inside canvas)
+    let s = PathBuf::from(&src);
+    if !s.exists() { return Err("source missing".into()); }
+    let name = s.file_name().ok_or("no name")?.to_string_lossy().to_string();
+    let d = unique_dest(&PathBuf::from(&dest), &name);
+    copy_tree(&s, &d)?;
+    Ok(d.file_name().unwrap().to_string_lossy().to_string())
+}
+
+#[tauri::command]
+fn paste_move(app: tauri::AppHandle, dest: String, src: String) -> Result<String, String> {
+    in_root(&app, &dest)?;
+    let s = PathBuf::from(&src);
+    let parent = s.parent().map(|p| p.to_string_lossy().to_string()).unwrap_or_default();
+    in_root(&app, &parent)?; // moving removes from source -> source must be inside canvas too
+    if !s.exists() { return Err("source missing".into()); }
+    let name = s.file_name().ok_or("no name")?.to_string_lossy().to_string();
+    let d = unique_dest(&PathBuf::from(&dest), &name);
+    if fs::rename(&s, &d).is_err() {
+        copy_tree(&s, &d)?;
+        if s.is_dir() { fs::remove_dir_all(&s).map_err(|e| e.to_string())?; } else { fs::remove_file(&s).map_err(|e| e.to_string())?; }
+    }
+    Ok(d.file_name().unwrap().to_string_lossy().to_string())
+}
+
 #[tauri::command]
 fn load_spaces(app: tauri::AppHandle) -> Result<String, String> {
     let base = app.path().app_data_dir().map_err(|e| e.to_string())?;
@@ -368,7 +409,7 @@ fn main() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
             quit, places, list_dir, add_dropped_file, make_folder, move_into, trash_item,
-            clear_trash, open_trash, thumb_data, open_item, open_folder, shell_verb, delete_file, load_spaces, save_spaces, save_layout, load_layout
+            clear_trash, open_trash, thumb_data, open_item, open_folder, shell_verb, delete_file, paste_copy, paste_move, load_spaces, save_spaces, save_layout, load_layout
         ])
         .setup(|app| {
             let handle = app.handle().clone();

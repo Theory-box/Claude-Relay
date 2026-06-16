@@ -318,3 +318,15 @@ Stack: Tauri v2 (Rust + WebView2), PixiJS planned for canvas. Windows-only.
   bounding box (margin 90, max zoom 2.2x). Empty selection -> frames ALL items (find lost items:
   Ctrl+A then Ctrl+F). 
 - TODO batch 3: sort applies to selection (else all); second "gather" move mode.
+
+## v0.0.24 — Copy / Cut / Paste (#5)
+- Backend: copy_tree (recursive), paste_copy(dest, src) [copies file/dir, dest must be in root],
+  paste_move(dest, src) [rename or copy+remove; BOTH dest and source-parent must be in root since
+  it removes the source]. unique_dest handles name collisions. Registered both.
+- Frontend: internal clip = {mode:'copy'|'cut', items:[{name,path,dir}]}. Ctrl+C copies selection
+  (works in read-only too), Ctrl+X cuts (writable only; cut cards dimmed to 0.5), Ctrl+V pastes
+  into cwd (writable only) — invokes paste_copy/paste_move per item, builds cards placed via
+  nearestFree near the viewport centre, selects the pasted set; cut clears clip after. Right-click
+  menus gained Copy/Cut (item + selection menus) and Paste (empty menu). HUD shows clipboard state.
+- Cross-folder / cross-space: clip stores absolute source paths, so you can copy in one space and
+  paste in another. Source removal on cut self-heals stale cards via the folder poll.

@@ -4,8 +4,9 @@
 - [done v0.0.19] Un-restrict browsing; everything read-only except the Desktop Canvas folder.
 - [done v0.0.19] Move "Tidy up" into the Sort submenu.
 - [done v0.0.20] #4 Selection + box-select + multi-move (collisions + move-into-folder + trash).
-- [ ] #5 Copy / Cut / Paste on item right-click (needs backend copy/move + a clipboard model;
-      paste target must be writable).
+- [done v0.0.24] #5 Copy/Cut/Paste: Ctrl+C/X/V + right-click entries; internal clipboard of
+      paths; paste_copy (recursive) / paste_move backend; paste & cut require writable, copy reads
+      anywhere. Paste places near view center via nearestFree and selects the new items.
 - [ ] #6 Trash Can as a static screen icon (bottom-left), not a world object.
 
 ## Requested — batch 3 (newest)
