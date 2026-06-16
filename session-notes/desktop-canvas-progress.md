@@ -394,3 +394,21 @@ FIXES:
   so poll broadcasts only caused cross-window clobber.
 - Also fixed: idle HUD version label had been stuck at v0.0.23 (cosmetic; version replaces silently
   no-matched since v0.0.25). Now shows v0.0.30.
+
+## v0.0.31 — REFACTOR (invisible): canvas is now instanceable (foundation for split panes)
+Goal: zero behavior change vs v0.0.30; verify identical. Foundation for in-window Blender-style split panes.
+- The whole canvas IIFE is now `function makeCanvas(root){...}`; bootstrap creates ONE `.pane` div
+  filling the window (#root, position:fixed inset:0) and calls makeCanvas(__pane). All former globals
+  (cwd, world, cards, items, selection, carry, camera, myId, etc.) are now per-instance closures.
+- Per-pane DOM (bar/hud/diag/menu/sortMenu/spacesMenu/dialog/prompt/boxsel/search) moved into
+  <template id="paneTpl">, cloned into each pane root. #err stays a single global bar.
+- All element lookups scoped to the pane: document.getElementById('x') -> $('#x') where
+  $(s)=root.querySelector(s). Only err/paneTpl/root use document.getElementById.
+- PIXI app uses resizeTo: root (the pane) and app.view appended to root; all sizing already used
+  app.screen.* so it's pane-relative automatically. Overlay CSS switched position:fixed -> absolute
+  so overlays anchor to the pane (identical for a single full-window pane at origin).
+- KNOWN deferred-to-Stage-2 (harmless for single pane at 0,0): popup/box-select/search use viewport
+  client coords; sortMenu flyout edge-flip uses window.innerWidth; per-pane keydown still on window
+  (needs focus gating when >1 pane). None affect single-pane behavior.
+NEXT (Stage 2): pane manager — split tree, draggable live dividers, focused-pane + keyboard routing,
+  manual split action. Stage 3: edge-hover drag-to-split gesture + right-click-divider merge (choose side).
