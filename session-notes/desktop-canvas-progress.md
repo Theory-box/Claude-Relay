@@ -468,7 +468,16 @@ file path and imports.
   drag_out({paths:[abs path]}) and hides the menu (press-drag, not click — so the OS drag attaches to the
   held button). Placed right after the Open group in BOTH file and folder menu branches — near the top,
   far from Delete (per user's accidental-delete concern).
-RISK/UNKNOWNS for this build: drag crate 0.4 vs Tauri v2 raw-window-handle compat; whether WebviewWindow
-satisfies HasWindowHandle; IPC timing for the OS drag to attach to the live press. May need a cycle.
+RESOLVED: the `drag` crate was abandoned (its Linux gtk-sys dep version-conflicts with Tauri v2's, so
+cargo fails to RESOLVE even on a windows-only build; the tauri-plugin-drag route hits the same conflict
+and also needs an npm binding we can't use without a bundler). Replaced with a pure windows-crate impl:
+drag_out runs on the main thread (app_handle().run_on_main_thread) and does
+SHCreateItemFromParsingName -> IShellItem::BindToHandler(BHID_DataObject) -> SHDoDragDrop(None, Some(&data),
+None, DROPEFFECT_COPY|DROPEFFECT_LINK). No custom IDropSource needed (shell supplies a default drop source
+AND auto-renders the file's icon/thumbnail as the drag image -> the 'copy follows the cursor' effect).
+Added windows feature Win32_System_Ole. Gotcha fixed: SHDoDragDrop's owner arg is Option<HWND> (pass None).
+BUILT + DELIVERED DesktopCanvas-v0.0.35.exe (run 27641667420).
+OPEN (needs user test): whether the native drag reliably attaches to the in-progress mouse press given the
+small pointerdown->IPC->main-thread delay. If it doesn't fire on first press, that timing is the cause.
 NEXT if it works: multi-select drag-out (paths from selection), and use the card's real thumbnail as the
 drag image instead of the app icon.
