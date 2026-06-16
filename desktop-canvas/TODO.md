@@ -11,8 +11,8 @@
 
 ## Requested — batch 3 (newest)
 - [ ] Sorting should apply to the SELECTED items when any are selected; otherwise sort everything.
-- [ ] Two move modes: (1) rigid group move (current); (2) "gather" — all selected items cluster
-      around the item being dragged while dragging. Toggle between them.
+- [partial v0.0.25] Hold Ctrl while dragging = Free placement (overlap + drop-into-folder).
+- [ ] "Gather" move mode: selected items cluster around the dragged item. (Still TODO.)
 
 ## Requested — batch 2
 - [ ] SPACE = search / find files in current folder. Wants a fast, easy in-folder finder
@@ -79,6 +79,6 @@ Running list of deferred work and ideas. Newest context at top of each section.
 - Containers: folders/rows/columns/stacks that auto-arrange their children.
 
 ## Safety
-- SAFE_MODE = true confines ALL file ops + browsing to the Desktop Canvas folder.
-  Plan a deliberate, scoped re-enable of wider access later, ideally split read-only
-  browsing from write/move/delete, with clear UI about what's allowed where.
+- [v0.0.25] Runtime Safety toggle (top-right lock, default ON each launch). ON = writes
+  confined to canvas; OFF = edit anywhere with confirms for delete/paste OUTSIDE canvas and
+  for large deletes (>=10), plus an 'editing outside canvas' marker. Reads always open.

@@ -8,6 +8,9 @@
  #bar button:hover{background:#2f3440;}
  #bar input{background:#1c1f27;border:1px solid #3a4150;color:#e6e8ee;border-radius:6px;padding:5px 8px;font:inherit;}
  #pathInput{width:320px;}
+ #safetyLbl{display:flex;align-items:center;gap:5px;color:#8b9bb0;cursor:pointer;user-select:none;white-space:nowrap;font-size:12px;}
+ #safetyLbl.off{color:#e0a55c;}
+ #safetyLbl input{cursor:pointer;}
  .spacer{flex:1;}
  #crumbs{overflow:hidden;white-space:nowrap;text-overflow:ellipsis;max-width:52vw;}
  .crumb{cursor:pointer;color:#8d93a0;padding:2px 4px;border-radius:4px;}
@@ -48,6 +51,7 @@
    <span class="spacer"></span>
    <input id="pathInput" placeholder="Type or paste a path, Enter to go" style="display:none">
    <button id="goto">Go to&#8230;</button>
+   <label id="safetyLbl" title="Safety: when on, file changes are limited to the Desktop Canvas folder. Turn off to edit anywhere (with confirmations)."><span id="safetyIcon">&#128274;</span><input type="checkbox" id="safetyChk" checked><span id="safetyTxt">safe</span></label>
  </div>
  <div id="hud"></div>
  <div id="diag"></div>
@@ -87,7 +91,7 @@
      var items = [], cards = [], thumbCache = {}, mtimes = {}, meta = {};
      var trash = { x: -320, y: -210 }, trashNode = null;
      var panning = false, last = null, reloadPending = false, confirming = false, animating = false;
-     var lastCursor = null, sortAnim = null, writable = true, spaces = [], camTween = null, clip = null;
+     var lastCursor = null, sortAnim = null, writable = true, spaces = [], camTween = null, clip = null, ctrlDown = false, safetyOn = true;
      var modes = ['free', 'push'], modeIdx = 1; // default Push (Fit removed)
      function modeLabel(){ return ['Free', 'Push'][modeIdx]; }
      var carry = null;
@@ -196,7 +200,7 @@
      }
      var loadSeq = 0, loading = false;
      async function loadView(fromSync){
-       var seq = ++loadSeq; loading = true; writable = inRoot(cwd);
+       var seq = ++loadSeq; loading = true; writable = safetyOn ? inRoot(cwd) : true;
        clearView();
        var posmap = {};
        try{ var s = await T.core.invoke('load_layout', { key: cwd }); var p = JSON.parse(s || '{}'); var arr = Array.isArray(p) ? p : (p.items || []); arr.forEach(function(it){ posmap[it.name] = { x: it.x, y: it.y }; }); if (!Array.isArray(p) && p.trash) trash = p.trash; }catch(e){ showErr('load_layout: ' + e); }
@@ -250,7 +254,7 @@
        var group = [node];
        if (fromSel){ group = []; selection.forEach(function(c){ if (c.__item) group.push(c); }); }
        var held = group.map(function(c){ return { card: c, ox: wx - c.x, oy: wy - c.y }; });
-       carry = { held: held, anchor: node, source: 'move', phase: 'drag', moved: false, fromSelection: fromSel, start: { x: p.x, y: p.y }, snap: captureSnap(), shift: e.shiftKey, ctrl: e.ctrlKey, dropTarget: null };
+       ctrlDown = e.ctrlKey; carry = { held: held, anchor: node, source: 'move', phase: 'drag', moved: false, fromSelection: fromSel, start: { x: p.x, y: p.y }, snap: captureSnap(), shift: e.shiftKey, ctrl: e.ctrlKey, dropTarget: null };
        updateHud();
      }
      function startImportCarry(card, atScreen){
@@ -267,7 +271,7 @@
        cards.forEach(function(c){ if (heldHas(c)) return; var sn = carry.snap[c.__item.name]; if (sn){ c.x = sn.x; c.y = sn.y; } });
        carry.dropTarget = null; hl.visible = false;
        var anchor = carry.anchor;
-       var mode = anchor.__trash ? 'free' : modes[modeIdx];
+       var mode = (anchor.__trash || ctrlDown) ? 'free' : modes[modeIdx];
        if (!anchor.__trash){
          var dt = dropTargetUnder(rectOf(anchor), mode === 'free' && writable);
          if (dt){ carry.dropTarget = dt; var w2 = dt.hitArea.width, h2 = dt.hitArea.height; hl.clear(); hl.lineStyle(2, dt.__trash ? 0xe09a9a : 0x6fd08c); hl.drawRoundedRect(0, 0, w2, h2, 10); hl.x = dt.x; hl.y = dt.y; hl.visible = true; world.addChild(hl); return; }
@@ -375,6 +379,7 @@
        if (confirming || animating) return;
        lastCursor = { x: e.global.x, y: e.global.y };
        if (carry){
+         ctrlDown = e.ctrlKey;
          if (carry.phase === 'drag'){ if (Math.hypot(e.global.x - carry.start.x, e.global.y - carry.start.y) > 5){ if (!carry.moved){ carry.moved = true; carry.held.forEach(function(h){ h.card.alpha = 0.85; }); if (!carry.fromSelection && carry.source === 'move' && carry.anchor.__item && !carry.anchor.__trash){ selection.clear(); selection.add(carry.anchor); drawSelection(); } } } if (!carry.moved) return; }
          var wx = (e.global.x - world.x) / world.scale.x, wy = (e.global.y - world.y) / world.scale.y;
          resolveCarry({ x: wx, y: wy });
@@ -411,7 +416,9 @@
        if (placesMenu.style.display === 'block' && ev.target !== placesBtn && !placesMenu.contains(ev.target)) placesMenu.style.display = 'none';
        if (spacesMenu.style.display === 'block' && ev.target !== spacesBtn && !spacesMenu.contains(ev.target)) spacesMenu.style.display = 'none';
      }, true);
+     window.addEventListener('keyup', function(e){ if (e.key === 'Control'){ ctrlDown = false; if (carry && carry.moved){ refreshPreview(); updateHud(); } } });
      window.addEventListener('keydown', function(e){
+       if (e.key === 'Control' && !ctrlDown){ ctrlDown = true; if (carry && carry.moved){ refreshPreview(); updateHud(); } }
        if (confirming) return;
        if (animating && e.key === 'Escape'){ if (sortAnim){ sortAnim.frames = 1; } e.stopPropagation(); return; }
        var ae = document.activeElement; if (ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA')) return; // typing in a field/search
@@ -428,7 +435,7 @@
        if ((e.ctrlKey || e.metaKey) && (e.key === 'x' || e.key === 'X')){ if (writable) copySelection('cut'); else showErr('Read-only here \u2014 cut only works inside the Desktop Canvas folder.'); e.preventDefault(); e.stopPropagation(); return; }
        if ((e.ctrlKey || e.metaKey) && (e.key === 'v' || e.key === 'V')){ doPaste(); e.preventDefault(); e.stopPropagation(); return; }
        if (e.key === 'Escape'){ if (selection.size){ clearSel(); drawSelection(); updateHud(); e.stopPropagation(); } return; }
-       if ((e.key === 'Delete' || e.key === 'Backspace') && selection.size && writable){ var del = []; selection.forEach(function(c){ if (c.__item && !c.__trash) del.push(c); }); selection.clear(); drawSelection(); updateHud(); Promise.all(del.map(function(c){ return T.core.invoke('trash_item', { dir: cwd, name: c.__item.name }).catch(function(er){ showErr('trash: ' + er); }); })).then(function(){ del.forEach(function(c){ removeCardLocal(c); }); persist(); }); e.stopPropagation(); return; }
+       if ((e.key === 'Delete' || e.key === 'Backspace') && selection.size && writable){ var del = []; selection.forEach(function(c){ if (c.__item && !c.__trash) del.push(c); }); confirmDelete(del.length, function(){ selection.clear(); drawSelection(); updateHud(); Promise.all(del.map(function(c){ return T.core.invoke('trash_item', { dir: cwd, name: c.__item.name }).catch(function(er){ showErr('trash: ' + er); }); })).then(function(){ del.forEach(function(c){ removeCardLocal(c); }); persist(); }); }); e.preventDefault(); e.stopPropagation(); return; }
      }, true);
 
      function targetAt(cx, cy){
@@ -482,7 +489,7 @@
        menu.appendChild(mkSep());
        menu.appendChild(mkBtn('Copy', '', function(){ copyItems('copy', sel); hideMenu(); }));
        if (writable) menu.appendChild(mkBtn('Cut', '', function(){ copyItems('cut', sel); hideMenu(); }));
-       if (writable){ menu.appendChild(mkSep()); menu.appendChild(mkBtn('Delete ' + sel.length + ' items', 'danger', function(){ var del = sel.slice(); selection.clear(); drawSelection(); updateHud(); Promise.all(del.map(function(c){ return T.core.invoke('trash_item', { dir: cwd, name: c.__item.name }).catch(function(e){ showErr('trash: ' + e); }); })).then(function(){ del.forEach(function(c){ removeCardLocal(c); }); persist(); }); hideMenu(); })); }
+       if (writable){ menu.appendChild(mkSep()); menu.appendChild(mkBtn('Delete ' + sel.length + ' items', 'danger', function(){ var del = sel.slice(); hideMenu(); confirmDelete(del.length, function(){ selection.clear(); drawSelection(); updateHud(); Promise.all(del.map(function(c){ return T.core.invoke('trash_item', { dir: cwd, name: c.__item.name }).catch(function(e){ showErr('trash: ' + e); }); })).then(function(){ del.forEach(function(c){ removeCardLocal(c); }); persist(); }); }); })); }
        menu.style.left = x + 'px'; menu.style.top = y + 'px'; menu.style.display = 'block';
      }
      function openMenu(x, y, target){
@@ -500,7 +507,7 @@
          menu.appendChild(mkSep());
          menu.appendChild(mkBtn('Copy', '', function(){ copyItems('copy', [target]); hideMenu(); }));
          if (writable) menu.appendChild(mkBtn('Cut', '', function(){ copyItems('cut', [target]); hideMenu(); }));
-         if (writable){ menu.appendChild(mkSep()); menu.appendChild(mkBtn('Delete', 'danger', function(){ T.core.invoke('trash_item', { dir: cwd, name: fname }).then(function(){ removeCardLocal(target); persist(); }); hideMenu(); })); }
+         if (writable){ menu.appendChild(mkSep()); menu.appendChild(mkBtn('Delete', 'danger', function(){ hideMenu(); confirmDelete(1, function(){ T.core.invoke('trash_item', { dir: cwd, name: fname }).then(function(){ removeCardLocal(target); persist(); }); }); })); }
        } else {
          var name = target.__item.name;
          menu.appendChild(mkBtn('Open', '', function(){ T.core.invoke('open_item', { dir: cwd, name: name }); hideMenu(); }));
@@ -509,7 +516,7 @@
          menu.appendChild(mkSep());
          menu.appendChild(mkBtn('Copy', '', function(){ copyItems('copy', [target]); hideMenu(); }));
          if (writable) menu.appendChild(mkBtn('Cut', '', function(){ copyItems('cut', [target]); hideMenu(); }));
-         if (writable){ menu.appendChild(mkSep()); menu.appendChild(mkBtn('Delete', 'danger', function(){ T.core.invoke('trash_item', { dir: cwd, name: name }).then(function(){ removeCardLocal(target); persist(); }); hideMenu(); })); }
+         if (writable){ menu.appendChild(mkSep()); menu.appendChild(mkBtn('Delete', 'danger', function(){ hideMenu(); confirmDelete(1, function(){ T.core.invoke('trash_item', { dir: cwd, name: name }).then(function(){ removeCardLocal(target); persist(); }); }); })); }
        }
        menu.style.left = x + 'px'; menu.style.top = y + 'px'; menu.style.display = 'block';
      }
@@ -523,6 +530,8 @@
      var upBtn = document.getElementById('up'), crumbs = document.getElementById('crumbs');
      var placesBtn = document.getElementById('placesBtn'), placesMenu = document.getElementById('placesMenu'), gotoBtn = document.getElementById('goto'), pathInput = document.getElementById('pathInput'), hud = document.getElementById('hud');
      var spacesBtn = document.getElementById('spacesBtn'), spacesMenu = document.getElementById('spacesMenu');
+     var safetyChk = document.getElementById('safetyChk'), safetyLbl = document.getElementById('safetyLbl'), safetyIcon = document.getElementById('safetyIcon'), safetyTxt = document.getElementById('safetyTxt');
+     safetyChk.addEventListener('change', function(){ safetyOn = safetyChk.checked; T.core.invoke('set_safety', { on: safetyOn }).catch(function(e){ showErr('set_safety: ' + e); }); safetyLbl.classList.toggle('off', !safetyOn); safetyIcon.textContent = safetyOn ? '\uD83D\uDD12' : '\uD83D\uDD13'; safetyTxt.textContent = safetyOn ? 'safe' : 'edit anywhere'; writable = safetyOn ? inRoot(cwd) : true; updateBar(); updateHud(); });
      function updateBar(){
        upBtn.style.visibility = cwd ? 'visible' : 'hidden';
        crumbs.innerHTML = '';
@@ -530,12 +539,12 @@
        var nm = norm(cwd); var parts = nm ? nm.split('\\').filter(Boolean) : [];
        crumb('This PC', '', parts.length === 0); var acc = '';
        parts.forEach(function(seg, i){ var sep = document.createElement('span'); sep.textContent = '  \u203a  '; sep.className = 'sep2'; crumbs.appendChild(sep); if (i === 0){ acc = seg; crumb(seg, seg + '\\', i === parts.length - 1); } else { acc = acc + '\\' + seg; crumb(seg, acc, i === parts.length - 1); } });
-       if (!writable){ var ro = document.createElement('span'); ro.textContent = '   \u2022 read-only'; ro.style.color = '#c9a36a'; crumbs.appendChild(ro); }
+       if (!writable){ var ro = document.createElement('span'); ro.textContent = '   \u2022 read-only'; ro.style.color = '#c9a36a'; crumbs.appendChild(ro); } else if (outsideHome()){ var ed = document.createElement('span'); ed.textContent = '   \u2022 editing outside canvas'; ed.style.color = '#e07a5f'; crumbs.appendChild(ed); }
      }
      function updateHud(){
        if (animating){ hud.textContent = 'Sorting\u2026 (Esc to snap)'; }
        else if (carry && carry.source === 'import'){ hud.textContent = 'Placing imported file [' + modeLabel() + ']  \u00b7  left-click confirm  \u00b7  right-click cancel  \u00b7  T toggle  \u00b7  Free mode (1) to drop into a folder'; }
-       else if (carry){ hud.textContent = 'Moving ' + (carry.held.length > 1 ? carry.held.length + ' items ' : '') + '[' + modeLabel() + ']  \u00b7  release to drop  \u00b7  T toggle (1 Free / 2 Push)  \u00b7  Free to drop into a folder  \u00b7  Esc cancel'; }
+       else if (carry){ hud.textContent = 'Moving ' + (carry.held.length > 1 ? carry.held.length + ' items ' : '') + '[' + (ctrlDown ? 'Free (Ctrl)' : modeLabel()) + ']  \u00b7  hold Ctrl = free / drop into folder  \u00b7  T toggle  \u00b7  release to drop  \u00b7  Esc cancel'; }
        else if (selection.size){ hud.textContent = selection.size + ' selected  \u00b7  drag = move  \u00b7  Ctrl+C copy / Ctrl+X cut  \u00b7  Del trash  \u00b7  Ctrl+F frame  \u00b7  Esc clear'; }
        else { hud.textContent = 'v0.0.23  \u00b7  click = select  \u00b7  shift/ctrl = add/remove  \u00b7  drag empty = box select  \u00b7  middle-drag = pan  \u00b7  drag item = move  \u00b7  mode: ' + modeLabel() + (writable ? '' : '  \u00b7  read-only'); }
      }
@@ -551,6 +560,11 @@
      function removeSpace(){ var n = norm(cwd).toLowerCase(); spaces = spaces.filter(function(sp){ return norm(sp.path).toLowerCase() !== n; }); persistSpaces(); }
      // ---------- clipboard: copy / cut / paste ----------
      function clearClipDim(){ if (clip && clip.cards){ clip.cards.forEach(function(c){ if (c && !c.destroyed) c.alpha = 1; }); } }
+     function outsideHome(){ return !inRoot(cwd); }
+     function confirmDelete(count, onYes){
+       if (outsideHome() || count >= 10){ confirmDialog('Delete ' + count + ' item' + (count > 1 ? 's' : '') + (outsideHome() ? ' OUTSIDE the Desktop Canvas folder' : '') + '? (moved to Trash Can)', 'Delete', onYes); }
+       else onYes();
+     }
      function copyItems(mode, arr){
        var its = [], refs = [];
        arr.forEach(function(c){ if (c && c.__item && !c.__trash){ its.push({ name: c.__item.name, path: joinPath(cwd, c.__item.name), dir: !!c.__item.dir }); refs.push(c); } });
@@ -563,7 +577,10 @@
      function copySelection(mode){ copyItems(mode, Array.from(selection)); }
      function doPaste(){
        if (!clip) return;
-       if (!writable){ showErr('Read-only here \u2014 paste only works inside the Desktop Canvas folder.'); return; }
+       if (!writable){ showErr('Read-only here \u2014 turn off Safety to edit outside the Desktop Canvas folder.'); return; }
+       if (outsideHome()){ confirmDialog('Paste ' + clip.items.length + ' item(s) into a folder OUTSIDE the Desktop Canvas folder?', 'Paste', pasteNow); } else pasteNow();
+     }
+     function pasteNow(){
        var mode = clip.mode, cmd = (mode === 'cut') ? 'paste_move' : 'paste_copy', srcs = clip.items.slice();
        var cxw = (app.screen.width / 2 - world.x) / world.scale.x, cyw = (app.screen.height / 2 - world.y) / world.scale.y;
        (async function(){
@@ -656,6 +673,7 @@
        try{ placesList = JSON.parse(await T.core.invoke('places') || '[]'); }catch(e){ showErr('places: ' + e); }
        var hp = placesList.filter(function(p){ return p.label === 'Desktop Canvas'; })[0]; homePath = hp ? hp.path : ''; cwd = homePath;
        try{ spaces = JSON.parse(await T.core.invoke('load_spaces') || '[]'); }catch(e){ showErr('load_spaces: ' + e); }
+       try{ await T.core.invoke('set_safety', { on: true }); }catch(e){ showErr('set_safety: ' + e); }
        updateHud();
        await loadView(); poll(); setInterval(poll, 3000);
      })();

@@ -330,3 +330,16 @@ Stack: Tauri v2 (Rust + WebView2), PixiJS planned for canvas. Windows-only.
   menus gained Copy/Cut (item + selection menus) and Paste (empty menu). HUD shows clipboard state.
 - Cross-folder / cross-space: clip stores absolute source paths, so you can copy in one space and
   paste in another. Source removal on cut self-heals stale cards via the folder poll.
+
+## v0.0.25 — Ctrl-to-Free while dragging; runtime Safety toggle (edit anywhere, guarded)
+- Hold Ctrl during a move/carry -> mode forced to Free (overlap + drop-into-folder), release ->
+  back to Push. ctrlDown tracked from pointermove e.ctrlKey + Control keydown/keyup (live refresh
+  even without mouse movement) + seeded at startCarry. HUD shows "Free (Ctrl)" live.
+- Safety: backend SAFE_MODE const replaced with runtime static AtomicBool SAFETY_ON + set_safety(on)
+  command; in_root honors it. Defaults ON every launch (never persisted off). Frontend: lock
+  checkbox top-right (default checked); toggling invokes set_safety, recomputes writable
+  (safetyOn ? inRoot(cwd) : true), updates bar/HUD. Label shows lock/safe vs open-lock/edit-anywhere.
+- Guards when editing OUTSIDE the canvas folder (only possible with safety off): confirmDelete()
+  wraps all delete paths (keyboard, selection menu, single-item) -> confirms when outsideHome OR
+  count>=10; doPaste confirms when pasting outside home (pasteNow does the work). Bar shows amber
+  "editing outside canvas" marker; read-only marker still shows when not writable.

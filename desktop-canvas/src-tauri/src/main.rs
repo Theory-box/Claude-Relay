@@ -15,12 +15,17 @@ fn canvas_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     Ok(dir)
 }
 
-// Safety: while SAFE_MODE is true, WRITE/MOVE/DELETE operations are confined to the
-// Desktop Canvas folder. Reading/browsing/opening is allowed anywhere. Flip to false
-// to allow writes anywhere too.
-const SAFE_MODE: bool = true;
+// Safety: when SAFETY_ON, WRITE/MOVE/DELETE operations are confined to the Desktop
+// Canvas folder. Reading/browsing/opening is always allowed anywhere. Defaults to ON
+// every launch (never persisted off) so a restart can't leave writes unguarded.
+use std::sync::atomic::{AtomicBool, Ordering};
+static SAFETY_ON: AtomicBool = AtomicBool::new(true);
+
+#[tauri::command]
+fn set_safety(on: bool) { SAFETY_ON.store(on, Ordering::Relaxed); }
+
 fn in_root(app: &tauri::AppHandle, dir: &str) -> Result<(), String> {
-    if !SAFE_MODE { return Ok(()); }
+    if !SAFETY_ON.load(Ordering::Relaxed) { return Ok(()); }
     let root = canvas_dir(app)?.canonicalize().map_err(|e| e.to_string())?;
     let d = PathBuf::from(dir)
         .canonicalize()
@@ -409,7 +414,7 @@ fn main() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
             quit, places, list_dir, add_dropped_file, make_folder, move_into, trash_item,
-            clear_trash, open_trash, thumb_data, open_item, open_folder, shell_verb, delete_file, paste_copy, paste_move, load_spaces, save_spaces, save_layout, load_layout
+            clear_trash, open_trash, thumb_data, open_item, open_folder, shell_verb, delete_file, paste_copy, paste_move, set_safety, load_spaces, save_spaces, save_layout, load_layout
         ])
         .setup(|app| {
             let handle = app.handle().clone();
