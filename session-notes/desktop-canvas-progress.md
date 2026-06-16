@@ -286,3 +286,11 @@ Stack: Tauri v2 (Rust + WebView2), PixiJS planned for canvas. Windows-only.
 - Right-click a card that's part of a multi-selection -> selection menu ("N items selected",
   "Delete N items"). selection cleared on clearView; removeCardLocal drops from selection.
 - updateHud shows group/selection state; diag shows "sel N".
+
+## v0.0.21 — FIX selection-blocks-input bug
+- Bug: ctrl-click couldn't deselect, and a multi-selection couldn't be dragged (started a box).
+  Root cause: selGfx (the blue selection outline) is re-added on top of the cards each frame and
+  was intercepting pointer events, so clicks/drags on an already-selected card hit the outline
+  -> bubbled to the stage -> started a box-select. (Also meant a plain click on a selected card
+  cleared the selection.) Fix: selGfx.eventMode='none' (also set hl + grid to 'none') so all
+  decorative overlays are ignored by hit-testing and clicks reach the cards beneath.

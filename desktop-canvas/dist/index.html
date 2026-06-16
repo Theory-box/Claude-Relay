@@ -66,14 +66,14 @@
      document.body.appendChild(app.view);
      var world = new PIXI.Container();
      app.stage.addChild(world);
-     var grid = new PIXI.Graphics();
+     var grid = new PIXI.Graphics(); grid.eventMode = 'none';
      grid.beginFill(0x2a2d36);
      var R = 1600, step = 64;
      for (var gx = -R; gx <= R; gx += step) for (var gy = -R; gy <= R; gy += step) grid.drawCircle(gx, gy, 1.3);
      grid.endFill();
      world.addChild(grid);
      world.x = app.screen.width / 2; world.y = app.screen.height / 2;
-     var hl = new PIXI.Graphics(); hl.visible = false; world.addChild(hl);
+     var hl = new PIXI.Graphics(); hl.eventMode = 'none'; hl.visible = false; world.addChild(hl);
 
      var cwd = '', homePath = '', placesList = [];
      var items = [], cards = [], thumbCache = {}, mtimes = {}, meta = {};
@@ -308,7 +308,7 @@
 
      // ---------- selection & rubber-band box ----------
      var selection = new Set();
-     var selGfx = new PIXI.Graphics(); world.addChild(selGfx);
+     var selGfx = new PIXI.Graphics(); selGfx.eventMode = 'none'; world.addChild(selGfx);
      function drawSelection(){
        selGfx.clear(); if (!selection.size) return; world.addChild(selGfx);
        selection.forEach(function(c){ if (!c.__item || c.destroyed) return; var w = c.hitArea.width, h = c.hitArea.height; selGfx.lineStyle(2.5, 0x5b9dff, 1); selGfx.beginFill(0x5b9dff, 0.12); selGfx.drawRoundedRect(c.x - 2, c.y - 2, w + 4, h + 4, 11); selGfx.endFill(); });
@@ -498,7 +498,7 @@
        else if (carry && carry.source === 'import'){ hud.textContent = 'Placing imported file [' + modeLabel() + ']  \u00b7  left-click confirm  \u00b7  right-click cancel  \u00b7  T toggle  \u00b7  Free mode (1) to drop into a folder'; }
        else if (carry){ hud.textContent = 'Moving ' + (carry.held.length > 1 ? carry.held.length + ' items ' : '') + '[' + modeLabel() + ']  \u00b7  release to drop  \u00b7  T toggle (1 Free / 2 Push)  \u00b7  Free to drop into a folder  \u00b7  Esc cancel'; }
        else if (selection.size){ hud.textContent = selection.size + ' selected  \u00b7  drag to move all  \u00b7  Del to trash  \u00b7  Esc to clear  \u00b7  Ctrl+A all  \u00b7  mode: ' + modeLabel(); }
-       else { hud.textContent = 'v0.0.20  \u00b7  click = select  \u00b7  shift/ctrl = add/remove  \u00b7  drag empty = box select  \u00b7  middle-drag = pan  \u00b7  drag item = move  \u00b7  mode: ' + modeLabel() + (writable ? '' : '  \u00b7  read-only'); }
+       else { hud.textContent = 'v0.0.21  \u00b7  click = select  \u00b7  shift/ctrl = add/remove  \u00b7  drag empty = box select  \u00b7  middle-drag = pan  \u00b7  drag item = move  \u00b7  mode: ' + modeLabel() + (writable ? '' : '  \u00b7  read-only'); }
      }
      upBtn.addEventListener('click', function(){ navigate(parentOf(cwd)); });
      placesBtn.addEventListener('click', function(ev){ ev.stopPropagation(); if (placesMenu.style.display === 'block'){ placesMenu.style.display = 'none'; return; } placesMenu.innerHTML = ''; placesList.forEach(function(pl){ placesMenu.appendChild(mkBtn(pl.label, '', function(){ navigate(pl.path); placesMenu.style.display = 'none'; })); }); var r = placesBtn.getBoundingClientRect(); placesMenu.style.left = r.left + 'px'; placesMenu.style.top = (r.bottom + 4) + 'px'; placesMenu.style.display = 'block'; });
