@@ -470,7 +470,6 @@ fn drag_out(window: tauri::WebviewWindow, paths: Vec<String>) -> Result<(), Stri
     window.app_handle().run_on_main_thread(move || {
         use std::os::windows::ffi::OsStrExt;
         use windows::core::PCWSTR;
-        use windows::Win32::Foundation::HWND;
         use windows::Win32::System::Com::IDataObject;
         use windows::Win32::System::Ole::{OleInitialize, DROPEFFECT_COPY, DROPEFFECT_LINK};
         use windows::Win32::UI::Shell::{SHCreateItemFromParsingName, IShellItem, BHID_DataObject, SHDoDragDrop};
@@ -479,7 +478,7 @@ fn drag_out(window: tauri::WebviewWindow, paths: Vec<String>) -> Result<(), Stri
             let wide: Vec<u16> = std::path::Path::new(&first).as_os_str().encode_wide().chain(std::iter::once(0)).collect();
             let item: IShellItem = match SHCreateItemFromParsingName(PCWSTR(wide.as_ptr()), None) { Ok(i) => i, Err(_) => return };
             let data: IDataObject = match item.BindToHandler(None, &BHID_DataObject) { Ok(d) => d, Err(_) => return };
-            let _ = SHDoDragDrop(HWND::default(), Some(&data), None, DROPEFFECT_COPY | DROPEFFECT_LINK);
+            let _ = SHDoDragDrop(None, Some(&data), None, DROPEFFECT_COPY | DROPEFFECT_LINK);
         }
     }).map_err(|e| e.to_string())
 }
