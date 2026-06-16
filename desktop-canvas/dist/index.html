@@ -2,11 +2,12 @@
 <html><head><meta charset="utf-8"><title>Desktop Canvas</title>
 <style>
  html,body{margin:0;height:100%;background:#15161a;overflow:hidden;font-family:system-ui,"Segoe UI",sans-serif;}
- #root{position:fixed;inset:0;} .pane{position:absolute;overflow:hidden;background:#15161a;} .pane.focused{box-shadow:inset 0 0 0 2px #3a6fd0;} .divider{position:absolute;z-index:9;background:#2f333d;user-select:none;touch-action:none;} .divider.v{cursor:col-resize;} .divider.h{cursor:row-resize;} .divider:hover{background:#3a6fd0;}
+ #root{position:fixed;inset:0;} .pane{position:absolute;overflow:hidden;background:#15161a;}
  #err{position:fixed;top:0;left:0;right:0;max-height:40%;overflow:auto;padding:10px 14px;background:#3a1d1d;color:#ffd7d7;font:12px/1.45 ui-monospace,Consolas,monospace;white-space:pre-wrap;display:none;z-index:20;}
  #bar{position:absolute;top:0;left:0;right:0;height:38px;display:flex;align-items:center;gap:8px;padding:0 12px;background:rgba(26,28,33,.92);border-bottom:1px solid #2a2d36;z-index:8;font-size:13px;color:#c4c8d2;}
  #bar button{background:#252934;border:1px solid #353a45;color:#d4d7df;border-radius:6px;padding:5px 10px;cursor:pointer;font:inherit;white-space:nowrap;}
- #bar button:hover{background:#2f3440;}
+ #bar button:hover:not(:disabled){background:#2f3440;}
+ #bar button:disabled{opacity:.32;cursor:default;}
  #bar input{background:#1c1f27;border:1px solid #3a4150;color:#e6e8ee;border-radius:6px;padding:5px 8px;font:inherit;}
  #pathInput{width:320px;}
  #safetyLbl{display:flex;align-items:center;gap:5px;color:#8b9bb0;cursor:pointer;user-select:none;white-space:nowrap;font-size:12px;}
@@ -47,6 +48,8 @@
  <div id="root"></div>
  <template id="paneTpl">
  <div id="bar">
+   <button id="back" title="Back (last visited)">&#8592;</button>
+   <button id="fwd" title="Forward">&#8594;</button>
    <button id="up" title="Up one folder">&#8593;</button>
    <button id="spacesBtn">Spaces &#9662;</button>
    <span id="crumbs"></span>
@@ -71,14 +74,12 @@
  window.addEventListener('error', function(ev){ showErr('JS error: ' + (ev.message || ev.error)); });
  window.addEventListener('keydown', function(e){ if(e.key==='Escape'){ try{ window.__TAURI__.core.invoke('quit'); }catch(_){} } });
 
- function makeCanvas(root, opts){
+ function makeCanvas(root){
    try{
      if(typeof PIXI==='undefined'){ showErr('PIXI failed to load'); return; }
      var T = window.__TAURI__;
      root.appendChild(document.getElementById('paneTpl').content.cloneNode(true));
      function $(s){ return root.querySelector(s); }
-     opts = opts || {}; var self = { root: root }; var pm = opts.pm || null;
-     root.addEventListener('pointerdown', function(){ if (pm){ pm.setFocus(self); } }, true);
 
      var app = new PIXI.Application({ resizeTo: root, background: 0x15161a, antialias: true, autoDensity: true, resolution: window.devicePixelRatio || 1 });
      root.appendChild(app.view);
@@ -235,7 +236,14 @@
      }
      function norm(p){ return (p || '').replace(/\//g, '\\').replace(/\\+$/, ''); }
      function inRoot(dir){ var d = norm(dir).toLowerCase(), h = norm(homePath).toLowerCase(); return !h || d === h || d.indexOf(h + '\\') === 0; }
-     function navigate(dir){ if (carry) cancelCarry(); cwd = dir || ''; loadView(); }
+     var history = [], histIdx = -1;
+     function updateNavButtons(){ if (backBtn){ backBtn.disabled = histIdx <= 0; } if (fwdBtn){ fwdBtn.disabled = histIdx >= history.length - 1; } }
+     function navTo(dir, record){ if (carry) cancelCarry(); var target = dir || '';
+       if (record){ if (histIdx < history.length - 1){ history = history.slice(0, histIdx + 1); } if (history[histIdx] !== target){ history.push(target); histIdx = history.length - 1; } }
+       cwd = target; loadView(); updateNavButtons(); }
+     function navigate(dir){ navTo(dir, true); }
+     function goBack(){ if (histIdx > 0){ if (carry) cancelCarry(); histIdx--; cwd = history[histIdx]; loadView(); updateNavButtons(); } }
+     function goForward(){ if (histIdx < history.length - 1){ if (carry) cancelCarry(); histIdx++; cwd = history[histIdx]; loadView(); updateNavButtons(); } }
 
      function cardForName(name){ for (var i = 0; i < cards.length; i++){ if (cards[i].__item && cards[i].__item.name === name) return cards[i]; } return null; }
      function removeCardLocal(card){ var it = card.__item; var ii = items.indexOf(it); if (ii >= 0) items.splice(ii, 1); var ci = cards.indexOf(card); if (ci >= 0) cards.splice(ci, 1); world.removeChild(card); card.destroy({ children: true }); delete mtimes[it.name]; delete meta[it.name]; if (typeof selection !== 'undefined' && selection) selection.delete(card); }
@@ -415,7 +423,6 @@
      app.view.addEventListener('auxclick', function(e){ if (e.button === 1) e.preventDefault(); });
 
      window.addEventListener('wheel', function(ev){
-       if (pm && pm.paneAt && pm.paneAt(ev.clientX, ev.clientY) !== self){ return; }
        ev.preventDefault();
        if (ev.ctrlKey){ var mx = ev.clientX, my = ev.clientY; var wx = (mx - world.x) / world.scale.x, wy = (my - world.y) / world.scale.y; var ns = Math.min(8, Math.max(0.1, world.scale.x * Math.exp(-ev.deltaY * 0.01))); world.scale.set(ns); world.x = mx - wx * ns; world.y = my - wy * ns; }
        else { world.x -= ev.deltaX; world.y -= ev.deltaY; }
@@ -428,9 +435,8 @@
        if (menu.style.display === 'block' && !menu.contains(ev.target) && !sortMenu.contains(ev.target)){ hideMenu(); }
        if (spacesMenu.style.display === 'block' && ev.target !== spacesBtn && !spacesMenu.contains(ev.target)) spacesMenu.style.display = 'none';
      }, true);
-     window.addEventListener('keyup', function(e){ if (pm && pm.focused !== self){ return; } if (e.key === 'Control'){ ctrlDown = false; if (carry && carry.moved){ refreshPreview(); updateHud(); } } });
+     window.addEventListener('keyup', function(e){ if (e.key === 'Control'){ ctrlDown = false; if (carry && carry.moved){ refreshPreview(); updateHud(); } } });
      window.addEventListener('keydown', function(e){
-       if (pm && pm.focused !== self){ return; }
        if (e.key === 'Control' && !ctrlDown){ ctrlDown = true; if (carry && carry.moved){ refreshPreview(); updateHud(); } }
        if (confirming) return;
        if (animating && e.key === 'Escape'){ if (sortAnim){ sortAnim.frames = 1; } e.stopPropagation(); return; }
@@ -483,8 +489,6 @@
      }
      function openEmptyMenu(x, y){
        menuTarget = null; menu.innerHTML = '';
-       menu.appendChild(mkBtn(PM.split ? 'Unsplit (single view)' : 'Split \u2192 side by side', '', function(){ hideMenu(); if (PM.split){ PM.unsplit(); } else { PM.doSplit(); } }));
-       menu.appendChild(mkSep());
        if (writable) menu.appendChild(mkBtn('New Folder', '', function(){ hideMenu(); promptDialog('New folder name', 'New Folder', 'Create', function(name){ createFolder(name); }); }));
        if (clip && writable){ menu.appendChild(mkBtn((clip.mode === 'shortcut' ? 'Paste shortcut' : 'Paste') + ' ' + clip.items.length + ' item' + (clip.items.length > 1 ? 's' : '') + (clip.mode === 'cut' ? ' (move)' : ''), '', function(){ hideMenu(); doPaste(); })); menu.appendChild(mkSep()); }
        var sortBtn = document.createElement('button'); sortBtn.innerHTML = 'Sort / Tidy <span class="arrow">\u25B8</span>';
@@ -562,6 +566,8 @@
      function joinPath(base, name){ if (!base) return name; return base.replace(/[\\\/]+$/, '') + '\\' + name; }
      function parentOf(p){ if (!p) return ''; var s = p.replace(/[\\\/]+$/, ''); if (/^[A-Za-z]:$/.test(s)) return ''; var i = Math.max(s.lastIndexOf('\\'), s.lastIndexOf('/')); if (i < 0) return ''; var up = s.slice(0, i); if (/^[A-Za-z]:$/.test(up)) return up + '\\'; return up; }
      var upBtn = $('#up'), crumbs = $('#crumbs');
+     var backBtn = $('#back'), fwdBtn = $('#fwd');
+     backBtn.addEventListener('click', goBack); fwdBtn.addEventListener('click', goForward);
      var gotoBtn = $('#goto'), pathInput = $('#pathInput'), hud = $('#hud');
      var spacesBtn = $('#spacesBtn'), spacesMenu = $('#spacesMenu');
      var safetyChk = $('#safetyChk'), safetyLbl = $('#safetyLbl'), safetyIcon = $('#safetyIcon'), safetyTxt = $('#safetyTxt');
@@ -580,7 +586,7 @@
        else if (carry && carry.source === 'import'){ hud.textContent = 'Placing imported file [' + modeLabel() + ']  \u00b7  left-click confirm  \u00b7  right-click cancel  \u00b7  T toggle  \u00b7  Free mode (1) to drop into a folder'; }
        else if (carry){ hud.textContent = 'Moving ' + (carry.held.length > 1 ? carry.held.length + ' items ' : '') + '[' + (ctrlDown ? 'Free (Ctrl)' : modeLabel()) + ']  \u00b7  hold Ctrl = free / drop into folder  \u00b7  T toggle  \u00b7  release to drop  \u00b7  Esc cancel'; }
        else if (selection.size){ hud.textContent = selection.size + ' selected  \u00b7  drag = move  \u00b7  Ctrl+C copy / Ctrl+X cut  \u00b7  Del trash  \u00b7  Ctrl+F frame  \u00b7  Esc clear'; }
-       else { hud.textContent = 'v0.0.33  \u00b7  click = select  \u00b7  shift/ctrl = add/remove  \u00b7  drag empty = box select  \u00b7  middle-drag = pan  \u00b7  drag item = move  \u00b7  mode: ' + modeLabel() + (writable ? '' : '  \u00b7  read-only'); }
+       else { hud.textContent = 'v0.0.34  \u00b7  click = select  \u00b7  shift/ctrl = add/remove  \u00b7  drag empty = box select  \u00b7  middle-drag = pan  \u00b7  drag item = move  \u00b7  mode: ' + modeLabel() + (writable ? '' : '  \u00b7  read-only'); }
      }
      upBtn.addEventListener('click', function(){ navigate(parentOf(cwd)); });
      gotoBtn.addEventListener('click', function(){ if (pathInput.style.display === 'none'){ pathInput.style.display = 'inline-block'; pathInput.value = cwd; pathInput.focus(); pathInput.select(); } else { navigate(pathInput.value.trim()); pathInput.style.display = 'none'; } });
@@ -680,7 +686,7 @@
      function handleDrop(payload){
        try{
          var paths = (payload && payload.paths) || []; var pos = (payload && payload.position) || { x: 0, y: 0 };
-         var dpr = window.devicePixelRatio || 1; var __r = root.getBoundingClientRect(); var cssX = pos.x / dpr - __r.left, cssY = pos.y / dpr - __r.top;
+         var dpr = window.devicePixelRatio || 1; var cssX = pos.x / dpr, cssY = pos.y / dpr;
          var baseWX = (cssX - world.x) / world.scale.x, baseWY = (cssY - world.y) / world.scale.y;
          if (!cwd){ showErr('Pick a folder before dropping (you are at This PC).'); return; }
          if (!writable){ showErr('Read-only here \u2014 files can only be imported into the Desktop Canvas folder.'); return; }
@@ -723,48 +729,19 @@
 
      (async function(){
        try{ placesList = JSON.parse(await T.core.invoke('places') || '[]'); }catch(e){ showErr('places: ' + e); }
-       var hp = placesList.filter(function(p){ return p.label === 'Desktop Canvas'; })[0]; homePath = hp ? hp.path : ''; cwd = opts.initPath || homePath;
+       var hp = placesList.filter(function(p){ return p.label === 'Desktop Canvas'; })[0]; homePath = hp ? hp.path : ''; cwd = homePath; history = [cwd]; histIdx = 0; updateNavButtons();
        try{ spaces = JSON.parse(await T.core.invoke('load_spaces') || '[]'); }catch(e){ showErr('load_spaces: ' + e); }
        try{ await T.core.invoke('set_safety', { on: true }); }catch(e){ showErr('set_safety: ' + e); }
        updateHud();
        await loadView(); poll(); setInterval(poll, 3000);
      })();
-     self.handleDrop = handleDrop; self.getCwd = function(){ return cwd; }; self.navigate = function(pth){ navigate(pth); };
-     self.resize = function(){ var w = Math.max(1, root.clientWidth | 0), h = Math.max(1, root.clientHeight | 0); try{ app.renderer.resize(w, h); app.stage.hitArea = app.screen; }catch(_){} };
-     return self;
+     wireDrop(handleDrop);
    }catch(err){ showErr('init error: ' + (err && err.message ? err.message : err)); }
    }
 
-   function setRect(el, x, y, w, h){ el.style.left = x + 'px'; el.style.top = y + 'px'; el.style.width = w + 'px'; el.style.height = h + 'px'; el.style.inset = ''; }
-   var PM = {
-     panes: [], focused: null, rootEl: null, split: false, ratio: 0.5, divEl: null,
-     paneAt: function(x, y){ for (var i = 0; i < PM.panes.length; i++){ var p = PM.panes[i]; if (p.root.style.display === 'none') continue; var r = p.root.getBoundingClientRect(); if (x >= r.left && x < r.right && y >= r.top && y < r.bottom){ return p; } } return null; },
-     setFocus: function(p){ if (!p || PM.focused === p){ return; } PM.focused = p; PM.panes.forEach(function(q){ q.root.classList.toggle('focused', PM.split && q === p); }); },
-     relayout: function(){ if (!PM.rootEl){ return; } var r = PM.rootEl.getBoundingClientRect(), W = r.width, H = r.height; var p0 = PM.panes[0], p1 = PM.panes[1];
-       if (!PM.split || !p1){ if (p0){ setRect(p0.root, 0, 0, W, H); if (p0.resize){ p0.resize(); } } if (p1){ p1.root.style.display = 'none'; } if (PM.divEl){ PM.divEl.style.display = 'none'; } return; }
-       var DIV = 8, wa = Math.round((W - DIV) * PM.ratio); p1.root.style.display = '';
-       setRect(p0.root, 0, 0, wa, H); setRect(p1.root, wa + DIV, 0, W - wa - DIV, H);
-       if (p0.resize){ p0.resize(); } if (p1.resize){ p1.resize(); }
-       PM.divEl.style.display = ''; setRect(PM.divEl, wa, 0, DIV, H); },
-     doSplit: function(){ if (PM.split){ return; } var src = PM.focused || PM.panes[0];
-       if (!PM.panes[1]){ var el = document.createElement('div'); el.className = 'pane'; el.style.inset = '0'; PM.rootEl.appendChild(el); var p = makeCanvas(el, { initPath: src.getCwd(), pm: PM }); PM.panes.push(p); }
-       else { PM.panes[1].navigate(src.getCwd()); }
-       if (!PM.divEl){ var d = document.createElement('div'); d.className = 'divider v'; PM.rootEl.appendChild(d); PM.divEl = d; wireDiv(d); }
-       PM.split = true; PM.relayout(); PM.setFocus(PM.panes[1]); },
-     unsplit: function(){ if (!PM.split){ return; } PM.split = false; PM.setFocus(PM.panes[0]); PM.relayout(); }
-   };
-   function wireDiv(d){ d.addEventListener('pointerdown', function(ev){ ev.preventDefault(); try{ d.setPointerCapture(ev.pointerId); }catch(_){}
-     function mv(e){ var r = PM.rootEl.getBoundingClientRect(); PM.ratio = Math.min(0.85, Math.max(0.15, (e.clientX - r.left) / r.width)); PM.relayout(); }
-     function up(){ try{ d.releasePointerCapture(ev.pointerId); }catch(_){} window.removeEventListener('pointermove', mv); window.removeEventListener('pointerup', up); }
-     window.addEventListener('pointermove', mv); window.addEventListener('pointerup', up); }); }
-
-   var __root = document.getElementById('root'); PM.rootEl = __root;
-   var __el0 = document.createElement('div'); __el0.className = 'pane'; __el0.style.inset = '0'; __root.appendChild(__el0);
-   var __p0 = makeCanvas(__el0, { pm: PM }); PM.panes.push(__p0); PM.focused = __p0; PM.relayout();
-   window.addEventListener('resize', PM.relayout);
-   (function(){ var T = window.__TAURI__; function disp(pl){ var pos = (pl && pl.position) || { x: 0, y: 0 }; var dpr = window.devicePixelRatio || 1; var p = PM.paneAt(pos.x / dpr, pos.y / dpr) || PM.focused; if (p && p.handleDrop){ p.handleDrop(pl); } }
-     try{ if (T.webviewWindow && T.webviewWindow.getCurrentWebviewWindow){ T.webviewWindow.getCurrentWebviewWindow().onDragDropEvent(function(e){ if (e.payload && e.payload.type === 'drop'){ disp(e.payload); } }); return; } }catch(_){}
-     try{ if (T.webview && T.webview.getCurrentWebview){ T.webview.getCurrentWebview().onDragDropEvent(function(e){ if (e.payload && e.payload.type === 'drop'){ disp(e.payload); } }); return; } }catch(_){}
-     try{ T.event.listen('tauri://drag-drop', function(e){ disp(e.payload); }); }catch(_){} })();
+   var __root = document.getElementById('root');
+   var __pane = document.createElement('div'); __pane.className = 'pane'; __pane.style.inset = '0';
+   __root.appendChild(__pane);
+   makeCanvas(__pane);
  </script>
 </body></html>

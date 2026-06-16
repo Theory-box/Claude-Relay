@@ -442,3 +442,15 @@ reflow the renderers). Divider thickened 6->8px + user-select/touch-action none 
 TO VERIFY w/ user: whether pane 2 now shows grid+toolbar+content and the divider resizes live. If a
 toolbar is still missing in pane 2, check for a red error bar (would indicate makeCanvas threw on the
 2nd instance) — not expected, since the template clones per pane.
+
+## v0.0.34 — reverted splitting to v0.0.31 base; added Back/Forward history nav
+- Splitting (v0.0.32 Stage 2a + v0.0.33 resize fix) did NOT work — 2nd pane rendered blank even
+  after the renderer-resize fix. Reverted desktop-canvas/dist/index.html + tauri.conf.json to the
+  v0.0.31 instanced foundation (commit bec057b). Splitting code preserved in history; status +
+  resume hypotheses written to desktop-canvas/SPLITTING.md.
+- NEW: Back/Forward navigation history (per canvas instance). All navigation already routes through
+  navigate(); refactored into navTo(dir, record) which pushes onto a history stack (truncating any
+  forward entries), navigate()=navTo(.,true). goBack()/goForward() move histIdx without recording.
+  Two toolbar buttons (← →) left of the Up button, disabled at the ends of history. History seeded
+  with the initial home folder. Records folders, spaces, breadcrumbs, Up, shortcut-target navigation.
+  (Up button unchanged = parent dir; Back/Forward = visited history.)
