@@ -87,3 +87,15 @@ dividers. Add one mechanism per build (the project's proven pattern).
 
 To revisit the split code: `git show 711055e:desktop-canvas/dist/index.html` (or diff
 `bec057b..19e6dfd`).
+
+## v0.0.39 — fix 2nd-pane interactions (right-click, Spaces)
+After v0.0.38 both panes rendered, but in the RIGHT pane right-click menus and the Spaces flyout did
+nothing. Root cause: menus/flyouts are positioned with WINDOW coords (clientX / getBoundingClientRect)
+but they live inside the pane (.pop is position:absolute relative to .pane), so in the offset right pane
+they landed off-screen; right-click hit-test (targetAt vs PIXI getBounds, which is canvas-local) also got
+window coords. Pan/zoom-by-drag worked because they use PIXI e.global (already canvas-local).
+Fix: added lx()/ly() helpers (clientX/Y minus root.getBoundingClientRect().left/top) and made pane-local:
+contextmenu hit-test + menu position, dblclick hit-test, ctrl-wheel zoom cursor, positionFlyout (Sort +
+right-click Spaces), and the toolbar Spaces button menu. Single + split both work.
+STILL STAGE 2 (side-by-side only). Stage 3 backlog: edge-hover drag-to-split gesture, right-click-divider
+merge w/ side choice, recursive + stacked (top/bottom) splits.
