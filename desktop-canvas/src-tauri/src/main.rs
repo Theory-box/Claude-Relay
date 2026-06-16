@@ -463,6 +463,26 @@ fn load_layout(app: tauri::AppHandle, key: String) -> Result<String, String> {
     if f.exists() { fs::read_to_string(f).map_err(|e| e.to_string()) } else { Ok("{}".to_string()) }
 }
 
+fn session_file(app: &tauri::AppHandle, key: &str) -> Result<PathBuf, String> {
+    let base = app.path().app_data_dir().map_err(|e| e.to_string())?.join("sessions");
+    let safe: String = if key.is_empty() { "main".to_string() } else { key.chars().map(|c| if c == '/' || c == '\\' || c == ':' { '_' } else { c }).collect() };
+    Ok(base.join(format!("{}.json", safe)))
+}
+
+#[tauri::command]
+fn save_session(app: tauri::AppHandle, key: String, data: String) -> Result<(), String> {
+    let f = session_file(&app, &key)?;
+    if let Some(parent) = f.parent() { fs::create_dir_all(parent).map_err(|e| e.to_string())?; }
+    fs::write(f, data).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+fn load_session(app: tauri::AppHandle, key: String) -> Result<String, String> {
+    let f = session_file(&app, &key)?;
+    if f.exists() { fs::read_to_string(f).map_err(|e| e.to_string()) } else { Ok("null".to_string()) }
+}
+
 #[tauri::command]
 fn drag_out(window: tauri::WebviewWindow, paths: Vec<String>) -> Result<(), String> {
     if paths.is_empty() { return Err("no files".into()); }
@@ -504,7 +524,7 @@ fn main() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
             quit, places, list_dir, add_dropped_file, make_folder, move_into, trash_item,
-            clear_trash, open_trash, thumb_data, open_item, open_folder, shell_verb, delete_file, paste_copy, paste_move, paste_shortcut, resolve_lnk, path_size, set_safety, load_spaces, save_spaces, save_layout, load_layout, drag_out
+            clear_trash, open_trash, thumb_data, open_item, open_folder, shell_verb, delete_file, paste_copy, paste_move, paste_shortcut, resolve_lnk, path_size, set_safety, load_spaces, save_spaces, save_layout, load_layout, save_session, load_session, drag_out
         ])
         .setup(|app| {
             let handle = app.handle().clone();

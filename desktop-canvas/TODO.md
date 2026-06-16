@@ -97,3 +97,5 @@ Running list of deferred work and ideas. Newest context at top of each section.
 - [ ] Undo / redo for ITEM PLACEMENT + MOVEMENT only (skip copy/paste undo for now).
 - [x] v0.0.29: folder-shortcut (.lnk) = in-canvas bookmark. Double-clicking a .lnk to a FOLDER resolves
       the target and navigates INSIDE the canvas; .lnk to a FILE still opens normally. Still real .lnk on disk.
+
+- SHARED TOP MENU BAR for split panes: one full-width bar (replacing the two per-pane toolbars) driven by the FOCUSED pane. Needs each pane to expose actions+state via self (back/fwd/up/navigate/safety/cwd/crumbs/nav-enabled/safety-state) and a refresh-on-focus-change + refresh-on-pane-state-change hook in the pane manager. Moderate, ~few builds. (Requested; deferred.)

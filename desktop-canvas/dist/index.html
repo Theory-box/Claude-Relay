@@ -244,10 +244,10 @@
      function updateNavButtons(){ if (backBtn){ backBtn.disabled = histIdx <= 0; } if (fwdBtn){ fwdBtn.disabled = histIdx >= history.length - 1; } }
      function navTo(dir, record){ if (carry) cancelCarry(); var target = dir || '';
        if (record){ if (histIdx < history.length - 1){ history = history.slice(0, histIdx + 1); } if (history[histIdx] !== target){ history.push(target); histIdx = history.length - 1; } }
-       cwd = target; loadView(); updateNavButtons(); }
+       cwd = target; loadView(); updateNavButtons(); if (typeof scheduleSession === 'function') scheduleSession(); }
      function navigate(dir){ navTo(dir, true); }
-     function goBack(){ if (histIdx > 0){ if (carry) cancelCarry(); histIdx--; cwd = history[histIdx]; loadView(); updateNavButtons(); } }
-     function goForward(){ if (histIdx < history.length - 1){ if (carry) cancelCarry(); histIdx++; cwd = history[histIdx]; loadView(); updateNavButtons(); } }
+     function goBack(){ if (histIdx > 0){ if (carry) cancelCarry(); histIdx--; cwd = history[histIdx]; loadView(); updateNavButtons(); if (typeof scheduleSession === 'function') scheduleSession(); } }
+     function goForward(){ if (histIdx < history.length - 1){ if (carry) cancelCarry(); histIdx++; cwd = history[histIdx]; loadView(); updateNavButtons(); if (typeof scheduleSession === 'function') scheduleSession(); } }
 
      function cardForName(name){ for (var i = 0; i < cards.length; i++){ if (cards[i].__item && cards[i].__item.name === name) return cards[i]; } return null; }
      function removeCardLocal(card){ var it = card.__item; var ii = items.indexOf(it); if (ii >= 0) items.splice(ii, 1); var ci = cards.indexOf(card); if (ci >= 0) cards.splice(ci, 1); world.removeChild(card); card.destroy({ children: true }); delete mtimes[it.name]; delete meta[it.name]; if (typeof selection !== 'undefined' && selection) selection.delete(card); }
@@ -597,7 +597,7 @@
        else if (carry && carry.source === 'import'){ hud.textContent = 'Placing imported file [' + modeLabel() + ']  \u00b7  left-click confirm  \u00b7  right-click cancel  \u00b7  T toggle  \u00b7  Free mode (1) to drop into a folder'; }
        else if (carry){ hud.textContent = 'Moving ' + (carry.held.length > 1 ? carry.held.length + ' items ' : '') + '[' + (ctrlDown ? 'Free (Ctrl)' : modeLabel()) + ']  \u00b7  hold Ctrl = free / drop into folder  \u00b7  T toggle  \u00b7  release to drop  \u00b7  Esc cancel'; }
        else if (selection.size){ hud.textContent = selection.size + ' selected  \u00b7  drag = move  \u00b7  Ctrl+C copy / Ctrl+X cut  \u00b7  Del trash  \u00b7  Ctrl+F frame  \u00b7  Esc clear'; }
-       else { hud.textContent = 'v0.0.40  \u00b7  click = select  \u00b7  shift/ctrl = add/remove  \u00b7  drag empty = box select  \u00b7  middle-drag = pan  \u00b7  drag item = move  \u00b7  mode: ' + modeLabel() + (writable ? '' : '  \u00b7  read-only'); }
+       else { hud.textContent = 'v0.0.41  \u00b7  click = select  \u00b7  shift/ctrl = add/remove  \u00b7  drag empty = box select  \u00b7  middle-drag = pan  \u00b7  drag item = move  \u00b7  mode: ' + modeLabel() + (writable ? '' : '  \u00b7  read-only'); }
      }
      upBtn.addEventListener('click', function(){ navigate(parentOf(cwd)); });
      gotoBtn.addEventListener('click', function(){ if (pathInput.style.display === 'none'){ pathInput.style.display = 'inline-block'; pathInput.value = cwd; pathInput.focus(); pathInput.select(); } else { navigate(pathInput.value.trim()); pathInput.style.display = 'none'; } });
@@ -757,7 +757,7 @@
    var PM = {
      panes: [], focused: null, rootEl: null, split: false, ratio: 0.5, divEl: null,
      paneAt: function(x, y){ for (var i = 0; i < PM.panes.length; i++){ var p = PM.panes[i]; if (p.root.style.display === 'none') continue; var r = p.root.getBoundingClientRect(); if (x >= r.left && x < r.right && y >= r.top && y < r.bottom) return p; } return null; },
-     setFocus: function(p){ if (!p || PM.focused === p) return; PM.focused = p; PM.panes.forEach(function(q){ q.root.classList.toggle('focused', PM.split && q === p); }); },
+     setFocus: function(p){ if (!p || PM.focused === p) return; PM.focused = p; PM.panes.forEach(function(q){ q.root.classList.toggle('focused', PM.split && q === p); }); if (typeof scheduleSession === 'function') scheduleSession(); },
      relayout: function(){ if (!PM.rootEl) return; var r = PM.rootEl.getBoundingClientRect(), W = r.width, H = r.height; var p0 = PM.panes[0], p1 = PM.panes[1];
        if (!PM.split || !p1){ if (p0) setRect(p0.root, 0, 0, W, H); if (p1) p1.root.style.display = 'none'; if (PM.divEl) PM.divEl.style.display = 'none'; if (p0 && p0.resize) p0.resize(); return; }
        var DIV = 6, wa = Math.round((W - DIV) * PM.ratio); p1.root.style.display = '';
@@ -768,16 +768,27 @@
        if (!PM.panes[1]){ var el = document.createElement('div'); el.className = 'pane'; el.style.inset = '0'; PM.rootEl.appendChild(el); var p = makeCanvas(el, { initPath: src.getCwd(), pm: PM }); PM.panes.push(p); }
        else { PM.panes[1].navigate(src.getCwd()); }
        if (!PM.divEl){ var d = document.createElement('div'); d.className = 'divider v'; PM.rootEl.appendChild(d); PM.divEl = d; wireDiv(d); }
-       PM.split = true; PM.relayout(); PM.setFocus(PM.panes[1]); },
-     unsplit: function(){ if (!PM.split) return; PM.split = false; PM.setFocus(PM.panes[0]); PM.relayout(); }
+       PM.split = true; PM.relayout(); PM.setFocus(PM.panes[1]); if (typeof scheduleSession === 'function') scheduleSession(); },
+     unsplit: function(){ if (!PM.split) return; PM.split = false; PM.setFocus(PM.panes[0]); PM.relayout(); if (typeof scheduleSession === 'function') scheduleSession(); }
    };
    function wireDiv(d){ d.addEventListener('pointerdown', function(ev){ ev.preventDefault(); try{ d.setPointerCapture(ev.pointerId); }catch(_){}
      function mv(e){ var r = PM.rootEl.getBoundingClientRect(); PM.ratio = Math.min(0.85, Math.max(0.15, (e.clientX - r.left) / r.width)); PM.relayout(); }
-     function up(){ try{ d.releasePointerCapture(ev.pointerId); }catch(_){} window.removeEventListener('pointermove', mv); window.removeEventListener('pointerup', up); }
+     function up(){ try{ d.releasePointerCapture(ev.pointerId); }catch(_){} window.removeEventListener('pointermove', mv); window.removeEventListener('pointerup', up); if (typeof scheduleSession === 'function') scheduleSession(); }
      window.addEventListener('pointermove', mv); window.addEventListener('pointerup', up); }); }
    var __root = document.getElementById('root'); PM.rootEl = __root;
+   var WL = 'main'; try{ var __T = window.__TAURI__; if (__T.webviewWindow && __T.webviewWindow.getCurrentWebviewWindow) WL = __T.webviewWindow.getCurrentWebviewWindow().label || 'main'; }catch(_){}
+   var __saveT = null;
+   function scheduleSession(){ clearTimeout(__saveT); __saveT = setTimeout(saveSession, 450); }
+   function saveSession(){ try{ if (!PM.panes.length) return; var n = PM.split ? 2 : 1; var obj = { split: !!PM.split, ratio: PM.ratio, focusedIdx: PM.panes.indexOf(PM.focused), panes: PM.panes.slice(0, n).map(function(p){ return (p && p.getCwd) ? p.getCwd() : ''; }) }; window.__TAURI__.core.invoke('save_session', { key: WL, data: JSON.stringify(obj) }); }catch(_){} }
    var __el0 = document.createElement('div'); __el0.className = 'pane'; __el0.style.inset = '0'; __root.appendChild(__el0);
-   var __p0 = makeCanvas(__el0, { pm: PM }); PM.panes.push(__p0); PM.focused = __p0; PM.relayout();
+   (async function(){
+     var sess = null; try{ sess = JSON.parse(await window.__TAURI__.core.invoke('load_session', { key: WL }) || 'null'); }catch(_){}
+     var init0 = (sess && sess.panes && sess.panes[0]) ? sess.panes[0] : undefined;
+     var __p0 = makeCanvas(__el0, { pm: PM, initPath: init0 }); PM.panes.push(__p0); PM.focused = __p0;
+     if (sess && sess.split && sess.panes && sess.panes[1]){ PM.ratio = (typeof sess.ratio === 'number') ? sess.ratio : 0.5; PM.doSplit(); if (PM.panes[1]) PM.panes[1].navigate(sess.panes[1]); }
+     PM.relayout();
+     if (sess && sess.focusedIdx === 0 && PM.panes[0]) PM.setFocus(PM.panes[0]);
+   })();
    window.addEventListener('resize', PM.relayout);
    (function(){ var T = window.__TAURI__; function disp(pl){ var pos = (pl && pl.position) || { x: 0, y: 0 }; var dpr = window.devicePixelRatio || 1; var p = PM.paneAt(pos.x / dpr, pos.y / dpr) || PM.focused; if (p && p.handleDrop) p.handleDrop(pl); }
      try{ if (T.webviewWindow && T.webviewWindow.getCurrentWebviewWindow){ T.webviewWindow.getCurrentWebviewWindow().onDragDropEvent(function(e){ if (e.payload && e.payload.type === 'drop') disp(e.payload); }); return; } }catch(_){}
