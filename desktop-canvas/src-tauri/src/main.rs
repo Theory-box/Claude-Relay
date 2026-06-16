@@ -111,6 +111,42 @@ fn shell_thumb(_path: &Path) -> Option<String> {
     None
 }
 
+// Invoke a native shell verb (e.g. "openas" = Open With dialog) on a file.
+#[cfg(windows)]
+fn run_verb(path: &Path, verb: &str) -> Option<()> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows::core::PCWSTR;
+    use windows::Win32::UI::Shell::ShellExecuteW;
+    use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+    unsafe {
+        let f: Vec<u16> = path.as_os_str().encode_wide().chain(std::iter::once(0)).collect();
+        let v: Vec<u16> = std::ffi::OsStr::new(verb).encode_wide().chain(std::iter::once(0)).collect();
+        let _ = ShellExecuteW(None, PCWSTR(v.as_ptr()), PCWSTR(f.as_ptr()), PCWSTR::null(), PCWSTR::null(), SW_SHOWNORMAL);
+    }
+    Some(())
+}
+
+#[cfg(not(windows))]
+fn run_verb(_path: &Path, _verb: &str) -> Option<()> {
+    None
+}
+
+fn unique_dest(dir: &Path, name: &str) -> PathBuf {
+    let mut dest = dir.join(name);
+    if dest.exists() {
+        let pb = PathBuf::from(name);
+        let stem = pb.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| name.to_string());
+        let ext = pb.extension().map(|s| format!(".{}", s.to_string_lossy())).unwrap_or_default();
+        let mut i = 1;
+        loop {
+            let candidate = dir.join(format!("{} ({}){}", stem, i, ext));
+            if !candidate.exists() { dest = candidate; break; }
+            i += 1;
+        }
+    }
+    dest
+}
+
 #[derive(serde::Serialize)]
 struct FileInfo {
     name: String,
@@ -196,6 +232,56 @@ fn open_folder(app: tauri::AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn shell_verb(app: tauri::AppHandle, name: String, verb: String) -> Result<(), String> {
+    let p = canvas_dir(&app)?.join(&name);
+    if !p.exists() {
+        return Err("file not found".into());
+    }
+    run_verb(&p, &verb);
+    Ok(())
+}
+
+#[tauri::command]
+fn trash_item(app: tauri::AppHandle, name: String) -> Result<(), String> {
+    let dir = canvas_dir(&app)?;
+    let src = dir.join(&name);
+    if !src.exists() {
+        return Ok(());
+    }
+    let trash = dir.join("Trash Can");
+    fs::create_dir_all(&trash).map_err(|e| e.to_string())?;
+    let dest = unique_dest(&trash, &name);
+    if fs::rename(&src, &dest).is_err() {
+        fs::copy(&src, &dest).map_err(|e| e.to_string())?;
+        fs::remove_file(&src).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn clear_trash(app: tauri::AppHandle) -> Result<(), String> {
+    let trash = canvas_dir(&app)?.join("Trash Can");
+    if trash.exists() {
+        for entry in fs::read_dir(&trash).map_err(|e| e.to_string())? {
+            let p = entry.map_err(|e| e.to_string())?.path();
+            if p.is_dir() { let _ = fs::remove_dir_all(&p); } else { let _ = fs::remove_file(&p); }
+        }
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn open_trash(app: tauri::AppHandle) -> Result<(), String> {
+    let trash = canvas_dir(&app)?.join("Trash Can");
+    fs::create_dir_all(&trash).map_err(|e| e.to_string())?;
+    std::process::Command::new("explorer")
+        .arg(trash.to_string_lossy().to_string())
+        .spawn()
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
 fn save_layout(app: tauri::AppHandle, data: String) -> Result<(), String> {
     let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
     fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
@@ -213,7 +299,8 @@ fn load_layout(app: tauri::AppHandle) -> Result<String, String> {
 fn main() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
-            quit, add_dropped_file, thumb_data, list_canvas, open_item, open_folder, save_layout, load_layout
+            quit, add_dropped_file, thumb_data, list_canvas, open_item, open_folder,
+            shell_verb, trash_item, clear_trash, open_trash, save_layout, load_layout
         ])
         .setup(|app| {
             let handle = app.handle().clone();

@@ -108,3 +108,21 @@ Stack: Tauri v2 (Rust + WebView2), PixiJS planned for canvas. Windows-only.
   thumbnail. Non-main windows get structural changes through the existing layout sync.
 - Known: poll add/drop dedupe by name (cardForName) to avoid duplicates; a tiny race
   window remains if a drop lands exactly between a poll snapshot and processing.
+
+## v0.0.10 — Trash Can + Delete-to-trash + native "Open with"
+- Trash Can: a special draggable canvas object (__trash, NOT a file item). Persisted
+  position in layout as { items, trash } (loadLayout back-compat: old array => items).
+  Cannot be deleted; right-click => Open Trash Can folder / Clear Trash Can (2nd-click
+  confirm => clear_trash permanently deletes the subfolder contents).
+- Delete: menu "Delete" and dragging a card onto the Trash Can both call trash_item,
+  which moves the file to Desktop Canvas/Trash Can/ (rename, copy+rm fallback, collision
+  -safe via unique_dest). Card removed + persist (syncs). The drag-onto-target overlap
+  test (rectsOverlap on getBounds) is the reusable mechanism for drag-onto-folder later.
+- Native shell verb: run_verb() = ShellExecuteW; menu "Open with..." uses verb "openas"
+  (native Windows dialog). Cheap way to leverage Windows without IContextMenu. Added
+  Win32_UI_WindowsAndMessaging feature for SW_SHOWNORMAL.
+- Right-click menu is now built dynamically per target (file vs trash).
+- DECISION on native right-click: full Explorer menu (IContextMenu + TrackPopupMenu over
+  the webview) is the high-risk piece and stays deferred; we keep our own menu and pull
+  in native actions via shell verbs as needed.
+- list_canvas already skips dirs, so the "Trash Can" subfolder never shows as an item.

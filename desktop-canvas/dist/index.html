@@ -5,23 +5,19 @@
  #err{position:fixed;top:0;left:0;right:0;max-height:40%;overflow:auto;padding:10px 14px;background:#3a1d1d;color:#ffd7d7;font:12px/1.45 ui-monospace,Consolas,monospace;white-space:pre-wrap;display:none;z-index:20;}
  #hud{position:fixed;left:14px;bottom:12px;color:#6b6f7a;font:12px system-ui,"Segoe UI",sans-serif;z-index:5;pointer-events:none;letter-spacing:.03em;}
  #diag{position:fixed;right:12px;bottom:12px;color:#52555e;font:11px ui-monospace,Consolas,monospace;z-index:5;pointer-events:none;}
- #menu{position:fixed;display:none;z-index:30;min-width:168px;background:#1f2229;border:1px solid #353a45;border-radius:8px;padding:5px;box-shadow:0 8px 24px rgba(0,0,0,.5);font:13px system-ui,"Segoe UI",sans-serif;}
- #menu button{display:block;width:100%;text-align:left;background:none;border:0;color:#d4d7df;padding:8px 12px;border-radius:5px;cursor:pointer;}
+ #menu{position:fixed;display:none;z-index:30;min-width:172px;background:#1f2229;border:1px solid #353a45;border-radius:8px;padding:5px;box-shadow:0 8px 24px rgba(0,0,0,.5);font:13px system-ui,"Segoe UI",sans-serif;}
+ #menu button{display:block;width:100%;text-align:left;background:none;border:0;color:#d4d7df;padding:8px 12px;border-radius:5px;cursor:pointer;font:inherit;}
  #menu button:hover{background:#2c313c;}
  #menu .sep{height:1px;background:#353a45;margin:5px 6px;}
+ #menu .danger{color:#e7a3a3;}
  #menu .danger:hover{background:#3a2326;color:#ffb0b0;}
  canvas{display:block;}
 </style></head>
 <body>
  <div id="err"></div>
- <div id="hud">Desktop Canvas v0.0.9 &middot; drop a file &middot; drag/scroll to pan &middot; Ctrl+scroll to zoom &middot; double-click to open &middot; right-click for menu &middot; Esc to quit</div>
+ <div id="hud">Desktop Canvas v0.0.10 &middot; drop a file &middot; drag onto Trash Can to delete &middot; drag/scroll to pan &middot; Ctrl+scroll zoom &middot; double-click open &middot; right-click menu &middot; Esc quit</div>
  <div id="diag"></div>
- <div id="menu">
-   <button data-act="open">Open</button>
-   <button data-act="folder">Open folder</button>
-   <div class="sep"></div>
-   <button data-act="remove" class="danger">Remove from canvas</button>
- </div>
+ <div id="menu"></div>
  <script src="pixi.min.js"></script>
  <script>
  function showErr(m){ var e=document.getElementById('err'); e.style.display='block'; e.textContent += m + "\n"; }
@@ -55,6 +51,8 @@
      var cards = [];
      var thumbCache = {};
      var mtimes = {};
+     var trash = { x: -320, y: -210 };
+     var trashNode = null;
      var panning = false, last = null, dragTarget = null, dragOff = null;
      var reloadPending = false;
 
@@ -71,10 +69,9 @@
        if (name in thumbCache) return Promise.resolve(thumbCache[name]);
        return T.core.invoke('thumb_data', { name: name }).then(function(url){ thumbCache[name] = url; return url; });
      }
-
      function cardForName(name){ for (var i=0;i<cards.length;i++){ if (cards[i].__item && cards[i].__item.name===name) return cards[i]; } return null; }
+     function rectsOverlap(a,b){ return a.x < b.x+b.width && a.x+a.width > b.x && a.y < b.y+b.height && a.y+a.height > b.y; }
 
-     // load (or refresh) the shell thumbnail for a card; falls back to its label card
      function applyThumb(card){
        var name = card.__item.name;
        getThumb(name).then(function(url){
@@ -123,9 +120,29 @@
        return card;
      }
 
+     function buildTrash(){
+       var t = new PIXI.Container();
+       t.__trash = true;
+       var g = new PIXI.Graphics();
+       g.lineStyle(2, 0x6b7079); g.beginFill(0x2a2e36); g.drawRoundedRect(12, 26, 56, 60, 6); g.endFill();
+       g.beginFill(0x3a3f49); g.lineStyle(0); g.drawRoundedRect(6, 14, 68, 12, 3); g.endFill();
+       g.beginFill(0x3a3f49); g.drawRoundedRect(31, 6, 18, 8, 3); g.endFill();
+       g.lineStyle(2, 0x565b64);
+       g.moveTo(30, 34); g.lineTo(30, 78); g.moveTo(40, 34); g.lineTo(40, 78); g.moveTo(50, 34); g.lineTo(50, 78);
+       t.addChild(g);
+       var lbl = new PIXI.Text('Trash Can', { fill: 0x9aa0ab, fontSize: 12, fontFamily: 'system-ui' });
+       lbl.x = 40 - lbl.width / 2; lbl.y = 90; t.addChild(lbl);
+       t.eventMode = 'static'; t.cursor = 'grab';
+       t.hitArea = new PIXI.Rectangle(0, 0, 80, 106);
+       t.x = trash.x; t.y = trash.y;
+       attachDrag(t);
+       world.addChild(t);
+       return t;
+     }
+
      function persist(){
        try{
-         return T.core.invoke('save_layout', { data: JSON.stringify(items) })
+         return T.core.invoke('save_layout', { data: JSON.stringify({ items: items, trash: trash }) })
            .then(function(){ try{ T.event.emit('layout-changed', {}); }catch(_){} })
            .catch(function(e){ showErr('save_layout: ' + e); });
        }catch(e){ showErr('persist: ' + e); }
@@ -134,8 +151,12 @@
      async function loadLayout(){
        try{
          var s = await T.core.invoke('load_layout');
-         var arr = JSON.parse(s || '[]');
+         var parsed = JSON.parse(s || '{}');
+         var arr, tr;
+         if (Array.isArray(parsed)) { arr = parsed; tr = null; } else { arr = parsed.items || []; tr = parsed.trash || null; }
+         if (tr) trash = tr;
          arr.forEach(function(it){ items.push(it); buildCard(it); });
+         if (trashNode) { trashNode.x = trash.x; trashNode.y = trash.y; }
        }catch(e){ showErr('load_layout: ' + e); }
      }
 
@@ -145,14 +166,19 @@
        await loadLayout();
      }
 
-     function removeCard(card){
-       var idx = items.indexOf(card.__item); if (idx >= 0) items.splice(idx, 1);
-       var ci = cards.indexOf(card); if (ci >= 0) cards.splice(ci, 1);
-       world.removeChild(card); card.destroy({ children: true });
-       persist();
+     function moveToTrash(card){
+       var name = card.__item.name;
+       try{
+         T.core.invoke('trash_item', { name: name }).then(function(){
+           var idx = items.indexOf(card.__item); if (idx >= 0) items.splice(idx, 1);
+           var ci = cards.indexOf(card); if (ci >= 0) cards.splice(ci, 1);
+           world.removeChild(card); card.destroy({ children: true });
+           delete mtimes[name]; delete thumbCache[name];
+           persist();
+         }).catch(function(e){ showErr('trash: ' + e); });
+       }catch(e){ showErr('trash: ' + e); }
      }
 
-     // ---- folder sync: main window polls the Desktop Canvas folder ----
      async function pollFolder(){
        if (!isMain) return;
        try{
@@ -198,7 +224,17 @@
        }
      });
      function endAll(){
-       if (dragTarget && dragTarget.__item) { dragTarget.__item.x = dragTarget.x; dragTarget.__item.y = dragTarget.y; persist(); }
+       if (dragTarget) {
+         if (dragTarget.__trash) {
+           trash.x = dragTarget.x; trash.y = dragTarget.y; persist();
+         } else if (dragTarget.__item) {
+           if (trashNode && rectsOverlap(dragTarget.getBounds(), trashNode.getBounds())) {
+             moveToTrash(dragTarget);
+           } else {
+             dragTarget.__item.x = dragTarget.x; dragTarget.__item.y = dragTarget.y; persist();
+           }
+         }
+       }
        panning = false; last = null; if (dragTarget) dragTarget.cursor = 'grab'; dragTarget = null; dragOff = null;
        if (reloadPending) { reloadPending = false; reconcile(); }
      }
@@ -218,31 +254,41 @@
        }
      }, { passive: false });
 
-     function cardAt(cx, cy){
+     function targetAt(cx, cy){
        for (var i = cards.length - 1; i >= 0; i--){
          var b = cards[i].getBounds();
          if (cx >= b.x && cx <= b.x + b.width && cy >= b.y && cy <= b.y + b.height) return cards[i];
        }
+       if (trashNode){ var tb = trashNode.getBounds(); if (cx >= tb.x && cx <= tb.x + tb.width && cy >= tb.y && cy <= tb.y + tb.height) return trashNode; }
        return null;
      }
 
      var menu = document.getElementById('menu');
      var menuTarget = null;
      function hideMenu(){ menu.style.display = 'none'; menuTarget = null; }
-     function showMenu(x, y, card){ menuTarget = card; menu.style.left = x + 'px'; menu.style.top = y + 'px'; menu.style.display = 'block'; }
-     menu.addEventListener('click', function(ev){
-       var act = ev.target && ev.target.getAttribute && ev.target.getAttribute('data-act');
-       if (!act || !menuTarget) { hideMenu(); return; }
-       var name = menuTarget.__item.name, card = menuTarget;
-       try{
-         if (act === 'open') T.core.invoke('open_item', { name: name });
-         else if (act === 'folder') T.core.invoke('open_folder');
-         else if (act === 'remove') removeCard(card);
-       }catch(e){ showErr('menu ' + act + ': ' + e); }
-       hideMenu();
-     });
-     app.view.addEventListener('contextmenu', function(ev){ ev.preventDefault(); var c = cardAt(ev.clientX, ev.clientY); if (c) showMenu(ev.clientX, ev.clientY, c); else hideMenu(); });
-     app.view.addEventListener('dblclick', function(ev){ var c = cardAt(ev.clientX, ev.clientY); if (c) { try{ T.core.invoke('open_item', { name: c.__item.name }); }catch(e){ showErr('open: ' + e); } } });
+     function mkBtn(label, cls, fn){ var b = document.createElement('button'); b.textContent = label; if (cls) b.className = cls; b.addEventListener('click', function(ev){ ev.stopPropagation(); fn(); }); return b; }
+     function mkSep(){ var d = document.createElement('div'); d.className = 'sep'; return d; }
+     function openMenu(x, y, target){
+       menuTarget = target; menu.innerHTML = '';
+       if (target.__trash){
+         menu.appendChild(mkBtn('Open Trash Can folder', '', function(){ T.core.invoke('open_trash'); hideMenu(); }));
+         menu.appendChild(mkSep());
+         var armed = false;
+         var clr = document.createElement('button'); clr.textContent = 'Clear Trash Can'; clr.className = 'danger';
+         clr.addEventListener('click', function(ev){ ev.stopPropagation(); if (!armed){ armed = true; clr.textContent = 'Confirm: delete all?'; return; } T.core.invoke('clear_trash'); hideMenu(); });
+         menu.appendChild(clr);
+       } else {
+         var name = target.__item.name;
+         menu.appendChild(mkBtn('Open', '', function(){ T.core.invoke('open_item', { name: name }); hideMenu(); }));
+         menu.appendChild(mkBtn('Open with\u2026', '', function(){ T.core.invoke('shell_verb', { name: name, verb: 'openas' }); hideMenu(); }));
+         menu.appendChild(mkBtn('Open folder', '', function(){ T.core.invoke('open_folder'); hideMenu(); }));
+         menu.appendChild(mkSep());
+         menu.appendChild(mkBtn('Delete', 'danger', function(){ moveToTrash(target); hideMenu(); }));
+       }
+       menu.style.left = x + 'px'; menu.style.top = y + 'px'; menu.style.display = 'block';
+     }
+     app.view.addEventListener('contextmenu', function(ev){ ev.preventDefault(); var c = targetAt(ev.clientX, ev.clientY); if (c) openMenu(ev.clientX, ev.clientY, c); else hideMenu(); });
+     app.view.addEventListener('dblclick', function(ev){ var c = targetAt(ev.clientX, ev.clientY); if (!c) return; if (c.__trash) T.core.invoke('open_trash'); else T.core.invoke('open_item', { name: c.__item.name }); });
      window.addEventListener('pointerdown', function(ev){ if (menu.style.display === 'block' && !menu.contains(ev.target)) hideMenu(); }, true);
      window.addEventListener('wheel', hideMenu, true);
 
@@ -282,6 +328,7 @@
 
      (async function(){
        await loadLayout();
+       trashNode = buildTrash();
        await pollFolder();
        if (isMain) setInterval(pollFolder, 3000);
      })();
