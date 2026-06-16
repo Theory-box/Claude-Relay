@@ -30,6 +30,7 @@
  .modal #dlgYes,.modal #pmYes{background:#2f5fbf;border-color:#3a6fd0;}
  .modal button:hover{filter:brightness(1.18);}
  .modal input{margin-top:12px;width:100%;box-sizing:border-box;background:#1c1f27;border:1px solid #3a4150;color:#e6e8ee;border-radius:7px;padding:8px;font:inherit;}
+ #boxsel{position:fixed;display:none;z-index:6;border:1px solid #6fa8ff;background:rgba(91,157,255,.14);pointer-events:none;border-radius:2px;}
  canvas{display:block;}
 </style></head>
 <body>
@@ -49,6 +50,7 @@
  <div id="placesMenu" class="pop"></div>
  <div id="dialog" class="modal"><div class="box"><div id="dlgMsg"></div><div class="row"><button id="dlgNo">Cancel</button><button id="dlgYes">Move</button></div></div></div>
  <div id="prompt" class="modal"><div class="box"><div id="pmMsg"></div><input id="pmInput"><div class="row"><button id="pmNo">Cancel</button><button id="pmYes">Create</button></div></div></div>
+ <div id="boxsel"></div>
  <script src="pixi.min.js"></script>
  <script>
  function showErr(m){ var e=document.getElementById('err'); e.style.display='block'; e.textContent += m + "\n"; }
@@ -182,6 +184,7 @@
        cards = []; items = []; mtimes = {}; meta = {};
        if (trashNode){ try{ world.removeChild(trashNode); trashNode.destroy({ children: true }); }catch(_){} trashNode = null; }
        hl.visible = false; sortAnim = null; animating = false;
+       if (typeof selection !== 'undefined' && selection){ selection.clear(); } if (typeof selGfx !== 'undefined' && selGfx){ selGfx.clear(); }
      }
      var loadSeq = 0, loading = false;
      async function loadView(fromSync){
@@ -213,7 +216,7 @@
      function navigate(dir){ if (carry) cancelCarry(); cwd = dir || ''; loadView(); }
 
      function cardForName(name){ for (var i = 0; i < cards.length; i++){ if (cards[i].__item && cards[i].__item.name === name) return cards[i]; } return null; }
-     function removeCardLocal(card){ var it = card.__item; var ii = items.indexOf(it); if (ii >= 0) items.splice(ii, 1); var ci = cards.indexOf(card); if (ci >= 0) cards.splice(ci, 1); world.removeChild(card); card.destroy({ children: true }); delete mtimes[it.name]; delete meta[it.name]; }
+     function removeCardLocal(card){ var it = card.__item; var ii = items.indexOf(it); if (ii >= 0) items.splice(ii, 1); var ci = cards.indexOf(card); if (ci >= 0) cards.splice(ci, 1); world.removeChild(card); card.destroy({ children: true }); delete mtimes[it.name]; delete meta[it.name]; if (typeof selection !== 'undefined' && selection) selection.delete(card); }
 
      // ---------- dialogs ----------
      var dialog = document.getElementById('dialog'), dlgMsg = document.getElementById('dlgMsg'), dlgYes = document.getElementById('dlgYes'), dlgNo = document.getElementById('dlgNo');
@@ -232,69 +235,99 @@
 
      // ---------- carry / preview ----------
      function captureSnap(){ var snap = {}; items.forEach(function(it){ snap[it.name] = { x: it.x, y: it.y }; }); if (trashNode) snap.__trash = { x: trashNode.x, y: trashNode.y }; return snap; }
+     function heldHas(c){ if (!carry) return false; for (var i = 0; i < carry.held.length; i++){ if (carry.held[i].card === c) return true; } return false; }
      function startCarry(node, e){
        var p = e.global; var wx = (p.x - world.x) / world.scale.x, wy = (p.y - world.y) / world.scale.y;
-       carry = { card: node, source: 'move', offset: { x: wx - node.x, y: wy - node.y }, phase: 'drag', moved: false, start: { x: p.x, y: p.y }, snap: captureSnap() };
+       var fromSel = (!node.__trash && node.__item && selection.has(node) && selection.size > 1);
+       var group = [node];
+       if (fromSel){ group = []; selection.forEach(function(c){ if (c.__item) group.push(c); }); }
+       var held = group.map(function(c){ return { card: c, ox: wx - c.x, oy: wy - c.y }; });
+       carry = { held: held, anchor: node, source: 'move', phase: 'drag', moved: false, fromSelection: fromSel, start: { x: p.x, y: p.y }, snap: captureSnap(), shift: e.shiftKey, ctrl: e.ctrlKey, dropTarget: null };
        updateHud();
      }
      function startImportCarry(card, atScreen){
-       carry = { card: card, source: 'import', offset: { x: 0, y: 0 }, phase: 'float', moved: true, start: { x: atScreen.x, y: atScreen.y }, snap: captureSnap() };
+       carry = { held: [{ card: card, ox: 0, oy: 0 }], anchor: card, source: 'import', phase: 'float', moved: true, fromSelection: false, start: { x: atScreen.x, y: atScreen.y }, snap: captureSnap(), dropTarget: null };
        card.alpha = 0.85; lastCursor = { x: atScreen.x, y: atScreen.y }; updateHud();
      }
-     function dropTargetUnder(heldRect, held, allowFolder){
-       if (trashNode && !held.__trash){ var tr = rectOf(trashNode); if (intersects(heldRect, tr)) return trashNode; }
-       if (allowFolder){ for (var i = cards.length - 1; i >= 0; i--){ var c = cards[i]; if (c === held) continue; if (c.__item && c.__item.dir && intersects(heldRect, rectOf(c))) return c; } }
+     function dropTargetUnder(anchorRect, allowFolder){
+       if (trashNode && !carry.anchor.__trash){ var tr = rectOf(trashNode); if (intersects(anchorRect, tr)) return trashNode; }
+       if (allowFolder){ for (var i = cards.length - 1; i >= 0; i--){ var c = cards[i]; if (heldHas(c)) continue; if (c.__item && c.__item.dir && intersects(anchorRect, rectOf(c))) return c; } }
        return null;
      }
-     function resolveCarry(desired){
-       var held = carry.card; var w = held.hitArea.width, h = held.hitArea.height;
-       var heldRect = { x: desired.x, y: desired.y, w: w, h: h };
-       cards.forEach(function(c){ if (c === held) return; var s = carry.snap[c.__item.name]; if (s){ c.x = s.x; c.y = s.y; } });
+     function resolveCarry(cw){
+       carry.held.forEach(function(h){ h.card.x = cw.x - h.ox; h.card.y = cw.y - h.oy; });
+       cards.forEach(function(c){ if (heldHas(c)) return; var sn = carry.snap[c.__item.name]; if (sn){ c.x = sn.x; c.y = sn.y; } });
        carry.dropTarget = null; hl.visible = false;
-       var mode = held.__trash ? 'free' : modes[modeIdx];
-       if (!held.__trash){
-         var dt = dropTargetUnder(heldRect, held, mode === 'free' && writable);
-         if (dt){ carry.dropTarget = dt; held.x = desired.x; held.y = desired.y; var w2 = dt.hitArea.width, h2 = dt.hitArea.height; hl.clear(); hl.lineStyle(2, dt.__trash ? 0xe09a9a : 0x6fd08c); hl.drawRoundedRect(0, 0, w2, h2, 10); hl.x = dt.x; hl.y = dt.y; hl.visible = true; world.addChild(hl); return; }
+       var anchor = carry.anchor;
+       var mode = anchor.__trash ? 'free' : modes[modeIdx];
+       if (!anchor.__trash){
+         var dt = dropTargetUnder(rectOf(anchor), mode === 'free' && writable);
+         if (dt){ carry.dropTarget = dt; var w2 = dt.hitArea.width, h2 = dt.hitArea.height; hl.clear(); hl.lineStyle(2, dt.__trash ? 0xe09a9a : 0x6fd08c); hl.drawRoundedRect(0, 0, w2, h2, 10); hl.x = dt.x; hl.y = dt.y; hl.visible = true; world.addChild(hl); return; }
        }
-       if (mode === 'free'){ held.x = desired.x; held.y = desired.y; }
-       else { // push neighbours out of the way, with padding
-         held.x = desired.x; held.y = desired.y;
-         var hp = padR(heldRect);
-         var others = []; cards.forEach(function(c){ if (c === held) return; others.push(c); });
-         for (var pass = 0; pass < 6; pass++){
-           var moved = false;
-           for (var i = 0; i < others.length; i++){ var v = mtv(hp, padR(rectOf(others[i]))); if (v){ others[i].x += v.dx; others[i].y += v.dy; moved = true; } }
-           for (var a = 0; a < others.length; a++){ for (var b = a + 1; b < others.length; b++){ var v2 = mtv(padR(rectOf(others[a])), padR(rectOf(others[b]))); if (v2){ others[a].x -= v2.dx / 2; others[a].y -= v2.dy / 2; others[b].x += v2.dx / 2; others[b].y += v2.dy / 2; moved = true; } } }
-           if (!moved) break;
-         }
+       if (mode === 'free') return; // overlap allowed; group already placed
+       var heldRects = carry.held.map(function(h){ return padR(rectOf(h.card)); });
+       var others = []; cards.forEach(function(c){ if (heldHas(c)) return; others.push(c); });
+       for (var pass = 0; pass < 6; pass++){
+         var moved = false;
+         for (var i = 0; i < others.length; i++){ var orp = padR(rectOf(others[i])); for (var k = 0; k < heldRects.length; k++){ var v = mtv(heldRects[k], orp); if (v){ others[i].x += v.dx; others[i].y += v.dy; orp = padR(rectOf(others[i])); moved = true; } } }
+         for (var a = 0; a < others.length; a++){ for (var b = a + 1; b < others.length; b++){ var v2 = mtv(padR(rectOf(others[a])), padR(rectOf(others[b]))); if (v2){ others[a].x -= v2.dx / 2; others[a].y -= v2.dy / 2; others[b].x += v2.dx / 2; others[b].y += v2.dy / 2; moved = true; } } }
+         if (!moved) break;
        }
      }
-     function refreshPreview(){ if (carry && lastCursor && (carry.moved || carry.phase === 'float')){ var wx = (lastCursor.x - world.x) / world.scale.x, wy = (lastCursor.y - world.y) / world.scale.y; resolveCarry({ x: wx - carry.offset.x, y: wy - carry.offset.y }); } }
-     function endCarry(){ if (carry && carry.card) carry.card.alpha = 1; hl.visible = false; carry = null; updateHud(); if (reloadPending){ reloadPending = false; loadView(true); } }
-     function placePlain(){ var held = carry.card; if (held.__trash){ trash.x = held.x; trash.y = held.y; } else { cards.forEach(function(c){ if (c.__item){ c.__item.x = c.x; c.__item.y = c.y; } }); } endCarry(); persist(); }
+     function refreshPreview(){ if (carry && lastCursor && (carry.moved || carry.phase === 'float')){ var wx = (lastCursor.x - world.x) / world.scale.x, wy = (lastCursor.y - world.y) / world.scale.y; resolveCarry({ x: wx, y: wy }); } }
+     function endCarry(){ if (carry){ carry.held.forEach(function(h){ h.card.alpha = 1; }); } hl.visible = false; carry = null; updateHud(); drawSelection(); if (reloadPending){ reloadPending = false; loadView(true); } }
+     function placePlain(){ var anchor = carry.anchor; if (anchor.__trash){ trash.x = anchor.x; trash.y = anchor.y; } else { cards.forEach(function(c){ if (c.__item){ c.__item.x = c.x; c.__item.y = c.y; } }); } endCarry(); persist(); }
      function commitCarry(){
        if (!carry || confirming) return;
-       var held = carry.card, dt = carry.dropTarget;
+       var dt = carry.dropTarget;
        if (dt && !dt.__trash){
-         var n = held.__item.name, folder = dt.__item.name;
-         if (n === folder){ placePlain(); return; }
-         var src = carry.source;
-         confirmDialog('Move \u201c' + n + '\u201d into \u201c' + folder + '\u201d?', 'Move',
-           function(){ T.core.invoke('move_into', { dir: cwd, name: n, folder: folder }).then(function(){ removeCardLocal(held); endCarry(); persist(); }).catch(function(e){ showErr('move: ' + e); endCarry(); }); },
+         var moveCards = carry.held.map(function(h){ return h.card; }).filter(function(c){ return c !== dt && c.__item; });
+         var names = moveCards.map(function(c){ return c.__item.name; });
+         if (!names.length){ placePlain(); return; }
+         var folder = dt.__item.name, src = carry.source;
+         var label = names.length === 1 ? '\u201c' + names[0] + '\u201d' : names.length + ' items';
+         confirmDialog('Move ' + label + ' into \u201c' + folder + '\u201d?', 'Move',
+           function(){ Promise.all(names.map(function(nm){ return T.core.invoke('move_into', { dir: cwd, name: nm, folder: folder }).catch(function(e){ showErr('move: ' + e); }); })).then(function(){ moveCards.forEach(function(c){ selection.delete(c); removeCardLocal(c); }); endCarry(); persist(); }); },
            function(){ if (carry && src === 'import'){ carry.phase = 'float'; carry.dropTarget = null; hl.visible = false; updateHud(); } else { cancelCarry(); } });
          return;
        }
-       if (dt && dt.__trash){ var nm = held.__item.name; T.core.invoke('trash_item', { dir: cwd, name: nm }).then(function(){ removeCardLocal(held); persist(); }).catch(function(e){ showErr('trash: ' + e); }); endCarry(); return; }
+       if (dt && dt.__trash){
+         var tcards = carry.held.map(function(h){ return h.card; }).filter(function(c){ return c.__item; });
+         var tnames = tcards.map(function(c){ return c.__item.name; });
+         Promise.all(tnames.map(function(nm){ return T.core.invoke('trash_item', { dir: cwd, name: nm }).catch(function(e){ showErr('trash: ' + e); }); })).then(function(){ tcards.forEach(function(c){ selection.delete(c); removeCardLocal(c); }); persist(); });
+         endCarry(); return;
+       }
        placePlain();
      }
      function cancelCarry(){
        if (!carry) return;
-       if (carry.source === 'import'){ var c = carry.card, nm = c.__item.name; T.core.invoke('delete_file', { dir: cwd, name: nm }).catch(function(e){ showErr('del: ' + e); }); removeCardLocal(c); }
-       else { cards.forEach(function(c){ var s = carry.snap[c.__item.name]; if (s){ c.x = s.x; c.y = s.y; } }); if (carry.snap.__trash && trashNode){ trashNode.x = carry.snap.__trash.x; trashNode.y = carry.snap.__trash.y; } if (carry.card) carry.card.alpha = 1; }
-       hl.visible = false; carry = null; updateHud(); if (reloadPending){ reloadPending = false; loadView(true); }
+       if (carry.source === 'import'){ var c = carry.anchor, nm = c.__item.name; T.core.invoke('delete_file', { dir: cwd, name: nm }).catch(function(e){ showErr('del: ' + e); }); selection.delete(c); removeCardLocal(c); }
+       else { cards.forEach(function(c){ var sn = carry.snap[c.__item.name]; if (sn){ c.x = sn.x; c.y = sn.y; } }); if (carry.snap.__trash && trashNode){ trashNode.x = carry.snap.__trash.x; trashNode.y = carry.snap.__trash.y; } carry.held.forEach(function(h){ h.card.alpha = 1; }); }
+       hl.visible = false; carry = null; updateHud(); drawSelection(); if (reloadPending){ reloadPending = false; loadView(true); }
      }
 
-     // ---------- collision-driven sort ----------
+     // ---------- selection & rubber-band box ----------
+     var selection = new Set();
+     var selGfx = new PIXI.Graphics(); world.addChild(selGfx);
+     function drawSelection(){
+       selGfx.clear(); if (!selection.size) return; world.addChild(selGfx);
+       selection.forEach(function(c){ if (!c.__item || c.destroyed) return; var w = c.hitArea.width, h = c.hitArea.height; selGfx.lineStyle(2.5, 0x5b9dff, 1); selGfx.beginFill(0x5b9dff, 0.12); selGfx.drawRoundedRect(c.x - 2, c.y - 2, w + 4, h + 4, 11); selGfx.endFill(); });
+     }
+     function clearSel(){ selection.clear(); }
+     var box = null; var boxDiv = document.getElementById('boxsel');
+     function boxScreen(){ return { x: Math.min(box.x0, box.cx), y: Math.min(box.y0, box.cy), w: Math.abs(box.cx - box.x0), h: Math.abs(box.cy - box.y0) }; }
+     function updateBoxDiv(){ var r = boxScreen(); boxDiv.style.left = r.x + 'px'; boxDiv.style.top = r.y + 'px'; boxDiv.style.width = r.w + 'px'; boxDiv.style.height = r.h + 'px'; boxDiv.style.display = 'block'; }
+     function applyBox(){
+       var r = boxScreen(), sc = world.scale.x;
+       var bw = { x: (r.x - world.x) / sc, y: (r.y - world.y) / sc, w: r.w / sc, h: r.h / sc };
+       var hit = cards.filter(function(c){ return c.__item && intersects(rectOf(c), bw); });
+       if (box.mode === 'add'){ hit.forEach(function(c){ selection.add(c); }); }
+       else if (box.mode === 'sub'){ hit.forEach(function(c){ selection.delete(c); }); }
+       else { selection.clear(); hit.forEach(function(c){ selection.add(c); }); }
+       drawSelection();
+     }
+
+          // ---------- collision-driven sort ----------
      function extOf(n){ var i = n.lastIndexOf('.'); return i > 0 ? n.slice(i + 1).toLowerCase() : ''; }
      function metaOf(n){ return meta[n] || { size: 0, mtime: 0, dir: false }; }
      function cmpName(a, b){ return a.name.toLowerCase().localeCompare(b.name.toLowerCase()); }
@@ -324,18 +357,31 @@
 
      // ---------- pointer wiring ----------
      app.stage.eventMode = 'static'; app.stage.hitArea = app.screen;
-     app.stage.on('pointerdown', function(e){ if (carry || confirming || animating) return; if (e.button === 2) return; panning = true; last = { x: e.global.x, y: e.global.y }; }); // left or middle pans
+     app.stage.on('pointerdown', function(e){
+       if (carry || confirming || animating) return;
+       if (e.button === 2) return;
+       if (e.button === 1){ panning = true; last = { x: e.global.x, y: e.global.y }; return; } // middle = pan
+       box = { x0: e.global.x, y0: e.global.y, cx: e.global.x, cy: e.global.y, mode: e.shiftKey ? 'add' : (e.ctrlKey ? 'sub' : 'replace'), moved: false }; // left on empty = box select
+     });
      app.stage.on('pointermove', function(e){
        if (confirming || animating) return;
        lastCursor = { x: e.global.x, y: e.global.y };
        if (carry){
-         if (carry.phase === 'drag'){ if (Math.hypot(e.global.x - carry.start.x, e.global.y - carry.start.y) > 5){ if (!carry.moved){ carry.moved = true; carry.card.alpha = 0.85; } } if (!carry.moved) return; }
+         if (carry.phase === 'drag'){ if (Math.hypot(e.global.x - carry.start.x, e.global.y - carry.start.y) > 5){ if (!carry.moved){ carry.moved = true; carry.held.forEach(function(h){ h.card.alpha = 0.85; }); if (!carry.fromSelection && carry.source === 'move' && carry.anchor.__item && !carry.anchor.__trash){ selection.clear(); selection.add(carry.anchor); drawSelection(); } } } if (!carry.moved) return; }
          var wx = (e.global.x - world.x) / world.scale.x, wy = (e.global.y - world.y) / world.scale.y;
-         resolveCarry({ x: wx - carry.offset.x, y: wy - carry.offset.y });
-       } else if (panning && last){ world.x += e.global.x - last.x; world.y += e.global.y - last.y; last = { x: e.global.x, y: e.global.y }; }
+         resolveCarry({ x: wx, y: wy });
+       } else if (box){ if (Math.hypot(e.global.x - box.x0, e.global.y - box.y0) > 3) box.moved = true; box.cx = e.global.x; box.cy = e.global.y; updateBoxDiv(); }
+       else if (panning && last){ world.x += e.global.x - last.x; world.y += e.global.y - last.y; last = { x: e.global.x, y: e.global.y }; }
      });
      function onUp(){
-       if (carry){ if (carry.source === 'move' && carry.phase === 'drag'){ if (carry.moved) commitCarry(); else { carry = null; updateHud(); } } return; }
+       if (carry){
+         if (carry.source === 'move' && carry.phase === 'drag'){
+           if (carry.moved) commitCarry();
+           else { var node = carry.anchor; if (!node.__trash && node.__item){ if (carry.shift){ if (selection.has(node)) selection.delete(node); else selection.add(node); } else if (carry.ctrl){ selection.delete(node); } else { selection.clear(); selection.add(node); } drawSelection(); } carry = null; updateHud(); }
+         }
+         return;
+       }
+       if (box){ if (box.moved) applyBox(); else if (box.mode === 'replace'){ clearSel(); drawSelection(); } boxDiv.style.display = 'none'; box = null; return; }
        panning = false; last = null;
      }
      app.stage.on('pointerup', onUp); app.stage.on('pointerupoutside', onUp);
@@ -359,10 +405,15 @@
      window.addEventListener('keydown', function(e){
        if (confirming) return;
        if (animating && e.key === 'Escape'){ if (sortAnim){ sortAnim.frames = 1; } e.stopPropagation(); return; }
-       if (!carry) return;
-       if (e.key === 'Escape'){ cancelCarry(); e.stopPropagation(); return; }
-       if (e.key === 't' || e.key === 'T'){ modeIdx = (modeIdx + 1) % modes.length; refreshPreview(); updateHud(); e.stopPropagation(); }
-       else if (e.key === '1' || e.key === '2'){ modeIdx = (+e.key) - 1; refreshPreview(); updateHud(); e.stopPropagation(); }
+       if (carry){
+         if (e.key === 'Escape'){ cancelCarry(); e.stopPropagation(); return; }
+         if (e.key === 't' || e.key === 'T'){ modeIdx = (modeIdx + 1) % modes.length; refreshPreview(); updateHud(); e.stopPropagation(); }
+         else if (e.key === '1' || e.key === '2'){ modeIdx = (+e.key) - 1; refreshPreview(); updateHud(); e.stopPropagation(); }
+         return;
+       }
+       if ((e.key === 'a' || e.key === 'A') && (e.ctrlKey || e.metaKey)){ selection.clear(); cards.forEach(function(c){ if (c.__item) selection.add(c); }); drawSelection(); updateHud(); e.preventDefault(); e.stopPropagation(); return; }
+       if (e.key === 'Escape'){ if (selection.size){ clearSel(); drawSelection(); updateHud(); e.stopPropagation(); } return; }
+       if ((e.key === 'Delete' || e.key === 'Backspace') && selection.size && writable){ var del = []; selection.forEach(function(c){ if (c.__item && !c.__trash) del.push(c); }); selection.clear(); drawSelection(); updateHud(); Promise.all(del.map(function(c){ return T.core.invoke('trash_item', { dir: cwd, name: c.__item.name }).catch(function(er){ showErr('trash: ' + er); }); })).then(function(){ del.forEach(function(c){ removeCardLocal(c); }); persist(); }); e.stopPropagation(); return; }
      }, true);
 
      function targetAt(cx, cy){
@@ -395,6 +446,13 @@
        menu.appendChild(sortBtn);
        menu.style.left = x + 'px'; menu.style.top = y + 'px'; menu.style.display = 'block'; sortMenu.style.display = 'none';
      }
+     function openSelectionMenu(x, y){
+       menu.innerHTML = ''; sortMenu.style.display = 'none';
+       var sel = []; selection.forEach(function(c){ if (c.__item && !c.__trash) sel.push(c); });
+       var hdr = mkBtn(sel.length + ' items selected', '', function(){ hideMenu(); }); hdr.style.color = '#9aa0ab'; menu.appendChild(hdr);
+       if (writable){ menu.appendChild(mkSep()); menu.appendChild(mkBtn('Delete ' + sel.length + ' items', 'danger', function(){ var del = sel.slice(); selection.clear(); drawSelection(); updateHud(); Promise.all(del.map(function(c){ return T.core.invoke('trash_item', { dir: cwd, name: c.__item.name }).catch(function(e){ showErr('trash: ' + e); }); })).then(function(){ del.forEach(function(c){ removeCardLocal(c); }); persist(); }); hideMenu(); })); }
+       menu.style.left = x + 'px'; menu.style.top = y + 'px'; menu.style.display = 'block';
+     }
      function openMenu(x, y, target){
        menuTarget = target; menu.innerHTML = ''; sortMenu.style.display = 'none';
        if (target.__trash){
@@ -417,7 +475,7 @@
        }
        menu.style.left = x + 'px'; menu.style.top = y + 'px'; menu.style.display = 'block';
      }
-     app.view.addEventListener('contextmenu', function(ev){ ev.preventDefault(); if (confirming || animating) return; if (carry){ cancelCarry(); return; } var c = targetAt(ev.clientX, ev.clientY); if (c) openMenu(ev.clientX, ev.clientY, c); else openEmptyMenu(ev.clientX, ev.clientY); });
+     app.view.addEventListener('contextmenu', function(ev){ ev.preventDefault(); if (confirming || animating) return; if (carry){ cancelCarry(); return; } var c = targetAt(ev.clientX, ev.clientY); if (c){ if (!c.__trash && selection.has(c) && selection.size > 1) openSelectionMenu(ev.clientX, ev.clientY); else openMenu(ev.clientX, ev.clientY, c); } else openEmptyMenu(ev.clientX, ev.clientY); });
      app.view.addEventListener('dblclick', function(ev){ if (carry || confirming || animating) return; var c = targetAt(ev.clientX, ev.clientY); if (!c) return; if (c.__trash){ T.core.invoke('open_trash'); return; } if (c.__item.dir) navigate(joinPath(cwd, c.__item.name)); else T.core.invoke('open_item', { dir: cwd, name: c.__item.name }); });
      window.addEventListener('wheel', function(){ hideMenu(); }, true);
 
@@ -438,8 +496,9 @@
      function updateHud(){
        if (animating){ hud.textContent = 'Sorting\u2026 (Esc to snap)'; }
        else if (carry && carry.source === 'import'){ hud.textContent = 'Placing imported file [' + modeLabel() + ']  \u00b7  left-click confirm  \u00b7  right-click cancel  \u00b7  T toggle  \u00b7  Free mode (1) to drop into a folder'; }
-       else if (carry){ hud.textContent = 'Moving [' + modeLabel() + ']  \u00b7  release to drop  \u00b7  T toggle (1 Free / 2 Push)  \u00b7  Free mode to drop into a folder  \u00b7  Esc cancel'; }
-       else { hud.textContent = 'v0.0.19  \u00b7  click-drag to move  \u00b7  middle-drag to pan  \u00b7  right-click for sort / tidy' + (writable ? ' / new folder' : '') + '  \u00b7  mode: ' + modeLabel() + (writable ? '' : '  \u00b7  read-only folder (file changes only inside Desktop Canvas)'); }
+       else if (carry){ hud.textContent = 'Moving ' + (carry.held.length > 1 ? carry.held.length + ' items ' : '') + '[' + modeLabel() + ']  \u00b7  release to drop  \u00b7  T toggle (1 Free / 2 Push)  \u00b7  Free to drop into a folder  \u00b7  Esc cancel'; }
+       else if (selection.size){ hud.textContent = selection.size + ' selected  \u00b7  drag to move all  \u00b7  Del to trash  \u00b7  Esc to clear  \u00b7  Ctrl+A all  \u00b7  mode: ' + modeLabel(); }
+       else { hud.textContent = 'v0.0.20  \u00b7  click = select  \u00b7  shift/ctrl = add/remove  \u00b7  drag empty = box select  \u00b7  middle-drag = pan  \u00b7  drag item = move  \u00b7  mode: ' + modeLabel() + (writable ? '' : '  \u00b7  read-only'); }
      }
      upBtn.addEventListener('click', function(){ navigate(parentOf(cwd)); });
      placesBtn.addEventListener('click', function(ev){ ev.stopPropagation(); if (placesMenu.style.display === 'block'){ placesMenu.style.display = 'none'; return; } placesMenu.innerHTML = ''; placesList.forEach(function(pl){ placesMenu.appendChild(mkBtn(pl.label, '', function(){ navigate(pl.path); placesMenu.style.display = 'none'; })); }); var r = placesBtn.getBoundingClientRect(); placesMenu.style.left = r.left + 'px'; placesMenu.style.top = (r.bottom + 4) + 'px'; placesMenu.style.display = 'block'; });
@@ -490,7 +549,7 @@
      try{ T.event.listen('thumb-changed', function(e){ var p = e.payload || {}; if (p.key !== cwd || !p.name) return; delete thumbCache[cwd + '\u0000' + p.name]; var c = cardForName(p.name); if (c) applyThumb(c, cwd); }); }catch(_){}
 
      var diag = document.getElementById('diag');
-     app.ticker.add(function(){ if (sortAnim) stepSort(); diag.textContent = 'zoom ' + Math.round(world.scale.x * 100) + '%  items ' + items.length + (animating ? '  sorting' : (carry ? '  ' + carry.source : '')); });
+     app.ticker.add(function(){ if (sortAnim) stepSort(); if (carry || selection.size) drawSelection(); diag.textContent = 'zoom ' + Math.round(world.scale.x * 100) + '%  items ' + items.length + (selection.size ? '  sel ' + selection.size : '') + (animating ? '  sorting' : (carry ? '  ' + carry.source : '')); });
 
      (async function(){
        try{ placesList = JSON.parse(await T.core.invoke('places') || '[]'); }catch(e){ showErr('places: ' + e); }

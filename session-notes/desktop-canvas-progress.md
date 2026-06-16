@@ -268,3 +268,21 @@ Stack: Tauri v2 (Rust + WebView2), PixiJS planned for canvas. Windows-only.
 - #3: "Tidy up (remove overlaps)" moved into the Sort flyout (now labeled "Sort / Tidy >").
 - Remaining requested (queued, one at a time): #4 box selection + multi-move w/ collisions &
   move-into; #5 copy/cut/paste on items; #6 static bottom-left Trash icon. Added to TODO.md.
+
+## v0.0.20 — selection + box-select + multi-move (collision engine generalized to groups)
+- Carry engine generalized from one card to a HELD GROUP: carry.held = [{card,ox,oy}], anchor,
+  fromSelection. resolveCarry places all held rigidly vs cursor, pushes non-held neighbours
+  (padded) using ALL held rects, drop-target tested on the anchor's rect (skips held).
+  commitCarry handles group move-into-folder (confirm "Move N items into X?"), group trash,
+  and plain place. cancelCarry/endCarry restore/clear all held.
+- Selection model (Blender-style): click = select only; shift-click = add/toggle; ctrl-click =
+  remove. Drag an unselected card -> selects it alone then moves; drag a selected card in a
+  multi-selection -> moves the whole group. Left-drag empty = rubber-band BOX select (replace;
+  shift = add, ctrl = subtract); plain left-click empty = clear. MIDDLE-drag = pan (left no
+  longer pans). Ctrl+A select all; Delete/Backspace trashes selection (writable only); Esc
+  clears selection (or cancels a carry).
+- Highlight: selGfx (PIXI.Graphics) redraws selected outlines each tick so they follow cards
+  through moves/pushes/sort. Screen-space #boxsel div for the rubber band.
+- Right-click a card that's part of a multi-selection -> selection menu ("N items selected",
+  "Delete N items"). selection cleared on clearView; removeCardLocal drops from selection.
+- updateHud shows group/selection state; diag shows "sel N".

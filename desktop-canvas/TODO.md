@@ -3,8 +3,7 @@
 ## Up next (requested, in order)
 - [done v0.0.19] Un-restrict browsing; everything read-only except the Desktop Canvas folder.
 - [done v0.0.19] Move "Tidy up" into the Sort submenu.
-- [ ] #4 Box selection + active/selected items; multi-move must respect collisions and
-      move-into-folder. (Pairs with the Blender-style selection item below.)
+- [done v0.0.20] #4 Selection + box-select + multi-move (collisions + move-into-folder + trash).
 - [ ] #5 Copy / Cut / Paste on item right-click (needs backend copy/move + a clipboard model;
       paste target must be writable).
 - [ ] #6 Trash Can as a static screen icon (bottom-left), not a world object.
