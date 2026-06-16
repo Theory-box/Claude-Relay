@@ -412,3 +412,21 @@ Goal: zero behavior change vs v0.0.30; verify identical. Foundation for in-windo
   (needs focus gating when >1 pane). None affect single-pane behavior.
 NEXT (Stage 2): pane manager — split tree, draggable live dividers, focused-pane + keyboard routing,
   manual split action. Stage 3: edge-hover drag-to-split gesture + right-click-divider merge (choose side).
+
+## v0.0.32 — Stage 2a: two coexisting panes (side-by-side split + draggable divider)
+Scope kept tight to isolate the real unknowns (two live makeCanvas instances + input/drop routing).
+- Pane manager PM (top-level): panes[], focused, split bool, ratio, one divider. paneAt(x,y) hit-tests
+  by getBoundingClientRect; setFocus toggles a .focused inset outline (only when split); relayout sizes
+  pane roots + divider; doSplit creates (or re-shows) a 2nd pane cloning the focused pane's cwd; unsplit
+  hides the 2nd pane (kept alive, NO teardown — reused on next split, so no destroy risk this build).
+- makeCanvas(root, opts): returns self {root,getCwd,navigate,handleDrop}; opts.initPath sets starting
+  cwd; opts.pm wires routing. Focus on any pointerdown in the pane (capture). Keyboard (keydown/keyup)
+  gated to PM.focused; wheel/zoom gated to the pane under the cursor (PM.paneAt). handleDrop now offsets
+  by root.getBoundingClientRect so world coords are pane-local for an offset pane.
+- OS drops: per-pane wiring removed; ONE manager-level drag-drop listener routes by drop position to the
+  containing pane (falls back to focused). Fixes the would-be duplicate-drop-into-both-panes bug.
+- Split/Unsplit via right-click empty menu. Single-pane behavior is unchanged (focused==self, paneAt==self).
+- DEFERRED to 2b/Stage3: stacked (top/bottom) split, recursive splits, draggable-divider for >2 panes,
+  proper pane destroy/close, the Blender edge-hover drag-to-split gesture, and right-click-divider merge
+  with side choice. Known minor: divider overlaps the toolbar sliver at the seam (z-index); menu-close on
+  wheel/click not focus-gated (harmless).
