@@ -510,3 +510,16 @@ pane's folder. NOT camera/zoom (folder auto-frames on open) — camera restore i
 - Shared top menu bar (focused-pane-controlled) added to TODO.md (deferred).
 Split panes now: side-by-side, draggable divider, focus routing, per-pane menus/zoom, and session restore.
 Stage 3 still pending: edge-drag-to-split gesture, divider merge, stacked/recursive splits.
+
+## v0.0.42 — fix session restore (2nd pane folder + Home auto-sort)
+Bug: restoring a split created pane1 with the FOCUSED pane's folder then navigated it to the saved folder,
+but pane1's async init runs AFTER that and reset cwd back to homePath -> right pane always landed on Home,
+and the next save then wrote Home as pane1's folder (poisoning the session). The transient Home load also
+fired Home's relax-on-open (loadView runs scheduleRelax -> relaxBudgeted -> saveLayout on every non-sync
+open, lines ~139-146), which de-overlapped + re-saved Home = "auto sorted".
+Fix: doSplit now takes an optional initPath; restore calls PM.doSplit(sess.panes[1]) so pane1 inits at its
+saved folder up front (no Home detour, no post-hoc navigate). saveSession skips while any pane cwd is empty
+(mid-init guard). NOTE for user: existing session files may be poisoned (pane1=Home); re-set the panes once
+and close to re-save correctly.
+KNOWN/SEPARATE (TODO already): relax-on-open de-overlaps + saves EVERY folder open -> can move intentionally
+overlapped cards. "gate open-relax to preserve intentional Free-mode stacks" remains the fix for that.
