@@ -49,9 +49,11 @@ State: Idle -> (drag an item, release) -> Floating(node, mode) -> left-click
 commits / right-click cancels (reverts everything).
 - Releasing the drag does NOT finalize; the item floats on the cursor showing the
   live effect, so a hard-won layout is never clobbered by accident.
-- Drop targets take precedence: if the cursor rect overlaps a folder or the Trash
-  Can, the preview shows "move into / delete" (highlight) instead of placement,
-  in any mode.
+- Folders are ordinary collidable nodes (Fit avoids them, Push shoves them).
+  Dropping INTO a folder is a deliberate Free-mode action: only in Free does a
+  cursor-rect overlap with a folder show the "move into" highlight + confirm.
+- The Trash Can is droppable in any mode (delete is not a layout concern): a
+  cursor-rect overlap shows the "delete" highlight regardless of mode.
 - Hotkeys cycle the mode mid-carry (T cycles; 1/2/3 = Free/Fit/Push). The bottom
   bar shows the current mode + keys. Remappable once preferences land.
 

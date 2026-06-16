@@ -202,9 +202,9 @@
        carry = { card: card, source: 'import', offset: { x: 0, y: 0 }, phase: 'float', moved: true, start: { x: atScreen.x, y: atScreen.y }, snap: captureSnap() };
        card.alpha = 0.85; lastCursor = { x: atScreen.x, y: atScreen.y }; updateHud();
      }
-     function dropTargetUnder(heldRect, held){
+     function dropTargetUnder(heldRect, held, allowFolder){
        if (trashNode && !held.__trash){ var tr = rectOf(trashNode); if (intersects(heldRect, tr)) return trashNode; }
-       for (var i = cards.length - 1; i >= 0; i--){ var c = cards[i]; if (c === held) continue; if (c.__item && c.__item.dir && intersects(heldRect, rectOf(c))) return c; }
+       if (allowFolder){ for (var i = cards.length - 1; i >= 0; i--){ var c = cards[i]; if (c === held) continue; if (c.__item && c.__item.dir && intersects(heldRect, rectOf(c))) return c; } }
        return null;
      }
      function resolveCarry(desired){
@@ -212,11 +212,11 @@
        var heldRect = { x: desired.x, y: desired.y, w: w, h: h };
        cards.forEach(function(c){ if (c === held) return; var s = carry.snap[c.__item.name]; if (s){ c.x = s.x; c.y = s.y; } });
        carry.dropTarget = null; hl.visible = false;
+       var mode = held.__trash ? 'free' : modes[modeIdx];
        if (!held.__trash){
-         var dt = dropTargetUnder(heldRect, held);
+         var dt = dropTargetUnder(heldRect, held, mode === 'free');
          if (dt){ carry.dropTarget = dt; held.x = desired.x; held.y = desired.y; var w2 = dt.hitArea.width, h2 = dt.hitArea.height; hl.clear(); hl.lineStyle(2, dt.__trash ? 0xe09a9a : 0x6fd08c); hl.drawRoundedRect(0, 0, w2, h2, 10); hl.x = dt.x; hl.y = dt.y; hl.visible = true; world.addChild(hl); return; }
        }
-       var mode = held.__trash ? 'free' : modes[modeIdx];
        if (mode === 'free'){ held.x = desired.x; held.y = desired.y; }
        else if (mode === 'fit'){
          var obs = []; cards.forEach(function(c){ if (c === held) return; obs.push(rectOf(c)); }); if (trashNode && !held.__trash) obs.push(rectOf(trashNode));
@@ -261,6 +261,7 @@
      app.stage.eventMode = 'static'; app.stage.hitArea = app.screen;
      app.stage.on('pointerdown', function(e){ if (carry || confirming || e.button === 2) return; panning = true; last = { x: e.global.x, y: e.global.y }; });
      app.stage.on('pointermove', function(e){
+       if (confirming) return;
        lastCursor = { x: e.global.x, y: e.global.y };
        if (carry){
          if (carry.phase === 'drag'){ if (Math.hypot(e.global.x - carry.start.x, e.global.y - carry.start.y) > 5){ if (!carry.moved){ carry.moved = true; carry.card.alpha = 0.85; } } if (!carry.moved) return; }
@@ -281,7 +282,7 @@
        ev.preventDefault();
        if (ev.ctrlKey){ var mx = ev.clientX, my = ev.clientY; var wx = (mx - world.x) / world.scale.x, wy = (my - world.y) / world.scale.y; var ns = Math.min(8, Math.max(0.1, world.scale.x * Math.exp(-ev.deltaY * 0.01))); world.scale.set(ns); world.x = mx - wx * ns; world.y = my - wy * ns; }
        else { world.x -= ev.deltaX; world.y -= ev.deltaY; }
-       if (carry) refreshPreview();
+       if (carry && !confirming) refreshPreview();
      }, { passive: false });
 
      // import float: left-click commits, right-click cancels (via contextmenu)
@@ -349,9 +350,9 @@
        parts.forEach(function(seg, i){ var sep = document.createElement('span'); sep.textContent = '  \u203a  '; sep.className = 'sep2'; crumbs.appendChild(sep); if (i === 0){ acc = seg; crumb(seg, seg + '\\', i === parts.length - 1); } else { acc = acc + '\\' + seg; crumb(seg, acc, i === parts.length - 1); } });
      }
      function updateHud(){
-       if (carry && carry.source === 'import'){ hud.textContent = 'Placing imported file [' + modeLabel() + ']  \u00b7  left-click to confirm  \u00b7  right-click to cancel  \u00b7  T cycle mode'; }
-       else if (carry){ hud.textContent = 'Moving [' + modeLabel() + ']  \u00b7  release to drop  \u00b7  T cycle (1 Free / 2 Fit / 3 Push)  \u00b7  Esc cancel'; }
-       else { hud.textContent = 'v0.0.14  \u00b7  click-drag to move (release to drop)  \u00b7  drag a file in to import  \u00b7  mode: ' + modeLabel() + ' (T while moving)'; }
+       if (carry && carry.source === 'import'){ hud.textContent = 'Placing imported file [' + modeLabel() + ']  \u00b7  left-click confirm  \u00b7  right-click cancel  \u00b7  T cycle  \u00b7  Free mode (1) to drop into a folder'; }
+       else if (carry){ hud.textContent = 'Moving [' + modeLabel() + ']  \u00b7  release to drop  \u00b7  T cycle (1 Free / 2 Fit / 3 Push)  \u00b7  Free mode to drop into a folder  \u00b7  Esc cancel'; }
+       else { hud.textContent = 'v0.0.15  \u00b7  click-drag to move  \u00b7  drag a file in to import  \u00b7  folders collide \u2014 use Free mode (1) to drop into one  \u00b7  mode: ' + modeLabel() + ' (T while moving)'; }
      }
      upBtn.addEventListener('click', function(){ navigate(parentOf(cwd)); });
      placesBtn.addEventListener('click', function(ev){ ev.stopPropagation(); if (placesMenu.style.display === 'block'){ placesMenu.style.display = 'none'; return; } placesMenu.innerHTML = ''; placesList.forEach(function(pl){ placesMenu.appendChild(mkBtn(pl.label, '', function(){ navigate(pl.path); placesMenu.style.display = 'none'; })); }); var r = placesBtn.getBoundingClientRect(); placesMenu.style.left = r.left + 'px'; placesMenu.style.top = (r.bottom + 4) + 'px'; placesMenu.style.display = 'block'; });

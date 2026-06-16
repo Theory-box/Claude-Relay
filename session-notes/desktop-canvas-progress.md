@@ -190,3 +190,13 @@ Stack: Tauri v2 (Rust + WebView2), PixiJS planned for canvas. Windows-only.
   Trash drops are not gated (per request). Dialog: HTML modal, Enter=Move / Esc=Cancel.
 - Added `confirming` flag; poll/layout-changed/grab/pan all suppressed while a dialog is open.
 - Backend: added delete_file(dir,name) (permanent remove of a file) + registered in handler.
+
+## v0.0.15 — folders collide; Free-mode drop-into; freeze on confirm
+- Folders are now ordinary collidable objects: Fit avoids them, Push pushes them.
+  Dropping a file/folder INTO a folder now only happens in FREE placement mode (overlap
+  the folder in Free -> green highlight -> confirm). dropTargetUnder() gained an
+  allowFolder flag, passed (mode==='free'). Trash stays droppable in ANY mode.
+- Confirm dialog now FREEZES the carried item: added `if (confirming) return;` at the top
+  of stage pointermove (and guarded wheel refreshPreview), so the card no longer trails the
+  cursor while you reach for the dialog button.
+- HUD hints updated; grid snapping intentionally dropped (collision covers it).
