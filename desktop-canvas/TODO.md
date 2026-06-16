@@ -99,3 +99,5 @@ Running list of deferred work and ideas. Newest context at top of each section.
       the target and navigates INSIDE the canvas; .lnk to a FILE still opens normally. Still real .lnk on disk.
 
 - SHARED TOP MENU BAR for split panes: one full-width bar (replacing the two per-pane toolbars) driven by the FOCUSED pane. Needs each pane to expose actions+state via self (back/fwd/up/navigate/safety/cwd/crumbs/nav-enabled/safety-state) and a refresh-on-focus-change + refresh-on-pane-state-change hook in the pane manager. Moderate, ~few builds. (Requested; deferred.)
+
+- TEXTURE STREAMING / LOD for images (PureRef-style): decode to a display-resolution tier (~1024-1536) with mipmaps ON instead of 256px thumbs; on zoom-in load full-res for that image and free on zoom-out; cull/unload off-screen textures. Bottleneck is VRAM (4K RGBA ~67MB each), not fill-rate. Phase 1 = display-res+mipmaps (big win, low risk); Phase 2 = zoom-driven LOD + culling for scale. Verify PIXI v7 mipmap flags + off-thread createImageBitmap resize decode. (Requested; deferred.)
