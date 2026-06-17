@@ -1,3 +1,17 @@
+# Explorer / Folder-tree view — REMOVED in v0.0.53 (not useful in practice)
+
+The interactive explorer mode was removed from the app. PRESERVED for possible future reuse:
+- Rust command `folder_tree(path)` in main.rs (ancestors + current + child folders) — still registered, now
+  unused by the UI; handy for breadcrumbs / any future tree feature.
+- Force-directed physics rig: desktop-canvas/prototypes/explorer-physics-sim.html (canvas2d, mock tree, live
+  sliders). The tuned model = radial web: n-body repulsion + parent spring + outward radial force from a
+  pinned root, velocity+damping integration, circular collision separation, click-to-toggle expand/collapse.
+- The PIXI tap-input pattern (pointerdown candidate + pointerup distance check) lives in git history if needed.
+
+Everything below is the original design history, kept for reference.
+
+---
+
 # Explorer / Folder-tree view
 
 Button: "explorer" right of the address bar (#explorerBtn); toggles. Escape exits.

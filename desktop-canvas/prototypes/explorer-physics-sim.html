@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Explorer Tree — Physics Sandbox</title>
+<style>
+  :root{ --bg:#0e0f13; --panel:#15171d; --line:#2a2f3a; --txt:#d6dae2; --mut:#8b93a3; --accent:#6fa8e0; }
+  *{ box-sizing:border-box; }
+  html,body{ margin:0; height:100%; background:var(--bg); color:var(--txt); font:13px/1.4 system-ui,Segoe UI,Roboto,sans-serif; overflow:hidden; }
+  #wrap{ display:flex; flex-direction:column; height:100%; }
+  #bar{ display:flex; flex-wrap:wrap; gap:14px 18px; align-items:center; padding:10px 14px; background:var(--panel); border-bottom:1px solid var(--line); }
+  .ctrl{ display:flex; flex-direction:column; gap:2px; min-width:150px; }
+  .ctrl label{ font-size:11px; color:var(--mut); display:flex; justify-content:space-between; gap:8px; }
+  .ctrl label b{ color:var(--txt); font-weight:600; }
+  input[type=range]{ width:100%; accent-color:var(--accent); }
+  button{ background:#222632; color:var(--txt); border:1px solid var(--line); border-radius:7px; padding:7px 12px; cursor:pointer; font-size:12px; }
+  button:hover{ background:#2b303d; }
+  button.primary{ background:#274b6e; border-color:#33597f; }
+  #status{ margin-left:auto; color:var(--mut); font-size:12px; white-space:nowrap; }
+  #hint{ color:var(--mut); font-size:11px; padding:6px 14px; background:var(--panel); border-bottom:1px solid var(--line); }
+  #stage{ flex:1 1 auto; position:relative; }
+  canvas{ display:block; width:100%; height:100%; cursor:grab; }
+  canvas:active{ cursor:grabbing; }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <div id="bar">
+    <div class="ctrl"><label>Repulsion <b id="vRep"></b></label><input id="rep" type="range" min="0" max="40000" step="500"></div>
+    <div class="ctrl"><label>Link length <b id="vLink"></b></label><input id="link" type="range" min="40" max="400" step="4"></div>
+    <div class="ctrl"><label>Link strength <b id="vLinkK"></b></label><input id="linkK" type="range" min="0.005" max="0.3" step="0.005"></div>
+    <div class="ctrl"><label>Outward force <b id="vOut"></b></label><input id="out" type="range" min="0" max="40" step="0.5"></div>
+    <div class="ctrl"><label>Damping <b id="vDamp"></b></label><input id="damp" type="range" min="0.5" max="0.95" step="0.01"></div>
+    <div class="ctrl"><label>Node radius (circle) <b id="vRad"></b></label><input id="rad" type="range" min="60" max="340" step="5"></div>
+    <div class="ctrl"><label>Grow depth / click <b id="vGrow"></b></label><input id="grow" type="range" min="1" max="6" step="1"></div>
+    <button id="regen">Regenerate tree</button>
+    <button id="reset" class="primary">Reset view</button>
+    <div id="status"></div>
+  </div>
+  <div id="hint">Single-click a folder to expand / collapse it &middot; drag to pan &middot; wheel to zoom &middot; continuous relaxation, root pinned + pushes outward &middot; collisions are circular (radius slider) so nodes spread evenly</div>
+  <div id="stage"><canvas id="cv"></canvas></div>
+</div>
+<script>
+(function(){
+  "use strict";
+  var cv = document.getElementById('cv'), ctx = cv.getContext('2d');
+  var stage = document.getElementById('stage');
+
+  // ---- tunable params (full repulsion + max link length by default) ----
+  var P = { rep: 40000, link: 400, linkK: 0.04, out: 8, rad: 150, damp: 0.5, grow: 1 };
+  var fmt = { rep:function(v){return v;}, link:function(v){return v;}, linkK:function(v){return v.toFixed(3);}, out:function(v){return v.toFixed(1);}, rad:function(v){return v;}, damp:function(v){return v.toFixed(2);}, grow:function(v){return v;} };
+  var caps = { rep:'vRep', link:'vLink', linkK:'vLinkK', out:'vOut', rad:'vRad', damp:'vDamp', grow:'vGrow' };
+  Object.keys(caps).forEach(function(k){
+    var el = document.getElementById(k), lab = document.getElementById(caps[k]);
+    el.value = P[k]; lab.textContent = fmt[k](P[k]);
+    el.addEventListener('input', function(){ P[k] = parseFloat(el.value); lab.textContent = fmt[k](P[k]); });
+  });
+
+  // ---- mock filesystem ----
+  var WORDS = ['Projects','Photos','Archive','2023','2024','Invoices','src','assets','build','docs','Music','Videos','Backup','Clients','Drafts','Render','Textures','Models','Scenes','Export','Old','New','Temp','Notes','Research','Game','Audio','Sprites','Levels','UI','Shaders','Logs','Data','Cache','Misc','Personal','Work','Shared','Final','WIP'];
+  var nid = 0, MAX_NODES = 700;
+  function rnd(n){ return Math.floor(Math.random()*n); }
+  function genData(depth, maxDepth){
+    var d = { id: ++nid, name: WORDS[rnd(WORDS.length)], children: [] };
+    if (depth < maxDepth){
+      var k = depth === 0 ? 4 + rnd(5) : rnd(depth < 3 ? 6 : 4);
+      for (var i = 0; i < k; i++) d.children.push(genData(depth + 1, maxDepth));
+    }
+    return d;
+  }
+  var rootData;
+
+  // ---- layout nodes (all live; only root fixed) ----
+  var nodes = [];
+  var W = 168, H = 42;
+
+  function makeNode(data, depth, left, parent){
+    var ang = Math.random()*6.283, px = parent ? parent.x : 0, py = parent ? parent.y : 0;
+    var n = { data:data, name:data.name, depth:depth, left:left, parent:parent,
+      x: px + Math.cos(ang)*40, y: py + Math.sin(ang)*40, vx: 0, vy: 0, fixed: !parent, kids: [],
+      born: performance.now(), empty: data.children.length === 0 };
+    if (!parent){ n.x = 0; n.y = 0; }
+    nodes.push(n); if (parent) parent.kids.push(n);
+    return n;
+  }
+
+  function growSubtree(R, B){
+    R.left = Math.max(R.left || 0, B);
+    var frontier = [R];
+    for (var lvl = 0; lvl < B; lvl++){
+      var next = [];
+      for (var f = 0; f < frontier.length; f++){
+        var p = frontier[f]; if (p.left <= 0) continue;
+        for (var c = 0; c < p.data.children.length; c++){
+          var cd = p.data.children[c];
+          if (p.kids.some(function(k){ return k.data === cd; })) continue;
+          if (nodes.length >= MAX_NODES) return;
+          next.push(makeNode(cd, p.depth + 1, p.left - 1, p));
+        }
+      }
+      if (!next.length) break;
+      frontier = next;
+    }
+  }
+
+  function collectDesc(n, out){ for (var i = 0; i < n.kids.length; i++){ out.push(n.kids[i]); collectDesc(n.kids[i], out); } return out; }
+  function collapse(n){ var rm = collectDesc(n, []); if (!rm.length) return; var set = rm.reduce(function(m,d){ m[d.data.id]=1; return m; }, {}); nodes = nodes.filter(function(x){ return !set[x.data.id]; }); rm.forEach(function(d){ d.kids = []; }); n.kids = []; n.left = 0; }
+  function toggleNode(n){ if (n.kids.length) collapse(n); else if (n.data.children.length) growSubtree(n, P.grow); }
+  function resetTree(){ nodes = []; nid = 0; rootData = genData(0, 8); var root = makeNode(rootData, 0, P.grow, null); growSubtree(root, P.grow); }
+
+  // ---- physics: overdamped position relaxation (no velocity/damping) ----
+  function simulate(){
+    var i, j, a, b, dx, dy, d2, d, f, n = nodes.length;
+    for (i = 0; i < n; i++){
+      a = nodes[i]; if (a.fixed) continue;
+      var fx = 0, fy = 0;
+      for (j = 0; j < n; j++){
+        b = nodes[j]; if (b === a) continue;
+        dx = a.x - b.x; dy = a.y - b.y; d2 = dx*dx + dy*dy; if (d2 < 1) d2 = 1;
+        d = Math.sqrt(d2); if (d > 1100) continue;
+        f = P.rep / d2; fx += dx/d * f; fy += dy/d * f;
+      }
+      if (a.parent){ dx = a.x - a.parent.x; dy = a.y - a.parent.y; d = Math.sqrt(dx*dx + dy*dy) || 0.01; f = P.linkK*(d - P.link); fx -= dx/d*f; fy -= dy/d*f; }
+      d = Math.sqrt(a.x*a.x + a.y*a.y) || 0.01; fx += a.x/d*P.out; fy += a.y/d*P.out;
+      a.fx = fx; a.fy = fy;
+    }
+    for (i = 0; i < n; i++){
+      a = nodes[i]; if (a.fixed) continue;
+      a.vx = (a.vx + a.fx) * P.damp; a.vy = (a.vy + a.fy) * P.damp;
+      var m = Math.sqrt(a.vx*a.vx + a.vy*a.vy); if (m > 40){ a.vx *= 40/m; a.vy *= 40/m; }
+      a.x += a.vx; a.y += a.vy;
+    }
+    // hard separation — every node is a circle of radius P.rad
+    var minD = P.rad * 2, minD2 = minD * minD;
+    for (var it = 0; it < 2; it++){
+      for (i = 0; i < n; i++){
+        for (j = i + 1; j < n; j++){
+          a = nodes[i]; b = nodes[j];
+          dx = a.x - b.x; dy = a.y - b.y; d2 = dx*dx + dy*dy;
+          if (d2 < minD2){
+            if (d2 < 0.01){ dx = Math.random() - 0.5; dy = Math.random() - 0.5; d2 = dx*dx + dy*dy; }
+            d = Math.sqrt(d2) || 0.01; var push = (minD - d) * 0.5, ux = dx/d, uy = dy/d;
+            if (!a.fixed){ a.x += ux*push; a.y += uy*push; }
+            if (!b.fixed){ b.x -= ux*push; b.y -= uy*push; }
+          }
+        }
+      }
+    }
+  }
+
+  // ---- camera ----
+  var cam = { x: 0, y: 0, s: 0.4 };
+  function resetView(){ var r = stage.getBoundingClientRect(); cam.s = 0.4; cam.x = r.width/2; cam.y = r.height/2; }
+  function w2s(x,y){ return { x: cam.x + x*cam.s, y: cam.y + y*cam.s }; }
+  function s2w(x,y){ return { x: (x-cam.x)/cam.s, y: (y-cam.y)/cam.s }; }
+
+  // ---- render ----
+  function folder(px, py, scale){
+    ctx.save(); ctx.translate(px, py); ctx.scale(scale, scale);
+    ctx.fillStyle = '#c79338'; ctx.beginPath(); ctx.roundRect(0,0,11,5,1.5); ctx.fill();
+    ctx.fillStyle = '#e3b659'; ctx.beginPath(); ctx.roundRect(0,3,24,15,2.5); ctx.fill();
+    ctx.restore();
+  }
+  function draw(){
+    var r = stage.getBoundingClientRect();
+    if (cv.width !== r.width*devicePixelRatio || cv.height !== r.height*devicePixelRatio){ cv.width = r.width*devicePixelRatio; cv.height = r.height*devicePixelRatio; }
+    ctx.setTransform(devicePixelRatio,0,0,devicePixelRatio,0,0); ctx.clearRect(0,0,r.width,r.height);
+    ctx.strokeStyle = 'rgba(120,134,160,0.4)'; ctx.lineWidth = 1.4; ctx.beginPath();
+    for (var i = 0; i < nodes.length; i++){ var n = nodes[i]; if (!n.parent) continue; var a = w2s(n.parent.x, n.parent.y), b = w2s(n.x, n.y); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); }
+    ctx.stroke();
+    for (var i = 0; i < nodes.length; i++){
+      var n = nodes[i], p = w2s(n.x, n.y), s = cam.s;
+      var t = Math.min(1, (performance.now() - n.born)/260), sc = (0.4 + 0.6*t) * s;
+      var w = W*sc, h = H*sc, x = p.x - w/2, y = p.y - h/2;
+      ctx.globalAlpha = 0.5 + 0.5*t;
+      ctx.fillStyle = n.depth === 0 ? '#274b6e' : '#1b1e26';
+      ctx.strokeStyle = n.depth === 0 ? '#6fa8e0' : '#343a47';
+      ctx.lineWidth = n.depth === 0 ? 2 : 1;
+      ctx.beginPath(); ctx.roundRect(x, y, w, h, 8*sc); ctx.fill(); ctx.stroke();
+      folder(x + 11*sc, y + h/2 - 9*sc, sc);
+      ctx.fillStyle = '#d6dae2'; ctx.font = (13*sc|0) + 'px system-ui'; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+      var name = n.name, maxw = w - 50*sc;
+      while (ctx.measureText(name).width > maxw && name.length > 3) name = name.slice(0, -2);
+      if (name !== n.name) name += '…';
+      ctx.fillText(name, x + 40*sc, p.y);
+      if (!n.empty || n.left > 0){
+        var bx = x + w - 12*sc, by = y + 12*sc, frontier = n.left <= 0;
+        ctx.fillStyle = frontier ? '#2f7d4f' : '#30343d'; ctx.strokeStyle = frontier ? '#57c07f' : '#4a4e59'; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.arc(bx, by, 9*sc, 0, 7); ctx.fill(); ctx.stroke();
+        ctx.fillStyle = '#eef2f6'; ctx.font = (11*sc|0) + 'px system-ui'; ctx.textAlign = 'center';
+        ctx.fillText(String(Math.max(0, n.left)), bx, by); ctx.textAlign = 'left';
+      }
+      ctx.globalAlpha = 1;
+    }
+    document.getElementById('status').textContent = 'nodes ' + nodes.length + '  ·  zoom ' + Math.round(cam.s*100) + '%';
+  }
+
+  function loop(){ simulate(); draw(); requestAnimationFrame(loop); }
+
+  // ---- interaction ----
+  function nodeAt(sx, sy){ var wpt = s2w(sx, sy); for (var i = nodes.length - 1; i >= 0; i--){ var n = nodes[i]; if (Math.abs(wpt.x - n.x) <= W/2 && Math.abs(wpt.y - n.y) <= H/2) return n; } return null; }
+  var down = null, dragged = false;
+  cv.addEventListener('pointerdown', function(e){ down = { x:e.clientX, y:e.clientY, cx:cam.x, cy:cam.y }; dragged = false; cv.setPointerCapture(e.pointerId); });
+  cv.addEventListener('pointermove', function(e){ if (!down) return; var dx = e.clientX - down.x, dy = e.clientY - down.y; if (Math.abs(dx) + Math.abs(dy) > 4) dragged = true; cam.x = down.cx + dx; cam.y = down.cy + dy; });
+  cv.addEventListener('pointerup', function(e){ var wasDrag = dragged; down = null; if (wasDrag) return; var r = stage.getBoundingClientRect(); var n = nodeAt(e.clientX - r.left, e.clientY - r.top); if (n) toggleNode(n); });
+  cv.addEventListener('wheel', function(e){ e.preventDefault(); var r = stage.getBoundingClientRect(), mx = e.clientX - r.left, my = e.clientY - r.top; var before = s2w(mx, my); cam.s *= e.deltaY < 0 ? 1.1 : 0.9; cam.s = Math.max(0.08, Math.min(3, cam.s)); var after = s2w(mx, my); cam.x += (after.x - before.x)*cam.s; cam.y += (after.y - before.y)*cam.s; }, { passive:false });
+
+  document.getElementById('regen').addEventListener('click', function(){ resetTree(); resetView(); });
+  document.getElementById('reset').addEventListener('click', resetView);
+
+  resetView(); resetTree(); loop();
+})();
+</script>
+</body>
+</html>
