@@ -537,3 +537,11 @@ overlapped cards. "gate open-relax to preserve intentional Free-mode stacks" rem
   (8-48px, fractional/smooth). Rust read_text/write_text (write guarded by in_root). isText = txt/md/
   markdown/log/csv/tsv/json/ini/cfg/conf/xml/yml/yaml. Global openTextEditor/closeEditor in bootstrap.
 TODO added earlier: texture streaming/LOD for images (PureRef-style); shared top bar.
+
+## v0.0.50 — Explorer stage 3 (force-directed rework)
+Replaced radial explorer with a force-directed tree (collision + relax) per user feedback ("overlaps,
+doesn't feel good"). Folder icon + name + level-badge (grown levels left below node: root 3 -> frontier 0,
+green at frontier). Grows 3 levels; single-click grows 3 more from a node; double-click navigates. Relax =
+parent-spring(LINKLEN 165) + AABB overlap separation, root pinned, 3 iters/frame. Caps MAX_NODES 240 /
+MAX_KIDS 16. Note: was edited+validated before a context compaction, then committed/built this session.
+See EXPLORER.md "TUNING / NEXT" for the expected feel pass.

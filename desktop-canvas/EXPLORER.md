@@ -38,3 +38,24 @@ Space-bar search filters nodes (explorerSearch dims non-matches via con.alpha).
 - Deeper tree (grandchildren), better layout (radial/force, avoid overlap on many children), pan-to-fit.
 - Show file leaves (not just folders) / thumbnails; collapse-expand nodes.
 - Scroll/perf for very large trees (cap + lazy expand).
+
+## STAGE 3 (v0.0.50) — DONE — force-directed rework (replaces radial)
+Reuses a collision/relax approach instead of fixed radial placement.
+- Nodes = folder ICON + name + a level BADGE at top-right. Badge number = grown levels remaining below the
+  node (root EXP_DEPTH=3 -> children 2 -> 1 -> frontier 0). Frontier (0) badge is green = click to grow more;
+  loaded-empty folders hide the badge.
+- Grows EXP_DEPTH=3 levels on enter. SINGLE-CLICK a folder -> growFrom(node,3) grows 3 more levels from it
+  (re-bumps badges; loads only the new levels, cached). DOUBLE-CLICK -> navigate into it (click/dblclick
+  disambiguated by a 240ms timer).
+- Continuous relax in stepExplorer (3 iters/frame): parent-spring toward LINKLEN=165 + AABB overlap
+  separation (push pairs apart along min axis); root pinned at (0,0). Nodes spawn near parent then forces
+  spread them -> organic growth, no overlap. Lines redrawn each frame.
+- Caps: MAX_NODES=240, MAX_KIDS=16 per folder (protects perf; deep/bushy trees fill the cap, click to expand
+  specific branches). Space-search dims non-matches (unchanged).
+- Ancestors/up-chain DROPPED in stage 3 (force layout centered on current). Possible re-add later.
+
+## TUNING / NEXT (likely needed)
+- Force constants (LINKLEN, spring strength 0.08, iters) + spacing may need a feel pass.
+- Cross-branch settling can still jiggle; could add mild center gravity or freeze settled nodes.
+- Re-add an "up"/ancestors affordance inside explorer.
+- Later: literal canvas-shrink animation; click a folder to ZOOM INTO its contents (canvas-in-canvas).
