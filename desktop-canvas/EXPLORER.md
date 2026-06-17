@@ -70,3 +70,14 @@ Reuses a collision/relax approach instead of fixed radial placement.
   branch separation + readable structure. Root framed near top (s 0.72, y=18%).
 - Remaining knobs if still off: LEVELGAP (row height), PADX (horizontal/branch gap), centering 0.02
   (higher = subtrees stack tighter under parent; lower = branches fan wider).
+
+## v0.0.52 — physics model ported from sandbox (LOCKED behaviour)
+Tuned in explorer-physics-sim.html artifact, then ported. Force-directed, continuous (no freeze):
+- Forces per non-root node: n-body repulsion REP=40000 (cutoff 1100), parent spring LINK=400 / LINKK=0.04,
+  outward radial OUT=8 from the pinned root at (0,0).
+- Integration: velocity + DAMP=0.5 (speed clamp 40). Settles cleanly, no plant-in-water waving.
+- Hard separation: CIRCLES, radius RAD=150 (2 iters/frame) -> even radial spacing, no overlap.
+- GROW=1: opens to one level; single-tap a folder TOGGLES expand/collapse (collapseNode removes descendants
+  + destroys containers, resets node to frontier); double-tap navigates. Caps MAX_NODES 400 / MAX_KIDS 24.
+- Root framed centered (s 0.6). Badges/search/PIXI-tap input unchanged from stage 3.
+Sandbox file: /mnt/user-data/outputs/explorer-physics-sim.html (canvas2d mock-tree tuning rig; same model).

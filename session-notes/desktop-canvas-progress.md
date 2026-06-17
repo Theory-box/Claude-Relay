@@ -545,3 +545,10 @@ green at frontier). Grows 3 levels; single-click grows 3 more from a node; doubl
 parent-spring(LINKLEN 165) + AABB overlap separation, root pinned, 3 iters/frame. Caps MAX_NODES 240 /
 MAX_KIDS 16. Note: was edited+validated before a context compaction, then committed/built this session.
 See EXPLORER.md "TUNING / NEXT" for the expected feel pass.
+
+## v0.0.52 — Explorer physics finalized (sandbox-tuned)
+Prototyped the explorer relaxation in a standalone canvas2d artifact (explorer-physics-sim.html) with live
+force sliders, iterated with user to a locked feel, then ported to the app. Model: force-directed radial web
+— repulsion 40000 + parent spring(len400,k0.04) + outward radial 8 from pinned root; velocity+damping 0.5;
+circular hard separation radius 150. Grow 1 level; single-tap toggles expand/collapse; double-tap navigates.
+Replaced the v0.0.51 vertical-spring/AABB model that jammed into a column. Click now reliable (PIXI taps).
