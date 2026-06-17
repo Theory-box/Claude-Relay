@@ -484,6 +484,30 @@ fn load_session(app: tauri::AppHandle, key: String) -> Result<String, String> {
 }
 
 #[tauri::command]
+fn make_text_file(app: tauri::AppHandle, dir: String, name: String) -> Result<String, String> {
+    in_root(&app, &dir)?;
+    let base = PathBuf::from(&dir);
+    let clean = name.trim();
+    let clean = if clean.is_empty() { "New File.txt" } else { clean };
+    let dest = unique_dest(&base, clean);
+    fs::write(&dest, "").map_err(|e| e.to_string())?;
+    Ok(dest.file_name().unwrap().to_string_lossy().to_string())
+}
+
+#[tauri::command]
+fn read_text(path: String) -> Result<String, String> {
+    fs::read_to_string(&path).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn write_text(app: tauri::AppHandle, path: String, data: String) -> Result<(), String> {
+    let p = PathBuf::from(&path);
+    let parent = p.parent().map(|x| x.to_string_lossy().to_string()).unwrap_or_default();
+    in_root(&app, &parent)?;
+    fs::write(&p, data).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 fn image_full(path: String) -> Result<String, String> {
     let p = std::path::Path::new(&path);
     let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
@@ -536,7 +560,7 @@ fn main() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
             quit, places, list_dir, add_dropped_file, make_folder, move_into, trash_item,
-            clear_trash, open_trash, thumb_data, open_item, open_folder, shell_verb, delete_file, paste_copy, paste_move, paste_shortcut, resolve_lnk, path_size, set_safety, load_spaces, save_spaces, save_layout, load_layout, save_session, load_session, image_full, drag_out
+            clear_trash, open_trash, thumb_data, open_item, open_folder, shell_verb, delete_file, paste_copy, paste_move, paste_shortcut, resolve_lnk, path_size, set_safety, load_spaces, save_spaces, save_layout, load_layout, save_session, load_session, image_full, make_text_file, read_text, write_text, drag_out
         ])
         .setup(|app| {
             let handle = app.handle().clone();
