@@ -594,55 +594,69 @@
      function joinPath(base, name){ if (!base) return name; return base.replace(/[\\\/]+$/, '') + '\\' + name; }
      function isImage(nm){ return /\.(png|jpe?g|gif|webp|bmp)$/i.test(nm || ''); }
      function isText(nm){ return /\.(txt|md|markdown|log|csv|tsv|json|ini|cfg|conf|xml|yml|yaml)$/i.test(nm || ''); }
-     var explorerOn = false, explorerLayer = null, treeNodes = [], explorerBtn = null;
-     function makeTreeNode(node, cx, cy, kind){
-       var w = 176, h = 46, c = new PIXI.Container(); c.x = cx - w / 2; c.y = cy - h / 2; c.__path = node.path; c.__w = w; c.__h = h;
+     var explorerOn = false, explorerLayer = null, explorerLines = null, treeNodes = [], treeCache = {}, explorerBtn = null, savedCam = null, explorerSeq = 0, expCheck = 0;
+     function makeNode(info, cx, cy, depth, a0, a1, parent, kind){
+       var w = 176, h = 44, con = new PIXI.Container();
        var fill = kind === 'current' ? 0x274b6e : (kind === 'ancestor' ? 0x23262e : 0x1c1f27);
        var linec = kind === 'current' ? 0x6fa8e0 : 0x3a3e49;
-       var g = new PIXI.Graphics(); g.beginFill(fill); g.lineStyle(kind === 'current' ? 2 : 1, linec); g.drawRoundedRect(0, 0, w, h, 9); g.endFill();
-       var t = new PIXI.Text(node.name || node.path, { fill: 0xd6dae2, fontSize: 13, fontFamily: 'system-ui' });
-       t.x = 12; t.y = h / 2 - 8; if (t.width > w - 22){ t.scale.set((w - 22) / t.width); t.y = h / 2 - 8 * t.scale.y; }
-       c.addChild(g); c.addChild(t); explorerLayer.addChild(c); treeNodes.push(c); return c;
+       var g = new PIXI.Graphics(); g.beginFill(fill); g.lineStyle(kind === 'current' ? 2 : 1, linec); g.drawRoundedRect(-w / 2, -h / 2, w, h, 9); g.endFill();
+       var t = new PIXI.Text(info.name || info.path, { fill: 0xd6dae2, fontSize: 13, fontFamily: 'system-ui' }); t.anchor.set(0.5); if (t.width > w - 18) t.scale.set((w - 18) / t.width);
+       con.addChild(g); con.addChild(t); explorerLayer.addChild(con);
+       var node = { path: info.path, name: info.name, cx: cx, cy: cy, w: w, h: h, depth: depth, a0: a0, a1: a1, parent: parent, kind: kind, con: con, grow: 0, expanded: false, loading: false, match: true };
+       treeNodes.push(node); return node;
      }
-     function buildTree(data){
-       var lines = new PIXI.Graphics(); lines.eventMode = 'none'; lines.lineStyle(2, 0x3a4356, 0.85); explorerLayer.addChild(lines);
-       makeTreeNode(data.current, 0, 0, 'current');
-       var chainY = [0];
-       for (var i = 0; i < data.ancestors.length; i++){ var ay = -(i + 1) * 96; makeTreeNode(data.ancestors[i], 0, ay, 'ancestor'); chainY.push(ay); }
-       for (var i = 0; i < chainY.length - 1; i++){ lines.moveTo(0, chainY[i] - 23); lines.lineTo(0, chainY[i + 1] + 23); }
-       var n = data.children.length, sp = 196, x0 = -((n - 1) * sp) / 2, cyy = 150;
-       for (var i = 0; i < n; i++){ var cxx = x0 + i * sp; makeTreeNode(data.children[i], cxx, cyy, 'child'); lines.moveTo(0, 23); lines.lineTo(cxx, cyy - 23); }
-       explorerLayer.setChildIndex(lines, 0);
+     function loadChildren(path){
+       if (treeCache[path]) return Promise.resolve(treeCache[path]);
+       return T.core.invoke('list_dir', { dir: path }).then(function(j){ var arr = JSON.parse(j || '[]'); var kids = arr.filter(function(e){ return e.dir; }).map(function(e){ return { name: e.name, path: joinPath(path, e.name) }; }); treeCache[path] = kids; return kids; });
      }
-     function frameTree(){
-       if (!treeNodes.length) return;
-       var minX = 1e9, minY = 1e9, maxX = -1e9, maxY = -1e9;
-       treeNodes.forEach(function(c){ minX = Math.min(minX, c.x); minY = Math.min(minY, c.y); maxX = Math.max(maxX, c.x + c.__w); maxY = Math.max(maxY, c.y + c.__h); });
-       var margin = 80, sw = app.screen.width, sh = app.screen.height, bw = maxX - minX, bh = maxY - minY;
-       var sc = Math.max(0.1, Math.min((sw - 2 * margin) / bw, (sh - 2 * margin) / bh, 1.4));
-       var cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
-       camTween = { s: sc, x: sw / 2 - cx * sc, y: sh / 2 - cy * sc, f: 18 };
+     function expandNode(node){
+       if (node.expanded || node.loading || node.kind === 'ancestor') return;
+       node.loading = true; var seq = explorerSeq;
+       loadChildren(node.path).then(function(kids){
+         node.loading = false; if (!explorerOn || seq !== explorerSeq) return; node.expanded = true;
+         var k = kids.length; if (!k) return;
+         var span = node.a1 - node.a0, minArc = 210;
+         var R = Math.max(190 + node.depth * 16, minArc * k / Math.max(span, 0.001)); R = Math.min(R, 1600);
+         for (var idx = 0; idx < k; idx++){ var frac = (idx + 0.5) / k, ang = node.a0 + frac * span, sub = (span / k) * 0.82; makeNode(kids[idx], node.cx + Math.cos(ang) * R, node.cy + Math.sin(ang) * R, node.depth + 1, ang - sub / 2, ang + sub / 2, node, 'child'); }
+       }).catch(function(){ node.loading = false; });
      }
+     function nodeVisible(n){ var sx = world.x + n.cx * world.scale.x, sy = world.y + n.cy * world.scale.y, m = 130; return sx > -m && sx < app.screen.width + m && sy > -m && sy < app.screen.height + m; }
+     function stepExplorer(){
+       if (!explorerOn || !explorerLayer) return;
+       for (var i = 0; i < treeNodes.length; i++){ var n = treeNodes[i]; if (n.grow < 1){ n.grow += (1 - n.grow) * 0.18; if (n.grow > 0.999) n.grow = 1; } var px = n.parent ? n.parent.cx : n.cx, py = n.parent ? n.parent.cy : n.cy; n.con.x = px + (n.cx - px) * n.grow; n.con.y = py + (n.cy - py) * n.grow; n.con.scale.set(0.2 + 0.8 * n.grow); n.con.alpha = (n.match ? 1 : 0.16) * Math.min(1, n.grow * 1.3); }
+       explorerLines.clear(); explorerLines.lineStyle(2, 0x3a4356, 0.85);
+       for (var i = 0; i < treeNodes.length; i++){ var n = treeNodes[i]; if (!n.parent) continue; explorerLines.moveTo(n.parent.con.x, n.parent.con.y); explorerLines.lineTo(n.con.x, n.con.y); }
+       if ((++expCheck % 8) === 0){ for (var i = 0; i < treeNodes.length; i++){ var n = treeNodes[i]; if (!n.expanded && !n.loading && n.kind !== 'ancestor' && n.grow > 0.85 && nodeVisible(n)){ expandNode(n); break; } } }
+     }
+     function frameTree(){ var sw = app.screen.width, sh = app.screen.height; camTween = { s: 0.8, x: sw / 2, y: sh / 2 - 40, f: 20 }; }
      function enterExplorer(){
        if (explorerOn) return;
+       savedCam = { x: world.x, y: world.y, s: world.scale.x };
        T.core.invoke('folder_tree', { path: cwd }).then(function(data){
-         explorerOn = true; if (explorerBtn) explorerBtn.classList.add('on');
+         explorerOn = true; explorerSeq++; if (explorerBtn) explorerBtn.classList.add('on');
          for (var i = 0; i < cards.length; i++) cards[i].visible = false; grid.visible = false;
-         explorerLayer = new PIXI.Container(); world.addChild(explorerLayer); treeNodes = [];
-         buildTree(data); frameTree();
+         explorerLayer = new PIXI.Container(); world.addChild(explorerLayer);
+         explorerLines = new PIXI.Graphics(); explorerLines.eventMode = 'none'; explorerLayer.addChild(explorerLines);
+         treeNodes = [];
+         var root = makeNode(data.current, 0, 0, 0, -0.15 * Math.PI, 1.15 * Math.PI, null, 'current');
+         var prev = root; for (var i = 0; i < data.ancestors.length; i++){ prev = makeNode(data.ancestors[i], 0, -(i + 1) * 110, 0, 0, 0, prev, 'ancestor'); }
+         treeCache[data.current.path] = data.children.map(function(c){ return { name: c.name, path: c.path }; });
+         expandNode(root); frameTree();
        }).catch(function(e){ showErr('explorer: ' + e); });
      }
-     function exitExplorer(reframe){
+     function exitExplorer(restore){
        if (!explorerOn) return;
-       explorerOn = false; if (explorerBtn) explorerBtn.classList.remove('on');
-       if (explorerLayer){ try{ world.removeChild(explorerLayer); explorerLayer.destroy({ children: true }); }catch(_){} explorerLayer = null; }
+       explorerOn = false; explorerSeq++; if (explorerBtn) explorerBtn.classList.remove('on');
+       if (explorerLayer){ try{ world.removeChild(explorerLayer); explorerLayer.destroy({ children: true }); }catch(_){} explorerLayer = null; explorerLines = null; }
        treeNodes = [];
        for (var i = 0; i < cards.length; i++) cards[i].visible = true; grid.visible = true;
-       if (reframe) frameAll();
+       if (restore && savedCam){ camTween = { s: savedCam.s, x: savedCam.x, y: savedCam.y, f: 16 }; }
+       savedCam = null;
      }
      function toggleExplorer(){ if (explorerOn) exitExplorer(true); else enterExplorer(); }
-     function treeNodeAt(sx, sy){ var wx = (sx - world.x) / world.scale.x, wy = (sy - world.y) / world.scale.y; for (var i = 0; i < treeNodes.length; i++){ var c = treeNodes[i]; if (wx >= c.x && wx <= c.x + c.__w && wy >= c.y && wy <= c.y + c.__h) return c; } return null; }
-     function openTreeNode(c){ var pth = c.__path; exitExplorer(false); navigate(pth); }
+     function treeNodeAt(sx, sy){ var wx = (sx - world.x) / world.scale.x, wy = (sy - world.y) / world.scale.y; for (var i = treeNodes.length - 1; i >= 0; i--){ var n = treeNodes[i]; if (n.grow < 0.5) continue; if (wx >= n.cx - n.w / 2 && wx <= n.cx + n.w / 2 && wy >= n.cy - n.h / 2 && wy <= n.cy + n.h / 2) return n; } return null; }
+     function openTreeNode(n){ var pth = n.path; exitExplorer(false); navigate(pth); }
+     function explorerSearch(q){ q = (q || '').toLowerCase(); var hits = 0; for (var i = 0; i < treeNodes.length; i++){ var n = treeNodes[i]; n.match = !q || (n.name && n.name.toLowerCase().indexOf(q) >= 0); if (q && n.match) hits++; } return hits; }
      function parentOf(p){ if (!p) return ''; var s = p.replace(/[\\\/]+$/, ''); if (/^[A-Za-z]:$/.test(s)) return ''; var i = Math.max(s.lastIndexOf('\\'), s.lastIndexOf('/')); if (i < 0) return ''; var up = s.slice(0, i); if (/^[A-Za-z]:$/.test(up)) return up + '\\'; return up; }
      var upBtn = $('#up'), crumbs = $('#crumbs');
      var backBtn = $('#back'), fwdBtn = $('#fwd');
@@ -666,7 +680,7 @@
        else if (carry && carry.source === 'import'){ hud.textContent = 'Placing imported file [' + modeLabel() + ']  \u00b7  left-click confirm  \u00b7  right-click cancel  \u00b7  T toggle  \u00b7  Free mode (1) to drop into a folder'; }
        else if (carry){ hud.textContent = 'Moving ' + (carry.held.length > 1 ? carry.held.length + ' items ' : '') + '[' + (ctrlDown ? 'Free (Ctrl)' : modeLabel()) + ']  \u00b7  hold Ctrl = free / drop into folder  \u00b7  T toggle  \u00b7  release to drop  \u00b7  Esc cancel'; }
        else if (selection.size){ hud.textContent = selection.size + ' selected  \u00b7  drag = move  \u00b7  Ctrl+C copy / Ctrl+X cut  \u00b7  Del trash  \u00b7  Ctrl+F frame  \u00b7  Esc clear'; }
-       else { hud.textContent = 'v0.0.48  \u00b7  click = select  \u00b7  shift/ctrl = add/remove  \u00b7  drag empty = box select  \u00b7  middle-drag = pan  \u00b7  drag item = move  \u00b7  mode: ' + modeLabel() + (writable ? '' : '  \u00b7  read-only'); }
+       else { hud.textContent = 'v0.0.49  \u00b7  click = select  \u00b7  shift/ctrl = add/remove  \u00b7  drag empty = box select  \u00b7  middle-drag = pan  \u00b7  drag item = move  \u00b7  mode: ' + modeLabel() + (writable ? '' : '  \u00b7  read-only'); }
      }
      upBtn.addEventListener('click', function(){ navigate(parentOf(cwd)); });
      gotoBtn.addEventListener('click', function(){ if (pathInput.style.display === 'none'){ pathInput.style.display = 'inline-block'; pathInput.value = cwd; pathInput.focus(); pathInput.select(); } else { navigate(pathInput.value.trim()); pathInput.style.display = 'none'; } });
@@ -730,13 +744,13 @@
      // ---------- search & frame ----------
      var search = $('#search'), searchInput = $('#searchInput'), searchCount = $('#searchCount'), searchOpen = false;
      function openSearch(){ searchOpen = true; search.style.display = 'flex'; searchInput.value = ''; searchCount.textContent = ''; setTimeout(function(){ searchInput.focus(); }, 0); }
-     function closeSearch(){ searchOpen = false; search.style.display = 'none'; try{ searchInput.blur(); }catch(_){} }
-     function runSearch(){ var q = searchInput.value.trim().toLowerCase(); selection.clear(); if (q){ cards.forEach(function(c){ if (c.__item && c.__item.name.toLowerCase().indexOf(q) >= 0) selection.add(c); }); } drawSelection(); searchCount.textContent = q ? (selection.size + ' / ' + cards.length) : ''; }
+     function closeSearch(){ searchOpen = false; search.style.display = 'none'; try{ searchInput.blur(); }catch(_){} if (explorerOn) explorerSearch(''); }
+     function runSearch(){ var q = searchInput.value.trim().toLowerCase(); if (explorerOn){ var hits = explorerSearch(q); searchCount.textContent = q ? (hits + ' match') : ''; return; } selection.clear(); if (q){ cards.forEach(function(c){ if (c.__item && c.__item.name.toLowerCase().indexOf(q) >= 0) selection.add(c); }); } drawSelection(); searchCount.textContent = q ? (selection.size + ' / ' + cards.length) : ''; }
      searchInput.addEventListener('input', runSearch);
      searchInput.addEventListener('keydown', function(e){
-       if (e.key === 'Enter'){ closeSearch(); frameSelected(); e.preventDefault(); }
+       if (e.key === 'Enter'){ closeSearch(); if (!explorerOn) frameSelected(); e.preventDefault(); }
        else if (e.key === 'Escape'){ closeSearch(); e.preventDefault(); }
-       else if ((e.ctrlKey || e.metaKey) && (e.key === 'f' || e.key === 'F')){ frameSelected(); e.preventDefault(); }
+       else if ((e.ctrlKey || e.metaKey) && (e.key === 'f' || e.key === 'F')){ if (!explorerOn) frameSelected(); e.preventDefault(); }
        e.stopPropagation();
      });
      function frameSelected(){
@@ -807,6 +821,7 @@
 
      var diag = $('#diag');
      app.ticker.add(function(){ if (sortAnim) stepSort(); if (camTween){ world.scale.set(world.scale.x + (camTween.s - world.scale.x) * 0.25); world.x += (camTween.x - world.x) * 0.25; world.y += (camTween.y - world.y) * 0.25; if (--camTween.f <= 0){ world.scale.set(camTween.s); world.x = camTween.x; world.y = camTween.y; camTween = null; } } if (carry || selection.size) drawSelection(); diag.textContent = 'zoom ' + Math.round(world.scale.x * 100) + '%  items ' + items.length + (selection.size ? '  sel ' + selection.size : '') + (animating ? '  sorting' : (carry ? '  ' + carry.source : '')); });
+     app.ticker.add(stepExplorer);
 
      (async function(){
        try{ placesList = JSON.parse(await T.core.invoke('places') || '[]'); }catch(e){ showErr('places: ' + e); }
