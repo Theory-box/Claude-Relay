@@ -523,3 +523,17 @@ saved folder up front (no Home detour, no post-hoc navigate). saveSession skips 
 and close to re-save correctly.
 KNOWN/SEPARATE (TODO already): relax-on-open de-overlaps + saves EVERY folder open -> can move intentionally
 overlapped cards. "gate open-relax to preserve intentional Free-mode stacks" remains the fix for that.
+
+## v0.0.43-0.0.47 — zoom default, image viewer, text files
+- 0.0.43: plain scroll now ZOOMS toward cursor (no Ctrl); pan stays middle-drag.
+- 0.0.44: image View (canvas-morph) attempt — had issues, REPLACED.
+- 0.0.45: floating image viewer window (DOM): right-click image -> View; movable (title drag),
+  resizable (CSS resize:both corner), closable (x/Esc); arrows page folder images. Reuses Rust image_full
+  (full-res data URL). Global openViewer/closeViewer in bootstrap; appended to body (over all panes).
+- 0.0.46: image viewer zoom/pan: scroll=zoom-to-cursor (1-20x) via img transform, drag=pan, dblclick=reset,
+  resets on image change; img wrapped in .viewerBody (overflow clip); resize corner left untouched.
+- 0.0.47: TEXT FILES. Empty-menu "New Text File" (Rust make_text_file, reuses unique_dest). Text View opens
+  a floating editor (.editor): textarea, Save btn + Ctrl+S, Esc close, dirty dot; Ctrl+scroll = font size
+  (8-48px, fractional/smooth). Rust read_text/write_text (write guarded by in_root). isText = txt/md/
+  markdown/log/csv/tsv/json/ini/cfg/conf/xml/yml/yaml. Global openTextEditor/closeEditor in bootstrap.
+TODO added earlier: texture streaming/LOD for images (PureRef-style); shared top bar.
