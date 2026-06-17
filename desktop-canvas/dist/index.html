@@ -21,7 +21,7 @@
  #bar button:hover:not(:disabled){background:#2f3440;}
  #bar button:disabled{opacity:.32;cursor:default;}
  #bar input{background:#1c1f27;border:1px solid #3a4150;color:#e6e8ee;border-radius:6px;padding:5px 8px;font:inherit;}
- #pathInput{width:320px;}
+ #pathInput{width:320px;} #explorerBtn.on{background:#3a6fd0;color:#fff;}
  #safetyLbl{display:flex;align-items:center;gap:5px;color:#8b9bb0;cursor:pointer;user-select:none;white-space:nowrap;font-size:12px;}
  #safetyLbl.off{color:#e0a55c;}
  #safetyLbl input{cursor:pointer;}
@@ -68,6 +68,7 @@
    <span class="spacer"></span>
    <input id="pathInput" placeholder="Type or paste a path, Enter to go" style="display:none">
    <button id="goto">Go to&#8230;</button>
+   <button id="explorerBtn" title="Folder tree view">explorer</button>
    <label id="safetyLbl" title="Safety: when on, file changes are limited to the Desktop Canvas folder. Turn off to edit anywhere (with confirmations)."><span id="safetyIcon">&#128274;</span><input type="checkbox" id="safetyChk" checked><span id="safetyTxt">safe</span></label>
  </div>
  <div id="hud"></div>
@@ -256,7 +257,7 @@
      function updateNavButtons(){ if (backBtn){ backBtn.disabled = histIdx <= 0; } if (fwdBtn){ fwdBtn.disabled = histIdx >= history.length - 1; } }
      function navTo(dir, record){ if (carry) cancelCarry(); var target = dir || '';
        if (record){ if (histIdx < history.length - 1){ history = history.slice(0, histIdx + 1); } if (history[histIdx] !== target){ history.push(target); histIdx = history.length - 1; } }
-       cwd = target; loadView(); updateNavButtons(); if (typeof scheduleSession === 'function') scheduleSession(); }
+       if (explorerOn) exitExplorer(false); cwd = target; loadView(); updateNavButtons(); if (typeof scheduleSession === 'function') scheduleSession(); }
      function navigate(dir){ navTo(dir, true); }
      function goBack(){ if (histIdx > 0){ if (carry) cancelCarry(); histIdx--; cwd = history[histIdx]; loadView(); updateNavButtons(); if (typeof scheduleSession === 'function') scheduleSession(); } }
      function goForward(){ if (histIdx < history.length - 1){ if (carry) cancelCarry(); histIdx++; cwd = history[histIdx]; loadView(); updateNavButtons(); if (typeof scheduleSession === 'function') scheduleSession(); } }
@@ -409,6 +410,7 @@
        if (carry || confirming || animating) return;
        if (e.button === 2) return;
        if (e.button === 1){ panning = true; last = { x: e.global.x, y: e.global.y }; return; } // middle = pan
+       if (explorerOn) return;
        box = { x0: e.global.x, y0: e.global.y, cx: e.global.x, cy: e.global.y, mode: e.shiftKey ? 'add' : (e.ctrlKey ? 'sub' : 'replace'), moved: false }; // left on empty = box select
      });
      app.stage.on('pointermove', function(e){
@@ -455,6 +457,7 @@
        if (pm && pm.focused !== self) return;
        if (e.key === 'Control' && !ctrlDown){ ctrlDown = true; if (carry && carry.moved){ refreshPreview(); updateHud(); } }
        if (confirming) return;
+       if (explorerOn && e.key === 'Escape'){ exitExplorer(true); e.preventDefault(); e.stopPropagation(); return; }
        if (animating && e.key === 'Escape'){ if (sortAnim){ sortAnim.frames = 1; } e.stopPropagation(); return; }
        var ae = document.activeElement; if (ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA')) return; // typing in a field/search
        if (e.key === ' ' && !carry){ openSearch(); e.preventDefault(); e.stopPropagation(); return; }
@@ -567,7 +570,7 @@
        }
        menu.style.left = x + 'px'; menu.style.top = y + 'px'; menu.style.display = 'block';
      }
-     app.view.addEventListener('contextmenu', function(ev){ ev.preventDefault(); if (confirming || animating) return; if (carry){ cancelCarry(); return; } var lpx = lx(ev.clientX), lpy = ly(ev.clientY); var c = targetAt(lpx, lpy); if (c){ if (!c.__trash && selection.has(c) && selection.size > 1) openSelectionMenu(lpx, lpy); else openMenu(lpx, lpy, c); } else openEmptyMenu(lpx, lpy); });
+     app.view.addEventListener('contextmenu', function(ev){ ev.preventDefault(); if (explorerOn) return; if (confirming || animating) return; if (carry){ cancelCarry(); return; } var lpx = lx(ev.clientX), lpy = ly(ev.clientY); var c = targetAt(lpx, lpy); if (c){ if (!c.__trash && selection.has(c) && selection.size > 1) openSelectionMenu(lpx, lpy); else openMenu(lpx, lpy, c); } else openEmptyMenu(lpx, lpy); });
      function activateItem(c){
        if (!c || !c.__item) return;
        if (c.__trash){ T.core.invoke('open_trash'); return; }
@@ -584,17 +587,67 @@
        }
        T.core.invoke('open_item', { dir: cwd, name: name });
      }
-     app.view.addEventListener('dblclick', function(ev){ if (carry || confirming || animating) return; var c = targetAt(lx(ev.clientX), ly(ev.clientY)); if (!c) return; activateItem(c); });
+     app.view.addEventListener('dblclick', function(ev){ if (explorerOn){ var tn = treeNodeAt(lx(ev.clientX), ly(ev.clientY)); if (tn) openTreeNode(tn); return; } if (carry || confirming || animating) return; var c = targetAt(lx(ev.clientX), ly(ev.clientY)); if (!c) return; activateItem(c); });
      window.addEventListener('wheel', function(){ hideMenu(); }, true);
 
      // ---------- address bar ----------
      function joinPath(base, name){ if (!base) return name; return base.replace(/[\\\/]+$/, '') + '\\' + name; }
      function isImage(nm){ return /\.(png|jpe?g|gif|webp|bmp)$/i.test(nm || ''); }
      function isText(nm){ return /\.(txt|md|markdown|log|csv|tsv|json|ini|cfg|conf|xml|yml|yaml)$/i.test(nm || ''); }
+     var explorerOn = false, explorerLayer = null, treeNodes = [], explorerBtn = null;
+     function makeTreeNode(node, cx, cy, kind){
+       var w = 176, h = 46, c = new PIXI.Container(); c.x = cx - w / 2; c.y = cy - h / 2; c.__path = node.path; c.__w = w; c.__h = h;
+       var fill = kind === 'current' ? 0x274b6e : (kind === 'ancestor' ? 0x23262e : 0x1c1f27);
+       var linec = kind === 'current' ? 0x6fa8e0 : 0x3a3e49;
+       var g = new PIXI.Graphics(); g.beginFill(fill); g.lineStyle(kind === 'current' ? 2 : 1, linec); g.drawRoundedRect(0, 0, w, h, 9); g.endFill();
+       var t = new PIXI.Text(node.name || node.path, { fill: 0xd6dae2, fontSize: 13, fontFamily: 'system-ui' });
+       t.x = 12; t.y = h / 2 - 8; if (t.width > w - 22){ t.scale.set((w - 22) / t.width); t.y = h / 2 - 8 * t.scale.y; }
+       c.addChild(g); c.addChild(t); explorerLayer.addChild(c); treeNodes.push(c); return c;
+     }
+     function buildTree(data){
+       var lines = new PIXI.Graphics(); lines.eventMode = 'none'; lines.lineStyle(2, 0x3a4356, 0.85); explorerLayer.addChild(lines);
+       makeTreeNode(data.current, 0, 0, 'current');
+       var chainY = [0];
+       for (var i = 0; i < data.ancestors.length; i++){ var ay = -(i + 1) * 96; makeTreeNode(data.ancestors[i], 0, ay, 'ancestor'); chainY.push(ay); }
+       for (var i = 0; i < chainY.length - 1; i++){ lines.moveTo(0, chainY[i] - 23); lines.lineTo(0, chainY[i + 1] + 23); }
+       var n = data.children.length, sp = 196, x0 = -((n - 1) * sp) / 2, cyy = 150;
+       for (var i = 0; i < n; i++){ var cxx = x0 + i * sp; makeTreeNode(data.children[i], cxx, cyy, 'child'); lines.moveTo(0, 23); lines.lineTo(cxx, cyy - 23); }
+       explorerLayer.setChildIndex(lines, 0);
+     }
+     function frameTree(){
+       if (!treeNodes.length) return;
+       var minX = 1e9, minY = 1e9, maxX = -1e9, maxY = -1e9;
+       treeNodes.forEach(function(c){ minX = Math.min(minX, c.x); minY = Math.min(minY, c.y); maxX = Math.max(maxX, c.x + c.__w); maxY = Math.max(maxY, c.y + c.__h); });
+       var margin = 80, sw = app.screen.width, sh = app.screen.height, bw = maxX - minX, bh = maxY - minY;
+       var sc = Math.max(0.1, Math.min((sw - 2 * margin) / bw, (sh - 2 * margin) / bh, 1.4));
+       var cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
+       camTween = { s: sc, x: sw / 2 - cx * sc, y: sh / 2 - cy * sc, f: 18 };
+     }
+     function enterExplorer(){
+       if (explorerOn) return;
+       T.core.invoke('folder_tree', { path: cwd }).then(function(data){
+         explorerOn = true; if (explorerBtn) explorerBtn.classList.add('on');
+         for (var i = 0; i < cards.length; i++) cards[i].visible = false; grid.visible = false;
+         explorerLayer = new PIXI.Container(); world.addChild(explorerLayer); treeNodes = [];
+         buildTree(data); frameTree();
+       }).catch(function(e){ showErr('explorer: ' + e); });
+     }
+     function exitExplorer(reframe){
+       if (!explorerOn) return;
+       explorerOn = false; if (explorerBtn) explorerBtn.classList.remove('on');
+       if (explorerLayer){ try{ world.removeChild(explorerLayer); explorerLayer.destroy({ children: true }); }catch(_){} explorerLayer = null; }
+       treeNodes = [];
+       for (var i = 0; i < cards.length; i++) cards[i].visible = true; grid.visible = true;
+       if (reframe) frameAll();
+     }
+     function toggleExplorer(){ if (explorerOn) exitExplorer(true); else enterExplorer(); }
+     function treeNodeAt(sx, sy){ var wx = (sx - world.x) / world.scale.x, wy = (sy - world.y) / world.scale.y; for (var i = 0; i < treeNodes.length; i++){ var c = treeNodes[i]; if (wx >= c.x && wx <= c.x + c.__w && wy >= c.y && wy <= c.y + c.__h) return c; } return null; }
+     function openTreeNode(c){ var pth = c.__path; exitExplorer(false); navigate(pth); }
      function parentOf(p){ if (!p) return ''; var s = p.replace(/[\\\/]+$/, ''); if (/^[A-Za-z]:$/.test(s)) return ''; var i = Math.max(s.lastIndexOf('\\'), s.lastIndexOf('/')); if (i < 0) return ''; var up = s.slice(0, i); if (/^[A-Za-z]:$/.test(up)) return up + '\\'; return up; }
      var upBtn = $('#up'), crumbs = $('#crumbs');
      var backBtn = $('#back'), fwdBtn = $('#fwd');
      backBtn.addEventListener('click', goBack); fwdBtn.addEventListener('click', goForward);
+     explorerBtn = $('#explorerBtn'); if (explorerBtn) explorerBtn.addEventListener('click', function(ev){ ev.stopPropagation(); toggleExplorer(); });
      var gotoBtn = $('#goto'), pathInput = $('#pathInput'), hud = $('#hud');
      var spacesBtn = $('#spacesBtn'), spacesMenu = $('#spacesMenu');
      var safetyChk = $('#safetyChk'), safetyLbl = $('#safetyLbl'), safetyIcon = $('#safetyIcon'), safetyTxt = $('#safetyTxt');
@@ -613,7 +666,7 @@
        else if (carry && carry.source === 'import'){ hud.textContent = 'Placing imported file [' + modeLabel() + ']  \u00b7  left-click confirm  \u00b7  right-click cancel  \u00b7  T toggle  \u00b7  Free mode (1) to drop into a folder'; }
        else if (carry){ hud.textContent = 'Moving ' + (carry.held.length > 1 ? carry.held.length + ' items ' : '') + '[' + (ctrlDown ? 'Free (Ctrl)' : modeLabel()) + ']  \u00b7  hold Ctrl = free / drop into folder  \u00b7  T toggle  \u00b7  release to drop  \u00b7  Esc cancel'; }
        else if (selection.size){ hud.textContent = selection.size + ' selected  \u00b7  drag = move  \u00b7  Ctrl+C copy / Ctrl+X cut  \u00b7  Del trash  \u00b7  Ctrl+F frame  \u00b7  Esc clear'; }
-       else { hud.textContent = 'v0.0.47  \u00b7  click = select  \u00b7  shift/ctrl = add/remove  \u00b7  drag empty = box select  \u00b7  middle-drag = pan  \u00b7  drag item = move  \u00b7  mode: ' + modeLabel() + (writable ? '' : '  \u00b7  read-only'); }
+       else { hud.textContent = 'v0.0.48  \u00b7  click = select  \u00b7  shift/ctrl = add/remove  \u00b7  drag empty = box select  \u00b7  middle-drag = pan  \u00b7  drag item = move  \u00b7  mode: ' + modeLabel() + (writable ? '' : '  \u00b7  read-only'); }
      }
      upBtn.addEventListener('click', function(){ navigate(parentOf(cwd)); });
      gotoBtn.addEventListener('click', function(){ if (pathInput.style.display === 'none'){ pathInput.style.display = 'inline-block'; pathInput.value = cwd; pathInput.focus(); pathInput.select(); } else { navigate(pathInput.value.trim()); pathInput.style.display = 'none'; } });

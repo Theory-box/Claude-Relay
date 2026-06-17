@@ -101,3 +101,11 @@ Running list of deferred work and ideas. Newest context at top of each section.
 - SHARED TOP MENU BAR for split panes: one full-width bar (replacing the two per-pane toolbars) driven by the FOCUSED pane. Needs each pane to expose actions+state via self (back/fwd/up/navigate/safety/cwd/crumbs/nav-enabled/safety-state) and a refresh-on-focus-change + refresh-on-pane-state-change hook in the pane manager. Moderate, ~few builds. (Requested; deferred.)
 
 - TEXTURE STREAMING / LOD for images (PureRef-style): decode to a display-resolution tier (~1024-1536) with mipmaps ON instead of 256px thumbs; on zoom-in load full-res for that image and free on zoom-out; cull/unload off-screen textures. Bottleneck is VRAM (4K RGBA ~67MB each), not fill-rate. Phase 1 = display-res+mipmaps (big win, low risk); Phase 2 = zoom-driven LOD + culling for scale. Verify PIXI v7 mipmap flags + off-thread createImageBitmap resize decode. (Requested; deferred.)
+
+## Batch requested (2026-06) — recorded
+- TOOLS right-click submenu: "Zip" and "Rar" to compress selected files/folders into an archive in place.
+- DRAG-OUT copy/move prompt: when dragging files out of the app onto ANOTHER canvas/window, ask "Copy or Move?" before completing (currently drag-out is copy-only to external apps).
+- MINIMAP: small overlay showing the whole board with a rectangle for the current viewport; click/drag the rectangle to pan the view.
+- SORT/RELAX scope to SELECTION: sort and relax act only on selected items; if nothing selected, act on everything. (refines existing "sort applies to selection" TODO.)
+- MULTIPLE VIEWER WINDOWS: allow several image viewers open at once (not single-instance); same for text editors (multiple open).
+- EXPLORER / FOLDER-TREE VIEW (started — see EXPLORER.md): button right of the address bar labelled "explorer". Vision: activating it animates the canvas shrinking toward screen center (zoom-out feel); the current folder lands at center with its connecting folders / file structure spread around it as a hierarchy tree; clicking a folder zooms into it (its canvas/contents); double-click a folder navigates to it. Staged build.

@@ -508,6 +508,32 @@ fn write_text(app: tauri::AppHandle, path: String, data: String) -> Result<(), S
 }
 
 #[tauri::command]
+fn folder_tree(path: String) -> Result<serde_json::Value, String> {
+    use serde_json::json;
+    let cur = PathBuf::from(&path);
+    let name_of = |p: &Path| p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| p.to_string_lossy().to_string());
+    let mut ancestors = Vec::new();
+    let mut a = cur.parent().map(|x| x.to_path_buf());
+    let mut guard = 0;
+    while let Some(ap) = a {
+        ancestors.push(json!({ "path": ap.to_string_lossy(), "name": name_of(&ap) }));
+        a = ap.parent().map(|x| x.to_path_buf());
+        guard += 1; if guard >= 6 { break; }
+    }
+    let mut kids: Vec<(String, String)> = Vec::new();
+    if let Ok(rd) = std::fs::read_dir(&cur) {
+        for e in rd.flatten() {
+            let pp = e.path();
+            if pp.is_dir() { kids.push((e.file_name().to_string_lossy().to_string(), pp.to_string_lossy().to_string())); }
+        }
+    }
+    kids.sort_by(|x, y| x.0.to_lowercase().cmp(&y.0.to_lowercase()));
+    kids.truncate(60);
+    let children: Vec<serde_json::Value> = kids.into_iter().map(|(n, p)| json!({ "name": n, "path": p })).collect();
+    Ok(json!({ "ancestors": ancestors, "current": { "path": cur.to_string_lossy(), "name": name_of(&cur) }, "children": children }))
+}
+
+#[tauri::command]
 fn image_full(path: String) -> Result<String, String> {
     let p = std::path::Path::new(&path);
     let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
@@ -560,7 +586,7 @@ fn main() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
             quit, places, list_dir, add_dropped_file, make_folder, move_into, trash_item,
-            clear_trash, open_trash, thumb_data, open_item, open_folder, shell_verb, delete_file, paste_copy, paste_move, paste_shortcut, resolve_lnk, path_size, set_safety, load_spaces, save_spaces, save_layout, load_layout, save_session, load_session, image_full, make_text_file, read_text, write_text, drag_out
+            clear_trash, open_trash, thumb_data, open_item, open_folder, shell_verb, delete_file, paste_copy, paste_move, paste_shortcut, resolve_lnk, path_size, set_safety, load_spaces, save_spaces, save_layout, load_layout, save_session, load_session, folder_tree, image_full, make_text_file, read_text, write_text, drag_out
         ])
         .setup(|app| {
             let handle = app.handle().clone();
