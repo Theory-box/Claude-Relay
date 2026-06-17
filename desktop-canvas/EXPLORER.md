@@ -59,3 +59,14 @@ Reuses a collision/relax approach instead of fixed radial placement.
 - Cross-branch settling can still jiggle; could add mild center gravity or freeze settled nodes.
 - Re-add an "up"/ancestors affordance inside explorer.
 - Later: literal canvas-shrink animation; click a folder to ZOOM INTO its contents (canvas-in-canvas).
+
+## v0.0.51 — tuning + click fix
+- CLICK FIX: tap-to-grow and double-tap-to-navigate moved off the (swallowed) DOM click onto PIXI stage
+  pointerdown/up (expDown candidate on down; on up, if movement <6px -> handleTreeTap). handleTreeTap
+  disambiguates single (300ms -> select + growFrom 3) vs double (<320ms -> navigate). Single tap also
+  SELECTS the node (blue highlight ring drawn in stepExplorer).
+- LAYOUT now vertical tree: child springs to parent.cy+LEVELGAP(168) with weak horizontal centering
+  (cx toward parent *0.02). Separation padding raised to PADX 88 / PADY 44 (relax until big gaps) ->
+  branch separation + readable structure. Root framed near top (s 0.72, y=18%).
+- Remaining knobs if still off: LEVELGAP (row height), PADX (horizontal/branch gap), centering 0.02
+  (higher = subtrees stack tighter under parent; lower = branches fan wider).
