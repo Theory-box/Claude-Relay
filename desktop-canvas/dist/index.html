@@ -587,48 +587,55 @@
        }
        T.core.invoke('open_item', { dir: cwd, name: name });
      }
-     app.view.addEventListener('dblclick', function(ev){ if (explorerOn){ var tn = treeNodeAt(lx(ev.clientX), ly(ev.clientY)); if (tn) openTreeNode(tn); return; } if (carry || confirming || animating) return; var c = targetAt(lx(ev.clientX), ly(ev.clientY)); if (!c) return; activateItem(c); });
+     app.view.addEventListener('click', function(ev){ if (!explorerOn) return; var tn = treeNodeAt(lx(ev.clientX), ly(ev.clientY)); if (!tn) return; clearTimeout(clickTimer); clickTimer = setTimeout(function(){ growFrom(tn, EXP_DEPTH); }, 240); });
+     app.view.addEventListener('dblclick', function(ev){ if (explorerOn){ clearTimeout(clickTimer); var tn = treeNodeAt(lx(ev.clientX), ly(ev.clientY)); if (tn) openTreeNode(tn); return; } if (carry || confirming || animating) return; var c = targetAt(lx(ev.clientX), ly(ev.clientY)); if (!c) return; activateItem(c); });
      window.addEventListener('wheel', function(){ hideMenu(); }, true);
 
      // ---------- address bar ----------
      function joinPath(base, name){ if (!base) return name; return base.replace(/[\\\/]+$/, '') + '\\' + name; }
      function isImage(nm){ return /\.(png|jpe?g|gif|webp|bmp)$/i.test(nm || ''); }
      function isText(nm){ return /\.(txt|md|markdown|log|csv|tsv|json|ini|cfg|conf|xml|yml|yaml)$/i.test(nm || ''); }
-     var explorerOn = false, explorerLayer = null, explorerLines = null, treeNodes = [], treeCache = {}, explorerBtn = null, savedCam = null, explorerSeq = 0, expCheck = 0;
-     function makeNode(info, cx, cy, depth, a0, a1, parent, kind){
-       var w = 176, h = 44, con = new PIXI.Container();
-       var fill = kind === 'current' ? 0x274b6e : (kind === 'ancestor' ? 0x23262e : 0x1c1f27);
-       var linec = kind === 'current' ? 0x6fa8e0 : 0x3a3e49;
-       var g = new PIXI.Graphics(); g.beginFill(fill); g.lineStyle(kind === 'current' ? 2 : 1, linec); g.drawRoundedRect(-w / 2, -h / 2, w, h, 9); g.endFill();
-       var t = new PIXI.Text(info.name || info.path, { fill: 0xd6dae2, fontSize: 13, fontFamily: 'system-ui' }); t.anchor.set(0.5); if (t.width > w - 18) t.scale.set((w - 18) / t.width);
-       con.addChild(g); con.addChild(t); explorerLayer.addChild(con);
-       var node = { path: info.path, name: info.name, cx: cx, cy: cy, w: w, h: h, depth: depth, a0: a0, a1: a1, parent: parent, kind: kind, con: con, grow: 0, expanded: false, loading: false, match: true };
-       treeNodes.push(node); return node;
+     var explorerOn = false, explorerLayer = null, explorerLines = null, treeNodes = [], treeCache = {}, explorerBtn = null, savedCam = null, explorerSeq = 0, clickTimer = null;
+     var EXP_DEPTH = 3, MAX_NODES = 240, MAX_KIDS = 16, LINKLEN = 165;
+     function folderIcon(){ var g = new PIXI.Graphics(); g.beginFill(0xc79338); g.drawRoundedRect(0, 1, 11, 5, 1); g.endFill(); g.beginFill(0xe3b659); g.drawRoundedRect(0, 4, 24, 15, 2); g.endFill(); return g; }
+     function updateBadge(n){ if (n.empty){ n.badgeCon.visible = false; return; } n.badgeCon.visible = true; var frontier = n.left <= 0; n.badgeG.clear(); n.badgeG.beginFill(frontier ? 0x2f7d4f : 0x30343d); n.badgeG.lineStyle(1, frontier ? 0x57c07f : 0x4a4e59); n.badgeG.drawCircle(0, 0, 10); n.badgeG.endFill(); n.btext.text = String(Math.max(0, n.left)); }
+     function makeNode(info, depth, left, parent){
+       var w = 182, h = 46, con = new PIXI.Container();
+       var fill = depth === 0 ? 0x274b6e : 0x1c1f27, linec = depth === 0 ? 0x6fa8e0 : 0x3a3e49;
+       var g = new PIXI.Graphics(); g.beginFill(fill); g.lineStyle(depth === 0 ? 2 : 1, linec); g.drawRoundedRect(-w / 2, -h / 2, w, h, 9); g.endFill();
+       var ic = folderIcon(); ic.x = -w / 2 + 12; ic.y = -10;
+       var t = new PIXI.Text(info.name || info.path, { fill: 0xd6dae2, fontSize: 13, fontFamily: 'system-ui' }); t.anchor.set(0, 0.5); t.x = -w / 2 + 44; t.y = 0; var mw = w - 64; if (t.width > mw) t.scale.set(mw / t.width);
+       var badgeCon = new PIXI.Container(); badgeCon.x = w / 2 - 13; badgeCon.y = -h / 2 + 13; var badgeG = new PIXI.Graphics(); var btext = new PIXI.Text('', { fill: 0xeef2f6, fontSize: 11, fontFamily: 'system-ui' }); btext.anchor.set(0.5); badgeCon.addChild(badgeG); badgeCon.addChild(btext);
+       con.addChild(g); con.addChild(ic); con.addChild(t); con.addChild(badgeCon); explorerLayer.addChild(con);
+       var px = parent ? parent.cx : 0, py = parent ? parent.cy : 0;
+       var node = { path: info.path, name: info.name, cx: parent ? px + (Math.random() - 0.5) * 40 : 0, cy: parent ? py + 64 + (Math.random() - 0.5) * 40 : 0, w: w, h: h, depth: depth, left: left, parent: parent, con: con, grow: 0, loaded: false, empty: false, match: true, badgeCon: badgeCon, badgeG: badgeG, btext: btext };
+       updateBadge(node); treeNodes.push(node); return node;
      }
-     function loadChildren(path){
-       if (treeCache[path]) return Promise.resolve(treeCache[path]);
-       return T.core.invoke('list_dir', { dir: path }).then(function(j){ var arr = JSON.parse(j || '[]'); var kids = arr.filter(function(e){ return e.dir; }).map(function(e){ return { name: e.name, path: joinPath(path, e.name) }; }); treeCache[path] = kids; return kids; });
-     }
-     function expandNode(node){
-       if (node.expanded || node.loading || node.kind === 'ancestor') return;
-       node.loading = true; var seq = explorerSeq;
+     function loadChildren(path){ if (treeCache[path]) return Promise.resolve(treeCache[path]); return T.core.invoke('list_dir', { dir: path }).then(function(j){ var arr = JSON.parse(j || '[]'); var kids = arr.filter(function(e){ return e.dir; }).slice(0, MAX_KIDS).map(function(e){ return { name: e.name, path: joinPath(path, e.name) }; }); treeCache[path] = kids; return kids; }); }
+     function growFrom(node, budget){
+       node.left = budget; updateBadge(node);
+       if (budget <= 0 || treeNodes.length >= MAX_NODES) return;
+       if (node.loaded){ for (var i = 0; i < treeNodes.length; i++){ if (treeNodes[i].parent === node) growFrom(treeNodes[i], budget - 1); } return; }
+       var seq = explorerSeq;
        loadChildren(node.path).then(function(kids){
-         node.loading = false; if (!explorerOn || seq !== explorerSeq) return; node.expanded = true;
-         var k = kids.length; if (!k) return;
-         var span = node.a1 - node.a0, minArc = 210;
-         var R = Math.max(190 + node.depth * 16, minArc * k / Math.max(span, 0.001)); R = Math.min(R, 1600);
-         for (var idx = 0; idx < k; idx++){ var frac = (idx + 0.5) / k, ang = node.a0 + frac * span, sub = (span / k) * 0.82; makeNode(kids[idx], node.cx + Math.cos(ang) * R, node.cy + Math.sin(ang) * R, node.depth + 1, ang - sub / 2, ang + sub / 2, node, 'child'); }
-       }).catch(function(){ node.loading = false; });
+         if (!explorerOn || seq !== explorerSeq) return;
+         node.loaded = true; if (!kids.length){ node.empty = true; updateBadge(node); return; }
+         for (var i = 0; i < kids.length; i++){ if (treeNodes.length >= MAX_NODES) break; var cn = makeNode(kids[i], node.depth + 1, budget - 1, node); growFrom(cn, budget - 1); }
+       }).catch(function(){});
      }
-     function nodeVisible(n){ var sx = world.x + n.cx * world.scale.x, sy = world.y + n.cy * world.scale.y, m = 130; return sx > -m && sx < app.screen.width + m && sy > -m && sy < app.screen.height + m; }
      function stepExplorer(){
        if (!explorerOn || !explorerLayer) return;
-       for (var i = 0; i < treeNodes.length; i++){ var n = treeNodes[i]; if (n.grow < 1){ n.grow += (1 - n.grow) * 0.18; if (n.grow > 0.999) n.grow = 1; } var px = n.parent ? n.parent.cx : n.cx, py = n.parent ? n.parent.cy : n.cy; n.con.x = px + (n.cx - px) * n.grow; n.con.y = py + (n.cy - py) * n.grow; n.con.scale.set(0.2 + 0.8 * n.grow); n.con.alpha = (n.match ? 1 : 0.16) * Math.min(1, n.grow * 1.3); }
+       var nN = treeNodes.length, k;
+       for (var it = 0; it < 3; it++){
+         for (k = 0; k < nN; k++){ var a = treeNodes[k]; if (!a.parent) continue; var pp = a.parent; var dx = a.cx - pp.cx, dy = a.cy - pp.cy, d = Math.sqrt(dx * dx + dy * dy) || 0.01; var diff = (d - LINKLEN) / d * 0.08; var mx = dx * diff, my = dy * diff; a.cx -= mx; a.cy -= my; if (pp.parent){ pp.cx += mx * 0.5; pp.cy += my * 0.5; } }
+         for (var i2 = 0; i2 < nN; i2++){ for (var j2 = i2 + 1; j2 < nN; j2++){ var b1 = treeNodes[i2], b2 = treeNodes[j2]; var ox = (b1.w + b2.w) / 2 + 12 - Math.abs(b1.cx - b2.cx); var oy = (b1.h + b2.h) / 2 + 14 - Math.abs(b1.cy - b2.cy); if (ox > 0 && oy > 0){ if (ox < oy){ var sx = (b1.cx <= b2.cx ? -1 : 1) * ox / 2; if (b1.parent) b1.cx += sx; if (b2.parent) b2.cx -= sx; } else { var sy = (b1.cy <= b2.cy ? -1 : 1) * oy / 2; if (b1.parent) b1.cy += sy; if (b2.parent) b2.cy -= sy; } } } }
+         if (treeNodes[0]){ treeNodes[0].cx = 0; treeNodes[0].cy = 0; }
+       }
+       for (k = 0; k < nN; k++){ var c = treeNodes[k]; if (c.grow < 1){ c.grow += (1 - c.grow) * 0.16; if (c.grow > 0.999) c.grow = 1; } c.con.x = c.cx; c.con.y = c.cy; c.con.scale.set(0.25 + 0.75 * c.grow); c.con.alpha = (c.match ? 1 : 0.16) * Math.min(1, c.grow * 1.3); }
        explorerLines.clear(); explorerLines.lineStyle(2, 0x3a4356, 0.85);
-       for (var i = 0; i < treeNodes.length; i++){ var n = treeNodes[i]; if (!n.parent) continue; explorerLines.moveTo(n.parent.con.x, n.parent.con.y); explorerLines.lineTo(n.con.x, n.con.y); }
-       if ((++expCheck % 8) === 0){ for (var i = 0; i < treeNodes.length; i++){ var n = treeNodes[i]; if (!n.expanded && !n.loading && n.kind !== 'ancestor' && n.grow > 0.85 && nodeVisible(n)){ expandNode(n); break; } } }
+       for (k = 0; k < nN; k++){ var e = treeNodes[k]; if (!e.parent) continue; explorerLines.moveTo(e.parent.cx, e.parent.cy); explorerLines.lineTo(e.cx, e.cy); }
      }
-     function frameTree(){ var sw = app.screen.width, sh = app.screen.height; camTween = { s: 0.8, x: sw / 2, y: sh / 2 - 40, f: 20 }; }
+     function frameTree(){ var sw = app.screen.width, sh = app.screen.height; camTween = { s: 0.78, x: sw / 2, y: sh / 2 - 30, f: 22 }; }
      function enterExplorer(){
        if (explorerOn) return;
        savedCam = { x: world.x, y: world.y, s: world.scale.x };
@@ -638,15 +645,14 @@
          explorerLayer = new PIXI.Container(); world.addChild(explorerLayer);
          explorerLines = new PIXI.Graphics(); explorerLines.eventMode = 'none'; explorerLayer.addChild(explorerLines);
          treeNodes = [];
-         var root = makeNode(data.current, 0, 0, 0, -0.15 * Math.PI, 1.15 * Math.PI, null, 'current');
-         var prev = root; for (var i = 0; i < data.ancestors.length; i++){ prev = makeNode(data.ancestors[i], 0, -(i + 1) * 110, 0, 0, 0, prev, 'ancestor'); }
          treeCache[data.current.path] = data.children.map(function(c){ return { name: c.name, path: c.path }; });
-         expandNode(root); frameTree();
+         var root = makeNode(data.current, 0, EXP_DEPTH, null);
+         growFrom(root, EXP_DEPTH); frameTree();
        }).catch(function(e){ showErr('explorer: ' + e); });
      }
      function exitExplorer(restore){
        if (!explorerOn) return;
-       explorerOn = false; explorerSeq++; if (explorerBtn) explorerBtn.classList.remove('on');
+       explorerOn = false; explorerSeq++; clearTimeout(clickTimer); if (explorerBtn) explorerBtn.classList.remove('on');
        if (explorerLayer){ try{ world.removeChild(explorerLayer); explorerLayer.destroy({ children: true }); }catch(_){} explorerLayer = null; explorerLines = null; }
        treeNodes = [];
        for (var i = 0; i < cards.length; i++) cards[i].visible = true; grid.visible = true;
@@ -680,7 +686,7 @@
        else if (carry && carry.source === 'import'){ hud.textContent = 'Placing imported file [' + modeLabel() + ']  \u00b7  left-click confirm  \u00b7  right-click cancel  \u00b7  T toggle  \u00b7  Free mode (1) to drop into a folder'; }
        else if (carry){ hud.textContent = 'Moving ' + (carry.held.length > 1 ? carry.held.length + ' items ' : '') + '[' + (ctrlDown ? 'Free (Ctrl)' : modeLabel()) + ']  \u00b7  hold Ctrl = free / drop into folder  \u00b7  T toggle  \u00b7  release to drop  \u00b7  Esc cancel'; }
        else if (selection.size){ hud.textContent = selection.size + ' selected  \u00b7  drag = move  \u00b7  Ctrl+C copy / Ctrl+X cut  \u00b7  Del trash  \u00b7  Ctrl+F frame  \u00b7  Esc clear'; }
-       else { hud.textContent = 'v0.0.49  \u00b7  click = select  \u00b7  shift/ctrl = add/remove  \u00b7  drag empty = box select  \u00b7  middle-drag = pan  \u00b7  drag item = move  \u00b7  mode: ' + modeLabel() + (writable ? '' : '  \u00b7  read-only'); }
+       else { hud.textContent = 'v0.0.50  \u00b7  click = select  \u00b7  shift/ctrl = add/remove  \u00b7  drag empty = box select  \u00b7  middle-drag = pan  \u00b7  drag item = move  \u00b7  mode: ' + modeLabel() + (writable ? '' : '  \u00b7  read-only'); }
      }
      upBtn.addEventListener('click', function(){ navigate(parentOf(cwd)); });
      gotoBtn.addEventListener('click', function(){ if (pathInput.style.display === 'none'){ pathInput.style.display = 'inline-block'; pathInput.value = cwd; pathInput.focus(); pathInput.select(); } else { navigate(pathInput.value.trim()); pathInput.style.display = 'none'; } });
