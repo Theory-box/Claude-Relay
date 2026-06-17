@@ -10,7 +10,8 @@
   .viewerNav{display:flex;gap:4px;}
   .viewer button{background:#2a2f3a;color:#cfd2da;border:0;border-radius:6px;width:28px;height:24px;cursor:pointer;font-size:15px;line-height:1;}
   .viewerClose{background:#3a2a2a !important;}
-  .viewerImg{flex:1 1 auto;width:100%;min-height:0;object-fit:contain;background:#0c0d10;display:block;}
+  .viewerBody{flex:1 1 auto;min-height:0;overflow:hidden;position:relative;background:#0c0d10;cursor:grab;}
+  .viewerImg{width:100%;height:100%;object-fit:contain;display:block;transform-origin:center center;will-change:transform;}
  #bar{position:absolute;top:0;left:0;right:0;height:38px;display:flex;align-items:center;gap:8px;padding:0 12px;background:rgba(26,28,33,.92);border-bottom:1px solid #2a2d36;z-index:8;font-size:13px;color:#c4c8d2;}
  #bar button{background:#252934;border:1px solid #353a45;color:#d4d7df;border-radius:6px;padding:5px 10px;cursor:pointer;font:inherit;white-space:nowrap;}
  #bar button:hover:not(:disabled){background:#2f3440;}
@@ -605,7 +606,7 @@
        else if (carry && carry.source === 'import'){ hud.textContent = 'Placing imported file [' + modeLabel() + ']  \u00b7  left-click confirm  \u00b7  right-click cancel  \u00b7  T toggle  \u00b7  Free mode (1) to drop into a folder'; }
        else if (carry){ hud.textContent = 'Moving ' + (carry.held.length > 1 ? carry.held.length + ' items ' : '') + '[' + (ctrlDown ? 'Free (Ctrl)' : modeLabel()) + ']  \u00b7  hold Ctrl = free / drop into folder  \u00b7  T toggle  \u00b7  release to drop  \u00b7  Esc cancel'; }
        else if (selection.size){ hud.textContent = selection.size + ' selected  \u00b7  drag = move  \u00b7  Ctrl+C copy / Ctrl+X cut  \u00b7  Del trash  \u00b7  Ctrl+F frame  \u00b7  Esc clear'; }
-       else { hud.textContent = 'v0.0.45  \u00b7  click = select  \u00b7  shift/ctrl = add/remove  \u00b7  drag empty = box select  \u00b7  middle-drag = pan  \u00b7  drag item = move  \u00b7  mode: ' + modeLabel() + (writable ? '' : '  \u00b7  read-only'); }
+       else { hud.textContent = 'v0.0.46  \u00b7  click = select  \u00b7  shift/ctrl = add/remove  \u00b7  drag empty = box select  \u00b7  middle-drag = pan  \u00b7  drag item = move  \u00b7  mode: ' + modeLabel() + (writable ? '' : '  \u00b7  read-only'); }
      }
      upBtn.addEventListener('click', function(){ navigate(parentOf(cwd)); });
      gotoBtn.addEventListener('click', function(){ if (pathInput.style.display === 'none'){ pathInput.style.display = 'inline-block'; pathInput.value = cwd; pathInput.focus(); pathInput.select(); } else { navigate(pathInput.value.trim()); pathInput.style.display = 'none'; } });
@@ -812,11 +813,18 @@
      var close = document.createElement('button'); close.textContent = '\u2715'; close.className = 'viewerClose';
      nav.appendChild(prev); nav.appendChild(next);
      bar.appendChild(title); bar.appendChild(nav); bar.appendChild(close);
+     var body = document.createElement('div'); body.className = 'viewerBody';
      var img = document.createElement('img'); img.className = 'viewerImg'; img.draggable = false;
-     box.appendChild(bar); box.appendChild(img);
+     body.appendChild(img); box.appendChild(bar); box.appendChild(body);
      document.body.appendChild(box);
      __viewer = { box: box, img: img, title: title, list: list, idx: idx, key: null };
-     function load(){ var e = __viewer.list[__viewer.idx]; title.textContent = (__viewer.idx + 1) + '/' + __viewer.list.length + '  ' + e.name; img.removeAttribute('src'); T.core.invoke('image_full', { path: e.path }).then(function(u){ if (__viewer) img.src = u; }).catch(function(err){ title.textContent = 'error: ' + err; }); }
+     var zs = 1, ztx = 0, zty = 0;
+     function applyZoom(){ img.style.transform = 'translate(' + ztx + 'px,' + zty + 'px) scale(' + zs + ')'; }
+     function resetZoom(){ zs = 1; ztx = 0; zty = 0; applyZoom(); }
+     body.addEventListener('wheel', function(ev){ ev.preventDefault(); ev.stopPropagation(); var r = body.getBoundingClientRect(); var cx = ev.clientX - r.left - r.width / 2, cy = ev.clientY - r.top - r.height / 2; var old = zs; var ns = Math.min(20, Math.max(1, zs * Math.exp(-ev.deltaY * 0.0015))); ztx = cx - (cx - ztx) * (ns / old); zty = cy - (cy - zty) * (ns / old); zs = ns; if (zs <= 1.001){ resetZoom(); } else applyZoom(); }, { passive: false });
+     body.addEventListener('pointerdown', function(ev){ if (ev.button !== 0) return; var r = body.getBoundingClientRect(); if (ev.clientX > r.right - 20 && ev.clientY > r.bottom - 20) return; ev.preventDefault(); var sx = ev.clientX, sy = ev.clientY, ox = ztx, oy = zty; body.style.cursor = 'grabbing'; function mv(e){ ztx = ox + e.clientX - sx; zty = oy + e.clientY - sy; applyZoom(); } function up(){ body.style.cursor = ''; window.removeEventListener('pointermove', mv); window.removeEventListener('pointerup', up); } window.addEventListener('pointermove', mv); window.addEventListener('pointerup', up); });
+     body.addEventListener('dblclick', function(){ resetZoom(); });
+     function load(){ var e = __viewer.list[__viewer.idx]; title.textContent = (__viewer.idx + 1) + '/' + __viewer.list.length + '  ' + e.name; resetZoom(); img.removeAttribute('src'); T.core.invoke('image_full', { path: e.path }).then(function(u){ if (__viewer) img.src = u; }).catch(function(err){ title.textContent = 'error: ' + err; }); }
      function step(d){ __viewer.idx = (__viewer.idx + d + __viewer.list.length) % __viewer.list.length; load(); }
      prev.onclick = function(e){ e.stopPropagation(); step(-1); };
      next.onclick = function(e){ e.stopPropagation(); step(1); };
