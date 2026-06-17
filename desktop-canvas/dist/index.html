@@ -410,7 +410,7 @@
        if (carry || confirming || animating) return;
        if (e.button === 2) return;
        if (e.button === 1){ panning = true; last = { x: e.global.x, y: e.global.y }; return; } // middle = pan
-       if (explorerOn) return;
+       if (explorerOn){ if (e.button === 0) expDown = { node: treeNodeAt(e.global.x, e.global.y), x: e.global.x, y: e.global.y }; return; }
        box = { x0: e.global.x, y0: e.global.y, cx: e.global.x, cy: e.global.y, mode: e.shiftKey ? 'add' : (e.ctrlKey ? 'sub' : 'replace'), moved: false }; // left on empty = box select
      });
      app.stage.on('pointermove', function(e){
@@ -436,6 +436,7 @@
        panning = false; last = null;
      }
      app.stage.on('pointerup', onUp); app.stage.on('pointerupoutside', onUp);
+     app.stage.on('pointerup', function(e){ if (!explorerOn || !expDown) return; var node = expDown.node, mv = node ? Math.hypot(e.global.x - expDown.x, e.global.y - expDown.y) : 99; expDown = null; if (node && mv < 6) handleTreeTap(node); });
      // suppress middle-click autoscroll in the webview
      app.view.addEventListener('pointerdown', function(e){ if (e.button === 1) e.preventDefault(); });
      app.view.addEventListener('auxclick', function(e){ if (e.button === 1) e.preventDefault(); });
@@ -587,8 +588,7 @@
        }
        T.core.invoke('open_item', { dir: cwd, name: name });
      }
-     app.view.addEventListener('click', function(ev){ if (!explorerOn) return; var tn = treeNodeAt(lx(ev.clientX), ly(ev.clientY)); if (!tn) return; clearTimeout(clickTimer); clickTimer = setTimeout(function(){ growFrom(tn, EXP_DEPTH); }, 240); });
-     app.view.addEventListener('dblclick', function(ev){ if (explorerOn){ clearTimeout(clickTimer); var tn = treeNodeAt(lx(ev.clientX), ly(ev.clientY)); if (tn) openTreeNode(tn); return; } if (carry || confirming || animating) return; var c = targetAt(lx(ev.clientX), ly(ev.clientY)); if (!c) return; activateItem(c); });
+     app.view.addEventListener('dblclick', function(ev){ if (explorerOn) return; if (carry || confirming || animating) return; var c = targetAt(lx(ev.clientX), ly(ev.clientY)); if (!c) return; activateItem(c); });
      window.addEventListener('wheel', function(){ hideMenu(); }, true);
 
      // ---------- address bar ----------
@@ -596,7 +596,7 @@
      function isImage(nm){ return /\.(png|jpe?g|gif|webp|bmp)$/i.test(nm || ''); }
      function isText(nm){ return /\.(txt|md|markdown|log|csv|tsv|json|ini|cfg|conf|xml|yml|yaml)$/i.test(nm || ''); }
      var explorerOn = false, explorerLayer = null, explorerLines = null, treeNodes = [], treeCache = {}, explorerBtn = null, savedCam = null, explorerSeq = 0, clickTimer = null;
-     var EXP_DEPTH = 3, MAX_NODES = 240, MAX_KIDS = 16, LINKLEN = 165;
+     var EXP_DEPTH = 3, MAX_NODES = 240, MAX_KIDS = 16, LEVELGAP = 168, PADX = 88, PADY = 44, expDown = null, lastTap = null, explorerSel = null;
      function folderIcon(){ var g = new PIXI.Graphics(); g.beginFill(0xc79338); g.drawRoundedRect(0, 1, 11, 5, 1); g.endFill(); g.beginFill(0xe3b659); g.drawRoundedRect(0, 4, 24, 15, 2); g.endFill(); return g; }
      function updateBadge(n){ if (n.empty){ n.badgeCon.visible = false; return; } n.badgeCon.visible = true; var frontier = n.left <= 0; n.badgeG.clear(); n.badgeG.beginFill(frontier ? 0x2f7d4f : 0x30343d); n.badgeG.lineStyle(1, frontier ? 0x57c07f : 0x4a4e59); n.badgeG.drawCircle(0, 0, 10); n.badgeG.endFill(); n.btext.text = String(Math.max(0, n.left)); }
      function makeNode(info, depth, left, parent){
@@ -627,15 +627,16 @@
        if (!explorerOn || !explorerLayer) return;
        var nN = treeNodes.length, k;
        for (var it = 0; it < 3; it++){
-         for (k = 0; k < nN; k++){ var a = treeNodes[k]; if (!a.parent) continue; var pp = a.parent; var dx = a.cx - pp.cx, dy = a.cy - pp.cy, d = Math.sqrt(dx * dx + dy * dy) || 0.01; var diff = (d - LINKLEN) / d * 0.08; var mx = dx * diff, my = dy * diff; a.cx -= mx; a.cy -= my; if (pp.parent){ pp.cx += mx * 0.5; pp.cy += my * 0.5; } }
-         for (var i2 = 0; i2 < nN; i2++){ for (var j2 = i2 + 1; j2 < nN; j2++){ var b1 = treeNodes[i2], b2 = treeNodes[j2]; var ox = (b1.w + b2.w) / 2 + 12 - Math.abs(b1.cx - b2.cx); var oy = (b1.h + b2.h) / 2 + 14 - Math.abs(b1.cy - b2.cy); if (ox > 0 && oy > 0){ if (ox < oy){ var sx = (b1.cx <= b2.cx ? -1 : 1) * ox / 2; if (b1.parent) b1.cx += sx; if (b2.parent) b2.cx -= sx; } else { var sy = (b1.cy <= b2.cy ? -1 : 1) * oy / 2; if (b1.parent) b1.cy += sy; if (b2.parent) b2.cy -= sy; } } } }
+         for (k = 0; k < nN; k++){ var a = treeNodes[k]; if (!a.parent) continue; var pp = a.parent; a.cy += ((pp.cy + LEVELGAP) - a.cy) * 0.12; a.cx += (pp.cx - a.cx) * 0.02; }
+         for (var i2 = 0; i2 < nN; i2++){ for (var j2 = i2 + 1; j2 < nN; j2++){ var b1 = treeNodes[i2], b2 = treeNodes[j2]; var ox = (b1.w + b2.w) / 2 + PADX - Math.abs(b1.cx - b2.cx); var oy = (b1.h + b2.h) / 2 + PADY - Math.abs(b1.cy - b2.cy); if (ox > 0 && oy > 0){ if (ox < oy){ var sx = (b1.cx <= b2.cx ? -1 : 1) * ox * 0.5; if (b1.parent) b1.cx += sx; if (b2.parent) b2.cx -= sx; } else { var sy = (b1.cy <= b2.cy ? -1 : 1) * oy * 0.5; if (b1.parent) b1.cy += sy; if (b2.parent) b2.cy -= sy; } } } }
          if (treeNodes[0]){ treeNodes[0].cx = 0; treeNodes[0].cy = 0; }
        }
        for (k = 0; k < nN; k++){ var c = treeNodes[k]; if (c.grow < 1){ c.grow += (1 - c.grow) * 0.16; if (c.grow > 0.999) c.grow = 1; } c.con.x = c.cx; c.con.y = c.cy; c.con.scale.set(0.25 + 0.75 * c.grow); c.con.alpha = (c.match ? 1 : 0.16) * Math.min(1, c.grow * 1.3); }
        explorerLines.clear(); explorerLines.lineStyle(2, 0x3a4356, 0.85);
        for (k = 0; k < nN; k++){ var e = treeNodes[k]; if (!e.parent) continue; explorerLines.moveTo(e.parent.cx, e.parent.cy); explorerLines.lineTo(e.cx, e.cy); }
+       if (explorerSel){ explorerLines.lineStyle(3, 0x6fa8e0, 1); explorerLines.drawRoundedRect(explorerSel.cx - explorerSel.w / 2 - 4, explorerSel.cy - explorerSel.h / 2 - 4, explorerSel.w + 8, explorerSel.h + 8, 12); }
      }
-     function frameTree(){ var sw = app.screen.width, sh = app.screen.height; camTween = { s: 0.78, x: sw / 2, y: sh / 2 - 30, f: 22 }; }
+     function frameTree(){ var sw = app.screen.width, sh = app.screen.height; camTween = { s: 0.72, x: sw / 2, y: sh * 0.18, f: 22 }; }
      function enterExplorer(){
        if (explorerOn) return;
        savedCam = { x: world.x, y: world.y, s: world.scale.x };
@@ -652,7 +653,7 @@
      }
      function exitExplorer(restore){
        if (!explorerOn) return;
-       explorerOn = false; explorerSeq++; clearTimeout(clickTimer); if (explorerBtn) explorerBtn.classList.remove('on');
+       explorerOn = false; explorerSeq++; clearTimeout(clickTimer); explorerSel = null; lastTap = null; expDown = null; if (explorerBtn) explorerBtn.classList.remove('on');
        if (explorerLayer){ try{ world.removeChild(explorerLayer); explorerLayer.destroy({ children: true }); }catch(_){} explorerLayer = null; explorerLines = null; }
        treeNodes = [];
        for (var i = 0; i < cards.length; i++) cards[i].visible = true; grid.visible = true;
@@ -662,6 +663,7 @@
      function toggleExplorer(){ if (explorerOn) exitExplorer(true); else enterExplorer(); }
      function treeNodeAt(sx, sy){ var wx = (sx - world.x) / world.scale.x, wy = (sy - world.y) / world.scale.y; for (var i = treeNodes.length - 1; i >= 0; i--){ var n = treeNodes[i]; if (n.grow < 0.5) continue; if (wx >= n.cx - n.w / 2 && wx <= n.cx + n.w / 2 && wy >= n.cy - n.h / 2 && wy <= n.cy + n.h / 2) return n; } return null; }
      function openTreeNode(n){ var pth = n.path; exitExplorer(false); navigate(pth); }
+     function handleTreeTap(node){ var now = Date.now(); if (lastTap && lastTap.node === node && (now - lastTap.t) < 320){ clearTimeout(clickTimer); lastTap = null; openTreeNode(node); return; } lastTap = { node: node, t: now }; clearTimeout(clickTimer); clickTimer = setTimeout(function(){ explorerSel = node; growFrom(node, EXP_DEPTH); lastTap = null; }, 300); }
      function explorerSearch(q){ q = (q || '').toLowerCase(); var hits = 0; for (var i = 0; i < treeNodes.length; i++){ var n = treeNodes[i]; n.match = !q || (n.name && n.name.toLowerCase().indexOf(q) >= 0); if (q && n.match) hits++; } return hits; }
      function parentOf(p){ if (!p) return ''; var s = p.replace(/[\\\/]+$/, ''); if (/^[A-Za-z]:$/.test(s)) return ''; var i = Math.max(s.lastIndexOf('\\'), s.lastIndexOf('/')); if (i < 0) return ''; var up = s.slice(0, i); if (/^[A-Za-z]:$/.test(up)) return up + '\\'; return up; }
      var upBtn = $('#up'), crumbs = $('#crumbs');
@@ -686,7 +688,7 @@
        else if (carry && carry.source === 'import'){ hud.textContent = 'Placing imported file [' + modeLabel() + ']  \u00b7  left-click confirm  \u00b7  right-click cancel  \u00b7  T toggle  \u00b7  Free mode (1) to drop into a folder'; }
        else if (carry){ hud.textContent = 'Moving ' + (carry.held.length > 1 ? carry.held.length + ' items ' : '') + '[' + (ctrlDown ? 'Free (Ctrl)' : modeLabel()) + ']  \u00b7  hold Ctrl = free / drop into folder  \u00b7  T toggle  \u00b7  release to drop  \u00b7  Esc cancel'; }
        else if (selection.size){ hud.textContent = selection.size + ' selected  \u00b7  drag = move  \u00b7  Ctrl+C copy / Ctrl+X cut  \u00b7  Del trash  \u00b7  Ctrl+F frame  \u00b7  Esc clear'; }
-       else { hud.textContent = 'v0.0.50  \u00b7  click = select  \u00b7  shift/ctrl = add/remove  \u00b7  drag empty = box select  \u00b7  middle-drag = pan  \u00b7  drag item = move  \u00b7  mode: ' + modeLabel() + (writable ? '' : '  \u00b7  read-only'); }
+       else { hud.textContent = 'v0.0.51  \u00b7  click = select  \u00b7  shift/ctrl = add/remove  \u00b7  drag empty = box select  \u00b7  middle-drag = pan  \u00b7  drag item = move  \u00b7  mode: ' + modeLabel() + (writable ? '' : '  \u00b7  read-only'); }
      }
      upBtn.addEventListener('click', function(){ navigate(parentOf(cwd)); });
      gotoBtn.addEventListener('click', function(){ if (pathInput.style.display === 'none'){ pathInput.style.display = 'inline-block'; pathInput.value = cwd; pathInput.focus(); pathInput.select(); } else { navigate(pathInput.value.trim()); pathInput.style.display = 'none'; } });
