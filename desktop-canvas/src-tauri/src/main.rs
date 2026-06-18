@@ -695,6 +695,27 @@ fn folder_tree(path: String) -> Result<serde_json::Value, String> {
     Ok(json!({ "ancestors": ancestors, "current": { "path": cur.to_string_lossy(), "name": name_of(&cur) }, "children": children }))
 }
 
+fn b64_decode(s: &str) -> Vec<u8> {
+    fn val(c: u8) -> Option<u8> { match c { b'A'..=b'Z' => Some(c - b'A'), b'a'..=b'z' => Some(c - b'a' + 26), b'0'..=b'9' => Some(c - b'0' + 52), b'+' => Some(62), b'/' => Some(63), _ => None } }
+    let mut out = Vec::new(); let mut buf: u32 = 0; let mut bits = 0u32;
+    for &c in s.as_bytes() { let v = match val(c) { Some(v) => v, None => continue }; buf = (buf << 6) | (v as u32); bits += 6; if bits >= 8 { bits -= 8; out.push((buf >> bits) as u8); } }
+    out
+}
+
+#[tauri::command]
+fn save_temp_png(b64data: String, name: String) -> Result<String, String> {
+    let bytes = b64_decode(&b64data);
+    if bytes.is_empty() { return Err("empty image".into()); }
+    let mut dir = std::env::temp_dir(); dir.push("desktop-canvas");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let bad = "\\/:*?\"<>|";
+    let safe: String = name.chars().map(|c| if bad.contains(c) { '_' } else { c }).collect();
+    let fname = if safe.trim().is_empty() { "page.png".to_string() } else { safe };
+    let p = dir.join(fname);
+    std::fs::write(&p, &bytes).map_err(|e| e.to_string())?;
+    Ok(p.to_string_lossy().to_string())
+}
+
 #[tauri::command]
 fn read_file_b64(path: String) -> Result<String, String> {
     let bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
@@ -754,7 +775,7 @@ fn main() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
             quit, places, list_dir, add_dropped_file, make_folder, move_into, trash_item,
-            clear_trash, open_trash, thumb_data, open_item, open_folder, shell_verb, delete_file, paste_copy, paste_move, paste_shortcut, resolve_lnk, path_size, set_safety, load_spaces, save_spaces, save_layout, load_layout, save_session, load_session, path_exists, zip_items, unzip_item, rename_item, open_web, load_settings, save_settings, pick_folder, list_bg_images, load_portals, save_portals, folder_tree, image_full, read_file_b64, make_text_file, read_text, write_text, drag_out
+            clear_trash, open_trash, thumb_data, open_item, open_folder, shell_verb, delete_file, paste_copy, paste_move, paste_shortcut, resolve_lnk, path_size, set_safety, load_spaces, save_spaces, save_layout, load_layout, save_session, load_session, path_exists, zip_items, unzip_item, rename_item, open_web, load_settings, save_settings, pick_folder, list_bg_images, load_portals, save_portals, folder_tree, image_full, read_file_b64, save_temp_png, make_text_file, read_text, write_text, drag_out
         ])
         .setup(|app| {
             let handle = app.handle().clone();

@@ -725,7 +725,7 @@
        else if (carry && carry.source === 'import'){ hud.textContent = 'Placing imported file [' + modeLabel() + ']  \u00b7  left-click confirm  \u00b7  right-click cancel  \u00b7  T toggle  \u00b7  Free mode (1) to drop into a folder'; }
        else if (carry){ hud.textContent = 'Moving ' + (carry.held.length > 1 ? carry.held.length + ' items ' : '') + '[' + (ctrlDown ? 'Free (Ctrl)' : modeLabel()) + ']  \u00b7  hold Ctrl = free / drop into folder  \u00b7  T toggle  \u00b7  release to drop  \u00b7  Esc cancel'; }
        else if (selection.size){ hud.textContent = selection.size + ' selected  \u00b7  drag = move  \u00b7  Ctrl+C copy / Ctrl+X cut  \u00b7  Del trash  \u00b7  Ctrl+F frame  \u00b7  Esc clear'; }
-       else { hud.textContent = 'v0.0.69  \u00b7  click = select  \u00b7  shift/ctrl = add/remove  \u00b7  drag empty = box select  \u00b7  middle-drag = pan  \u00b7  drag item = move  \u00b7  mode: ' + modeLabel() + (writable ? '' : '  \u00b7  read-only'); }
+       else { hud.textContent = 'v0.0.70  \u00b7  click = select  \u00b7  shift/ctrl = add/remove  \u00b7  drag empty = box select  \u00b7  middle-drag = pan  \u00b7  drag item = move  \u00b7  mode: ' + modeLabel() + (writable ? '' : '  \u00b7  read-only'); }
      }
      upBtn.addEventListener('click', function(){ navigate(parentOf(cwd)); });
      gotoBtn.addEventListener('click', function(){ if (pathInput.style.display === 'none'){ pathInput.style.display = 'inline-block'; pathInput.value = cwd; pathInput.focus(); pathInput.select(); } else { navigate(pathInput.value.trim()); pathInput.style.display = 'none'; } });
@@ -1077,6 +1077,48 @@
      bar.addEventListener('pointerdown', function(ev){ if (ev.target !== bar && ev.target !== title) return; ev.preventDefault(); var sx = ev.clientX, sy = ev.clientY, ox = box.offsetLeft, oy = box.offsetTop; function mv(e){ box.style.left = (ox + e.clientX - sx) + 'px'; box.style.top = (oy + e.clientY - sy) + 'px'; } function up(){ window.removeEventListener('pointermove', mv); window.removeEventListener('pointerup', up); } window.addEventListener('pointermove', mv); window.addEventListener('pointerup', up); });
      __prefsWin = box;
    }
+   var __pdfDpi = 150, __pdfPanel = null, __pdfBack = null;
+   function closePdfPanel(){ if (__pdfPanel){ try{ __pdfPanel.remove(); }catch(_){} __pdfPanel = null; } if (__pdfBack){ try{ __pdfBack.remove(); }catch(_){} __pdfBack = null; } }
+   function openPdfExportPanel(inst, x, y){
+     if (!inst || !inst.pdf) return;
+     closePdfPanel();
+     var T = window.__TAURI__;
+     __pdfBack = document.createElement('div'); __pdfBack.style.cssText = 'position:fixed;inset:0;z-index:2099999998;background:transparent;';
+     __pdfBack.addEventListener('pointerdown', function(e){ e.stopPropagation(); closePdfPanel(); });
+     __pdfBack.addEventListener('contextmenu', function(e){ e.preventDefault(); closePdfPanel(); });
+     document.body.appendChild(__pdfBack);
+     var page = inst.pageNum;
+     var box = document.createElement('div'); box.className = 'editor'; box.style.width = '250px'; box.style.height = 'auto'; box.style.zIndex = '2099999999'; box.style.left = Math.max(8, Math.min(x, window.innerWidth - 270)) + 'px'; box.style.top = Math.max(8, Math.min(y, window.innerHeight - 210)) + 'px';
+     var bar = document.createElement('div'); bar.className = 'viewerBar'; var title = document.createElement('span'); title.className = 'viewerTitle'; title.textContent = 'Export page ' + page; bar.appendChild(title);
+     var bodyEl = document.createElement('div'); bodyEl.style.cssText = 'padding:12px 14px;display:flex;flex-direction:column;gap:10px;font-size:13px;color:#cfd2da;';
+     var dpiRow = document.createElement('div'); dpiRow.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:10px;';
+     var dpiL = document.createElement('span'); dpiL.textContent = 'DPI'; var dpiIn = document.createElement('input'); dpiIn.type = 'number'; dpiIn.min = '36'; dpiIn.max = '600'; dpiIn.value = String(__pdfDpi); dpiIn.style.cssText = 'width:80px;background:#1f2229;border:1px solid #3a4356;color:#e6e8ee;border-radius:6px;padding:4px 6px;';
+     dpiRow.appendChild(dpiL); dpiRow.appendChild(dpiIn);
+     var handle = document.createElement('div'); handle.textContent = '\u2913  Drag out page'; handle.style.cssText = 'text-align:center;padding:14px 10px;border:1px dashed #4a5366;border-radius:8px;background:#222833;color:#9aa3b2;cursor:grab;user-select:none;';
+     var status = document.createElement('div'); status.style.cssText = 'font-size:11px;color:#8a8f9a;text-align:center;'; status.textContent = 'preparing\u2026';
+     bodyEl.appendChild(dpiRow); bodyEl.appendChild(handle); bodyEl.appendChild(status);
+     box.appendChild(bar); box.appendChild(bodyEl); document.body.appendChild(box); __pdfPanel = box;
+     var ready = null, gen = 0, baseName = (inst.name || 'page').replace(/\.[^.]*$/, '');
+     function build(){
+       var dpi = Math.max(36, Math.min(600, parseInt(dpiIn.value, 10) || 150)); __pdfDpi = dpi;
+       ready = null; handle.style.cursor = 'wait'; status.textContent = 'rendering ' + dpi + ' DPI\u2026';
+       var myGen = ++gen;
+       inst.pdf.getPage(page).then(function(pg){
+         var vp = pg.getViewport({ scale: dpi / 72 });
+         var c = document.createElement('canvas'); c.width = Math.floor(vp.width); c.height = Math.floor(vp.height);
+         return pg.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise.then(function(){ return c.toDataURL('image/png').split(',')[1]; });
+       }).then(function(b64){
+         if (myGen !== gen) return null;
+         return T.core.invoke('save_temp_png', { b64data: b64, name: baseName + '-p' + page + '-' + dpi + 'dpi.png' });
+       }).then(function(pth){
+         if (!pth || myGen !== gen) return;
+         ready = pth; handle.style.cursor = 'grab'; status.textContent = 'ready \u2014 drag the box out';
+       }).catch(function(e){ if (myGen === gen){ status.textContent = 'error: ' + e; } });
+     }
+     var dpiT = null; dpiIn.addEventListener('input', function(){ if (dpiT) clearTimeout(dpiT); dpiT = setTimeout(build, 350); });
+     handle.addEventListener('pointerdown', function(e){ e.stopPropagation(); if (!ready){ status.textContent = 'still preparing\u2026'; return; } T.core.invoke('drag_out', { paths: [ready] }).then(function(){ closePdfPanel(); }).catch(function(err){ status.textContent = 'drag error: ' + err; }); });
+     build();
+   }
    function openPdfViewer(path, name, owner){
      if (typeof pdfjsLib === 'undefined'){ showErr('PDF engine not loaded'); return; }
      var T = window.__TAURI__;
@@ -1123,6 +1165,7 @@
      close.onclick = function(e){ e.stopPropagation(); doClose(); };
      body.addEventListener('wheel', function(ev){ if (ev.ctrlKey){ ev.preventDefault(); ev.stopPropagation(); setScale(inst.scale * Math.exp(-ev.deltaY * 0.0015)); } }, { passive: false });
      body.addEventListener('pointerdown', function(ev){ if (ev.button !== 0) return; ev.preventDefault(); var sx = ev.clientX, sy = ev.clientY, ol = body.scrollLeft, ot = body.scrollTop; body.style.cursor = 'grabbing'; function mv(e){ body.scrollLeft = ol - (e.clientX - sx); body.scrollTop = ot - (e.clientY - sy); } function up(){ body.style.cursor = ''; window.removeEventListener('pointermove', mv); window.removeEventListener('pointerup', up); } window.addEventListener('pointermove', mv); window.addEventListener('pointerup', up); });
+     body.addEventListener('contextmenu', function(ev){ ev.preventDefault(); ev.stopPropagation(); openPdfExportPanel(inst, ev.clientX, ev.clientY); });
      bar.addEventListener('pointerdown', function(ev){ if (ev.target !== bar && ev.target !== title) return; ev.preventDefault(); var sx = ev.clientX, sy = ev.clientY, ox = box.offsetLeft, oy = box.offsetTop; function mv(e){ box.style.left = (ox + e.clientX - sx) + 'px'; box.style.top = (oy + e.clientY - sy) + 'px'; } function up(){ window.removeEventListener('pointermove', mv); window.removeEventListener('pointerup', up); } window.addEventListener('pointermove', mv); window.addEventListener('pointerup', up); });
      inst.key = function(e){ if (__activeOverlay !== inst) return; if (e.key === 'ArrowLeft' || e.key === 'PageUp'){ gotoPage(inst.pageNum - 1); e.preventDefault(); e.stopPropagation(); } else if (e.key === 'ArrowRight' || e.key === 'PageDown'){ gotoPage(inst.pageNum + 1); e.preventDefault(); e.stopPropagation(); } else if (e.key === 'Escape'){ doClose(); e.preventDefault(); e.stopPropagation(); } else if (e.key === '+' || e.key === '='){ setScale(inst.scale * 1.25); e.preventDefault(); } else if (e.key === '-'){ setScale(inst.scale / 1.25); e.preventDefault(); } };
      window.addEventListener('keydown', inst.key, true);
