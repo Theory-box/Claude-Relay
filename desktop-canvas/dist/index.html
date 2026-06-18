@@ -25,6 +25,15 @@
   .propsRow:last-child{border-bottom:0;}
   .propsK{color:#8b93a3;min-width:74px;}
   .propsV{color:#d6dae2;word-break:break-all;flex:1;}
+  .portalwin{position:fixed;width:280px;background:#15161a;border:1px solid #3a4356;border-radius:10px;box-shadow:0 20px 64px rgba(0,0,0,.62);z-index:55;overflow:hidden;}
+  .portalwin button{background:#2a2f3a;color:#cfd2da;border:0;border-radius:6px;height:24px;cursor:pointer;font-size:13px;padding:0 8px;}
+  .portalBody{padding:12px 14px;}
+  .portalHint{color:#8b93a3;font-size:11px;margin-bottom:10px;}
+  .portalChips{display:flex;flex-direction:column;gap:8px;}
+  .portalChip{display:flex;align-items:center;gap:8px;background:#241b33;border:1px solid #7a5cc0;border-radius:8px;padding:8px 10px;color:#cdbff0;cursor:grab;font-size:13px;user-select:none;}
+  .portalChip.placed{opacity:0.5;cursor:default;border-color:#3a3e49;}
+  .portalGlyph{color:#9b7be0;font-size:16px;}
+  .portalGhost{position:fixed;pointer-events:none;z-index:9999;color:#9b7be0;font-size:22px;text-shadow:0 0 6px #000;}
  #bar{position:absolute;top:0;left:0;right:0;height:38px;display:flex;align-items:center;gap:8px;padding:0 12px;background:rgba(26,28,33,.92);border-bottom:1px solid #2a2d36;z-index:8;font-size:13px;color:#c4c8d2;}
  #bar button{background:#252934;border:1px solid #353a45;color:#d4d7df;border-radius:6px;padding:5px 10px;cursor:pointer;font:inherit;white-space:nowrap;}
  #bar button:hover:not(:disabled){background:#2f3440;}
@@ -121,7 +130,7 @@
      var hl = new PIXI.Graphics(); hl.eventMode = 'none'; hl.visible = false; world.addChild(hl);
 
      var cwd = '', homePath = '', placesList = [];
-     var items = [], cards = [], thumbCache = {}, mtimes = {}, meta = {};
+     var items = [], cards = [], thumbCache = {}, mtimes = {}, meta = {}, portalCards = [];
      var trash = { x: -320, y: -210 }, trashNode = null;
      var panning = false, last = null, reloadPending = false, confirming = false, animating = false;
      var lastCursor = null, sortAnim = null, writable = true, spaces = [], camTween = null, clip = null, ctrlDown = false, safetyOn = true;
@@ -229,6 +238,7 @@
        for (var i = 0; i < cards.length; i++){ try{ world.removeChild(cards[i]); cards[i].destroy({ children: true }); }catch(_){} }
        cards = []; items = []; mtimes = {}; meta = {};
        if (trashNode){ try{ world.removeChild(trashNode); trashNode.destroy({ children: true }); }catch(_){} trashNode = null; }
+       for (var pi = 0; pi < portalCards.length; pi++){ try{ world.removeChild(portalCards[pi]); portalCards[pi].destroy({ children: true }); }catch(_){} } portalCards = [];
        hl.visible = false; sortAnim = null; animating = false;
        if (typeof selection !== 'undefined' && selection){ selection.clear(); } if (typeof selGfx !== 'undefined' && selGfx){ selGfx.clear(); }
      }
@@ -252,6 +262,7 @@
          if (bi < list.length){ requestAnimationFrame(buildChunk); return; } // paint between batches -> progressive display
          if (cwd && cwd === homePath) trashNode = buildTrash();
          updateBar(); loading = false;
+         loadPortals().then(function(){ renderPortals(); });
          if (!fromSync){ // de-overlap after first paint, time-budgeted; second pass catches thumbnail growth
            scheduleRelax(cwd, seq);
            setTimeout(function(){ relaxBudgeted(cwd, seq, 0, false); }, 900);
@@ -520,6 +531,7 @@
        menu.appendChild(mkSep());
        if (writable) menu.appendChild(mkBtn('New Folder', '', function(){ hideMenu(); promptDialog('New folder name', 'New Folder', 'Create', function(name){ createFolder(name); }); }));
        if (writable) menu.appendChild(mkBtn('New Text File', '', function(){ hideMenu(); promptDialog('Text file name', 'New File.txt', 'Create', function(name){ createTextFile(name); }); }));
+       menu.appendChild(mkBtn('Add Portal', '', function(){ hideMenu(); openPortalPlacer(); }));
        if (clip && writable){ menu.appendChild(mkBtn((clip.mode === 'shortcut' ? 'Paste shortcut' : 'Paste') + ' ' + clip.items.length + ' item' + (clip.items.length > 1 ? 's' : '') + (clip.mode === 'cut' ? ' (move)' : ''), '', function(){ hideMenu(); doPaste(); })); menu.appendChild(mkSep()); }
        var sortBtn = document.createElement('button'); sortBtn.innerHTML = 'Sort / Tidy <span class="arrow">\u25B8</span>';
        sortBtn.addEventListener('click', function(ev){ ev.stopPropagation(); showSortFlyout(sortBtn); });
@@ -580,7 +592,7 @@
        }
        menu.style.left = x + 'px'; menu.style.top = y + 'px'; menu.style.display = 'block';
      }
-     app.view.addEventListener('contextmenu', function(ev){ ev.preventDefault(); if (confirming || animating) return; if (carry){ cancelCarry(); return; } var lpx = lx(ev.clientX), lpy = ly(ev.clientY); var c = targetAt(lpx, lpy); if (c){ if (!c.__trash && selection.has(c) && selection.size > 1) openSelectionMenu(lpx, lpy); else openMenu(lpx, lpy, c); } else openEmptyMenu(lpx, lpy); });
+     app.view.addEventListener('contextmenu', function(ev){ ev.preventDefault(); if (confirming || animating) return; if (carry){ cancelCarry(); return; } var lpx = lx(ev.clientX), lpy = ly(ev.clientY); var pc = portalAt(lpx, lpy); if (pc){ openPortalMenu(lpx, lpy, pc); return; } var c = targetAt(lpx, lpy); if (c){ if (!c.__trash && selection.has(c) && selection.size > 1) openSelectionMenu(lpx, lpy); else openMenu(lpx, lpy, c); } else openEmptyMenu(lpx, lpy); });
      function openProperties(target){
        var it = target.__item, name = it.name, isDir = !!it.dir, m = meta[name] || {};
        var box = document.createElement('div'); box.className = 'props';
@@ -625,6 +637,30 @@
      window.addEventListener('wheel', function(){ hideMenu(); }, true);
 
      // ---------- address bar ----------
+     function baseName(p){ if (!p) return p; var BS = String.fromCharCode(92); var a = p; while (a.length){ var ch = a.charAt(a.length-1); if (ch === BS || ch === '/') a = a.slice(0,-1); else break; } var i = a.length-1; while (i >= 0){ var c = a.charAt(i); if (c === BS || c === '/') break; i--; } var n = a.slice(i+1); return n || p; }
+     function makePortalCard(info){
+       var card = new PIXI.Container(); card.x = info.x; card.y = info.y; card.eventMode = 'static'; card.cursor = 'pointer'; card.__portal = info;
+       var g = new PIXI.Graphics(); g.beginFill(0x241b33); g.lineStyle(1, 0x7a5cc0); g.drawRoundedRect(0, 0, 210, 66, 10); g.endFill(); card.addChild(g);
+       var ic = new PIXI.Graphics(); ic.lineStyle(3, 0x9b7be0); ic.drawEllipse(0, 0, 11, 15); ic.lineStyle(2, 0x6fd0e0); ic.drawEllipse(0, 0, 5, 8); ic.x = 24; ic.y = 33; card.addChild(ic);
+       var label = fitLabel('', baseName(info.target || ''), { fill: 0xcdbff0, fontSize: 13, fontFamily: 'system-ui' }, 150); label.x = 46; label.y = 18; card.addChild(label);
+       var sub = new PIXI.Text('portal \u2192', { fill: 0x8a7ab0, fontSize: 10, fontFamily: 'system-ui' }); sub.x = 46; sub.y = 40; card.addChild(sub);
+       card.hitArea = new PIXI.Rectangle(0, 0, 210, 66);
+       attachPortalGrab(card); world.addChild(card); portalCards.push(card); return card;
+     }
+     function attachPortalGrab(card){
+       card.on('pointerdown', function(e){ if (e.button !== 0) return; if (carry || confirming || animating) return; e.stopPropagation();
+         var sx = e.global.x, sy = e.global.y, ox = card.x, oy = card.y, moved = false;
+         function mv(ev){ if (!moved && Math.hypot(ev.global.x - sx, ev.global.y - sy) > 4) moved = true; if (moved){ card.x = ox + (ev.global.x - sx) / world.scale.x; card.y = oy + (ev.global.y - sy) / world.scale.y; } }
+         function up(){ app.stage.off('pointermove', mv); app.stage.off('pointerup', up); app.stage.off('pointerupoutside', up); if (moved) savePortalPos(card); else activatePortal(card); }
+         app.stage.on('pointermove', mv); app.stage.on('pointerup', up); app.stage.on('pointerupoutside', up);
+       });
+     }
+     function savePortalPos(card){ var info = card.__portal; for (var i = 0; i < PORTALS.length; i++){ if (PORTALS[i].id === info.pairId){ var ends = PORTALS[i].ends; for (var j = 0; j < ends.length; j++){ if (ends[j].folder === cwd){ ends[j].x = Math.round(card.x); ends[j].y = Math.round(card.y); } } break; } } savePortals(); }
+     function activatePortal(card){ navigate(card.__portal.target); }
+     function portalAt(sx, sy){ var wx = (sx - world.x) / world.scale.x, wy = (sy - world.y) / world.scale.y; for (var i = portalCards.length - 1; i >= 0; i--){ var c = portalCards[i]; if (wx >= c.x && wx <= c.x + 210 && wy >= c.y && wy <= c.y + 66) return c; } return null; }
+     function openPortalMenu(x, y, card){ menu.innerHTML = ''; sortMenu.style.display = 'none'; menu.appendChild(mkBtn('Go to ' + baseName(card.__portal.target), '', function(){ hideMenu(); activatePortal(card); })); menu.appendChild(mkSep()); menu.appendChild(mkBtn('Delete portal', 'danger', function(){ hideMenu(); deletePortal(card.__portal.pairId); })); menu.style.left = x + 'px'; menu.style.top = y + 'px'; menu.style.display = 'block'; }
+     function deletePortal(pairId){ PORTALS = PORTALS.filter(function(pr){ return pr.id !== pairId; }); savePortals().then(refreshPortals); }
+     function renderPortals(){ for (var i = 0; i < portalCards.length; i++){ try{ world.removeChild(portalCards[i]); portalCards[i].destroy({ children: true }); }catch(_){} } portalCards = []; if (!cwd) return; var ends = portalEndsFor(cwd); for (var i = 0; i < ends.length; i++){ var e = ends[i]; makePortalCard({ pairId: e.pair.id, x: e.end.x, y: e.end.y, target: e.other.folder }); } }
      function joinPath(base, name){ if (!base) return name; return base.replace(/[\\\/]+$/, '') + '\\' + name; }
      function isImage(nm){ return /\.(png|jpe?g|gif|webp|bmp)$/i.test(nm || ''); }
      function isText(nm){ return /\.(txt|md|markdown|log|csv|tsv|json|ini|cfg|conf|xml|yml|yaml)$/i.test(nm || ''); }
@@ -650,7 +686,7 @@
        else if (carry && carry.source === 'import'){ hud.textContent = 'Placing imported file [' + modeLabel() + ']  \u00b7  left-click confirm  \u00b7  right-click cancel  \u00b7  T toggle  \u00b7  Free mode (1) to drop into a folder'; }
        else if (carry){ hud.textContent = 'Moving ' + (carry.held.length > 1 ? carry.held.length + ' items ' : '') + '[' + (ctrlDown ? 'Free (Ctrl)' : modeLabel()) + ']  \u00b7  hold Ctrl = free / drop into folder  \u00b7  T toggle  \u00b7  release to drop  \u00b7  Esc cancel'; }
        else if (selection.size){ hud.textContent = selection.size + ' selected  \u00b7  drag = move  \u00b7  Ctrl+C copy / Ctrl+X cut  \u00b7  Del trash  \u00b7  Ctrl+F frame  \u00b7  Esc clear'; }
-       else { hud.textContent = 'v0.0.54  \u00b7  click = select  \u00b7  shift/ctrl = add/remove  \u00b7  drag empty = box select  \u00b7  middle-drag = pan  \u00b7  drag item = move  \u00b7  mode: ' + modeLabel() + (writable ? '' : '  \u00b7  read-only'); }
+       else { hud.textContent = 'v0.0.55  \u00b7  click = select  \u00b7  shift/ctrl = add/remove  \u00b7  drag empty = box select  \u00b7  middle-drag = pan  \u00b7  drag item = move  \u00b7  mode: ' + modeLabel() + (writable ? '' : '  \u00b7  read-only'); }
      }
      upBtn.addEventListener('click', function(){ navigate(parentOf(cwd)); });
      gotoBtn.addEventListener('click', function(){ if (pathInput.style.display === 'none'){ pathInput.style.display = 'inline-block'; pathInput.value = cwd; pathInput.focus(); pathInput.select(); } else { navigate(pathInput.value.trim()); pathInput.style.display = 'none'; } });
@@ -801,6 +837,7 @@
        await loadView(); poll(); setInterval(poll, 3000);
      })();
      self.handleDrop = handleDrop; self.getCwd = function(){ return cwd; }; self.navigate = function(pp){ navigate(pp); };
+     self.screenToWorld = function(cx, cy){ var r = root.getBoundingClientRect(); return { x: (cx - r.left - world.x) / world.scale.x, y: (cy - r.top - world.y) / world.scale.y }; }; self.renderPortals = renderPortals;
      self.resize = function(){ var r = root.getBoundingClientRect(); if (r.width < 2 || r.height < 2) return; var pw = app.screen.width, ph = app.screen.height; app.renderer.resize(r.width, r.height); world.x += (app.screen.width - pw) / 2; world.y += (app.screen.height - ph) / 2; app.stage.hitArea = app.screen; };
      if (!pm) wireDrop(handleDrop);
      return self;
@@ -878,6 +915,37 @@
      setTimeout(function(){ ta.focus(); }, 0);
    }
    function closeViewer(){ if (!__viewer) return; try{ window.removeEventListener('keydown', __viewer.key, true); }catch(_){} try{ __viewer.box.remove(); }catch(_){} __viewer = null; }
+   var PORTALS = [], portalsLoaded = false;
+   function loadPortals(){ return window.__TAURI__.core.invoke('load_portals').then(function(s){ try{ PORTALS = JSON.parse(s || '[]') || []; }catch(_){ PORTALS = []; } portalsLoaded = true; return PORTALS; }).catch(function(){ return PORTALS; }); }
+   function savePortals(){ return window.__TAURI__.core.invoke('save_portals', { data: JSON.stringify(PORTALS) }).catch(function(){}); }
+   function portalEndsFor(folder){ var out = []; for (var i = 0; i < PORTALS.length; i++){ var pr = PORTALS[i]; if (!pr.ends || pr.ends.length < 2) continue; for (var j = 0; j < 2; j++){ if (pr.ends[j].folder === folder) out.push({ pair: pr, end: pr.ends[j], idx: j, other: pr.ends[1-j] }); } } return out; }
+   function baseNameB(p){ if (!p) return p; var BS = String.fromCharCode(92); var a = p; while (a.length){ var ch = a.charAt(a.length-1); if (ch === BS || ch === '/') a = a.slice(0,-1); else break; } var i = a.length-1; while (i >= 0){ var c = a.charAt(i); if (c === BS || c === '/') break; i--; } var n = a.slice(i+1); return n || p; }
+   function refreshPortals(){ for (var i = 0; i < PM.panes.length; i++){ if (PM.panes[i] && PM.panes[i].renderPortals) PM.panes[i].renderPortals(); } }
+   var __placer = null;
+   function openPortalPlacer(){
+     if (__placer) return;
+     var box = document.createElement('div'); box.className = 'portalwin';
+     var bar = document.createElement('div'); bar.className = 'viewerBar';
+     var title = document.createElement('span'); title.className = 'viewerTitle'; title.textContent = 'Place portals';
+     var close = document.createElement('button'); close.textContent = '\u2715'; close.className = 'viewerClose';
+     bar.appendChild(title); bar.appendChild(close);
+     var body = document.createElement('div'); body.className = 'portalBody';
+     var hint = document.createElement('div'); hint.className = 'portalHint'; hint.textContent = 'Drag each portal into a folder (navigate between drops). Two different folders.';
+     var chipsEl = document.createElement('div'); chipsEl.className = 'portalChips';
+     var tokens = [ { placed: false }, { placed: false } ], chipEls = [];
+     function updateChip(i){ var c = chipEls[i], lab = c.querySelector('.portalLab'); if (tokens[i].placed){ c.classList.add('placed'); lab.textContent = 'Placed \u2192 ' + baseNameB(tokens[i].folder); } else { c.classList.remove('placed'); lab.textContent = 'Portal ' + (i+1); } }
+     function commit(){ var id = 'p' + Date.now() + Math.floor(Math.random()*999); PORTALS.push({ id: id, ends: [ { folder: tokens[0].folder, x: tokens[0].x, y: tokens[0].y }, { folder: tokens[1].folder, x: tokens[1].x, y: tokens[1].y } ] }); savePortals().then(refreshPortals); destroy(); }
+     function dropToken(i, cx, cy){ var pane = PM.paneAt(cx, cy); if (!pane) return; var folder = pane.getCwd(); var other = tokens[1-i]; if (other.placed && other.folder === folder){ hint.textContent = 'Pick a different folder for the other portal.'; return; } var pos = pane.screenToWorld(cx, cy); tokens[i].placed = true; tokens[i].folder = folder; tokens[i].x = Math.round(pos.x); tokens[i].y = Math.round(pos.y); updateChip(i); if (tokens[0].placed && tokens[1].placed) commit(); }
+     function wireChip(c, i){ c.addEventListener('pointerdown', function(ev){ if (tokens[i].placed) return; ev.preventDefault(); var ghost = document.createElement('div'); ghost.className = 'portalGhost'; ghost.textContent = '\u25C9'; document.body.appendChild(ghost); function mv(e){ ghost.style.left = (e.clientX + 8) + 'px'; ghost.style.top = (e.clientY + 8) + 'px'; } function up(e){ window.removeEventListener('pointermove', mv); window.removeEventListener('pointerup', up); try{ ghost.remove(); }catch(_){} dropToken(i, e.clientX, e.clientY); } mv(ev); window.addEventListener('pointermove', mv); window.addEventListener('pointerup', up); }); }
+     for (var i = 0; i < 2; i++){ var c = document.createElement('div'); c.className = 'portalChip'; c.innerHTML = '<span class="portalGlyph">\u25C9</span><span class="portalLab">Portal ' + (i+1) + '</span>'; chipsEl.appendChild(c); chipEls.push(c); wireChip(c, i); }
+     function destroy(){ try{ box.remove(); }catch(_){} __placer = null; }
+     close.onclick = destroy;
+     body.appendChild(hint); body.appendChild(chipsEl);
+     box.appendChild(bar); box.appendChild(body); document.body.appendChild(box);
+     box.style.left = Math.max(20, window.innerWidth - 320) + 'px'; box.style.top = '70px';
+     bar.addEventListener('pointerdown', function(ev){ if (ev.target !== bar && ev.target !== title) return; ev.preventDefault(); var sx = ev.clientX, sy = ev.clientY, ox = box.offsetLeft, oy = box.offsetTop; function mv(e){ box.style.left = (ox + e.clientX - sx) + 'px'; box.style.top = (oy + e.clientY - sy) + 'px'; } function up(){ window.removeEventListener('pointermove', mv); window.removeEventListener('pointerup', up); } window.addEventListener('pointermove', mv); window.addEventListener('pointerup', up); });
+     __placer = { box: box };
+   }
    function openViewer(list, idx){
      if (!list || !list.length) return; closeViewer();
      var T = window.__TAURI__;

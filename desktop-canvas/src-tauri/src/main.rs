@@ -507,6 +507,23 @@ fn write_text(app: tauri::AppHandle, path: String, data: String) -> Result<(), S
     fs::write(&p, data).map_err(|e| e.to_string())
 }
 
+fn portals_file(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    Ok(app.path().app_data_dir().map_err(|e| e.to_string())?.join("portals.json"))
+}
+
+#[tauri::command]
+fn load_portals(app: tauri::AppHandle) -> Result<String, String> {
+    let f = portals_file(&app)?;
+    if f.exists() { fs::read_to_string(f).map_err(|e| e.to_string()) } else { Ok("[]".to_string()) }
+}
+
+#[tauri::command]
+fn save_portals(app: tauri::AppHandle, data: String) -> Result<(), String> {
+    let f = portals_file(&app)?;
+    if let Some(parent) = f.parent() { fs::create_dir_all(parent).map_err(|e| e.to_string())?; }
+    fs::write(f, data).map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 fn folder_tree(path: String) -> Result<serde_json::Value, String> {
     use serde_json::json;
@@ -586,7 +603,7 @@ fn main() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
             quit, places, list_dir, add_dropped_file, make_folder, move_into, trash_item,
-            clear_trash, open_trash, thumb_data, open_item, open_folder, shell_verb, delete_file, paste_copy, paste_move, paste_shortcut, resolve_lnk, path_size, set_safety, load_spaces, save_spaces, save_layout, load_layout, save_session, load_session, folder_tree, image_full, make_text_file, read_text, write_text, drag_out
+            clear_trash, open_trash, thumb_data, open_item, open_folder, shell_verb, delete_file, paste_copy, paste_move, paste_shortcut, resolve_lnk, path_size, set_safety, load_spaces, save_spaces, save_layout, load_layout, save_session, load_session, load_portals, save_portals, folder_tree, image_full, make_text_file, read_text, write_text, drag_out
         ])
         .setup(|app| {
             let handle = app.handle().clone();
