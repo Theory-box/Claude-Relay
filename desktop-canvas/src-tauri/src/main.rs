@@ -612,8 +612,8 @@ fn open_web(app: tauri::AppHandle, query: Option<String>) -> Result<(), String> 
     let label = format!("web-{}", n);
     weblog(&app, &format!("3 label={}", label));
     let app2 = app.clone();
-    let dispatch = app.run_on_main_thread(move || {
-        weblog(&app2, "5 on_main_thread building");
+    std::thread::spawn(move || {
+        weblog(&app2, "5 thread building");
         match tauri::WebviewWindowBuilder::new(&app2, &label, tauri::WebviewUrl::External(url))
             .title("Web")
             .inner_size(1100.0, 800.0)
@@ -627,8 +627,7 @@ fn open_web(app: tauri::AppHandle, query: Option<String>) -> Result<(), String> 
             Err(e) => weblog(&app2, &format!("6e build_err={}", e)),
         }
     });
-    weblog(&app, &format!("4 dispatched ok={}", dispatch.is_ok()));
-    dispatch.map_err(|e| e.to_string())?;
+    weblog(&app, "4 spawned");
     Ok(())
 }
 
