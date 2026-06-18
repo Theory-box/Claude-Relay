@@ -1,136 +1,107 @@
-# Desktop Canvas — TODO / Backlog
+# Desktop Canvas — TODO
 
-## Up next (requested, in order)
-- [done v0.0.19] Un-restrict browsing; everything read-only except the Desktop Canvas folder.
-- [done v0.0.19] Move "Tidy up" into the Sort submenu.
-- [done v0.0.20] #4 Selection + box-select + multi-move (collisions + move-into-folder + trash).
-- [done v0.0.24] #5 Copy/Cut/Paste: Ctrl+C/X/V + right-click entries; internal clipboard of
-      paths; paste_copy (recursive) / paste_move backend; paste & cut require writable, copy reads
-      anywhere. Paste places near view center via nearestFree and selects the new items.
-- [ ] #6 Trash Can as a static screen icon (bottom-left), not a world object.
+Windows-only desktop-replacement: infinite spatial canvas fused with a filesystem browser.
+AI writes all code; built on GitHub CI, delivered as a bare exe. Branch: feature/desktop-canvas.
 
-## Requested — batch 3 (newest)
-- [ ] Sorting should apply to the SELECTED items when any are selected; otherwise sort everything.
-- [partial v0.0.25] Hold Ctrl while dragging = Free placement (overlap + drop-into-folder).
-- [ ] "Gather" move mode: selected items cluster around the dragged item. (Still TODO.)
+---
 
-## Requested — batch 2
-- [ ] SPACE = search / find files in current folder. Wants a fast, easy in-folder finder
-      (type-to-filter, jump to / highlight matches). Flagged as SOON / high priority.
-- [ ] Fullscreen image viewer: open an image to full screen at full resolution; LEFT/RIGHT
-      arrows step through the other images in the folder; Esc to exit.
-- [ ] PDF viewing (in-app preview/reader).
-- [ ] Selected-item Properties in the right-click menu (size, type, dates, path, dimensions...).
-- [ ] Drag-OUT to other apps: dragging an item off the canvas/app puts it on the OS clipboard
-      / starts an OS drag so it drops into other apps on release (e.g. pull an image straight
-      into Blender). Needs native drag-source / clipboard support from the Tauri side.
-- [ ] Move/copy items between DIFFERENT canvases (folders/spaces), including across windows:
-      copy or move with a confirm for now.
-- [done v0.0.22] Saved Spaces: bookmark folders via right-click empty -> Spaces > Save/Remove;
-      Spaces dropdown in the bar; persisted to app-data spaces.json (survives exe updates).
-      (Bookmark TABS still possible later.)
+## Done
 
+### Core canvas & files (v0.0.1–0.0.43)
+- Per-monitor always-on-bottom window; pan / zoom-to-cursor / drag.
+- OS drop → copy + card + persisted layout; cross-window sync; shell thumbnails.
+- Folders + navigation + address bar + Back/Forward; drives view at top.
+- Placement engine: carry/preview, Free vs Push, collision sort, padding.
+- Trash Can (app-local) + confirms; reload-storm fix; SAFE_MODE.
+- Selection + box-select + multi-move; Saved Spaces (persisted bookmarks).
+- Search (Space) + Ctrl+F; copy / cut / paste; copy-as-shortcut (.lnk).
+- Folder-shortcut (.lnk to folder) navigates in-canvas.
+- Native drag-OUT to other apps (single + multi) via SHDoDragDrop.
+- Split panes + per-monitor session restore; per-pane coord + zoom isolation.
 
-Running list of deferred work and ideas. Newest context at top of each section.
+### Viewers & editing
+- Floating image viewer (movable/resizable, arrow paging, zoom/pan) (v0.0.45).
+- Text files: New Text File + floating editor (Save/Ctrl+S/Esc, Ctrl+scroll font) (v0.0.47).
+- Name truncation, error-bar ×, Properties panel, in-app open by default (v0.0.54).
+- MULTI-INSTANCE viewers + editors with focused-overlay keyboard routing (v0.0.58).
 
-## Selection & active items (Blender-style) — requested, not started
-- Click an item -> makes it the active/selected item (visible highlight).
-- Shift-click -> add to selection. Ctrl-click -> remove from selection.
-- Click-drag in empty space -> rubber-band box select.
-- Ctrl-drag in empty space -> subtract from selection.
-- Then: move / sort / delete / align operate on the whole selection.
-- Needs an active-set data structure + highlight rendering + hit-testing that
-  distinguishes "start box select" (empty) from "start move" (on item).
+### Portals (v0.0.55–0.0.57)
+- Bidirectional shortcuts; two-token placement; click-teleport; drag-reposition; delete pair.
+- Square tile + portal disc; spawn-in-view; show-as-you-place; broken portals auto-remove.
 
-## Performance & collision (brainstorm)
-- DONE v0.0.18: progressive chunked card build (40/frame) + time-budgeted relax
-  after first paint (~14ms/frame) so big folders display fast instead of freezing.
-- Broad-phase to kill O(n^2): bound each item with an inscribed CIRCLE for a cheap
-  first-pass overlap test before the AABB/MTV step.
-- Spatial hash / uniform grid so separation/push/sort only test nearby pairs (the
-  real O(n^2) -> ~O(n) win for crowded folders).
-- Distance fields — research idea for fast collision/repulsion queries.
-- Thumbnail pipeline: cap concurrent thumb_data calls, cache thumbnails to disk,
-  load visible-first / lazily. (Today every file requests a shell thumbnail at once.)
-- Consider moving layout math to a Web Worker if it ever gets heavy.
+### Archives (v0.0.57)
+- Zip (Compress-Archive) on file/folder/multi-select; Extract here (Expand-Archive) on .zip.
 
-## Bugs to watch (after v0.0.18)
-- Intermittent "stops displaying folders/items, fixes when navigating elsewhere."
-  Suspected the old reload-storm race; v0.0.17 added a load-generation token + loading
-  guard that should fix it. CONFIRM it's gone; if not, investigate loadSeq aborts that
-  leave a blank view.
-- (When wider browsing is re-enabled) "can't open Documents — permission denied even as
-  admin." Likely a known-folder / OneDrive redirect or ACL issue. Catch permission errors
-  and show a friendly message instead of a blank canvas. Currently moot under SAFE_MODE.
+---
 
-## Placement / UX
-- Padding between items during collision: DONE v0.0.18 (PAD=9). Tune to taste.
-- Gate open-relax so INTENTIONAL Free-mode stacks are preserved (only auto-separate
-  accidental/auto-placed overlaps, not hand-made stacks).
-- Optional confirm before dropping onto the Trash Can (folders already confirm).
-- OS-drop carry for MULTIPLE files (today multi-file imports place immediately;
-  single-file imports get the sticky float).
-- Rename files/folders.
-- Real Windows Recycle Bin integration (today: app-local "Trash Can" folder).
+## Backlog
 
-## Engine roadmap (from ENGINE.md)
-- Richer push settling (better cascade / optional animation).
-- Multi-select align / distribute / tidy (needs selection first).
-- Containers: folders/rows/columns/stacks that auto-arrange their children.
+### Next build (decided)
+- RENAME files / folders (in-place rename; in_root-guarded; refresh layout key).
 
-## Safety
-- [v0.0.25] Runtime Safety toggle (top-right lock, default ON each launch). ON = writes
-  confined to canvas; OFF = edit anywhere with confirms for delete/paste OUTSIDE canvas and
-  for large deletes (>=10), plus an 'editing outside canvas' marker. Reads always open.
+### Settings / Preferences window  (NEW — phased)
+- Button top-right, right of "Go to", labelled "Settings". Global settings persisted to
+  app_data/settings.json (load/save like portals); applied on launch + live on change, all panes/windows.
+- BACKGROUND IMAGE (replaces the grid). Implement as a screen-fixed DOM layer behind the
+  transparent Pixi canvas (NOT in the world — does not pan/zoom). Phases:
+  - P1: single chosen image on all screens. Scale-to-fit vs scale-to-fill (object-fit
+    contain/cover — never stretch; fill expands beyond border + crops). Transparency slider
+    fading image → default background (0 = default bg).
+  - P2: GRID settings (point spacing, point color, background color) for grid mode.
+  - P3: crossfade between images (two stacked layers, opacity transition).
+  - P4: folder select → cycle every X seconds, random order; landscape-only vs portrait-only filter.
+    Single shared image across all screens first (simplest).
+  - P5: per-monitor random image; avoid showing the same image on two monitors (needs
+    cross-window coordination via a shared command/store — windows are separate processes).
+  - P6: per-monitor folder selection.
+  - P7: PARALLAX — slight bg pan on mouse-move (depth effect). Cheap (CSS transform only);
+    image scaled with overscan (~1.05–1.08x) so panning never reveals edges.
+  - Split-screen panes share one background (same process — easy; preferred).
 
-## v0.0.27 done
-- [x] Auto-frame everything on folder open / space switch (user navigation only, not background sync).
+### Image viewer / text editor right-click  (NEW)
+- Right-click inside the image viewer (and text editor): "drag/move out to another app"
+  (reuse SHDoDragDrop), Properties, and file-type-appropriate actions (open with, etc.).
 
-## v0.0.26 done
-- [x] Copy as shortcut (creates real Windows .lnk via WScript.Shell; paste places shortcut).
-- [x] Paste confirm when total size > 1 GiB (and/or pasting outside the canvas folder).
+### Embedded web browser  (NEW — feasibility noted, future)
+- Use Tauri's built-in WebView2 child webviews (Chromium core, same engine as Brave/Chrome) —
+  embeddable with NO default toolbar (we supply our own chrome). Brave itself can't be embedded
+  (only launched externally); WebView2 gives the same engine.
+- Little web viewer with our own toolbar (back/fwd/url) = very feasible (like the image viewer).
+- Sites saved as shortcut cards (store URL) → click opens a web panel. Trivial.
+- "Pages as nodes": live web content is a separate native layer ABOVE the Pixi canvas — it
+  repositions on pan and can set a zoom factor, but won't truly scale/integrate like a sprite.
+  Cheaper pattern: node shows a snapshot/thumbnail card; clicking "wakes" it into a live webview.
+- Watch memory: each live webview is a real browser instance — cap concurrent live nodes,
+  snapshot inactive ones. (CEF/other engines = too heavy; WebView2 is the right tool.)
 
-## Queued (one at a time)
-- [ ] Back button (left of Up): history of last-opened folders, not just parent.
-- [ ] Copy/paste should use the native Windows progress dialog AND not freeze the canvas
-      (likely IFileOperation COM on a worker thread).
-- [ ] Undo / redo for ITEM PLACEMENT + MOVEMENT only (skip copy/paste undo for now).
-- [x] v0.0.29: folder-shortcut (.lnk) = in-canvas bookmark. Double-clicking a .lnk to a FOLDER resolves
-      the target and navigates INSIDE the canvas; .lnk to a FILE still opens normally. Still real .lnk on disk.
+### Other bigger features
+- IMAGE → PDF builder window (drag images, grid = page order, reorder, Process → draggable PDF).
+- PDF VIEWER (floating, page/zoom/pan like image viewer).
+- FUN WIDGETS / SUB-APPS (chess vs computer first; sticky notes, calculator, clock, paint, visualizer).
+- TEXTURE STREAMING / LOD for images (display-res + mipmaps; then zoom-driven full-res + culling).
+- SHARED TOP MENU BAR for split panes (focused-pane-driven).
+- MINIMAP overlay with a draggable viewport rectangle.
 
-- SHARED TOP MENU BAR for split panes: one full-width bar (replacing the two per-pane toolbars) driven by the FOCUSED pane. Needs each pane to expose actions+state via self (back/fwd/up/navigate/safety/cwd/crumbs/nav-enabled/safety-state) and a refresh-on-focus-change + refresh-on-pane-state-change hook in the pane manager. Moderate, ~few builds. (Requested; deferred.)
+### Medium
+- SORT/RELAX scoped to selection (fall back to everything if nothing selected).
+- DRAG-OUT copy/move prompt when dropping onto another canvas/window.
+- "GATHER" move mode: selected items cluster around the dragged item.
 
-- TEXTURE STREAMING / LOD for images (PureRef-style): decode to a display-resolution tier (~1024-1536) with mipmaps ON instead of 256px thumbs; on zoom-in load full-res for that image and free on zoom-out; cull/unload off-screen textures. Bottleneck is VRAM (4K RGBA ~67MB each), not fill-rate. Phase 1 = display-res+mipmaps (big win, low risk); Phase 2 = zoom-driven LOD + culling for scale. Verify PIXI v7 mipmap flags + off-thread createImageBitmap resize decode. (Requested; deferred.)
+### Smaller / parked
+- Static bottom-left Trash icon.
+- Undo / redo for item placement + movement.
+- Native Windows copy-progress dialog (IFileOperation on a worker thread, non-freezing).
+- Gate open-relax so intentional Free-mode stacks aren't auto-separated.
+- Confirm before dropping onto Trash.
+- Bookmark TABS (alongside Saved Spaces).
+- Perf: spatial-hash / inscribed-circle broad phase; thumbnail cache + lazy/visible-first load.
 
-## Batch requested (2026-06) — recorded
-- TOOLS right-click submenu: "Zip" and "Rar" to compress selected files/folders into an archive in place.
-- DRAG-OUT copy/move prompt: when dragging files out of the app onto ANOTHER canvas/window, ask "Copy or Move?" before completing (currently drag-out is copy-only to external apps).
-- MINIMAP: small overlay showing the whole board with a rectangle for the current viewport; click/drag the rectangle to pan the view.
-- SORT/RELAX scope to SELECTION: sort and relax act only on selected items; if nothing selected, act on everything. (refines existing "sort applies to selection" TODO.)
-- MULTIPLE VIEWER WINDOWS: allow several image viewers open at once (not single-instance); same for text editors (multiple open).
-- EXPLORER / FOLDER-TREE VIEW (started — see EXPLORER.md): button right of the address bar labelled "explorer". Vision: activating it animates the canvas shrinking toward screen center (zoom-out feel); the current folder lands at center with its connecting folders / file structure spread around it as a hierarchy tree; clicking a folder zooms into it (its canvas/contents); double-click a folder navigates to it. Staged build.
+### Deferred (blocked)
+- RAR creation — Windows has no built-in archiver; would need a bundled tool.
 
-## Batch requested (2026-06, after explorer removal)
-- NAME TRUNCATION: clip item name display to the card/node width with an ellipsis so long names don't overflow.
-- PROPERTIES: right-click "Properties" on a file/folder — size, created/modified dates, full path, type (reuse path_size for folders).
-- IN-APP OPEN BY DEFAULT: double-clicking an image opens the floating image viewer, and a text file opens the floating text editor, instead of launching the Windows default app. (Other types still use OS open.)
-- ERROR BAR CLOSE: give the red #err bar at top a small "x" button to dismiss it.
-- FUN WIDGETS / SUB-APPS (in-app only): floating-window mini-apps hosted like the image/text viewers. First idea: a chess board you can play against the computer. Brainstorm more (sticky notes, calculator, clock, paint, music visualizer, etc.).
-- PORTALS (fancy bidirectional shortcuts): a matched pair — Portal A in folder X and Portal B in folder Y. Portal icon; each portal's NAME = the folder it leads to. Clicking a portal navigates to its paired folder (both directions). Placement UX: right-click "Add Portal" opens a small window holding two portal tokens; drop one token into one folder and the other token into another folder (navigate between drops); the window auto-closes once both are placed; closing the window early clears the half-placed portal and cancels. OPEN DESIGN QS: (a) store as app-only virtual cards in per-folder layout/state [matches "exists only in app"] vs .lnk-backed real files; (b) deleting one end removes the whole pair vs leaves a one-way portal; (c) broken target (folder moved/deleted) handling; (d) disallow both ends in the same folder.
+---
 
-### Portal — decisions locked
-- REUSE the floating-window system (openViewer/openTextEditor chrome: movable/closable) for the two-token
-  placement window. Portals themselves PERSIST via the per-folder layout store (save_layout/load_layout),
-  stored as a virtual "portal" card; the pair is one record with both paths + a shared id.
-- SAME FOLDER NOT ALLOWED for the two ends. If the user drops the second token into the same folder as the
-  first, do NOT cancel the operation — snap that token back into the placement window so they can place it
-  elsewhere. (Window only clears/cancels if the user closes it.)
-- Deleting either end removes the whole pair. Broken target (folder moved/deleted) -> clicking shows a gentle
-  error + offer to remove.
-
-## Batch requested (2026-06, after v0.0.54)
-- IMAGE -> PDF: a small window you drag image files into; thumbnails arranged in a grid sized to the window;
-  grid order = PDF page order. Right-click sort options; drag thumbnails to reorder. A "Process" button
-  merges them into one PDF, which appears as an icon attached to the bottom of the window that you can drag
-  out into a folder / place on the canvas.
-- PDF VIEWER: an image-viewer-style floating viewer for PDFs (page through / zoom / pan like the image viewer).
+## Notes
+- Real Windows Recycle Bin integration (today: app-local Trash Can folder).
+- Explorer / folder-tree view was built (v0.0.48–52) then removed v0.0.53 as not useful;
+  physics sandbox preserved at prototypes/explorer-physics-sim.html, notes in EXPLORER.md.
