@@ -4,6 +4,8 @@
  html,body{margin:0;height:100%;background:#15161a;overflow:hidden;font-family:system-ui,"Segoe UI",sans-serif;}
  #root{position:fixed;inset:0;} .pane{position:absolute;overflow:hidden;background:#15161a;} .pane.focused{box-shadow:inset 0 0 0 2px #3a6fd0;} .divider{position:absolute;z-index:9;background:#23262e;} .divider.v{cursor:col-resize;} .divider:hover{background:#3a6fd0;}
  #err{position:fixed;top:0;left:0;right:0;max-height:40%;overflow:auto;padding:10px 14px;background:#3a1d1d;color:#ffd7d7;font:12px/1.45 ui-monospace,Consolas,monospace;white-space:pre-wrap;display:none;z-index:20;}
+ #errX{position:absolute;top:6px;right:10px;background:#5a2a2a;color:#ffd7d7;border:1px solid #7a3a3a;border-radius:5px;width:22px;height:22px;line-height:1;cursor:pointer;font-size:14px;}
+ #errtxt{display:block;padding-right:30px;}
   .viewer{position:fixed;width:720px;height:540px;min-width:240px;min-height:160px;max-width:96vw;max-height:96vh;background:#15161a;border:1px solid #3a4356;border-radius:10px;box-shadow:0 20px 64px rgba(0,0,0,.62);z-index:50;display:flex;flex-direction:column;overflow:hidden;resize:both;}
   .viewerBar{height:34px;display:flex;align-items:center;gap:8px;padding:0 8px;background:#1c1f27;cursor:move;flex:0 0 auto;user-select:none;}
   .viewerTitle{flex:1;color:#c4c8d2;font:12px system-ui;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
@@ -16,6 +18,13 @@
   .editor button{background:#2a2f3a;color:#cfd2da;border:0;border-radius:6px;height:24px;cursor:pointer;font-size:13px;padding:0 10px;}
   .editorSave{background:#274b32 !important;color:#d8f0df !important;}
   .editorArea{flex:1 1 auto;min-height:0;width:100%;border:0;outline:0;resize:none;background:#0f1115;color:#d6dae2;font:14px/1.5 ui-monospace,Consolas,monospace;padding:10px 12px;box-sizing:border-box;}
+  .props{position:fixed;width:360px;background:#15161a;border:1px solid #3a4356;border-radius:10px;box-shadow:0 20px 64px rgba(0,0,0,.62);z-index:50;overflow:hidden;}
+  .props button{background:#2a2f3a;color:#cfd2da;border:0;border-radius:6px;height:24px;cursor:pointer;font-size:13px;padding:0 8px;}
+  .propsBody{padding:10px 14px;}
+  .propsRow{display:flex;gap:10px;padding:5px 0;border-bottom:1px solid #23262e;font-size:13px;}
+  .propsRow:last-child{border-bottom:0;}
+  .propsK{color:#8b93a3;min-width:74px;}
+  .propsV{color:#d6dae2;word-break:break-all;flex:1;}
  #bar{position:absolute;top:0;left:0;right:0;height:38px;display:flex;align-items:center;gap:8px;padding:0 12px;background:rgba(26,28,33,.92);border-bottom:1px solid #2a2d36;z-index:8;font-size:13px;color:#c4c8d2;}
  #bar button{background:#252934;border:1px solid #353a45;color:#d4d7df;border-radius:6px;padding:5px 10px;cursor:pointer;font:inherit;white-space:nowrap;}
  #bar button:hover:not(:disabled){background:#2f3440;}
@@ -56,7 +65,7 @@
  canvas{display:block;}
 </style></head>
 <body>
- <div id="err"></div>
+ <div id="err"><button id="errX" title="Dismiss">&#215;</button><span id="errtxt"></span></div>
  <div id="root"></div>
  <template id="paneTpl">
  <div id="bar">
@@ -82,7 +91,8 @@
  </template>
  <script src="pixi.min.js"></script>
  <script>
- function showErr(m){ var e=document.getElementById('err'); e.style.display='block'; e.textContent += m + "\n"; }
+ function showErr(m){ var e=document.getElementById('err'); e.style.display='block'; document.getElementById('errtxt').textContent += m + "\n"; }
+ var __errX=document.getElementById('errX'); if(__errX) __errX.addEventListener('click', function(){ var e=document.getElementById('err'); e.style.display='none'; document.getElementById('errtxt').textContent=''; });
  window.addEventListener('error', function(ev){ showErr('JS error: ' + (ev.message || ev.error)); });
  window.addEventListener('keydown', function(e){ if(e.key==='Escape'){ try{ window.__TAURI__.core.invoke('quit'); }catch(_){} } });
 
@@ -174,7 +184,7 @@
            var w = Math.max(1, Math.round(tex.width * s)), h = Math.max(1, Math.round(tex.height * s));
            var sp = new PIXI.Sprite(tex); sp.width = w; sp.height = h; sp.x = 4; sp.y = 22;
            var frame = new PIXI.Graphics(); frame.beginFill(card.__item.dir ? 0x222a22 : 0x1c1f27); frame.lineStyle(1, 0x3a3e49); frame.drawRoundedRect(0, 0, w + 8, h + 30, 8); frame.endFill();
-           var cap = new PIXI.Text(name, { fill: 0xb6bac4, fontSize: 11, fontFamily: 'system-ui', wordWrap: true, wordWrapWidth: w }); cap.x = 5; cap.y = 5;
+           var cap = fitLabel('', name, { fill: 0xb6bac4, fontSize: 11, fontFamily: 'system-ui' }, w - 4); cap.x = 5; cap.y = 5;
            var old = card.removeChildren(); old.forEach(function(o){ try{ o.destroy(); }catch(_){} });
            card.addChild(frame); card.addChild(sp); card.addChild(cap);
            card.hitArea = new PIXI.Rectangle(0, 0, w + 8, h + 30);
@@ -186,12 +196,13 @@
      function attachGrab(node){
        node.on('pointerdown', function(e){ if (e.button !== 0) return; if (carry || confirming || animating) return; startCarry(node, e); e.stopPropagation(); });
      }
+     function fitLabel(prefix, name, style, maxw){ var t = new PIXI.Text(prefix + name, style); if (t.width <= maxw) return t; var nm = name; while (nm.length > 1 && t.width > maxw){ nm = nm.slice(0, -1); t.text = prefix + nm + '\u2026'; } return t; }
      function buildCard(item){
        var dir = cwd;
        var card = new PIXI.Container();
        card.x = item.x; card.y = item.y; card.eventMode = 'static'; card.cursor = 'grab'; card.__item = item;
        var g = new PIXI.Graphics(); g.beginFill(item.dir ? 0x26301f : 0x232633); g.lineStyle(1, item.dir ? 0x4a5a3a : 0x3a3e49); g.drawRoundedRect(0, 0, 210, 66, 10); g.endFill(); card.addChild(g);
-       var label = new PIXI.Text((item.dir ? '\uD83D\uDCC1 ' : '') + item.name, { fill: 0xcfd2da, fontSize: 13, fontFamily: 'system-ui', wordWrap: true, wordWrapWidth: 190 }); label.x = 12; label.y = 11; card.addChild(label);
+       var label = fitLabel(item.dir ? '\uD83D\uDCC1 ' : '', item.name, { fill: 0xcfd2da, fontSize: 13, fontFamily: 'system-ui' }, 186); label.x = 12; label.y = 11; card.addChild(label);
        card.hitArea = new PIXI.Rectangle(0, 0, 210, 66);
        attachGrab(card); world.addChild(card); cards.push(card); applyThumb(card, dir);
        return card;
@@ -545,6 +556,7 @@
          var fname = target.__item.name;
          menu.appendChild(mkBtn('Open', '', function(){ navigate(joinPath(cwd, fname)); hideMenu(); }));
          menu.appendChild(mkBtn('Open in Explorer', '', function(){ T.core.invoke('open_folder', { dir: joinPath(cwd, fname) }); hideMenu(); }));
+         menu.appendChild(mkBtn('Properties', '', function(){ hideMenu(); openProperties(target); }));
          menu.appendChild(mkDragOut([target]));
          menu.appendChild(mkSep());
          menu.appendChild(mkBtn('Copy', '', function(){ copyItems('copy', [target]); hideMenu(); }));
@@ -558,6 +570,7 @@
          if (isText(name)) menu.appendChild(mkBtn('View', '', function(){ hideMenu(); openTextEditor(joinPath(cwd, name), name); }));
          menu.appendChild(mkBtn('Open with\u2026', '', function(){ T.core.invoke('shell_verb', { dir: cwd, name: name, verb: 'openas' }); hideMenu(); }));
          menu.appendChild(mkBtn('Open folder', '', function(){ T.core.invoke('open_folder', { dir: cwd }); hideMenu(); }));
+         menu.appendChild(mkBtn('Properties', '', function(){ hideMenu(); openProperties(target); }));
          menu.appendChild(mkDragOut([target]));
          menu.appendChild(mkSep());
          menu.appendChild(mkBtn('Copy', '', function(){ copyItems('copy', [target]); hideMenu(); }));
@@ -568,6 +581,28 @@
        menu.style.left = x + 'px'; menu.style.top = y + 'px'; menu.style.display = 'block';
      }
      app.view.addEventListener('contextmenu', function(ev){ ev.preventDefault(); if (confirming || animating) return; if (carry){ cancelCarry(); return; } var lpx = lx(ev.clientX), lpy = ly(ev.clientY); var c = targetAt(lpx, lpy); if (c){ if (!c.__trash && selection.has(c) && selection.size > 1) openSelectionMenu(lpx, lpy); else openMenu(lpx, lpy, c); } else openEmptyMenu(lpx, lpy); });
+     function openProperties(target){
+       var it = target.__item, name = it.name, isDir = !!it.dir, m = meta[name] || {};
+       var box = document.createElement('div'); box.className = 'props';
+       var bar = document.createElement('div'); bar.className = 'viewerBar';
+       var title = document.createElement('span'); title.className = 'viewerTitle'; title.textContent = 'Properties';
+       var close = document.createElement('button'); close.textContent = '\u2715'; close.className = 'viewerClose';
+       bar.appendChild(title); bar.appendChild(close);
+       var body = document.createElement('div'); body.className = 'propsBody';
+       function row(k, v){ var r = document.createElement('div'); r.className = 'propsRow'; var ka = document.createElement('span'); ka.className = 'propsK'; ka.textContent = k; var va = document.createElement('span'); va.className = 'propsV'; va.textContent = v; r.appendChild(ka); r.appendChild(va); body.appendChild(r); return va; }
+       row('Name', name);
+       var ext = (!isDir && /\.[^.]+$/.test(name)) ? name.slice(name.lastIndexOf('.')) : '';
+       row('Type', isDir ? 'Folder' : ('File' + (ext ? ' (' + ext + ')' : '')));
+       row('Location', cwd);
+       var sizeV = row('Size', isDir ? 'calculating\u2026' : fmtSize(m.size || 0));
+       row('Modified', m.mtime ? new Date(m.mtime * 1000).toLocaleString() : '\u2014');
+       box.appendChild(bar); box.appendChild(body); document.body.appendChild(box);
+       box.style.left = Math.max(20, Math.round((window.innerWidth - 360) / 2)) + 'px';
+       box.style.top = Math.max(20, Math.round((window.innerHeight - 240) / 2)) + 'px';
+       close.onclick = function(){ try{ box.remove(); }catch(_){} };
+       bar.addEventListener('pointerdown', function(ev){ if (ev.target !== bar && ev.target !== title) return; ev.preventDefault(); var sx = ev.clientX, sy = ev.clientY, ox = box.offsetLeft, oy = box.offsetTop; function mv(e){ box.style.left = (ox + e.clientX - sx) + 'px'; box.style.top = (oy + e.clientY - sy) + 'px'; } function up(){ window.removeEventListener('pointermove', mv); window.removeEventListener('pointerup', up); } window.addEventListener('pointermove', mv); window.addEventListener('pointerup', up); });
+       if (isDir){ T.core.invoke('path_size', { path: joinPath(cwd, name) }).then(function(b){ sizeV.textContent = fmtSize(b || 0); }).catch(function(){ sizeV.textContent = '\u2014'; }); }
+     }
      function activateItem(c){
        if (!c || !c.__item) return;
        if (c.__trash){ T.core.invoke('open_trash'); return; }
@@ -582,6 +617,8 @@
          }).catch(function(e){ T.core.invoke('open_item', { dir: srcDir, name: srcName }); });
          return;
        }
+       if (isImage(name)){ var imgs = items.filter(function(it){ return isImage(it.name); }); var ix = 0; for (var i = 0; i < imgs.length; i++){ if (imgs[i].name === name){ ix = i; break; } } openViewer(imgs.map(function(it){ return { path: joinPath(cwd, it.name), name: it.name }; }), ix); return; }
+       if (isText(name)){ openTextEditor(joinPath(cwd, name), name); return; }
        T.core.invoke('open_item', { dir: cwd, name: name });
      }
      app.view.addEventListener('dblclick', function(ev){ if (carry || confirming || animating) return; var c = targetAt(lx(ev.clientX), ly(ev.clientY)); if (!c) return; activateItem(c); });
@@ -613,7 +650,7 @@
        else if (carry && carry.source === 'import'){ hud.textContent = 'Placing imported file [' + modeLabel() + ']  \u00b7  left-click confirm  \u00b7  right-click cancel  \u00b7  T toggle  \u00b7  Free mode (1) to drop into a folder'; }
        else if (carry){ hud.textContent = 'Moving ' + (carry.held.length > 1 ? carry.held.length + ' items ' : '') + '[' + (ctrlDown ? 'Free (Ctrl)' : modeLabel()) + ']  \u00b7  hold Ctrl = free / drop into folder  \u00b7  T toggle  \u00b7  release to drop  \u00b7  Esc cancel'; }
        else if (selection.size){ hud.textContent = selection.size + ' selected  \u00b7  drag = move  \u00b7  Ctrl+C copy / Ctrl+X cut  \u00b7  Del trash  \u00b7  Ctrl+F frame  \u00b7  Esc clear'; }
-       else { hud.textContent = 'v0.0.53  \u00b7  click = select  \u00b7  shift/ctrl = add/remove  \u00b7  drag empty = box select  \u00b7  middle-drag = pan  \u00b7  drag item = move  \u00b7  mode: ' + modeLabel() + (writable ? '' : '  \u00b7  read-only'); }
+       else { hud.textContent = 'v0.0.54  \u00b7  click = select  \u00b7  shift/ctrl = add/remove  \u00b7  drag empty = box select  \u00b7  middle-drag = pan  \u00b7  drag item = move  \u00b7  mode: ' + modeLabel() + (writable ? '' : '  \u00b7  read-only'); }
      }
      upBtn.addEventListener('click', function(){ navigate(parentOf(cwd)); });
      gotoBtn.addEventListener('click', function(){ if (pathInput.style.display === 'none'){ pathInput.style.display = 'inline-block'; pathInput.value = cwd; pathInput.focus(); pathInput.select(); } else { navigate(pathInput.value.trim()); pathInput.style.display = 'none'; } });
