@@ -585,3 +585,45 @@ gentle-remove yet); cross-pane live sync only on navigation/refresh.
   Zip on file/folder + multi-select, 'Extract here' on .zip). Rar deferred (no native Windows creator).
 NEXT TODO ideas still parked: image->PDF builder window, PDF viewer, sort/relax-to-selection, multiple viewer
 windows, minimap, fun widgets (chess), shared top bar, texture streaming.
+
+## v0.0.58–0.0.68 (session)
+- 0.0.58: multi-instance image viewers + text editors (self-contained instances; focusOverlay/__activeOverlay
+  gates arrow/Esc/Ctrl+S to the focused window; nextWinPos cascade-offsets new windows).
+- 0.0.59: file/folder RENAME (rename_item, in_root-guarded; right-click via promptDialog). Simple WEB WINDOW
+  (open_web -> WebviewWindowBuilder External; native title bar + injected dark address bar w/ Google fallback;
+  launched from empty right-click "Web window"). TODO note: viewer/editor windows span monitors.
+- 0.0.60: fix rename "moving" file (carry old layout position onto new name before reload). [web fix attempt 1: run_on_main_thread]
+- 0.0.61: rename no longer reframes (loadView(true)); instrumented open_web with weblog.txt step logging.
+- 0.0.62: FIX frozen/white web window — build webview on std::thread::spawn (main-thread build() deadlocked the
+  event loop; weblog confirmed it hung at "5 building"). Mirrors the working multi-monitor pattern.
+- 0.0.63: smooth zoom (wheel -> cursor-anchored camTween ease) + pan momentum (release glide, 0.9 damping);
+  removed weblog.
+- 0.0.64: right-click menu INSIDE image viewer (body-level .pop; pane exposes self.itemMenuActions; Open with /
+  Open containing folder / Drag out to app / Copy / Copy as shortcut / Cut / Zip). Rename/Delete/Properties
+  deferred (pane modal dialogs render behind the viewer — need body-level dialogs first).
+- 0.0.65: icon move MOMENTUM (flick -> glide, cap 28 / decay 0.85; gliding icon pushes others, never pushed,
+  no folder-drop during glide). Fixed viewer menu dismissal via transparent backdrop + Esc.
+- 0.0.66: BACKGROUND IMAGES Pass 1. Transparent PIXI canvas (backgroundAlpha 0) + per-pane DOM bgLayer (2
+  crossfade imgs) behind it; grid hidden in image mode. Settings button (per-pane bar, right of Go to) opens
+  global Preferences window: default-vs-folder, Choose folder, Fill/Fit, orientation filter (all/landscape/
+  portrait), seconds between, image opacity. Rust: load/save_settings (app_data/settings.json), pick_folder
+  (PowerShell FolderBrowserDialog -Sta), list_bg_images (image::image_dimensions aspect filter). Settings sync
+  across windows via settings-changed event. Also fixed stuck-to-cursor glide bug (pointermove returns while gliding).
+  Split panes keep independent images (user prefers this).
+- 0.0.67: fix bg cycle TIMING — async race spawned orphan setInterval timers (opacity slider oninput churned them).
+  Now: opacity/fit are cheap live updates (no timer touch); re-list only when folder|orientation changes; reset
+  timer-only on seconds change; bgGen generation guard drops stale async; clearBgTimer before each setInterval;
+  debounced savePrefs (applies live, persists+broadcasts 300ms after last change).
+- 0.0.68: RENDER-ON-DEMAND (idle CPU fix). Per-window PIXI ticker stops after ~24 idle frames; wake() restarts on
+  input (pointer/wheel/key/resize) + scene changes (loadView, each build chunk, async thumb apply). active-set =
+  sortAnim||camTween||carry||panVel. Idle monitors ~0 render work. (Was ~14% idle on 3 monitors from continuous render.)
+
+## STILL PARKED / NEXT
+- BACKGROUND Pass 2: custom bg color + dot color (rebuild grid graphics); PARALLAX on mouse-move (cheap CSS
+  transform; needs imgs overscanned ~1.06x so shift never reveals edges — imgs are currently 100%/inset:0).
+- Viewer menu: add Rename/Delete/Properties (needs body-level dialogs so they render above the viewer).
+- Perf (minor, noted in audit): downscale bg images to screen size before display (full-res data URLs now);
+  grid as tiling sprite if ever needed; back off the 3s fs poll when window unfocused.
+- Multi-monitor viewer/editor windows (currently clipped to one monitor's window).
+- Other backlog unchanged (Image->PDF, PDF viewer, widgets/chess, minimap, sort-to-selection, shared top bar,
+  texture streaming, web pages as shortcut cards + borderless custom-chrome browser).
