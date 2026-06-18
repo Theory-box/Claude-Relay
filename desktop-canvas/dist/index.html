@@ -548,14 +548,22 @@
        else sortMenu.appendChild(mkBtn('Save this space', '', function(){ hideMenu(); addSpace(); }));
        positionFlyout(anchor);
      }
+     function showAddFlyout(anchor){
+       sortMenu.innerHTML = '';
+       if (writable) sortMenu.appendChild(mkBtn('New Folder', '', function(){ hideMenu(); promptDialog('New folder name', 'New Folder', 'Create', function(name){ createFolder(name); }); }));
+       if (writable) sortMenu.appendChild(mkBtn('New Text File', '', function(){ hideMenu(); promptDialog('Text file name', 'New File.txt', 'Create', function(name){ createTextFile(name); }); }));
+       sortMenu.appendChild(mkBtn('Add Portal', '', function(){ hideMenu(); openPortalPlacer(); }));
+       sortMenu.appendChild(mkBtn('Web window', '', function(){ hideMenu(); T.core.invoke('open_web', {}); }));
+       positionFlyout(anchor);
+     }
      function openEmptyMenu(x, y){
        menuTarget = null; menu.innerHTML = '';
        menu.appendChild(mkBtn(PM.split ? 'Unsplit (single view)' : 'Split \u2192 side by side', '', function(){ hideMenu(); if (PM.split) PM.unsplit(); else PM.doSplit(); }));
        menu.appendChild(mkSep());
-       if (writable) menu.appendChild(mkBtn('New Folder', '', function(){ hideMenu(); promptDialog('New folder name', 'New Folder', 'Create', function(name){ createFolder(name); }); }));
-       if (writable) menu.appendChild(mkBtn('New Text File', '', function(){ hideMenu(); promptDialog('Text file name', 'New File.txt', 'Create', function(name){ createTextFile(name); }); }));
-       menu.appendChild(mkBtn('Add Portal', '', function(){ hideMenu(); openPortalPlacer(); }));
-       menu.appendChild(mkBtn('Web window', '', function(){ hideMenu(); T.core.invoke('open_web', {}); }));
+       var addBtn = document.createElement('button'); addBtn.innerHTML = 'Add <span class="arrow">\u25B8</span>';
+       addBtn.addEventListener('click', function(ev){ ev.stopPropagation(); showAddFlyout(addBtn); });
+       addBtn.addEventListener('mouseenter', function(){ showAddFlyout(addBtn); });
+       menu.appendChild(addBtn);
        if (clip && writable){ menu.appendChild(mkBtn((clip.mode === 'shortcut' ? 'Paste shortcut' : 'Paste') + ' ' + clip.items.length + ' item' + (clip.items.length > 1 ? 's' : '') + (clip.mode === 'cut' ? ' (move)' : ''), '', function(){ hideMenu(); doPaste(); })); menu.appendChild(mkSep()); }
        var sortBtn = document.createElement('button'); sortBtn.innerHTML = 'Sort / Tidy <span class="arrow">\u25B8</span>';
        sortBtn.addEventListener('click', function(ev){ ev.stopPropagation(); showSortFlyout(sortBtn); });
@@ -726,7 +734,7 @@
        else if (carry && carry.source === 'import'){ hud.textContent = 'Placing imported file [' + modeLabel() + ']  \u00b7  left-click confirm  \u00b7  right-click cancel  \u00b7  T toggle  \u00b7  Free mode (1) to drop into a folder'; }
        else if (carry){ hud.textContent = 'Moving ' + (carry.held.length > 1 ? carry.held.length + ' items ' : '') + '[' + (ctrlDown ? 'Free (Ctrl)' : modeLabel()) + ']  \u00b7  hold Ctrl = free / drop into folder  \u00b7  T toggle  \u00b7  release to drop  \u00b7  Esc cancel'; }
        else if (selection.size){ hud.textContent = selection.size + ' selected  \u00b7  drag = move  \u00b7  Ctrl+C copy / Ctrl+X cut  \u00b7  Del trash  \u00b7  Ctrl+F frame  \u00b7  Esc clear'; }
-       else { hud.textContent = 'v0.0.75  \u00b7  click = select  \u00b7  shift/ctrl = add/remove  \u00b7  drag empty = box select  \u00b7  middle-drag = pan  \u00b7  drag item = move  \u00b7  mode: ' + modeLabel() + (writable ? '' : '  \u00b7  read-only'); }
+       else { hud.textContent = 'v0.0.76  \u00b7  click = select  \u00b7  shift/ctrl = add/remove  \u00b7  drag empty = box select  \u00b7  middle-drag = pan  \u00b7  drag item = move  \u00b7  mode: ' + modeLabel() + (writable ? '' : '  \u00b7  read-only'); }
      }
      upBtn.addEventListener('click', function(){ navigate(parentOf(cwd)); });
      gotoBtn.addEventListener('click', function(){ if (pathInput.style.display === 'none'){ pathInput.style.display = 'inline-block'; pathInput.value = cwd; pathInput.focus(); pathInput.select(); } else { navigate(pathInput.value.trim()); pathInput.style.display = 'none'; } });
