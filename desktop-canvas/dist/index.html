@@ -327,8 +327,8 @@
        cards.forEach(function(c){ if (heldHas(c)) return; var sn = carry.snap[c.__item.name]; if (sn){ c.x = sn.x; c.y = sn.y; } });
        carry.dropTarget = null; hl.visible = false;
        var anchor = carry.anchor;
-       var mode = (anchor.__trash || ctrlDown) ? 'free' : modes[modeIdx];
-       if (!anchor.__trash){
+       var mode = carry.gliding ? 'push' : ((anchor.__trash || ctrlDown) ? 'free' : modes[modeIdx]);
+       if (!anchor.__trash && !carry.gliding){
          var dt = dropTargetUnder(rectOf(anchor), mode === 'free' && writable);
          if (dt){ carry.dropTarget = dt; var w2 = dt.hitArea.width, h2 = dt.hitArea.height; hl.clear(); hl.lineStyle(2, dt.__trash ? 0xe09a9a : 0x6fd08c); hl.drawRoundedRect(0, 0, w2, h2, 10); hl.x = dt.x; hl.y = dt.y; hl.visible = true; world.addChild(hl); return; }
        }
@@ -374,6 +374,14 @@
        if (carry.source === 'import'){ var c = carry.anchor, nm = c.__item.name; T.core.invoke('delete_file', { dir: cwd, name: nm }).catch(function(e){ showErr('del: ' + e); }); selection.delete(c); removeCardLocal(c); }
        else { cards.forEach(function(c){ var sn = carry.snap[c.__item.name]; if (sn){ c.x = sn.x; c.y = sn.y; } }); if (carry.snap.__trash && trashNode){ trashNode.x = carry.snap.__trash.x; trashNode.y = carry.snap.__trash.y; } carry.held.forEach(function(h){ h.card.alpha = 1; }); }
        hl.visible = false; carry = null; updateHud(); drawSelection(); flushReload();
+     }
+     function startGlide(){
+       if (!carry || carry.source !== 'move' || carry.dropTarget || !carry.lastCw) return false;
+       var v = carry.vel || { x: 0, y: 0 }; var sp = Math.hypot(v.x, v.y);
+       if (sp < 2.5) return false;
+       var cap = 28; if (sp > cap){ v.x = v.x / sp * cap; v.y = v.y / sp * cap; }
+       carry.gliding = true; carry.glideCw = { x: carry.lastCw.x, y: carry.lastCw.y }; carry.vel = { x: v.x, y: v.y };
+       return true;
      }
 
      // ---------- selection & rubber-band box ----------
@@ -440,6 +448,7 @@
          ctrlDown = e.ctrlKey;
          if (carry.phase === 'drag'){ if (Math.hypot(e.global.x - carry.start.x, e.global.y - carry.start.y) > 5){ if (!carry.moved){ carry.moved = true; carry.held.forEach(function(h){ h.card.alpha = 0.85; }); if (!carry.fromSelection && carry.source === 'move' && carry.anchor.__item && !carry.anchor.__trash){ selection.clear(); selection.add(carry.anchor); drawSelection(); } } } if (!carry.moved) return; }
          var wx = (e.global.x - world.x) / world.scale.x, wy = (e.global.y - world.y) / world.scale.y;
+         carry.vel = carry.vel || { x: 0, y: 0 }; if (carry.lastCw){ carry.vel.x = carry.vel.x * 0.5 + (wx - carry.lastCw.x) * 0.5; carry.vel.y = carry.vel.y * 0.5 + (wy - carry.lastCw.y) * 0.5; } carry.lastCw = { x: wx, y: wy };
          resolveCarry({ x: wx, y: wy });
        } else if (box){ if (Math.hypot(e.global.x - box.x0, e.global.y - box.y0) > 3) box.moved = true; box.cx = e.global.x; box.cy = e.global.y; updateBoxDiv(); }
        else if (panning && last){ var pdx = e.global.x - last.x, pdy = e.global.y - last.y; world.x += pdx; world.y += pdy; panVel.x = panVel.x * 0.5 + pdx * 0.5; panVel.y = panVel.y * 0.5 + pdy * 0.5; last = { x: e.global.x, y: e.global.y }; }
@@ -447,7 +456,7 @@
      function onUp(){
        if (carry){
          if (carry.source === 'move' && carry.phase === 'drag'){
-           if (carry.moved) commitCarry();
+           if (carry.moved){ if (!startGlide()) commitCarry(); }
            else { var node = carry.anchor; if (!node.__trash && node.__item){ if (carry.shift){ if (selection.has(node)) selection.delete(node); else selection.add(node); } else if (carry.ctrl){ selection.delete(node); } else { selection.clear(); selection.add(node); } drawSelection(); } carry = null; updateHud(); }
          }
          return;
@@ -701,7 +710,7 @@
        else if (carry && carry.source === 'import'){ hud.textContent = 'Placing imported file [' + modeLabel() + ']  \u00b7  left-click confirm  \u00b7  right-click cancel  \u00b7  T toggle  \u00b7  Free mode (1) to drop into a folder'; }
        else if (carry){ hud.textContent = 'Moving ' + (carry.held.length > 1 ? carry.held.length + ' items ' : '') + '[' + (ctrlDown ? 'Free (Ctrl)' : modeLabel()) + ']  \u00b7  hold Ctrl = free / drop into folder  \u00b7  T toggle  \u00b7  release to drop  \u00b7  Esc cancel'; }
        else if (selection.size){ hud.textContent = selection.size + ' selected  \u00b7  drag = move  \u00b7  Ctrl+C copy / Ctrl+X cut  \u00b7  Del trash  \u00b7  Ctrl+F frame  \u00b7  Esc clear'; }
-       else { hud.textContent = 'v0.0.64  \u00b7  click = select  \u00b7  shift/ctrl = add/remove  \u00b7  drag empty = box select  \u00b7  middle-drag = pan  \u00b7  drag item = move  \u00b7  mode: ' + modeLabel() + (writable ? '' : '  \u00b7  read-only'); }
+       else { hud.textContent = 'v0.0.65  \u00b7  click = select  \u00b7  shift/ctrl = add/remove  \u00b7  drag empty = box select  \u00b7  middle-drag = pan  \u00b7  drag item = move  \u00b7  mode: ' + modeLabel() + (writable ? '' : '  \u00b7  read-only'); }
      }
      upBtn.addEventListener('click', function(){ navigate(parentOf(cwd)); });
      gotoBtn.addEventListener('click', function(){ if (pathInput.style.display === 'none'){ pathInput.style.display = 'inline-block'; pathInput.value = cwd; pathInput.focus(); pathInput.select(); } else { navigate(pathInput.value.trim()); pathInput.style.display = 'none'; } });
@@ -845,7 +854,7 @@
      try{ T.event.listen('thumb-changed', function(e){ var p = e.payload || {}; if (p.key !== cwd || !p.name) return; delete thumbCache[cwd + '\u0000' + p.name]; var c = cardForName(p.name); if (c) applyThumb(c, cwd); }); }catch(_){}
 
      var diag = $('#diag');
-     app.ticker.add(function(){ if (sortAnim) stepSort(); if (camTween){ world.scale.set(world.scale.x + (camTween.s - world.scale.x) * 0.25); world.x += (camTween.x - world.x) * 0.25; world.y += (camTween.y - world.y) * 0.25; if (--camTween.f <= 0){ world.scale.set(camTween.s); world.x = camTween.x; world.y = camTween.y; camTween = null; } } else if (!panning && (Math.abs(panVel.x) > 0.06 || Math.abs(panVel.y) > 0.06)){ world.x += panVel.x; world.y += panVel.y; panVel.x *= 0.9; panVel.y *= 0.9; if (Math.abs(panVel.x) <= 0.06) panVel.x = 0; if (Math.abs(panVel.y) <= 0.06) panVel.y = 0; } if (carry || selection.size) drawSelection(); diag.textContent = 'zoom ' + Math.round(world.scale.x * 100) + '%  items ' + items.length + (selection.size ? '  sel ' + selection.size : '') + (animating ? '  sorting' : (carry ? '  ' + carry.source : '')); });
+     app.ticker.add(function(){ if (sortAnim) stepSort(); if (carry && carry.gliding){ carry.glideCw.x += carry.vel.x; carry.glideCw.y += carry.vel.y; carry.vel.x *= 0.85; carry.vel.y *= 0.85; resolveCarry(carry.glideCw); if (Math.hypot(carry.vel.x, carry.vel.y) < 0.6){ carry.gliding = false; commitCarry(); } } if (camTween){ world.scale.set(world.scale.x + (camTween.s - world.scale.x) * 0.25); world.x += (camTween.x - world.x) * 0.25; world.y += (camTween.y - world.y) * 0.25; if (--camTween.f <= 0){ world.scale.set(camTween.s); world.x = camTween.x; world.y = camTween.y; camTween = null; } } else if (!panning && (Math.abs(panVel.x) > 0.06 || Math.abs(panVel.y) > 0.06)){ world.x += panVel.x; world.y += panVel.y; panVel.x *= 0.9; panVel.y *= 0.9; if (Math.abs(panVel.x) <= 0.06) panVel.x = 0; if (Math.abs(panVel.y) <= 0.06) panVel.y = 0; } if (carry || selection.size) drawSelection(); diag.textContent = 'zoom ' + Math.round(world.scale.x * 100) + '%  items ' + items.length + (selection.size ? '  sel ' + selection.size : '') + (animating ? '  sorting' : (carry ? '  ' + carry.source : '')); });
 
      (async function(){
        try{ placesList = JSON.parse(await T.core.invoke('places') || '[]'); }catch(e){ showErr('places: ' + e); }
@@ -978,16 +987,20 @@
      bar.addEventListener('pointerdown', function(ev){ if (ev.target !== bar && ev.target !== title) return; ev.preventDefault(); var sx = ev.clientX, sy = ev.clientY, ox = box.offsetLeft, oy = box.offsetTop; function mv(e){ box.style.left = (ox + e.clientX - sx) + 'px'; box.style.top = (oy + e.clientY - sy) + 'px'; } function up(){ window.removeEventListener('pointermove', mv); window.removeEventListener('pointerup', up); } window.addEventListener('pointermove', mv); window.addEventListener('pointerup', up); });
      __placer = { box: box };
    }
-   var __vmenu = null;
-   function closeVMenu(){ if (__vmenu){ try{ __vmenu.remove(); }catch(_){} __vmenu = null; window.removeEventListener('pointerdown', vmOutside, true); } }
-   function vmOutside(e){ if (__vmenu && !__vmenu.contains(e.target)) closeVMenu(); }
+   var __vmenu = null, __vback = null;
+   function closeVMenu(){ if (__vmenu){ try{ __vmenu.remove(); }catch(_){} __vmenu = null; } if (__vback){ try{ __vback.remove(); }catch(_){} __vback = null; } window.removeEventListener('keydown', vmKey, true); }
+   function vmKey(e){ if (e.key === 'Escape'){ closeVMenu(); e.preventDefault(); e.stopPropagation(); } }
    function openViewerCtxMenu(actions, x, y){
      closeVMenu();
-     var m = document.createElement('div'); m.className = 'pop'; m.style.position = 'fixed'; m.style.zIndex = '2000000000'; m.style.display = 'block'; m.style.left = x + 'px'; m.style.top = y + 'px';
+     __vback = document.createElement('div'); __vback.style.cssText = 'position:fixed;inset:0;z-index:1999999998;background:transparent;';
+     var dismiss = function(e){ e.preventDefault(); e.stopPropagation(); closeVMenu(); };
+     __vback.addEventListener('pointerdown', dismiss); __vback.addEventListener('contextmenu', dismiss);
+     document.body.appendChild(__vback);
+     var m = document.createElement('div'); m.className = 'pop'; m.style.position = 'fixed'; m.style.zIndex = '1999999999'; m.style.display = 'block'; m.style.left = x + 'px'; m.style.top = y + 'px';
      actions.forEach(function(a){ if (a.sep){ var s = document.createElement('div'); s.className = 'sep'; m.appendChild(s); return; } var b = document.createElement('button'); b.textContent = a.label; if (a.danger) b.className = 'danger'; var fn = function(ev){ ev.stopPropagation(); closeVMenu(); a.fn(); }; if (a.dragout) b.addEventListener('pointerdown', fn); else b.addEventListener('click', fn); m.appendChild(b); });
-     document.body.appendChild(m);
+     document.body.appendChild(m); __vmenu = m;
      var r = m.getBoundingClientRect(); if (r.right > window.innerWidth) m.style.left = Math.max(4, window.innerWidth - r.width - 8) + 'px'; if (r.bottom > window.innerHeight) m.style.top = Math.max(4, window.innerHeight - r.height - 8) + 'px';
-     setTimeout(function(){ window.addEventListener('pointerdown', vmOutside, true); }, 0);
+     window.addEventListener('keydown', vmKey, true);
    }
    function openViewer(list, idx, owner){
      if (!list || !list.length) return;
