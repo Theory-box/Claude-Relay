@@ -591,13 +591,17 @@ fn open_web(app: tauri::AppHandle, query: Option<String>) -> Result<(), String> 
     let url = tauri::Url::parse(&start).map_err(|e| e.to_string())?;
     let n = WEB_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let label = format!("web-{}", n);
-    tauri::WebviewWindowBuilder::new(&app, &label, tauri::WebviewUrl::External(url))
-        .title("Web")
-        .inner_size(1100.0, 800.0)
-        .resizable(true)
-        .initialization_script(WEB_NAVBAR)
-        .build()
-        .map_err(|e| e.to_string())?;
+    let app2 = app.clone();
+    app.run_on_main_thread(move || {
+        let _ = tauri::WebviewWindowBuilder::new(&app2, &label, tauri::WebviewUrl::External(url))
+            .title("Web")
+            .inner_size(1100.0, 800.0)
+            .resizable(true)
+            .decorations(true)
+            .center()
+            .initialization_script(WEB_NAVBAR)
+            .build();
+    }).map_err(|e| e.to_string())?;
     Ok(())
 }
 
