@@ -4,6 +4,53 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use tauri::Manager;
 
+fn sm_log(app: &tauri::AppHandle, msg: &str) {
+    if let Ok(dir) = canvas_dir(app) {
+        use std::io::Write;
+        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(dir.join("spacemouselog.txt")) {
+            let _ = writeln!(f, "{}", msg);
+        }
+    }
+}
+
+fn spawn_spacemouse_probe(app: tauri::AppHandle) {
+    std::thread::spawn(move || {
+        if let Ok(dir) = canvas_dir(&app) { let _ = std::fs::write(dir.join("spacemouselog.txt"), "spacemouse probe start\n"); }
+        let api = match hidapi::HidApi::new() { Ok(a) => a, Err(e) => { sm_log(&app, &format!("hidapi init err: {}", e)); return; } };
+        let mut chosen: Option<std::ffi::CString> = None;
+        let mut fallback: Option<std::ffi::CString> = None;
+        for d in api.device_list() {
+            let is3dx = d.vendor_id() == 0x256f || d.vendor_id() == 0x046d;
+            sm_log(&app, &format!("dev vid={:04x} pid={:04x} up={:04x} u={:04x} prod={:?}", d.vendor_id(), d.product_id(), d.usage_page(), d.usage(), d.product_string()));
+            if is3dx {
+                if fallback.is_none() { fallback = Some(d.path().to_owned()); }
+                if d.usage_page() == 0x01 && d.usage() == 0x08 && chosen.is_none() { chosen = Some(d.path().to_owned()); }
+            }
+        }
+        let path = match chosen.or(fallback) { Some(p) => p, None => { sm_log(&app, "no 3Dconnexion device found"); return; } };
+        let dev = match api.open_path(path.as_c_str()) { Ok(d) => d, Err(e) => { sm_log(&app, &format!("open err: {}", e)); return; } };
+        let _ = dev.set_blocking_mode(false);
+        sm_log(&app, "opened device, reading 30s -- move the knob each direction + press both buttons");
+        let mut buf = [0u8; 64];
+        let mut count = 0u32;
+        let start = std::time::Instant::now();
+        loop {
+            if start.elapsed().as_secs() > 30 { sm_log(&app, "probe done (30s)"); break; }
+            match dev.read_timeout(&mut buf, 200) {
+                Ok(n) if n > 0 => {
+                    count += 1;
+                    if count <= 500 {
+                        let hex: String = buf[..n].iter().map(|b| format!("{:02x} ", b)).collect();
+                        sm_log(&app, &format!("rpt[{}] {}", n, hex.trim_end()));
+                    }
+                }
+                Ok(_) => {}
+                Err(e) => { sm_log(&app, &format!("read err: {}", e)); break; }
+            }
+        }
+    });
+}
+
 fn canvas_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     let base = app
         .path()
@@ -780,6 +827,7 @@ fn main() {
         .setup(|app| {
             let handle = app.handle().clone();
             let _ = canvas_dir(&handle);
+            spawn_spacemouse_probe(handle.clone());
             if let Some(main) = handle.get_webview_window("main") {
                 if let Ok(monitors) = main.available_monitors() {
                     if let Some(m0) = monitors.get(0) {
