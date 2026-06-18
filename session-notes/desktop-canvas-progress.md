@@ -575,3 +575,13 @@ same-folder rejected (hint, token not placed); both placed -> commit+save+refres
 baseName via String.fromCharCode(92) to dodge backslash escaping. self.screenToWorld + self.renderPortals added.
 KNOWN/possible refinements: broken-target (folder moved/deleted) handling on click is just navigate (no
 gentle-remove yet); cross-pane live sync only on navigation/refresh.
+
+## v0.0.56-0.0.57
+- 0.0.56: portal spawn-in-view (frameAll includes portalCards; loadView reframes after portals render);
+  portal card -> large square tile (130x150) w/ round concentric-ring disc + destination caption (image-like).
+- 0.0.57: portal show-as-you-place (self.addTentativePortal renders a 'placing...' card on drop; commit/cancel
+  refreshPortals); broken-portal auto-remove (activatePortal -> path_exists(target); if missing, deletePortal +
+  notice); ZIP/EXTRACT (Rust zip_items=Compress-Archive, unzip_item=Expand-Archive, path_exists; right-click
+  Zip on file/folder + multi-select, 'Extract here' on .zip). Rar deferred (no native Windows creator).
+NEXT TODO ideas still parked: image->PDF builder window, PDF viewer, sort/relax-to-selection, multiple viewer
+windows, minimap, fun widgets (chess), shared top bar, texture streaming.
