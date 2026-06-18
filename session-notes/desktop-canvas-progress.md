@@ -552,3 +552,13 @@ force sliders, iterated with user to a locked feel, then ported to the app. Mode
 — repulsion 40000 + parent spring(len400,k0.04) + outward radial 8 from pinned root; velocity+damping 0.5;
 circular hard separation radius 150. Grow 1 level; single-tap toggles expand/collapse; double-tap navigates.
 Replaced the v0.0.51 vertical-spring/AABB model that jammed into a column. Click now reliable (PIXI taps).
+
+## v0.0.53-0.0.54
+- 0.0.53: REMOVED the Explorer feature from the app (button/mode/physics/hooks). Preserved: folder_tree Rust
+  cmd (unused), physics sandbox at desktop-canvas/prototypes/explorer-physics-sim.html, EXPLORER.md notes.
+- 0.0.54: four quick wins — (1) fitLabel truncates card label + image caption to node width w/ ellipsis;
+  (2) #err bar has an X dismiss button (text in #errtxt span); (3) Properties right-click panel (movable;
+  name/type/location/size/modified; folder size via path_size); (4) in-app open-by-default: dbl-click image
+  -> floating viewer, text -> floating editor, else OS open.
+NEXT: PORTALS (spec in TODO.md, decisions locked) — reuse floating-window chrome + per-folder layout
+persistence; bidirectional pair; no same-folder (snap token back, don't cancel); delete one removes pair.
