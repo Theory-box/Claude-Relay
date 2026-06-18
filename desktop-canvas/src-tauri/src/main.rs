@@ -584,24 +584,51 @@ const WEB_NAVBAR: &str = r#"(function(){ if (window.__dcBar) return; window.__dc
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', build); else build();
 })();"#;
 
+fn weblog_reset(app: &tauri::AppHandle, msg: &str) {
+    if let Ok(dir) = canvas_dir(app) {
+        let _ = std::fs::write(dir.join("weblog.txt"), format!("{}\n", msg));
+    }
+}
+fn weblog(app: &tauri::AppHandle, msg: &str) {
+    use std::io::Write;
+    if let Ok(dir) = canvas_dir(app) {
+        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(dir.join("weblog.txt")) {
+            let _ = writeln!(f, "{}", msg);
+        }
+    }
+}
+
 #[tauri::command]
 fn open_web(app: tauri::AppHandle, query: Option<String>) -> Result<(), String> {
+    weblog_reset(&app, "1 enter open_web");
     let q = query.unwrap_or_default();
     let start = if q.trim().is_empty() { "https://www.google.com".to_string() } else { to_url(&q) };
-    let url = tauri::Url::parse(&start).map_err(|e| e.to_string())?;
+    weblog(&app, &format!("2 start_url={}", start));
+    let url = match tauri::Url::parse(&start) {
+        Ok(u) => u,
+        Err(e) => { weblog(&app, &format!("2e url_parse_err={}", e)); return Err(e.to_string()); }
+    };
     let n = WEB_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let label = format!("web-{}", n);
+    weblog(&app, &format!("3 label={}", label));
     let app2 = app.clone();
-    app.run_on_main_thread(move || {
-        let _ = tauri::WebviewWindowBuilder::new(&app2, &label, tauri::WebviewUrl::External(url))
+    let dispatch = app.run_on_main_thread(move || {
+        weblog(&app2, "5 on_main_thread building");
+        match tauri::WebviewWindowBuilder::new(&app2, &label, tauri::WebviewUrl::External(url))
             .title("Web")
             .inner_size(1100.0, 800.0)
             .resizable(true)
             .decorations(true)
             .center()
             .initialization_script(WEB_NAVBAR)
-            .build();
-    }).map_err(|e| e.to_string())?;
+            .build()
+        {
+            Ok(_) => weblog(&app2, "6 build OK"),
+            Err(e) => weblog(&app2, &format!("6e build_err={}", e)),
+        }
+    });
+    weblog(&app, &format!("4 dispatched ok={}", dispatch.is_ok()));
+    dispatch.map_err(|e| e.to_string())?;
     Ok(())
 }
 
