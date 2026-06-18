@@ -618,6 +618,33 @@ windows, minimap, fun widgets (chess), shared top bar, texture streaming.
   input (pointer/wheel/key/resize) + scene changes (loadView, each build chunk, async thumb apply). active-set =
   sortAnim||camTween||carry||panVel. Idle monitors ~0 render work. (Was ~14% idle on 3 monitors from continuous render.)
 
+- 0.0.69: PDF VIEWER Pass 1. Vendored pdf.js 3.11.174 legacy UMD (dist/vendor/pdf.min.js + pdf.worker.min.js;
+  global pdfjsLib; workerSrc set). Rust read_file_b64 -> JS atob -> Uint8Array -> getDocument. Double-click .pdf
+  opens floating multi-instance viewer (focusOverlay/doClose like image viewer): canvas render at dpr, page nav
+  (buttons + arrows/PageUp-Down), zoom, fit-to-width on open, serialized render w/ task.cancel + rendering/pending.
+- 0.0.70: PDF page EXPORT / drag-out. Right-click page -> small panel: DPI field (150 default, 36-600) + "Drag
+  out page" handle. Renders page at DPI/72 to offscreen canvas -> PNG -> Rust save_temp_png (%TEMP%/desktop-canvas)
+  -> handle pointerdown fires drag_out([tempPath]). DPI change re-renders (debounced, gen-guarded); backdrop dismiss.
+  Rust b64_decode added.
+- 0.0.71: PDF viewer IMAGE-EDITOR pan/zoom. Page free-floats via CSS transform (translate+scale, origin 0,0) so
+  panning works even when smaller than window. Plain scroll = zoom toward cursor (no Ctrl); middle/left drag = pan.
+  Zoom live via transform, re-renders at new scale after ~180ms idle (rscale cap 5, dpr-aware). +/- = zoom to center.
+- 0.0.72: SpaceMouse raw-HID PROBE (diagnostic) + image jpeg feature. hidapi dep; spawn_spacemouse_probe logged
+  device list + raw report hex to spacemouselog.txt for 30s. Confirmed: device opens alongside 3DxWare driver
+  (no SDK needed). SpaceMouse Compact = vid 256f pid c635, usage_page 0001 usage 0008. Report format: 7 bytes,
+  [id][3x int16 LE]. id 0x01=translation(Tx,Ty,Tz), 0x02=rotation(Rx,Ry,Rz), 0x03=buttons(byte1 bitmask 01=L 02=R).
+- 0.0.73: SpaceMouse pan/zoom LIVE. Continuous hidapi reader emits 'spacemouse' {x,y,z} event on report 0x01
+  (suppresses repeat all-zero). Frontend self.spaceNudge applies to world + wake(); global listener routes to pane
+  under cursor (PM.paneAt||focused), only the monitor the cursor is over responds (inside flag via pointermove/
+  mouseleave/blur). Tunables in SM global. (rotation+buttons parsed, unused.)
+- 0.0.74: SpaceMouse axis REMAP + STUTTER fix. Tx->panX, Tz(up/down press)->panY, Ty(forward/back)->zoom. Stutter
+  was the 3DxWare driver's emulated scroll-wheel zoom fighting our HID zoom through the app's eased wheel-zoom;
+  fixed by suppressing canvas wheel-zoom while SpaceMouse streams (window.__smActiveUntil = now+220ms set per event).
+- 0.0.75: SpaceMouse settings in PREFS + Preferences UI. Folded tunables into PREFS (smPan/smZoom/smDead/smInvX/
+  smInvY/smInvZoom; persist+sync via settings.json; spaceNudge reads PREFS live). smInvZoom defaults TRUE
+  (forward=zoom in). Preferences window gained a "SpaceMouse" section: Pan/Zoom speed sliders (live value),
+  Deadzone field, Invert L/R + up/down + zoom checkboxes. CONFIRMED working/perfect by user.
+
 ## STILL PARKED / NEXT
 - BACKGROUND Pass 2: custom bg color + dot color (rebuild grid graphics); PARALLAX on mouse-move (cheap CSS
   transform; needs imgs overscanned ~1.06x so shift never reveals edges — imgs are currently 100%/inset:0).
@@ -625,5 +652,8 @@ windows, minimap, fun widgets (chess), shared top bar, texture streaming.
 - Perf (minor, noted in audit): downscale bg images to screen size before display (full-res data URLs now);
   grid as tiling sprite if ever needed; back off the 3s fs poll when window unfocused.
 - Multi-monitor viewer/editor windows (currently clipped to one monitor's window).
-- Other backlog unchanged (Image->PDF, PDF viewer, widgets/chess, minimap, sort-to-selection, shared top bar,
+- DONE since: PDF viewer + export + image-editor pan/zoom (0.0.69-71); SpaceMouse pan/zoom + settings (0.0.72-75).
+- SpaceMouse follow-ups (optional): rotation/twist as alt zoom; buttons (01=L,02=R) -> frame-all / reset; device
+  hot-plug re-open; emit_to active window instead of broadcast. Axis signs are user-tunable in Preferences now.
+- Other backlog unchanged (Image->PDF builder, widgets/chess, minimap, sort-to-selection, shared top bar,
   texture streaming, web pages as shortcut cards + borderless custom-chrome browser).
