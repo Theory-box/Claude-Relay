@@ -562,3 +562,16 @@ Replaced the v0.0.51 vertical-spring/AABB model that jammed into a column. Click
   -> floating viewer, text -> floating editor, else OS open.
 NEXT: PORTALS (spec in TODO.md, decisions locked) — reuse floating-window chrome + per-folder layout
 persistence; bidirectional pair; no same-folder (snap token back, don't cancel); delete one removes pair.
+
+## v0.0.55 — Portals
+Bidirectional fancy shortcuts. Rust load_portals/save_portals -> global app_data/portals.json.
+Model: pair = { id, ends:[{folder,x,y},{folder,x,y}] }. Each end renders as a purple portal card in its
+folder (name = baseName of the OTHER end's folder). Single-click = navigate to paired folder; drag =
+reposition (savePortalPos); right-click -> Delete portal (removes pair). renderPortals runs at loadView end
+(loadPortals refetch) and clearView clears portalCards. Bootstrap: PORTALS cache + loadPortals/savePortals/
+portalEndsFor/baseNameB/refreshPortals(all panes). Add Portal (empty menu) -> openPortalPlacer floating
+window w/ 2 draggable tokens (custom ghost drag) -> drop into a pane (PM.paneAt + pane.screenToWorld+getCwd);
+same-folder rejected (hint, token not placed); both placed -> commit+save+refresh+close; close early = cancel.
+baseName via String.fromCharCode(92) to dodge backslash escaping. self.screenToWorld + self.renderPortals added.
+KNOWN/possible refinements: broken-target (folder moved/deleted) handling on click is just navigate (no
+gentle-remove yet); cross-pane live sync only on navigation/refresh.
