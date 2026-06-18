@@ -262,7 +262,7 @@
          if (bi < list.length){ requestAnimationFrame(buildChunk); return; } // paint between batches -> progressive display
          if (cwd && cwd === homePath) trashNode = buildTrash();
          updateBar(); loading = false;
-         loadPortals().then(function(){ renderPortals(); });
+         loadPortals().then(function(){ renderPortals(); if (!fromSync && seq === loadSeq && !carry) frameAll(); });
          if (!fromSync){ // de-overlap after first paint, time-budgeted; second pass catches thumbnail growth
            scheduleRelax(cwd, seq);
            setTimeout(function(){ relaxBudgeted(cwd, seq, 0, false); }, 900);
@@ -639,12 +639,19 @@
      // ---------- address bar ----------
      function baseName(p){ if (!p) return p; var BS = String.fromCharCode(92); var a = p; while (a.length){ var ch = a.charAt(a.length-1); if (ch === BS || ch === '/') a = a.slice(0,-1); else break; } var i = a.length-1; while (i >= 0){ var c = a.charAt(i); if (c === BS || c === '/') break; i--; } var n = a.slice(i+1); return n || p; }
      function makePortalCard(info){
-       var card = new PIXI.Container(); card.x = info.x; card.y = info.y; card.eventMode = 'static'; card.cursor = 'pointer'; card.__portal = info;
-       var g = new PIXI.Graphics(); g.beginFill(0x241b33); g.lineStyle(1, 0x7a5cc0); g.drawRoundedRect(0, 0, 210, 66, 10); g.endFill(); card.addChild(g);
-       var ic = new PIXI.Graphics(); ic.lineStyle(3, 0x9b7be0); ic.drawEllipse(0, 0, 11, 15); ic.lineStyle(2, 0x6fd0e0); ic.drawEllipse(0, 0, 5, 8); ic.x = 24; ic.y = 33; card.addChild(ic);
-       var label = fitLabel('', baseName(info.target || ''), { fill: 0xcdbff0, fontSize: 13, fontFamily: 'system-ui' }, 150); label.x = 46; label.y = 18; card.addChild(label);
-       var sub = new PIXI.Text('portal \u2192', { fill: 0x8a7ab0, fontSize: 10, fontFamily: 'system-ui' }); sub.x = 46; sub.y = 40; card.addChild(sub);
-       card.hitArea = new PIXI.Rectangle(0, 0, 210, 66);
+       var IC = 122, W = IC + 8, H = IC + 28;
+       var card = new PIXI.Container(); card.x = info.x; card.y = info.y; card.eventMode = 'static'; card.cursor = 'pointer'; card.__portal = info; card.__pw = W; card.__ph = H;
+       var frame = new PIXI.Graphics(); frame.beginFill(0x1c1726); frame.lineStyle(1, 0x7a5cc0); frame.drawRoundedRect(0, 0, W, H, 9); frame.endFill(); card.addChild(frame);
+       var cap = fitLabel('', baseName(info.target || ''), { fill: 0xcdbff0, fontSize: 12, fontFamily: 'system-ui' }, W - 10); cap.x = 5; cap.y = 5; card.addChild(cap);
+       var ccx = W / 2, ccy = 22 + IC / 2;
+       var disc = new PIXI.Graphics();
+       disc.beginFill(0x140f1f); disc.drawCircle(ccx, ccy, IC * 0.46); disc.endFill();
+       disc.lineStyle(5, 0x7a5cc0); disc.drawCircle(ccx, ccy, IC * 0.44);
+       disc.lineStyle(3, 0x6fd0e0); disc.drawCircle(ccx, ccy, IC * 0.30);
+       disc.lineStyle(2, 0x9b7be0); disc.drawCircle(ccx, ccy, IC * 0.17);
+       disc.beginFill(0x6fd0e0, 0.55); disc.drawCircle(ccx, ccy, IC * 0.06); disc.endFill();
+       card.addChild(disc);
+       card.hitArea = new PIXI.Rectangle(0, 0, W, H);
        attachPortalGrab(card); world.addChild(card); portalCards.push(card); return card;
      }
      function attachPortalGrab(card){
@@ -657,7 +664,7 @@
      }
      function savePortalPos(card){ var info = card.__portal; for (var i = 0; i < PORTALS.length; i++){ if (PORTALS[i].id === info.pairId){ var ends = PORTALS[i].ends; for (var j = 0; j < ends.length; j++){ if (ends[j].folder === cwd){ ends[j].x = Math.round(card.x); ends[j].y = Math.round(card.y); } } break; } } savePortals(); }
      function activatePortal(card){ navigate(card.__portal.target); }
-     function portalAt(sx, sy){ var wx = (sx - world.x) / world.scale.x, wy = (sy - world.y) / world.scale.y; for (var i = portalCards.length - 1; i >= 0; i--){ var c = portalCards[i]; if (wx >= c.x && wx <= c.x + 210 && wy >= c.y && wy <= c.y + 66) return c; } return null; }
+     function portalAt(sx, sy){ var wx = (sx - world.x) / world.scale.x, wy = (sy - world.y) / world.scale.y; for (var i = portalCards.length - 1; i >= 0; i--){ var c = portalCards[i]; if (wx >= c.x && wx <= c.x + (c.__pw || 128) && wy >= c.y && wy <= c.y + (c.__ph || 148)) return c; } return null; }
      function openPortalMenu(x, y, card){ menu.innerHTML = ''; sortMenu.style.display = 'none'; menu.appendChild(mkBtn('Go to ' + baseName(card.__portal.target), '', function(){ hideMenu(); activatePortal(card); })); menu.appendChild(mkSep()); menu.appendChild(mkBtn('Delete portal', 'danger', function(){ hideMenu(); deletePortal(card.__portal.pairId); })); menu.style.left = x + 'px'; menu.style.top = y + 'px'; menu.style.display = 'block'; }
      function deletePortal(pairId){ PORTALS = PORTALS.filter(function(pr){ return pr.id !== pairId; }); savePortals().then(refreshPortals); }
      function renderPortals(){ for (var i = 0; i < portalCards.length; i++){ try{ world.removeChild(portalCards[i]); portalCards[i].destroy({ children: true }); }catch(_){} } portalCards = []; if (!cwd) return; var ends = portalEndsFor(cwd); for (var i = 0; i < ends.length; i++){ var e = ends[i]; makePortalCard({ pairId: e.pair.id, x: e.end.x, y: e.end.y, target: e.other.folder }); } }
@@ -686,7 +693,7 @@
        else if (carry && carry.source === 'import'){ hud.textContent = 'Placing imported file [' + modeLabel() + ']  \u00b7  left-click confirm  \u00b7  right-click cancel  \u00b7  T toggle  \u00b7  Free mode (1) to drop into a folder'; }
        else if (carry){ hud.textContent = 'Moving ' + (carry.held.length > 1 ? carry.held.length + ' items ' : '') + '[' + (ctrlDown ? 'Free (Ctrl)' : modeLabel()) + ']  \u00b7  hold Ctrl = free / drop into folder  \u00b7  T toggle  \u00b7  release to drop  \u00b7  Esc cancel'; }
        else if (selection.size){ hud.textContent = selection.size + ' selected  \u00b7  drag = move  \u00b7  Ctrl+C copy / Ctrl+X cut  \u00b7  Del trash  \u00b7  Ctrl+F frame  \u00b7  Esc clear'; }
-       else { hud.textContent = 'v0.0.55  \u00b7  click = select  \u00b7  shift/ctrl = add/remove  \u00b7  drag empty = box select  \u00b7  middle-drag = pan  \u00b7  drag item = move  \u00b7  mode: ' + modeLabel() + (writable ? '' : '  \u00b7  read-only'); }
+       else { hud.textContent = 'v0.0.56  \u00b7  click = select  \u00b7  shift/ctrl = add/remove  \u00b7  drag empty = box select  \u00b7  middle-drag = pan  \u00b7  drag item = move  \u00b7  mode: ' + modeLabel() + (writable ? '' : '  \u00b7  read-only'); }
      }
      upBtn.addEventListener('click', function(){ navigate(parentOf(cwd)); });
      gotoBtn.addEventListener('click', function(){ if (pathInput.style.display === 'none'){ pathInput.style.display = 'inline-block'; pathInput.value = cwd; pathInput.focus(); pathInput.select(); } else { navigate(pathInput.value.trim()); pathInput.style.display = 'none'; } });
@@ -773,9 +780,10 @@
      function frameAll(){
        var list = cards.filter(function(c){ return c.__item; });
        var sw = app.screen.width, sh = app.screen.height;
-       if (!list.length){ camTween = { s: 1, x: sw / 2 - 200, y: sh / 2 - 150, f: 16 }; return; }
-       var minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-       list.forEach(function(c){ var w = c.hitArea.width, h = c.hitArea.height; minX = Math.min(minX, c.x); minY = Math.min(minY, c.y); maxX = Math.max(maxX, c.x + w); maxY = Math.max(maxY, c.y + h); });
+       var minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity, any = false;
+       list.forEach(function(c){ any = true; var w = c.hitArea.width, h = c.hitArea.height; minX = Math.min(minX, c.x); minY = Math.min(minY, c.y); maxX = Math.max(maxX, c.x + w); maxY = Math.max(maxY, c.y + h); });
+       for (var ppi = 0; ppi < portalCards.length; ppi++){ var pc2 = portalCards[ppi]; any = true; var pw = pc2.__pw || 128, ph = pc2.__ph || 148; minX = Math.min(minX, pc2.x); minY = Math.min(minY, pc2.y); maxX = Math.max(maxX, pc2.x + pw); maxY = Math.max(maxY, pc2.y + ph); }
+       if (!any){ camTween = { s: 1, x: sw / 2 - 200, y: sh / 2 - 150, f: 16 }; return; }
        var bw = Math.max(1, maxX - minX), bh = Math.max(1, maxY - minY), margin = 90;
        var sc = Math.max(0.05, Math.min((sw - 2 * margin) / bw, (sh - 2 * margin) / bh, 2.2));
        var cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
