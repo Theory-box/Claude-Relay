@@ -507,6 +507,40 @@ fn write_text(app: tauri::AppHandle, path: String, data: String) -> Result<(), S
     fs::write(&p, data).map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+fn path_exists(path: String) -> bool { std::path::Path::new(&path).exists() }
+
+#[tauri::command]
+fn zip_items(app: tauri::AppHandle, dir: String, names: Vec<String>) -> Result<String, String> {
+    in_root(&app, &dir)?;
+    if names.is_empty() { return Err("nothing to zip".into()); }
+    let base = PathBuf::from(&dir);
+    let zip_base = if names.len() == 1 {
+        let stem = PathBuf::from(&names[0]).file_stem().map(|x| x.to_string_lossy().to_string()).unwrap_or_else(|| "Archive".to_string());
+        format!("{}.zip", stem)
+    } else { "Archive.zip".to_string() };
+    let dest = unique_dest(&base, &zip_base);
+    let paths: Vec<String> = names.iter().map(|n| format!("'{}'", base.join(n).to_string_lossy().replace('\'', "''"))).collect();
+    let ps = format!("Compress-Archive -LiteralPath {} -DestinationPath '{}' -Force", paths.join(","), dest.to_string_lossy().replace('\'', "''"));
+    let status = std::process::Command::new("powershell").args(["-NoProfile", "-WindowStyle", "Hidden", "-Command", &ps]).status().map_err(|e| e.to_string())?;
+    if !status.success() { return Err("zip failed".into()); }
+    Ok(dest.file_name().unwrap().to_string_lossy().to_string())
+}
+
+#[tauri::command]
+fn unzip_item(app: tauri::AppHandle, dir: String, name: String) -> Result<String, String> {
+    in_root(&app, &dir)?;
+    let base = PathBuf::from(&dir);
+    let src = base.join(&name);
+    if !src.exists() { return Err("zip missing".into()); }
+    let stem = PathBuf::from(&name).file_stem().map(|x| x.to_string_lossy().to_string()).unwrap_or_else(|| "extracted".to_string());
+    let outdir = unique_dest(&base, &stem);
+    let ps = format!("Expand-Archive -LiteralPath '{}' -DestinationPath '{}' -Force", src.to_string_lossy().replace('\'', "''"), outdir.to_string_lossy().replace('\'', "''"));
+    let status = std::process::Command::new("powershell").args(["-NoProfile", "-WindowStyle", "Hidden", "-Command", &ps]).status().map_err(|e| e.to_string())?;
+    if !status.success() { return Err("unzip failed".into()); }
+    Ok(outdir.file_name().unwrap().to_string_lossy().to_string())
+}
+
 fn portals_file(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     Ok(app.path().app_data_dir().map_err(|e| e.to_string())?.join("portals.json"))
 }
@@ -603,7 +637,7 @@ fn main() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
             quit, places, list_dir, add_dropped_file, make_folder, move_into, trash_item,
-            clear_trash, open_trash, thumb_data, open_item, open_folder, shell_verb, delete_file, paste_copy, paste_move, paste_shortcut, resolve_lnk, path_size, set_safety, load_spaces, save_spaces, save_layout, load_layout, save_session, load_session, load_portals, save_portals, folder_tree, image_full, make_text_file, read_text, write_text, drag_out
+            clear_trash, open_trash, thumb_data, open_item, open_folder, shell_verb, delete_file, paste_copy, paste_move, paste_shortcut, resolve_lnk, path_size, set_safety, load_spaces, save_spaces, save_layout, load_layout, save_session, load_session, path_exists, zip_items, unzip_item, load_portals, save_portals, folder_tree, image_full, make_text_file, read_text, write_text, drag_out
         ])
         .setup(|app| {
             let handle = app.handle().clone();

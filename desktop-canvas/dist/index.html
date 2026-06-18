@@ -551,6 +551,7 @@
        menu.appendChild(mkSep());
        menu.appendChild(mkBtn('Copy', '', function(){ copyItems('copy', sel); hideMenu(); }));
        menu.appendChild(mkBtn('Copy as shortcut', '', function(){ copyItems('shortcut', sel); hideMenu(); }));
+       if (writable) menu.appendChild(mkBtn('Zip', '', function(){ hideMenu(); doZip(sel.map(function(c){ return c.__item.name; })); }));
        if (writable) menu.appendChild(mkBtn('Cut', '', function(){ copyItems('cut', sel); hideMenu(); }));
        if (writable){ menu.appendChild(mkSep()); menu.appendChild(mkBtn('Delete ' + sel.length + ' items', 'danger', function(){ var del = sel.slice(); hideMenu(); confirmDelete(del.length, function(){ selection.clear(); drawSelection(); updateHud(); Promise.all(del.map(function(c){ return T.core.invoke('trash_item', { dir: cwd, name: c.__item.name }).catch(function(e){ showErr('trash: ' + e); }); })).then(function(){ del.forEach(function(c){ removeCardLocal(c); }); persist(); }); }); })); }
        menu.style.left = x + 'px'; menu.style.top = y + 'px'; menu.style.display = 'block';
@@ -568,6 +569,7 @@
          var fname = target.__item.name;
          menu.appendChild(mkBtn('Open', '', function(){ navigate(joinPath(cwd, fname)); hideMenu(); }));
          menu.appendChild(mkBtn('Open in Explorer', '', function(){ T.core.invoke('open_folder', { dir: joinPath(cwd, fname) }); hideMenu(); }));
+         if (writable) menu.appendChild(mkBtn('Zip', '', function(){ hideMenu(); doZip([fname]); }));
          menu.appendChild(mkBtn('Properties', '', function(){ hideMenu(); openProperties(target); }));
          menu.appendChild(mkDragOut([target]));
          menu.appendChild(mkSep());
@@ -582,6 +584,8 @@
          if (isText(name)) menu.appendChild(mkBtn('View', '', function(){ hideMenu(); openTextEditor(joinPath(cwd, name), name); }));
          menu.appendChild(mkBtn('Open with\u2026', '', function(){ T.core.invoke('shell_verb', { dir: cwd, name: name, verb: 'openas' }); hideMenu(); }));
          menu.appendChild(mkBtn('Open folder', '', function(){ T.core.invoke('open_folder', { dir: cwd }); hideMenu(); }));
+         if (writable) menu.appendChild(mkBtn('Zip', '', function(){ hideMenu(); doZip([name]); }));
+         if (writable && isZip(name)) menu.appendChild(mkBtn('Extract here', '', function(){ hideMenu(); doUnzip(name); }));
          menu.appendChild(mkBtn('Properties', '', function(){ hideMenu(); openProperties(target); }));
          menu.appendChild(mkDragOut([target]));
          menu.appendChild(mkSep());
@@ -642,7 +646,7 @@
        var IC = 122, W = IC + 8, H = IC + 28;
        var card = new PIXI.Container(); card.x = info.x; card.y = info.y; card.eventMode = 'static'; card.cursor = 'pointer'; card.__portal = info; card.__pw = W; card.__ph = H;
        var frame = new PIXI.Graphics(); frame.beginFill(0x1c1726); frame.lineStyle(1, 0x7a5cc0); frame.drawRoundedRect(0, 0, W, H, 9); frame.endFill(); card.addChild(frame);
-       var cap = fitLabel('', baseName(info.target || ''), { fill: 0xcdbff0, fontSize: 12, fontFamily: 'system-ui' }, W - 10); cap.x = 5; cap.y = 5; card.addChild(cap);
+       var capText = info.target ? baseName(info.target) : 'placing\u2026'; var cap = fitLabel('', capText, { fill: 0xcdbff0, fontSize: 12, fontFamily: 'system-ui' }, W - 10); cap.x = 5; cap.y = 5; card.addChild(cap);
        var ccx = W / 2, ccy = 22 + IC / 2;
        var disc = new PIXI.Graphics();
        disc.beginFill(0x140f1f); disc.drawCircle(ccx, ccy, IC * 0.46); disc.endFill();
@@ -663,7 +667,7 @@
        });
      }
      function savePortalPos(card){ var info = card.__portal; for (var i = 0; i < PORTALS.length; i++){ if (PORTALS[i].id === info.pairId){ var ends = PORTALS[i].ends; for (var j = 0; j < ends.length; j++){ if (ends[j].folder === cwd){ ends[j].x = Math.round(card.x); ends[j].y = Math.round(card.y); } } break; } } savePortals(); }
-     function activatePortal(card){ navigate(card.__portal.target); }
+     function activatePortal(card){ var info = card.__portal; if (!info.target || !info.pairId) return; T.core.invoke('path_exists', { path: info.target }).then(function(ok){ if (ok){ navigate(info.target); } else { deletePortal(info.pairId); showErr('Portal removed \u2014 "' + baseName(info.target) + '" no longer exists.'); } }).catch(function(){ navigate(info.target); }); }
      function portalAt(sx, sy){ var wx = (sx - world.x) / world.scale.x, wy = (sy - world.y) / world.scale.y; for (var i = portalCards.length - 1; i >= 0; i--){ var c = portalCards[i]; if (wx >= c.x && wx <= c.x + (c.__pw || 128) && wy >= c.y && wy <= c.y + (c.__ph || 148)) return c; } return null; }
      function openPortalMenu(x, y, card){ menu.innerHTML = ''; sortMenu.style.display = 'none'; menu.appendChild(mkBtn('Go to ' + baseName(card.__portal.target), '', function(){ hideMenu(); activatePortal(card); })); menu.appendChild(mkSep()); menu.appendChild(mkBtn('Delete portal', 'danger', function(){ hideMenu(); deletePortal(card.__portal.pairId); })); menu.style.left = x + 'px'; menu.style.top = y + 'px'; menu.style.display = 'block'; }
      function deletePortal(pairId){ PORTALS = PORTALS.filter(function(pr){ return pr.id !== pairId; }); savePortals().then(refreshPortals); }
@@ -671,6 +675,7 @@
      function joinPath(base, name){ if (!base) return name; return base.replace(/[\\\/]+$/, '') + '\\' + name; }
      function isImage(nm){ return /\.(png|jpe?g|gif|webp|bmp)$/i.test(nm || ''); }
      function isText(nm){ return /\.(txt|md|markdown|log|csv|tsv|json|ini|cfg|conf|xml|yml|yaml)$/i.test(nm || ''); }
+     function isZip(nm){ return /\.zip$/i.test(nm || ''); }
      function parentOf(p){ if (!p) return ''; var s = p.replace(/[\\\/]+$/, ''); if (/^[A-Za-z]:$/.test(s)) return ''; var i = Math.max(s.lastIndexOf('\\'), s.lastIndexOf('/')); if (i < 0) return ''; var up = s.slice(0, i); if (/^[A-Za-z]:$/.test(up)) return up + '\\'; return up; }
      var upBtn = $('#up'), crumbs = $('#crumbs');
      var backBtn = $('#back'), fwdBtn = $('#fwd');
@@ -693,13 +698,15 @@
        else if (carry && carry.source === 'import'){ hud.textContent = 'Placing imported file [' + modeLabel() + ']  \u00b7  left-click confirm  \u00b7  right-click cancel  \u00b7  T toggle  \u00b7  Free mode (1) to drop into a folder'; }
        else if (carry){ hud.textContent = 'Moving ' + (carry.held.length > 1 ? carry.held.length + ' items ' : '') + '[' + (ctrlDown ? 'Free (Ctrl)' : modeLabel()) + ']  \u00b7  hold Ctrl = free / drop into folder  \u00b7  T toggle  \u00b7  release to drop  \u00b7  Esc cancel'; }
        else if (selection.size){ hud.textContent = selection.size + ' selected  \u00b7  drag = move  \u00b7  Ctrl+C copy / Ctrl+X cut  \u00b7  Del trash  \u00b7  Ctrl+F frame  \u00b7  Esc clear'; }
-       else { hud.textContent = 'v0.0.56  \u00b7  click = select  \u00b7  shift/ctrl = add/remove  \u00b7  drag empty = box select  \u00b7  middle-drag = pan  \u00b7  drag item = move  \u00b7  mode: ' + modeLabel() + (writable ? '' : '  \u00b7  read-only'); }
+       else { hud.textContent = 'v0.0.57  \u00b7  click = select  \u00b7  shift/ctrl = add/remove  \u00b7  drag empty = box select  \u00b7  middle-drag = pan  \u00b7  drag item = move  \u00b7  mode: ' + modeLabel() + (writable ? '' : '  \u00b7  read-only'); }
      }
      upBtn.addEventListener('click', function(){ navigate(parentOf(cwd)); });
      gotoBtn.addEventListener('click', function(){ if (pathInput.style.display === 'none'){ pathInput.style.display = 'inline-block'; pathInput.value = cwd; pathInput.focus(); pathInput.select(); } else { navigate(pathInput.value.trim()); pathInput.style.display = 'none'; } });
      pathInput.addEventListener('keydown', function(e){ if (e.key === 'Enter'){ navigate(pathInput.value.trim()); pathInput.style.display = 'none'; } else if (e.key === 'Escape'){ pathInput.style.display = 'none'; } e.stopPropagation(); });
      function createFolder(nm){ T.core.invoke('make_folder', { dir: cwd, name: (nm || 'New Folder') }).then(function(){ loadView(); }).catch(function(e){ showErr('make_folder: ' + e); }); }
      function createTextFile(nm){ var n = (nm || 'New File').trim(); if (!/\.[a-z0-9]+$/i.test(n)) n += '.txt'; T.core.invoke('make_text_file', { dir: cwd, name: n }).then(function(){ loadView(); }).catch(function(e){ showErr('make_text_file: ' + e); }); }
+     function doZip(names){ if (!names || !names.length) return; T.core.invoke('zip_items', { dir: cwd, names: names }).then(function(){ loadView(); }).catch(function(e){ showErr('zip: ' + e); }); }
+     function doUnzip(name){ T.core.invoke('unzip_item', { dir: cwd, name: name }).then(function(){ loadView(); }).catch(function(e){ showErr('unzip: ' + e); }); }
      function spaceLabel(path){ var n = norm(path); if (n.toLowerCase() === norm(homePath).toLowerCase()) return 'Desktop Canvas'; var parts = n ? n.split('\\').filter(Boolean) : []; return parts.length ? parts[parts.length - 1] : 'This PC'; }
      function spaceSaved(path){ var n = norm(path).toLowerCase(); return spaces.some(function(sp){ return norm(sp.path).toLowerCase() === n; }); }
      function persistSpaces(){ T.core.invoke('save_spaces', { data: JSON.stringify(spaces) }).catch(function(e){ showErr('save_spaces: ' + e); }); }
@@ -845,7 +852,7 @@
        await loadView(); poll(); setInterval(poll, 3000);
      })();
      self.handleDrop = handleDrop; self.getCwd = function(){ return cwd; }; self.navigate = function(pp){ navigate(pp); };
-     self.screenToWorld = function(cx, cy){ var r = root.getBoundingClientRect(); return { x: (cx - r.left - world.x) / world.scale.x, y: (cy - r.top - world.y) / world.scale.y }; }; self.renderPortals = renderPortals;
+     self.screenToWorld = function(cx, cy){ var r = root.getBoundingClientRect(); return { x: (cx - r.left - world.x) / world.scale.x, y: (cy - r.top - world.y) / world.scale.y }; }; self.renderPortals = renderPortals; self.addTentativePortal = function(wx, wy){ return makePortalCard({ pairId: null, x: wx, y: wy, target: null }); };
      self.resize = function(){ var r = root.getBoundingClientRect(); if (r.width < 2 || r.height < 2) return; var pw = app.screen.width, ph = app.screen.height; app.renderer.resize(r.width, r.height); world.x += (app.screen.width - pw) / 2; world.y += (app.screen.height - ph) / 2; app.stage.hitArea = app.screen; };
      if (!pm) wireDrop(handleDrop);
      return self;
@@ -942,11 +949,11 @@
      var chipsEl = document.createElement('div'); chipsEl.className = 'portalChips';
      var tokens = [ { placed: false }, { placed: false } ], chipEls = [];
      function updateChip(i){ var c = chipEls[i], lab = c.querySelector('.portalLab'); if (tokens[i].placed){ c.classList.add('placed'); lab.textContent = 'Placed \u2192 ' + baseNameB(tokens[i].folder); } else { c.classList.remove('placed'); lab.textContent = 'Portal ' + (i+1); } }
-     function commit(){ var id = 'p' + Date.now() + Math.floor(Math.random()*999); PORTALS.push({ id: id, ends: [ { folder: tokens[0].folder, x: tokens[0].x, y: tokens[0].y }, { folder: tokens[1].folder, x: tokens[1].x, y: tokens[1].y } ] }); savePortals().then(refreshPortals); destroy(); }
-     function dropToken(i, cx, cy){ var pane = PM.paneAt(cx, cy); if (!pane) return; var folder = pane.getCwd(); var other = tokens[1-i]; if (other.placed && other.folder === folder){ hint.textContent = 'Pick a different folder for the other portal.'; return; } var pos = pane.screenToWorld(cx, cy); tokens[i].placed = true; tokens[i].folder = folder; tokens[i].x = Math.round(pos.x); tokens[i].y = Math.round(pos.y); updateChip(i); if (tokens[0].placed && tokens[1].placed) commit(); }
+     function commit(){ var id = 'p' + Date.now() + Math.floor(Math.random()*999); PORTALS.push({ id: id, ends: [ { folder: tokens[0].folder, x: tokens[0].x, y: tokens[0].y }, { folder: tokens[1].folder, x: tokens[1].x, y: tokens[1].y } ] }); savePortals(); destroy(); }
+     function dropToken(i, cx, cy){ var pane = PM.paneAt(cx, cy); if (!pane) return; var folder = pane.getCwd(); var other = tokens[1-i]; if (other.placed && other.folder === folder){ hint.textContent = 'Pick a different folder for the other portal.'; return; } var pos = pane.screenToWorld(cx, cy); tokens[i].placed = true; tokens[i].folder = folder; tokens[i].x = Math.round(pos.x); tokens[i].y = Math.round(pos.y); updateChip(i); if (pane.addTentativePortal) pane.addTentativePortal(pos.x, pos.y); if (tokens[0].placed && tokens[1].placed) commit(); }
      function wireChip(c, i){ c.addEventListener('pointerdown', function(ev){ if (tokens[i].placed) return; ev.preventDefault(); var ghost = document.createElement('div'); ghost.className = 'portalGhost'; ghost.textContent = '\u25C9'; document.body.appendChild(ghost); function mv(e){ ghost.style.left = (e.clientX + 8) + 'px'; ghost.style.top = (e.clientY + 8) + 'px'; } function up(e){ window.removeEventListener('pointermove', mv); window.removeEventListener('pointerup', up); try{ ghost.remove(); }catch(_){} dropToken(i, e.clientX, e.clientY); } mv(ev); window.addEventListener('pointermove', mv); window.addEventListener('pointerup', up); }); }
      for (var i = 0; i < 2; i++){ var c = document.createElement('div'); c.className = 'portalChip'; c.innerHTML = '<span class="portalGlyph">\u25C9</span><span class="portalLab">Portal ' + (i+1) + '</span>'; chipsEl.appendChild(c); chipEls.push(c); wireChip(c, i); }
-     function destroy(){ try{ box.remove(); }catch(_){} __placer = null; }
+     function destroy(){ try{ box.remove(); }catch(_){} __placer = null; refreshPortals(); }
      close.onclick = destroy;
      body.appendChild(hint); body.appendChild(chipsEl);
      box.appendChild(bar); box.appendChild(body); document.body.appendChild(box);
