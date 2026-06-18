@@ -2,7 +2,7 @@
 <html><head><meta charset="utf-8"><title>Desktop Canvas</title>
 <style>
  html,body{margin:0;height:100%;background:#15161a;overflow:hidden;font-family:system-ui,"Segoe UI",sans-serif;}
- #root{position:fixed;inset:0;} .pane{position:absolute;overflow:hidden;background:#15161a;} .pane.focused{box-shadow:inset 0 0 0 2px #3a6fd0;} .divider{position:absolute;z-index:9;background:#23262e;} .divider.v{cursor:col-resize;} .divider:hover{background:#3a6fd0;}
+ #root{position:fixed;inset:0;} .pane{position:absolute;overflow:hidden;background:#15161a;isolation:isolate;} .pane.focused{box-shadow:inset 0 0 0 2px #3a6fd0;} .divider{position:absolute;z-index:9;background:#23262e;} .divider.v{cursor:col-resize;} .divider:hover{background:#3a6fd0;}
  #err{position:fixed;top:0;left:0;right:0;max-height:40%;overflow:auto;padding:10px 14px;background:#3a1d1d;color:#ffd7d7;font:12px/1.45 ui-monospace,Consolas,monospace;white-space:pre-wrap;display:none;z-index:20;}
  #errX{position:absolute;top:6px;right:10px;background:#5a2a2a;color:#ffd7d7;border:1px solid #7a3a3a;border-radius:5px;width:22px;height:22px;line-height:1;cursor:pointer;font-size:14px;}
  #errtxt{display:block;padding-right:30px;}
@@ -86,6 +86,7 @@
    <span class="spacer"></span>
    <input id="pathInput" placeholder="Type or paste a path, Enter to go" style="display:none">
    <button id="goto">Go to&#8230;</button>
+   <button id="prefs">Settings</button>
    <label id="safetyLbl" title="Safety: when on, file changes are limited to the Desktop Canvas folder. Turn off to edit anywhere (with confirmations)."><span id="safetyIcon">&#128274;</span><input type="checkbox" id="safetyChk" checked><span id="safetyTxt">safe</span></label>
  </div>
  <div id="hud"></div>
@@ -105,6 +106,7 @@
  window.addEventListener('error', function(ev){ showErr('JS error: ' + (ev.message || ev.error)); });
  window.addEventListener('keydown', function(e){ if(e.key==='Escape'){ try{ window.__TAURI__.core.invoke('quit'); }catch(_){} } });
 
+ var PREFS = { bgMode: 'default', bgFolder: '', bgFit: 'fill', bgOrient: 'all', bgSeconds: 30, bgOpacity: 1, parallax: false };
  function makeCanvas(root, opts){
    try{
      if(typeof PIXI==='undefined'){ showErr('PIXI failed to load'); return; }
@@ -116,8 +118,12 @@
      function lx(c){ return c - root.getBoundingClientRect().left; }
      function ly(c){ return c - root.getBoundingClientRect().top; }
 
-     var app = new PIXI.Application({ resizeTo: root, background: 0x15161a, antialias: true, autoDensity: true, resolution: window.devicePixelRatio || 1 });
-     root.appendChild(app.view);
+     var app = new PIXI.Application({ resizeTo: root, backgroundAlpha: 0, antialias: true, autoDensity: true, resolution: window.devicePixelRatio || 1 });
+     var bgLayer = document.createElement('div'); bgLayer.style.cssText = 'position:absolute;inset:0;z-index:0;overflow:hidden;pointer-events:none;';
+     var bgImgA = document.createElement('img'), bgImgB = document.createElement('img');
+     [bgImgA, bgImgB].forEach(function(im){ im.draggable = false; im.style.cssText = 'position:absolute;left:0;top:0;width:100%;height:100%;opacity:0;transition:opacity 0.7s ease;'; bgLayer.appendChild(im); });
+     root.appendChild(bgLayer);
+     root.appendChild(app.view); app.view.style.position = 'absolute'; app.view.style.left = '0'; app.view.style.top = '0'; app.view.style.zIndex = '1';
      var world = new PIXI.Container();
      app.stage.addChild(world);
      var grid = new PIXI.Graphics(); grid.eventMode = 'none';
@@ -445,6 +451,7 @@
        if (confirming || animating) return;
        lastCursor = { x: e.global.x, y: e.global.y };
        if (carry){
+         if (carry.gliding) return;
          ctrlDown = e.ctrlKey;
          if (carry.phase === 'drag'){ if (Math.hypot(e.global.x - carry.start.x, e.global.y - carry.start.y) > 5){ if (!carry.moved){ carry.moved = true; carry.held.forEach(function(h){ h.card.alpha = 0.85; }); if (!carry.fromSelection && carry.source === 'move' && carry.anchor.__item && !carry.anchor.__trash){ selection.clear(); selection.add(carry.anchor); drawSelection(); } } } if (!carry.moved) return; }
          var wx = (e.global.x - world.x) / world.scale.x, wy = (e.global.y - world.y) / world.scale.y;
@@ -710,7 +717,7 @@
        else if (carry && carry.source === 'import'){ hud.textContent = 'Placing imported file [' + modeLabel() + ']  \u00b7  left-click confirm  \u00b7  right-click cancel  \u00b7  T toggle  \u00b7  Free mode (1) to drop into a folder'; }
        else if (carry){ hud.textContent = 'Moving ' + (carry.held.length > 1 ? carry.held.length + ' items ' : '') + '[' + (ctrlDown ? 'Free (Ctrl)' : modeLabel()) + ']  \u00b7  hold Ctrl = free / drop into folder  \u00b7  T toggle  \u00b7  release to drop  \u00b7  Esc cancel'; }
        else if (selection.size){ hud.textContent = selection.size + ' selected  \u00b7  drag = move  \u00b7  Ctrl+C copy / Ctrl+X cut  \u00b7  Del trash  \u00b7  Ctrl+F frame  \u00b7  Esc clear'; }
-       else { hud.textContent = 'v0.0.65  \u00b7  click = select  \u00b7  shift/ctrl = add/remove  \u00b7  drag empty = box select  \u00b7  middle-drag = pan  \u00b7  drag item = move  \u00b7  mode: ' + modeLabel() + (writable ? '' : '  \u00b7  read-only'); }
+       else { hud.textContent = 'v0.0.66  \u00b7  click = select  \u00b7  shift/ctrl = add/remove  \u00b7  drag empty = box select  \u00b7  middle-drag = pan  \u00b7  drag item = move  \u00b7  mode: ' + modeLabel() + (writable ? '' : '  \u00b7  read-only'); }
      }
      upBtn.addEventListener('click', function(){ navigate(parentOf(cwd)); });
      gotoBtn.addEventListener('click', function(){ if (pathInput.style.display === 'none'){ pathInput.style.display = 'inline-block'; pathInput.value = cwd; pathInput.focus(); pathInput.select(); } else { navigate(pathInput.value.trim()); pathInput.style.display = 'none'; } });
@@ -866,6 +873,19 @@
      })();
      self.handleDrop = handleDrop; self.getCwd = function(){ return cwd; }; self.navigate = function(pp){ navigate(pp); };
      self.screenToWorld = function(cx, cy){ var r = root.getBoundingClientRect(); return { x: (cx - r.left - world.x) / world.scale.x, y: (cy - r.top - world.y) / world.scale.y }; }; self.renderPortals = renderPortals; self.addTentativePortal = function(wx, wy){ return makePortalCard({ pairId: null, x: wx, y: wy, target: null }); };
+     var bgCur = 0, bgList = [], bgTimer = null;
+     function bgShow(path){ T.core.invoke('image_full', { path: path }).then(function(url){ var imgs = [bgImgA, bgImgB]; var ni = 1 - bgCur; var nx = imgs[ni]; nx.style.objectFit = (PREFS.bgFit === 'fit') ? 'contain' : 'cover'; nx.onload = function(){ nx.style.opacity = String(PREFS.bgOpacity); imgs[bgCur].style.opacity = '0'; bgCur = ni; }; nx.src = url; }).catch(function(){}); }
+     function bgPick(){ if (!bgList.length) return; bgShow(bgList[Math.floor(Math.random() * bgList.length)]); }
+     self.applyPrefs = function(p){
+       var imageMode = (p.bgMode === 'folder' && p.bgFolder);
+       grid.visible = !imageMode;
+       if (bgTimer){ clearInterval(bgTimer); bgTimer = null; }
+       if (imageMode){
+         [bgImgA, bgImgB].forEach(function(im){ im.style.objectFit = (p.bgFit === 'fit') ? 'contain' : 'cover'; if (im.getAttribute('src')) im.style.opacity = String(p.bgOpacity); });
+         T.core.invoke('list_bg_images', { folder: p.bgFolder, orient: p.bgOrient || 'all' }).then(function(s2){ var arr = []; try{ arr = JSON.parse(s2 || '[]'); }catch(_){} bgList = arr; if (bgList.length){ bgPick(); var secs = Math.max(3, p.bgSeconds || 30); if (bgList.length > 1) bgTimer = setInterval(bgPick, secs * 1000); } else { [bgImgA, bgImgB].forEach(function(im){ im.style.opacity = '0'; }); } }).catch(function(e){ showErr('bg list: ' + e); });
+       } else { [bgImgA, bgImgB].forEach(function(im){ im.style.opacity = '0'; im.removeAttribute('src'); }); }
+     };
+     (function(){ var pb = $('#prefs'); if (pb) pb.onclick = function(){ if (typeof openSettings === 'function') openSettings(); }; })();
      self.itemMenuActions = function(name){
        var t = cardForName(name) || { __item: { name: name, dir: false }, __trash: false };
        var acts = [];
@@ -881,6 +901,7 @@
      };
      self.resize = function(){ var r = root.getBoundingClientRect(); if (r.width < 2 || r.height < 2) return; var pw = app.screen.width, ph = app.screen.height; app.renderer.resize(r.width, r.height); world.x += (app.screen.width - pw) / 2; world.y += (app.screen.height - ph) / 2; app.stage.hitArea = app.screen; };
      if (!pm) wireDrop(handleDrop);
+     if (typeof PREFS !== 'undefined' && self.applyPrefs) try{ self.applyPrefs(PREFS); }catch(_){}
      return self;
    }catch(err){ showErr('init error: ' + (err && err.message ? err.message : err)); }
    }
@@ -922,6 +943,8 @@
      if (sess && sess.focusedIdx === 0 && PM.panes[0]) PM.setFocus(PM.panes[0]);
    })();
    window.addEventListener('resize', PM.relayout);
+   loadPrefs();
+   try{ window.__TAURI__.event.listen('settings-changed', function(){ loadPrefs(); }); }catch(_){}
    var __overlayZ = 60, __activeOverlay = null, __winOffset = 0;
    function focusOverlay(inst){ __activeOverlay = inst; __overlayZ += 1; if (__overlayZ > 9000) __overlayZ = 60; try{ inst.box.style.zIndex = __overlayZ; }catch(_){} }
    function nextWinPos(w, h){ var k = __winOffset % 6; __winOffset++; return { x: Math.max(20, Math.round((window.innerWidth - w) / 2) + k * 30), y: Math.max(20, Math.round((window.innerHeight - h) / 2) + k * 30) }; }
@@ -1001,6 +1024,35 @@
      document.body.appendChild(m); __vmenu = m;
      var r = m.getBoundingClientRect(); if (r.right > window.innerWidth) m.style.left = Math.max(4, window.innerWidth - r.width - 8) + 'px'; if (r.bottom > window.innerHeight) m.style.top = Math.max(4, window.innerHeight - r.height - 8) + 'px';
      window.addEventListener('keydown', vmKey, true);
+   }
+   function applyPrefsAll(){ if (typeof PM === 'undefined' || !PM.panes) return; PM.panes.forEach(function(pp){ if (pp && pp.applyPrefs) try{ pp.applyPrefs(PREFS); }catch(_){} }); }
+   function loadPrefs(){ return window.__TAURI__.core.invoke('load_settings').then(function(s){ try{ var o = JSON.parse(s || '{}'); for (var k in o){ if (o.hasOwnProperty(k)) PREFS[k] = o[k]; } }catch(_){} applyPrefsAll(); }).catch(function(){ applyPrefsAll(); }); }
+   function savePrefs(){ try{ window.__TAURI__.core.invoke('save_settings', { data: JSON.stringify(PREFS) }).then(function(){ try{ window.__TAURI__.event.emit('settings-changed', {}); }catch(_){} }).catch(function(){}); }catch(_){} applyPrefsAll(); }
+   var __prefsWin = null;
+   function openSettings(){
+     if (__prefsWin){ try{ __prefsWin.remove(); }catch(_){} __prefsWin = null; }
+     var box = document.createElement('div'); box.className = 'editor'; box.style.width = '380px'; box.style.height = 'auto'; box.style.maxHeight = '86vh'; box.style.zIndex = '2100000000';
+     var bar = document.createElement('div'); bar.className = 'viewerBar';
+     var title = document.createElement('span'); title.className = 'viewerTitle'; title.textContent = 'Preferences';
+     var close = document.createElement('button'); close.textContent = '\u2715'; close.className = 'viewerClose';
+     bar.appendChild(title); bar.appendChild(close);
+     var body = document.createElement('div'); body.style.cssText = 'padding:14px 16px;overflow:auto;display:flex;flex-direction:column;gap:13px;font-size:13px;color:#cfd2da;';
+     function selOf(opts, val){ var s2 = document.createElement('select'); s2.style.cssText = 'background:#1f2229;border:1px solid #3a4356;color:#e6e8ee;border-radius:6px;padding:4px 8px;'; opts.forEach(function(o){ var op = document.createElement('option'); op.value = o[0]; op.textContent = o[1]; s2.appendChild(op); }); s2.value = val; return s2; }
+     function rowEl(label, ctrl){ var r = document.createElement('div'); r.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:12px;'; var l = document.createElement('span'); l.textContent = label; r.appendChild(l); r.appendChild(ctrl); body.appendChild(r); }
+     var modeSel = selOf([['default','Default (grid)'],['folder','Image folder']], PREFS.bgMode); modeSel.onchange = function(){ PREFS.bgMode = modeSel.value; savePrefs(); }; rowEl('Background', modeSel);
+     var folderBtn = document.createElement('button'); folderBtn.textContent = 'Choose folder\u2026'; folderBtn.style.cssText = 'background:#2a2f3a;color:#cfd2da;border:0;border-radius:6px;padding:5px 10px;cursor:pointer;';
+     var folderTxt = document.createElement('div'); folderTxt.style.cssText = 'font-size:11px;color:#8a8f9a;word-break:break-all;'; folderTxt.textContent = PREFS.bgFolder || '(none)';
+     folderBtn.onclick = function(){ window.__TAURI__.core.invoke('pick_folder').then(function(pth){ if (pth){ PREFS.bgFolder = pth; folderTxt.textContent = pth; PREFS.bgMode = 'folder'; modeSel.value = 'folder'; savePrefs(); } }).catch(function(e){ showErr('pick: ' + e); }); };
+     rowEl('Folder', folderBtn); body.appendChild(folderTxt);
+     var fitSel = selOf([['fill','Fill (cover)'],['fit','Fit (contain)']], PREFS.bgFit); fitSel.onchange = function(){ PREFS.bgFit = fitSel.value; savePrefs(); }; rowEl('Scaling', fitSel);
+     var orSel = selOf([['all','All'],['landscape','Landscape only'],['portrait','Portrait only']], PREFS.bgOrient); orSel.onchange = function(){ PREFS.bgOrient = orSel.value; savePrefs(); }; rowEl('Orientation', orSel);
+     var secIn = document.createElement('input'); secIn.type = 'number'; secIn.min = '3'; secIn.value = PREFS.bgSeconds; secIn.style.cssText = 'width:70px;background:#1f2229;border:1px solid #3a4356;color:#e6e8ee;border-radius:6px;padding:4px 6px;'; secIn.onchange = function(){ var v = parseInt(secIn.value, 10); if (v >= 3){ PREFS.bgSeconds = v; savePrefs(); } }; rowEl('Seconds between', secIn);
+     var opIn = document.createElement('input'); opIn.type = 'range'; opIn.min = '0'; opIn.max = '1'; opIn.step = '0.05'; opIn.value = PREFS.bgOpacity; opIn.style.width = '140px'; opIn.oninput = function(){ PREFS.bgOpacity = parseFloat(opIn.value); savePrefs(); }; rowEl('Image opacity', opIn);
+     box.appendChild(bar); box.appendChild(body); document.body.appendChild(box);
+     box.style.left = Math.max(20, Math.round((window.innerWidth - 380) / 2)) + 'px'; box.style.top = '70px';
+     close.onclick = function(){ try{ box.remove(); }catch(_){} __prefsWin = null; };
+     bar.addEventListener('pointerdown', function(ev){ if (ev.target !== bar && ev.target !== title) return; ev.preventDefault(); var sx = ev.clientX, sy = ev.clientY, ox = box.offsetLeft, oy = box.offsetTop; function mv(e){ box.style.left = (ox + e.clientX - sx) + 'px'; box.style.top = (oy + e.clientY - sy) + 'px'; } function up(){ window.removeEventListener('pointermove', mv); window.removeEventListener('pointerup', up); } window.addEventListener('pointermove', mv); window.addEventListener('pointerup', up); });
+     __prefsWin = box;
    }
    function openViewer(list, idx, owner){
      if (!list || !list.length) return;

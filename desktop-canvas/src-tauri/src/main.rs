@@ -605,6 +605,53 @@ fn open_web(app: tauri::AppHandle, query: Option<String>) -> Result<(), String> 
     Ok(())
 }
 
+fn settings_file(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    Ok(app.path().app_data_dir().map_err(|e| e.to_string())?.join("settings.json"))
+}
+
+#[tauri::command]
+fn load_settings(app: tauri::AppHandle) -> Result<String, String> {
+    let f = settings_file(&app)?;
+    if !f.exists() { return Ok("{}".into()); }
+    std::fs::read_to_string(&f).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn save_settings(app: tauri::AppHandle, data: String) -> Result<(), String> {
+    let f = settings_file(&app)?;
+    if let Some(par) = f.parent() { let _ = std::fs::create_dir_all(par); }
+    std::fs::write(&f, data).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn pick_folder() -> Result<String, String> {
+    let ps = "Add-Type -AssemblyName System.Windows.Forms | Out-Null; $f = New-Object System.Windows.Forms.FolderBrowserDialog; if ($f.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { [Console]::Out.Write($f.SelectedPath) }";
+    let out = std::process::Command::new("powershell").args(["-NoProfile", "-Sta", "-WindowStyle", "Hidden", "-Command", ps]).output().map_err(|e| e.to_string())?;
+    Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+}
+
+#[tauri::command]
+fn list_bg_images(folder: String, orient: String) -> Result<String, String> {
+    let dir = PathBuf::from(&folder);
+    if !dir.is_dir() { return Err("not a folder".into()); }
+    let exts = ["jpg", "jpeg", "png", "webp", "gif", "bmp"];
+    let mut out: Vec<String> = Vec::new();
+    if let Ok(rd) = std::fs::read_dir(&dir) {
+        for e in rd.flatten() {
+            let pp = e.path();
+            if !pp.is_file() { continue; }
+            let ext = pp.extension().and_then(|x| x.to_str()).map(|x| x.to_lowercase()).unwrap_or_default();
+            if !exts.contains(&ext.as_str()) { continue; }
+            if orient == "all" { out.push(pp.to_string_lossy().to_string()); continue; }
+            if let Ok((w, h)) = image::image_dimensions(&pp) {
+                let land = w >= h;
+                if (orient == "landscape" && land) || (orient == "portrait" && !land) { out.push(pp.to_string_lossy().to_string()); }
+            }
+        }
+    }
+    serde_json::to_string(&out).map_err(|e| e.to_string())
+}
+
 fn portals_file(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     Ok(app.path().app_data_dir().map_err(|e| e.to_string())?.join("portals.json"))
 }
@@ -701,7 +748,7 @@ fn main() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
             quit, places, list_dir, add_dropped_file, make_folder, move_into, trash_item,
-            clear_trash, open_trash, thumb_data, open_item, open_folder, shell_verb, delete_file, paste_copy, paste_move, paste_shortcut, resolve_lnk, path_size, set_safety, load_spaces, save_spaces, save_layout, load_layout, save_session, load_session, path_exists, zip_items, unzip_item, rename_item, open_web, load_portals, save_portals, folder_tree, image_full, make_text_file, read_text, write_text, drag_out
+            clear_trash, open_trash, thumb_data, open_item, open_folder, shell_verb, delete_file, paste_copy, paste_move, paste_shortcut, resolve_lnk, path_size, set_safety, load_spaces, save_spaces, save_layout, load_layout, save_session, load_session, path_exists, zip_items, unzip_item, rename_item, open_web, load_settings, save_settings, pick_folder, list_bg_images, load_portals, save_portals, folder_tree, image_full, make_text_file, read_text, write_text, drag_out
         ])
         .setup(|app| {
             let handle = app.handle().clone();
