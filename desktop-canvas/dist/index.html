@@ -123,8 +123,12 @@
      var app = new PIXI.Application({ resizeTo: root, backgroundAlpha: 0, antialias: true, autoDensity: true, resolution: window.devicePixelRatio || 1 });
      var bgLayer = document.createElement('div'); bgLayer.style.cssText = 'position:absolute;inset:0;z-index:0;overflow:hidden;pointer-events:none;';
      var bgImgA = document.createElement('img'), bgImgB = document.createElement('img');
-     [bgImgA, bgImgB].forEach(function(im){ im.draggable = false; im.style.cssText = 'position:absolute;left:0;top:0;width:100%;height:100%;opacity:0;transition:opacity 0.7s ease;'; bgLayer.appendChild(im); });
+     [bgImgA, bgImgB].forEach(function(im){ im.draggable = false; im.style.cssText = 'position:absolute;left:0;top:0;width:100%;height:100%;opacity:0;transition:opacity 0.7s ease, transform 0.12s ease;will-change:transform;'; bgLayer.appendChild(im); });
      root.appendChild(bgLayer);
+     var paraOn = false, paraX = 0, paraY = 0, paraRAF = 0;
+     function setPara(){ paraRAF = 0; var t = paraOn ? ('translate(' + paraX.toFixed(1) + 'px,' + paraY.toFixed(1) + 'px) scale(1.08)') : ''; bgImgA.style.transform = t; bgImgB.style.transform = t; }
+     function onParaMove(e){ if (!paraOn) return; var r = root.getBoundingClientRect(); if (!r.width || !r.height) return; var fx = (e.clientX - r.left) / r.width - 0.5, fy = (e.clientY - r.top) / r.height - 0.5; if (fx < -0.5 || fx > 0.5 || fy < -0.5 || fy > 0.5) return; var mx = 14; paraX = -fx * 2 * mx; paraY = -fy * 2 * mx; if (!paraRAF) paraRAF = requestAnimationFrame(setPara); }
+     window.addEventListener('pointermove', onParaMove, true);
      root.appendChild(app.view); app.view.style.position = 'absolute'; app.view.style.left = '0'; app.view.style.top = '0'; app.view.style.zIndex = '1';
      var idleCount = 0; function wake(){ idleCount = 0; if (app.ticker && !app.ticker.started) app.ticker.start(); }
      ['pointermove', 'pointerdown', 'pointerup', 'wheel', 'keydown', 'resize'].forEach(function(ev){ window.addEventListener(ev, wake, true); });
@@ -734,7 +738,7 @@
        else if (carry && carry.source === 'import'){ hud.textContent = 'Placing imported file [' + modeLabel() + ']  \u00b7  left-click confirm  \u00b7  right-click cancel  \u00b7  T toggle  \u00b7  Free mode (1) to drop into a folder'; }
        else if (carry){ hud.textContent = 'Moving ' + (carry.held.length > 1 ? carry.held.length + ' items ' : '') + '[' + (ctrlDown ? 'Free (Ctrl)' : modeLabel()) + ']  \u00b7  hold Ctrl = free / drop into folder  \u00b7  T toggle  \u00b7  release to drop  \u00b7  Esc cancel'; }
        else if (selection.size){ hud.textContent = selection.size + ' selected  \u00b7  drag = move  \u00b7  Ctrl+C copy / Ctrl+X cut  \u00b7  Del trash  \u00b7  Ctrl+F frame  \u00b7  Esc clear'; }
-       else { hud.textContent = 'v0.0.76  \u00b7  click = select  \u00b7  shift/ctrl = add/remove  \u00b7  drag empty = box select  \u00b7  middle-drag = pan  \u00b7  drag item = move  \u00b7  mode: ' + modeLabel() + (writable ? '' : '  \u00b7  read-only'); }
+       else { hud.textContent = 'v0.0.77  \u00b7  click = select  \u00b7  shift/ctrl = add/remove  \u00b7  drag empty = box select  \u00b7  middle-drag = pan  \u00b7  drag item = move  \u00b7  mode: ' + modeLabel() + (writable ? '' : '  \u00b7  read-only'); }
      }
      upBtn.addEventListener('click', function(){ navigate(parentOf(cwd)); });
      gotoBtn.addEventListener('click', function(){ if (pathInput.style.display === 'none'){ pathInput.style.display = 'inline-block'; pathInput.value = cwd; pathInput.focus(); pathInput.select(); } else { navigate(pathInput.value.trim()); pathInput.style.display = 'none'; } });
@@ -900,6 +904,7 @@
        grid.visible = !imageMode;
        // cheap live updates (opacity/fit) every call, never touch the timer
        [bgImgA, bgImgB].forEach(function(im){ im.style.objectFit = (p.bgFit === 'fit') ? 'contain' : 'cover'; if (im.getAttribute('src')) im.style.opacity = String(p.bgOpacity); });
+       paraOn = !!p.parallax; if (!paraOn){ paraX = 0; paraY = 0; } setPara();
        if (!imageMode){ clearBgTimer(); bgListSig = null; bgSecs = null; [bgImgA, bgImgB].forEach(function(im){ im.style.opacity = '0'; im.removeAttribute('src'); }); return; }
        var secs = Math.max(3, p.bgSeconds || 30);
        var listSig = p.bgFolder + '|' + (p.bgOrient || 'all');
@@ -1081,6 +1086,7 @@
      var orSel = selOf([['all','All'],['landscape','Landscape only'],['portrait','Portrait only']], PREFS.bgOrient); orSel.onchange = function(){ PREFS.bgOrient = orSel.value; savePrefs(); }; rowEl('Orientation', orSel);
      var secIn = document.createElement('input'); secIn.type = 'number'; secIn.min = '3'; secIn.value = PREFS.bgSeconds; secIn.style.cssText = 'width:70px;background:#1f2229;border:1px solid #3a4356;color:#e6e8ee;border-radius:6px;padding:4px 6px;'; secIn.onchange = function(){ var v = parseInt(secIn.value, 10); if (v >= 3){ PREFS.bgSeconds = v; savePrefs(); } }; rowEl('Seconds between', secIn);
      var opIn = document.createElement('input'); opIn.type = 'range'; opIn.min = '0'; opIn.max = '1'; opIn.step = '0.05'; opIn.value = PREFS.bgOpacity; opIn.style.width = '140px'; opIn.oninput = function(){ PREFS.bgOpacity = parseFloat(opIn.value); savePrefs(); }; rowEl('Image opacity', opIn);
+     var plx = document.createElement('input'); plx.type = 'checkbox'; plx.checked = !!PREFS.parallax; plx.style.cssText = 'width:16px;height:16px;cursor:pointer;'; plx.onchange = function(){ PREFS.parallax = plx.checked; savePrefs(); }; rowEl('Parallax (follow cursor)', plx);
      var smHdr = document.createElement('div'); smHdr.textContent = 'SpaceMouse'; smHdr.style.cssText = 'margin-top:6px;padding-top:11px;border-top:1px solid #2a2f3a;font-weight:600;color:#9fb3d6;'; body.appendChild(smHdr);
      function rangeRow(label, mn, mx, st, val, fmt, set){ var wrap = document.createElement('div'); wrap.style.cssText = 'display:flex;align-items:center;gap:8px;'; var sl = document.createElement('input'); sl.type = 'range'; sl.min = mn; sl.max = mx; sl.step = st; sl.value = val; sl.style.width = '130px'; var vv = document.createElement('span'); vv.style.cssText = 'font-size:11px;color:#8a8f9a;min-width:34px;text-align:right;'; vv.textContent = fmt(parseFloat(val)); sl.oninput = function(){ var n = parseFloat(sl.value); vv.textContent = fmt(n); set(n); savePrefs(); }; wrap.appendChild(sl); wrap.appendChild(vv); rowEl(label, wrap); }
      rangeRow('Pan speed', 0.01, 0.25, 0.005, PREFS.smPan, function(n){ return Math.round(n * 1000) / 1000; }, function(n){ PREFS.smPan = n; });
