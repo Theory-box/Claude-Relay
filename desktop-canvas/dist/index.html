@@ -582,7 +582,7 @@
        } else {
          var name = target.__item.name;
          menu.appendChild(mkBtn('Open', '', function(){ hideMenu(); activateItem(target); }));
-         if (isImage(name)) menu.appendChild(mkBtn('View', '', function(){ hideMenu(); var imgs = items.filter(function(it){ return isImage(it.name); }); var ix = 0; for (var i = 0; i < imgs.length; i++){ if (imgs[i].name === name){ ix = i; break; } } openViewer(imgs.map(function(it){ return { path: joinPath(cwd, it.name), name: it.name }; }), ix); }));
+         if (isImage(name)) menu.appendChild(mkBtn('View', '', function(){ hideMenu(); var imgs = items.filter(function(it){ return isImage(it.name); }); var ix = 0; for (var i = 0; i < imgs.length; i++){ if (imgs[i].name === name){ ix = i; break; } } openViewer(imgs.map(function(it){ return { path: joinPath(cwd, it.name), name: it.name }; }), ix, self); }));
          if (isText(name)) menu.appendChild(mkBtn('View', '', function(){ hideMenu(); openTextEditor(joinPath(cwd, name), name); }));
          menu.appendChild(mkBtn('Open with\u2026', '', function(){ T.core.invoke('shell_verb', { dir: cwd, name: name, verb: 'openas' }); hideMenu(); }));
          menu.appendChild(mkBtn('Open folder', '', function(){ T.core.invoke('open_folder', { dir: cwd }); hideMenu(); }));
@@ -636,7 +636,7 @@
          }).catch(function(e){ T.core.invoke('open_item', { dir: srcDir, name: srcName }); });
          return;
        }
-       if (isImage(name)){ var imgs = items.filter(function(it){ return isImage(it.name); }); var ix = 0; for (var i = 0; i < imgs.length; i++){ if (imgs[i].name === name){ ix = i; break; } } openViewer(imgs.map(function(it){ return { path: joinPath(cwd, it.name), name: it.name }; }), ix); return; }
+       if (isImage(name)){ var imgs = items.filter(function(it){ return isImage(it.name); }); var ix = 0; for (var i = 0; i < imgs.length; i++){ if (imgs[i].name === name){ ix = i; break; } } openViewer(imgs.map(function(it){ return { path: joinPath(cwd, it.name), name: it.name }; }), ix, self); return; }
        if (isText(name)){ openTextEditor(joinPath(cwd, name), name); return; }
        T.core.invoke('open_item', { dir: cwd, name: name });
      }
@@ -701,7 +701,7 @@
        else if (carry && carry.source === 'import'){ hud.textContent = 'Placing imported file [' + modeLabel() + ']  \u00b7  left-click confirm  \u00b7  right-click cancel  \u00b7  T toggle  \u00b7  Free mode (1) to drop into a folder'; }
        else if (carry){ hud.textContent = 'Moving ' + (carry.held.length > 1 ? carry.held.length + ' items ' : '') + '[' + (ctrlDown ? 'Free (Ctrl)' : modeLabel()) + ']  \u00b7  hold Ctrl = free / drop into folder  \u00b7  T toggle  \u00b7  release to drop  \u00b7  Esc cancel'; }
        else if (selection.size){ hud.textContent = selection.size + ' selected  \u00b7  drag = move  \u00b7  Ctrl+C copy / Ctrl+X cut  \u00b7  Del trash  \u00b7  Ctrl+F frame  \u00b7  Esc clear'; }
-       else { hud.textContent = 'v0.0.63  \u00b7  click = select  \u00b7  shift/ctrl = add/remove  \u00b7  drag empty = box select  \u00b7  middle-drag = pan  \u00b7  drag item = move  \u00b7  mode: ' + modeLabel() + (writable ? '' : '  \u00b7  read-only'); }
+       else { hud.textContent = 'v0.0.64  \u00b7  click = select  \u00b7  shift/ctrl = add/remove  \u00b7  drag empty = box select  \u00b7  middle-drag = pan  \u00b7  drag item = move  \u00b7  mode: ' + modeLabel() + (writable ? '' : '  \u00b7  read-only'); }
      }
      upBtn.addEventListener('click', function(){ navigate(parentOf(cwd)); });
      gotoBtn.addEventListener('click', function(){ if (pathInput.style.display === 'none'){ pathInput.style.display = 'inline-block'; pathInput.value = cwd; pathInput.focus(); pathInput.select(); } else { navigate(pathInput.value.trim()); pathInput.style.display = 'none'; } });
@@ -857,6 +857,19 @@
      })();
      self.handleDrop = handleDrop; self.getCwd = function(){ return cwd; }; self.navigate = function(pp){ navigate(pp); };
      self.screenToWorld = function(cx, cy){ var r = root.getBoundingClientRect(); return { x: (cx - r.left - world.x) / world.scale.x, y: (cy - r.top - world.y) / world.scale.y }; }; self.renderPortals = renderPortals; self.addTentativePortal = function(wx, wy){ return makePortalCard({ pairId: null, x: wx, y: wy, target: null }); };
+     self.itemMenuActions = function(name){
+       var t = cardForName(name) || { __item: { name: name, dir: false }, __trash: false };
+       var acts = [];
+       acts.push({ label: 'Open with\u2026', fn: function(){ T.core.invoke('shell_verb', { dir: cwd, name: name, verb: 'openas' }); } });
+       acts.push({ label: 'Open containing folder', fn: function(){ T.core.invoke('open_folder', { dir: cwd }); } });
+       acts.push({ label: '\u2197 Drag out to app', dragout: true, fn: function(){ T.core.invoke('drag_out', { paths: [joinPath(cwd, name)] }).catch(function(e){ showErr('drag_out: ' + e); }); } });
+       acts.push({ sep: true });
+       acts.push({ label: 'Copy', fn: function(){ copyItems('copy', [t]); } });
+       acts.push({ label: 'Copy as shortcut', fn: function(){ copyItems('shortcut', [t]); } });
+       if (writable) acts.push({ label: 'Cut', fn: function(){ copyItems('cut', [t]); } });
+       if (writable) acts.push({ label: 'Zip', fn: function(){ doZip([name]); } });
+       return acts;
+     };
      self.resize = function(){ var r = root.getBoundingClientRect(); if (r.width < 2 || r.height < 2) return; var pw = app.screen.width, ph = app.screen.height; app.renderer.resize(r.width, r.height); world.x += (app.screen.width - pw) / 2; world.y += (app.screen.height - ph) / 2; app.stage.hitArea = app.screen; };
      if (!pm) wireDrop(handleDrop);
      return self;
@@ -917,7 +930,7 @@
      var dirty = false, fsz = 14;
      function setTitle(){ title.textContent = (dirty ? '\u25CF ' : '') + name; }
      var inst = { box: box, key: null };
-     function doClose(){ try{ window.removeEventListener('keydown', inst.key, true); }catch(_){} try{ inst.box.remove(); }catch(_){} if (__activeOverlay === inst) __activeOverlay = null; }
+     function doClose(){ try{ window.removeEventListener('keydown', inst.key, true); }catch(_){} try{ inst.box.remove(); }catch(_){} if (__activeOverlay === inst) __activeOverlay = null; if (typeof closeVMenu === 'function') closeVMenu(); }
      box.addEventListener('pointerdown', function(){ focusOverlay(inst); }, true);
      setTitle();
      T.core.invoke('read_text', { path: path }).then(function(t){ ta.value = t; }).catch(function(e){ ta.value = ''; title.textContent = 'error: ' + e; });
@@ -965,7 +978,18 @@
      bar.addEventListener('pointerdown', function(ev){ if (ev.target !== bar && ev.target !== title) return; ev.preventDefault(); var sx = ev.clientX, sy = ev.clientY, ox = box.offsetLeft, oy = box.offsetTop; function mv(e){ box.style.left = (ox + e.clientX - sx) + 'px'; box.style.top = (oy + e.clientY - sy) + 'px'; } function up(){ window.removeEventListener('pointermove', mv); window.removeEventListener('pointerup', up); } window.addEventListener('pointermove', mv); window.addEventListener('pointerup', up); });
      __placer = { box: box };
    }
-   function openViewer(list, idx){
+   var __vmenu = null;
+   function closeVMenu(){ if (__vmenu){ try{ __vmenu.remove(); }catch(_){} __vmenu = null; window.removeEventListener('pointerdown', vmOutside, true); } }
+   function vmOutside(e){ if (__vmenu && !__vmenu.contains(e.target)) closeVMenu(); }
+   function openViewerCtxMenu(actions, x, y){
+     closeVMenu();
+     var m = document.createElement('div'); m.className = 'pop'; m.style.position = 'fixed'; m.style.zIndex = '2000000000'; m.style.display = 'block'; m.style.left = x + 'px'; m.style.top = y + 'px';
+     actions.forEach(function(a){ if (a.sep){ var s = document.createElement('div'); s.className = 'sep'; m.appendChild(s); return; } var b = document.createElement('button'); b.textContent = a.label; if (a.danger) b.className = 'danger'; var fn = function(ev){ ev.stopPropagation(); closeVMenu(); a.fn(); }; if (a.dragout) b.addEventListener('pointerdown', fn); else b.addEventListener('click', fn); m.appendChild(b); });
+     document.body.appendChild(m);
+     var r = m.getBoundingClientRect(); if (r.right > window.innerWidth) m.style.left = Math.max(4, window.innerWidth - r.width - 8) + 'px'; if (r.bottom > window.innerHeight) m.style.top = Math.max(4, window.innerHeight - r.height - 8) + 'px';
+     setTimeout(function(){ window.addEventListener('pointerdown', vmOutside, true); }, 0);
+   }
+   function openViewer(list, idx, owner){
      if (!list || !list.length) return;
      var T = window.__TAURI__;
      var box = document.createElement('div'); box.className = 'viewer';
@@ -981,8 +1005,8 @@
      var img = document.createElement('img'); img.className = 'viewerImg'; img.draggable = false;
      body.appendChild(img); box.appendChild(bar); box.appendChild(body);
      document.body.appendChild(box);
-     var inst = { box: box, img: img, title: title, list: list, idx: idx, key: null };
-     function doClose(){ try{ window.removeEventListener('keydown', inst.key, true); }catch(_){} try{ inst.box.remove(); }catch(_){} if (__activeOverlay === inst) __activeOverlay = null; }
+     var inst = { box: box, img: img, title: title, list: list, idx: idx, key: null }; inst.owner = owner || null;
+     function doClose(){ try{ window.removeEventListener('keydown', inst.key, true); }catch(_){} try{ inst.box.remove(); }catch(_){} if (__activeOverlay === inst) __activeOverlay = null; if (typeof closeVMenu === 'function') closeVMenu(); }
      box.addEventListener('pointerdown', function(){ focusOverlay(inst); }, true);
      var zs = 1, ztx = 0, zty = 0;
      function applyZoom(){ img.style.transform = 'translate(' + ztx + 'px,' + zty + 'px) scale(' + zs + ')'; }
@@ -990,6 +1014,7 @@
      body.addEventListener('wheel', function(ev){ ev.preventDefault(); ev.stopPropagation(); var r = body.getBoundingClientRect(); var cx = ev.clientX - r.left - r.width / 2, cy = ev.clientY - r.top - r.height / 2; var old = zs; var ns = Math.min(20, Math.max(1, zs * Math.exp(-ev.deltaY * 0.0015))); ztx = cx - (cx - ztx) * (ns / old); zty = cy - (cy - zty) * (ns / old); zs = ns; if (zs <= 1.001){ resetZoom(); } else applyZoom(); }, { passive: false });
      body.addEventListener('pointerdown', function(ev){ if (ev.button !== 0) return; var r = body.getBoundingClientRect(); if (ev.clientX > r.right - 20 && ev.clientY > r.bottom - 20) return; ev.preventDefault(); var sx = ev.clientX, sy = ev.clientY, ox = ztx, oy = zty; body.style.cursor = 'grabbing'; function mv(e){ ztx = ox + e.clientX - sx; zty = oy + e.clientY - sy; applyZoom(); } function up(){ body.style.cursor = ''; window.removeEventListener('pointermove', mv); window.removeEventListener('pointerup', up); } window.addEventListener('pointermove', mv); window.addEventListener('pointerup', up); });
      body.addEventListener('dblclick', function(){ resetZoom(); });
+     body.addEventListener('contextmenu', function(ev){ ev.preventDefault(); ev.stopPropagation(); if (!inst.owner || !inst.owner.itemMenuActions) return; var cur = inst.list[inst.idx]; if (!cur) return; openViewerCtxMenu(inst.owner.itemMenuActions(cur.name), ev.clientX, ev.clientY); });
      function load(){ var e = inst.list[inst.idx]; title.textContent = (inst.idx + 1) + '/' + inst.list.length + '  ' + e.name; resetZoom(); img.removeAttribute('src'); T.core.invoke('image_full', { path: e.path }).then(function(u){ if (inst.box.isConnected) img.src = u; }).catch(function(err){ title.textContent = 'error: ' + err; }); }
      function step(d){ inst.idx = (inst.idx + d + inst.list.length) % inst.list.length; load(); }
      prev.onclick = function(e){ e.stopPropagation(); step(-1); };
