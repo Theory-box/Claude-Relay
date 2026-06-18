@@ -117,3 +117,13 @@ Running list of deferred work and ideas. Newest context at top of each section.
 - ERROR BAR CLOSE: give the red #err bar at top a small "x" button to dismiss it.
 - FUN WIDGETS / SUB-APPS (in-app only): floating-window mini-apps hosted like the image/text viewers. First idea: a chess board you can play against the computer. Brainstorm more (sticky notes, calculator, clock, paint, music visualizer, etc.).
 - PORTALS (fancy bidirectional shortcuts): a matched pair — Portal A in folder X and Portal B in folder Y. Portal icon; each portal's NAME = the folder it leads to. Clicking a portal navigates to its paired folder (both directions). Placement UX: right-click "Add Portal" opens a small window holding two portal tokens; drop one token into one folder and the other token into another folder (navigate between drops); the window auto-closes once both are placed; closing the window early clears the half-placed portal and cancels. OPEN DESIGN QS: (a) store as app-only virtual cards in per-folder layout/state [matches "exists only in app"] vs .lnk-backed real files; (b) deleting one end removes the whole pair vs leaves a one-way portal; (c) broken target (folder moved/deleted) handling; (d) disallow both ends in the same folder.
+
+### Portal — decisions locked
+- REUSE the floating-window system (openViewer/openTextEditor chrome: movable/closable) for the two-token
+  placement window. Portals themselves PERSIST via the per-folder layout store (save_layout/load_layout),
+  stored as a virtual "portal" card; the pair is one record with both paths + a shared id.
+- SAME FOLDER NOT ALLOWED for the two ends. If the user drops the second token into the same folder as the
+  first, do NOT cancel the operation — snap that token back into the placement window so they can place it
+  elsewhere. (Window only clears/cancels if the user closes it.)
+- Deleting either end removes the whole pair. Broken target (folder moved/deleted) -> clicking shows a gentle
+  error + offer to remove.
