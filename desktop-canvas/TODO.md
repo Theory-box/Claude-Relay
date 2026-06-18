@@ -127,3 +127,10 @@ Running list of deferred work and ideas. Newest context at top of each section.
   elsewhere. (Window only clears/cancels if the user closes it.)
 - Deleting either end removes the whole pair. Broken target (folder moved/deleted) -> clicking shows a gentle
   error + offer to remove.
+
+## Batch requested (2026-06, after v0.0.54)
+- IMAGE -> PDF: a small window you drag image files into; thumbnails arranged in a grid sized to the window;
+  grid order = PDF page order. Right-click sort options; drag thumbnails to reorder. A "Process" button
+  merges them into one PDF, which appears as an icon attached to the bottom of the window that you can drag
+  out into a folder / place on the canvas.
+- PDF VIEWER: an image-viewer-style floating viewer for PDFs (page through / zoom / pan like the image viewer).
