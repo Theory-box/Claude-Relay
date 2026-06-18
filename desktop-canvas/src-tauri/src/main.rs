@@ -541,6 +541,66 @@ fn unzip_item(app: tauri::AppHandle, dir: String, name: String) -> Result<String
     Ok(outdir.file_name().unwrap().to_string_lossy().to_string())
 }
 
+#[tauri::command]
+fn rename_item(app: tauri::AppHandle, dir: String, old: String, new: String) -> Result<String, String> {
+    in_root(&app, &dir)?;
+    let nn = new.trim().to_string();
+    if nn.is_empty() { return Err("name is empty".into()); }
+    if nn.chars().any(std::path::is_separator) { return Err("name cannot contain slashes".into()); }
+    let base = PathBuf::from(&dir);
+    let src = base.join(&old);
+    if !src.exists() { return Err("item not found".into()); }
+    let dest = base.join(&nn);
+    if dest.exists() && dest != src { return Err("a file with that name already exists".into()); }
+    std::fs::rename(&src, &dest).map_err(|e| e.to_string())?;
+    Ok(nn)
+}
+
+fn to_url(q: &str) -> String {
+    let s = q.trim();
+    if s.starts_with("http://") || s.starts_with("https://") { return s.to_string(); }
+    if !s.contains(' ') && s.contains('.') { return format!("https://{}", s); }
+    format!("https://www.google.com/search?q={}", s.replace(' ', "+"))
+}
+
+static WEB_SEQ: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+const WEB_NAVBAR: &str = r#"(function(){ if (window.__dcBar) return; window.__dcBar = true;
+  function build(){ if (document.getElementById('__dcbar')) return;
+    var bar = document.createElement('div'); bar.id = '__dcbar';
+    bar.style.cssText = 'position:fixed;top:0;left:0;right:0;height:38px;z-index:2147483647;display:flex;align-items:center;gap:6px;padding:0 8px;background:#15161a;border-bottom:1px solid #3a4356;font:13px system-ui,sans-serif;box-sizing:border-box;';
+    function mk(t){ var b = document.createElement('button'); b.textContent = t; b.style.cssText = 'background:#2a2f3a;color:#cfd2da;border:0;border-radius:6px;height:26px;min-width:30px;cursor:pointer;font-size:14px;line-height:1;'; return b; }
+    var back = mk('\u2039'), fwd = mk('\u203A'), rel = mk('\u21BB');
+    var inp = document.createElement('input'); inp.type = 'text'; inp.value = location.href; inp.spellcheck = false;
+    inp.style.cssText = 'flex:1;height:26px;border-radius:6px;border:1px solid #3a4356;background:#1f2229;color:#e6e8ee;padding:0 10px;font-size:13px;outline:none;';
+    back.onclick = function(){ history.back(); }; fwd.onclick = function(){ history.forward(); }; rel.onclick = function(){ location.reload(); };
+    function go(){ var v = inp.value.trim(); if (!v) return; var u; if (/^https?:\/\//i.test(v)) u = v; else if (v.indexOf(' ') === -1 && v.indexOf('.') > -1) u = 'https://' + v; else u = 'https://www.google.com/search?q=' + encodeURIComponent(v); location.href = u; }
+    inp.addEventListener('keydown', function(e){ if (e.key === 'Enter'){ e.preventDefault(); go(); } });
+    inp.addEventListener('focus', function(){ inp.select(); });
+    bar.appendChild(back); bar.appendChild(fwd); bar.appendChild(rel); bar.appendChild(inp);
+    document.documentElement.appendChild(bar);
+    if (document.body) document.body.style.marginTop = '38px';
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', build); else build();
+})();"#;
+
+#[tauri::command]
+fn open_web(app: tauri::AppHandle, query: Option<String>) -> Result<(), String> {
+    let q = query.unwrap_or_default();
+    let start = if q.trim().is_empty() { "https://www.google.com".to_string() } else { to_url(&q) };
+    let url = tauri::Url::parse(&start).map_err(|e| e.to_string())?;
+    let n = WEB_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let label = format!("web-{}", n);
+    tauri::WebviewWindowBuilder::new(&app, &label, tauri::WebviewUrl::External(url))
+        .title("Web")
+        .inner_size(1100.0, 800.0)
+        .resizable(true)
+        .initialization_script(WEB_NAVBAR)
+        .build()
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 fn portals_file(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     Ok(app.path().app_data_dir().map_err(|e| e.to_string())?.join("portals.json"))
 }
@@ -637,7 +697,7 @@ fn main() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
             quit, places, list_dir, add_dropped_file, make_folder, move_into, trash_item,
-            clear_trash, open_trash, thumb_data, open_item, open_folder, shell_verb, delete_file, paste_copy, paste_move, paste_shortcut, resolve_lnk, path_size, set_safety, load_spaces, save_spaces, save_layout, load_layout, save_session, load_session, path_exists, zip_items, unzip_item, load_portals, save_portals, folder_tree, image_full, make_text_file, read_text, write_text, drag_out
+            clear_trash, open_trash, thumb_data, open_item, open_folder, shell_verb, delete_file, paste_copy, paste_move, paste_shortcut, resolve_lnk, path_size, set_safety, load_spaces, save_spaces, save_layout, load_layout, save_session, load_session, path_exists, zip_items, unzip_item, rename_item, open_web, load_portals, save_portals, folder_tree, image_full, make_text_file, read_text, write_text, drag_out
         ])
         .setup(|app| {
             let handle = app.handle().clone();

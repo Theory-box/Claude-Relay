@@ -83,6 +83,9 @@ AI writes all code; built on GitHub CI, delivered as a bare exe. Branch: feature
 - MINIMAP overlay with a draggable viewport rectangle.
 
 ### Medium
+- VIEWER/EDITOR windows span all monitors (currently each floating window is clipped to its
+  own monitor's window; make them carry across screens — needs a separate top-level OS window
+  not bound to one monitor).
 - SORT/RELAX scoped to selection (fall back to everything if nothing selected).
 - DRAG-OUT copy/move prompt when dropping onto another canvas/window.
 - "GATHER" move mode: selected items cluster around the dragged item.

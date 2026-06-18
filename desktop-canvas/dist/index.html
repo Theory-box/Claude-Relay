@@ -532,6 +532,7 @@
        if (writable) menu.appendChild(mkBtn('New Folder', '', function(){ hideMenu(); promptDialog('New folder name', 'New Folder', 'Create', function(name){ createFolder(name); }); }));
        if (writable) menu.appendChild(mkBtn('New Text File', '', function(){ hideMenu(); promptDialog('Text file name', 'New File.txt', 'Create', function(name){ createTextFile(name); }); }));
        menu.appendChild(mkBtn('Add Portal', '', function(){ hideMenu(); openPortalPlacer(); }));
+       menu.appendChild(mkBtn('Web window', '', function(){ hideMenu(); T.core.invoke('open_web', {}); }));
        if (clip && writable){ menu.appendChild(mkBtn((clip.mode === 'shortcut' ? 'Paste shortcut' : 'Paste') + ' ' + clip.items.length + ' item' + (clip.items.length > 1 ? 's' : '') + (clip.mode === 'cut' ? ' (move)' : ''), '', function(){ hideMenu(); doPaste(); })); menu.appendChild(mkSep()); }
        var sortBtn = document.createElement('button'); sortBtn.innerHTML = 'Sort / Tidy <span class="arrow">\u25B8</span>';
        sortBtn.addEventListener('click', function(ev){ ev.stopPropagation(); showSortFlyout(sortBtn); });
@@ -570,6 +571,7 @@
          menu.appendChild(mkBtn('Open', '', function(){ navigate(joinPath(cwd, fname)); hideMenu(); }));
          menu.appendChild(mkBtn('Open in Explorer', '', function(){ T.core.invoke('open_folder', { dir: joinPath(cwd, fname) }); hideMenu(); }));
          if (writable) menu.appendChild(mkBtn('Zip', '', function(){ hideMenu(); doZip([fname]); }));
+         if (writable) menu.appendChild(mkBtn('Rename', '', function(){ hideMenu(); doRename(fname); }));
          menu.appendChild(mkBtn('Properties', '', function(){ hideMenu(); openProperties(target); }));
          menu.appendChild(mkDragOut([target]));
          menu.appendChild(mkSep());
@@ -585,6 +587,7 @@
          menu.appendChild(mkBtn('Open with\u2026', '', function(){ T.core.invoke('shell_verb', { dir: cwd, name: name, verb: 'openas' }); hideMenu(); }));
          menu.appendChild(mkBtn('Open folder', '', function(){ T.core.invoke('open_folder', { dir: cwd }); hideMenu(); }));
          if (writable) menu.appendChild(mkBtn('Zip', '', function(){ hideMenu(); doZip([name]); }));
+         if (writable) menu.appendChild(mkBtn('Rename', '', function(){ hideMenu(); doRename(name); }));
          if (writable && isZip(name)) menu.appendChild(mkBtn('Extract here', '', function(){ hideMenu(); doUnzip(name); }));
          menu.appendChild(mkBtn('Properties', '', function(){ hideMenu(); openProperties(target); }));
          menu.appendChild(mkDragOut([target]));
@@ -698,7 +701,7 @@
        else if (carry && carry.source === 'import'){ hud.textContent = 'Placing imported file [' + modeLabel() + ']  \u00b7  left-click confirm  \u00b7  right-click cancel  \u00b7  T toggle  \u00b7  Free mode (1) to drop into a folder'; }
        else if (carry){ hud.textContent = 'Moving ' + (carry.held.length > 1 ? carry.held.length + ' items ' : '') + '[' + (ctrlDown ? 'Free (Ctrl)' : modeLabel()) + ']  \u00b7  hold Ctrl = free / drop into folder  \u00b7  T toggle  \u00b7  release to drop  \u00b7  Esc cancel'; }
        else if (selection.size){ hud.textContent = selection.size + ' selected  \u00b7  drag = move  \u00b7  Ctrl+C copy / Ctrl+X cut  \u00b7  Del trash  \u00b7  Ctrl+F frame  \u00b7  Esc clear'; }
-       else { hud.textContent = 'v0.0.58  \u00b7  click = select  \u00b7  shift/ctrl = add/remove  \u00b7  drag empty = box select  \u00b7  middle-drag = pan  \u00b7  drag item = move  \u00b7  mode: ' + modeLabel() + (writable ? '' : '  \u00b7  read-only'); }
+       else { hud.textContent = 'v0.0.59  \u00b7  click = select  \u00b7  shift/ctrl = add/remove  \u00b7  drag empty = box select  \u00b7  middle-drag = pan  \u00b7  drag item = move  \u00b7  mode: ' + modeLabel() + (writable ? '' : '  \u00b7  read-only'); }
      }
      upBtn.addEventListener('click', function(){ navigate(parentOf(cwd)); });
      gotoBtn.addEventListener('click', function(){ if (pathInput.style.display === 'none'){ pathInput.style.display = 'inline-block'; pathInput.value = cwd; pathInput.focus(); pathInput.select(); } else { navigate(pathInput.value.trim()); pathInput.style.display = 'none'; } });
@@ -706,6 +709,7 @@
      function createFolder(nm){ T.core.invoke('make_folder', { dir: cwd, name: (nm || 'New Folder') }).then(function(){ loadView(); }).catch(function(e){ showErr('make_folder: ' + e); }); }
      function createTextFile(nm){ var n = (nm || 'New File').trim(); if (!/\.[a-z0-9]+$/i.test(n)) n += '.txt'; T.core.invoke('make_text_file', { dir: cwd, name: n }).then(function(){ loadView(); }).catch(function(e){ showErr('make_text_file: ' + e); }); }
      function doZip(names){ if (!names || !names.length) return; T.core.invoke('zip_items', { dir: cwd, names: names }).then(function(){ loadView(); }).catch(function(e){ showErr('zip: ' + e); }); }
+     function doRename(oldName){ promptDialog('Rename', oldName, 'Rename', function(nn){ if (!nn || nn === oldName) return; T.core.invoke('rename_item', { dir: cwd, old: oldName, new: nn }).then(function(){ loadView(); }).catch(function(e){ showErr('rename: ' + e); }); }); }
      function doUnzip(name){ T.core.invoke('unzip_item', { dir: cwd, name: name }).then(function(){ loadView(); }).catch(function(e){ showErr('unzip: ' + e); }); }
      function spaceLabel(path){ var n = norm(path); if (n.toLowerCase() === norm(homePath).toLowerCase()) return 'Desktop Canvas'; var parts = n ? n.split('\\').filter(Boolean) : []; return parts.length ? parts[parts.length - 1] : 'This PC'; }
      function spaceSaved(path){ var n = norm(path).toLowerCase(); return spaces.some(function(sp){ return norm(sp.path).toLowerCase() === n; }); }
