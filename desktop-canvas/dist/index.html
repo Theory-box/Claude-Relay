@@ -132,7 +132,7 @@
      var cwd = '', homePath = '', placesList = [];
      var items = [], cards = [], thumbCache = {}, mtimes = {}, meta = {}, portalCards = [];
      var trash = { x: -320, y: -210 }, trashNode = null;
-     var panning = false, last = null, reloadPending = false, confirming = false, animating = false;
+     var panning = false, last = null, reloadPending = false, confirming = false, animating = false; var panVel = { x: 0, y: 0 };
      var lastCursor = null, sortAnim = null, writable = true, spaces = [], camTween = null, clip = null, ctrlDown = false, safetyOn = true;
      var modes = ['free', 'push'], modeIdx = 1; // default Push (Fit removed)
      function modeLabel(){ return ['Free', 'Push'][modeIdx]; }
@@ -430,7 +430,7 @@
      app.stage.on('pointerdown', function(e){
        if (carry || confirming || animating) return;
        if (e.button === 2) return;
-       if (e.button === 1){ panning = true; last = { x: e.global.x, y: e.global.y }; return; } // middle = pan
+       if (e.button === 1){ panning = true; last = { x: e.global.x, y: e.global.y }; camTween = null; panVel.x = 0; panVel.y = 0; return; } // middle = pan
        box = { x0: e.global.x, y0: e.global.y, cx: e.global.x, cy: e.global.y, mode: e.shiftKey ? 'add' : (e.ctrlKey ? 'sub' : 'replace'), moved: false }; // left on empty = box select
      });
      app.stage.on('pointermove', function(e){
@@ -442,7 +442,7 @@
          var wx = (e.global.x - world.x) / world.scale.x, wy = (e.global.y - world.y) / world.scale.y;
          resolveCarry({ x: wx, y: wy });
        } else if (box){ if (Math.hypot(e.global.x - box.x0, e.global.y - box.y0) > 3) box.moved = true; box.cx = e.global.x; box.cy = e.global.y; updateBoxDiv(); }
-       else if (panning && last){ world.x += e.global.x - last.x; world.y += e.global.y - last.y; last = { x: e.global.x, y: e.global.y }; }
+       else if (panning && last){ var pdx = e.global.x - last.x, pdy = e.global.y - last.y; world.x += pdx; world.y += pdy; panVel.x = panVel.x * 0.5 + pdx * 0.5; panVel.y = panVel.y * 0.5 + pdy * 0.5; last = { x: e.global.x, y: e.global.y }; }
      });
      function onUp(){
        if (carry){
@@ -462,7 +462,7 @@
 
      app.view.addEventListener('wheel', function(ev){
        ev.preventDefault();
-       var mx = lx(ev.clientX), my = ly(ev.clientY); var wx = (mx - world.x) / world.scale.x, wy = (my - world.y) / world.scale.y; var ns = Math.min(8, Math.max(0.1, world.scale.x * Math.exp(-ev.deltaY * 0.01))); world.scale.set(ns); world.x = mx - wx * ns; world.y = my - wy * ns;
+       var mx = lx(ev.clientX), my = ly(ev.clientY); var curS = camTween ? camTween.s : world.scale.x, curX = camTween ? camTween.x : world.x, curY = camTween ? camTween.y : world.y; var wx = (mx - curX) / curS, wy = (my - curY) / curS; var ns = Math.min(8, Math.max(0.1, curS * Math.exp(-ev.deltaY * 0.01))); panVel.x = 0; panVel.y = 0; camTween = { s: ns, x: mx - wx * ns, y: my - wy * ns, f: 24 };
        if (carry && !confirming && !animating) refreshPreview();
      }, { passive: false });
 
@@ -701,7 +701,7 @@
        else if (carry && carry.source === 'import'){ hud.textContent = 'Placing imported file [' + modeLabel() + ']  \u00b7  left-click confirm  \u00b7  right-click cancel  \u00b7  T toggle  \u00b7  Free mode (1) to drop into a folder'; }
        else if (carry){ hud.textContent = 'Moving ' + (carry.held.length > 1 ? carry.held.length + ' items ' : '') + '[' + (ctrlDown ? 'Free (Ctrl)' : modeLabel()) + ']  \u00b7  hold Ctrl = free / drop into folder  \u00b7  T toggle  \u00b7  release to drop  \u00b7  Esc cancel'; }
        else if (selection.size){ hud.textContent = selection.size + ' selected  \u00b7  drag = move  \u00b7  Ctrl+C copy / Ctrl+X cut  \u00b7  Del trash  \u00b7  Ctrl+F frame  \u00b7  Esc clear'; }
-       else { hud.textContent = 'v0.0.62  \u00b7  click = select  \u00b7  shift/ctrl = add/remove  \u00b7  drag empty = box select  \u00b7  middle-drag = pan  \u00b7  drag item = move  \u00b7  mode: ' + modeLabel() + (writable ? '' : '  \u00b7  read-only'); }
+       else { hud.textContent = 'v0.0.63  \u00b7  click = select  \u00b7  shift/ctrl = add/remove  \u00b7  drag empty = box select  \u00b7  middle-drag = pan  \u00b7  drag item = move  \u00b7  mode: ' + modeLabel() + (writable ? '' : '  \u00b7  read-only'); }
      }
      upBtn.addEventListener('click', function(){ navigate(parentOf(cwd)); });
      gotoBtn.addEventListener('click', function(){ if (pathInput.style.display === 'none'){ pathInput.style.display = 'inline-block'; pathInput.value = cwd; pathInput.focus(); pathInput.select(); } else { navigate(pathInput.value.trim()); pathInput.style.display = 'none'; } });
@@ -845,7 +845,7 @@
      try{ T.event.listen('thumb-changed', function(e){ var p = e.payload || {}; if (p.key !== cwd || !p.name) return; delete thumbCache[cwd + '\u0000' + p.name]; var c = cardForName(p.name); if (c) applyThumb(c, cwd); }); }catch(_){}
 
      var diag = $('#diag');
-     app.ticker.add(function(){ if (sortAnim) stepSort(); if (camTween){ world.scale.set(world.scale.x + (camTween.s - world.scale.x) * 0.25); world.x += (camTween.x - world.x) * 0.25; world.y += (camTween.y - world.y) * 0.25; if (--camTween.f <= 0){ world.scale.set(camTween.s); world.x = camTween.x; world.y = camTween.y; camTween = null; } } if (carry || selection.size) drawSelection(); diag.textContent = 'zoom ' + Math.round(world.scale.x * 100) + '%  items ' + items.length + (selection.size ? '  sel ' + selection.size : '') + (animating ? '  sorting' : (carry ? '  ' + carry.source : '')); });
+     app.ticker.add(function(){ if (sortAnim) stepSort(); if (camTween){ world.scale.set(world.scale.x + (camTween.s - world.scale.x) * 0.25); world.x += (camTween.x - world.x) * 0.25; world.y += (camTween.y - world.y) * 0.25; if (--camTween.f <= 0){ world.scale.set(camTween.s); world.x = camTween.x; world.y = camTween.y; camTween = null; } } else if (!panning && (Math.abs(panVel.x) > 0.06 || Math.abs(panVel.y) > 0.06)){ world.x += panVel.x; world.y += panVel.y; panVel.x *= 0.9; panVel.y *= 0.9; if (Math.abs(panVel.x) <= 0.06) panVel.x = 0; if (Math.abs(panVel.y) <= 0.06) panVel.y = 0; } if (carry || selection.size) drawSelection(); diag.textContent = 'zoom ' + Math.round(world.scale.x * 100) + '%  items ' + items.length + (selection.size ? '  sel ' + selection.size : '') + (animating ? '  sorting' : (carry ? '  ' + carry.source : '')); });
 
      (async function(){
        try{ placesList = JSON.parse(await T.core.invoke('places') || '[]'); }catch(e){ showErr('places: ' + e); }
