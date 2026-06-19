@@ -155,7 +155,7 @@
      var hl = new PIXI.Graphics(); hl.eventMode = 'none'; hl.visible = false; world.addChild(hl);
 
      var cwd = '', homePath = '', placesList = [];
-     var items = [], cards = [], thumbCache = {}, mtimes = {}, meta = {}, portalCards = [];
+     var items = [], cards = [], thumbCache = {}, thumbOrder = [], mtimes = {}, meta = {}, portalCards = [];
      var trash = { x: -320, y: -210 }, trashNode = null;
      var panning = false, last = null, reloadPending = false, confirming = false, animating = false; var panVel = { x: 0, y: 0 };
      var lastCursor = null, sortAnim = null, writable = true, spaces = [], camTween = null, sortArea = null, clip = null, ctrlDown = false, safetyOn = true;
@@ -207,13 +207,17 @@
        if (PIXI.Assets && PIXI.Assets.load) return PIXI.Assets.load(url);
        return new Promise(function(res, rej){ var t = PIXI.Texture.from(url); if (t.baseTexture && t.baseTexture.valid){ res(t); return; } t.baseTexture.once('loaded', function(){ res(t); }); t.baseTexture.once('error', function(){ rej('texture error'); }); });
      }
-     function getThumb(name, dir){ var k = dir + '\u0000' + name; if (k in thumbCache) return Promise.resolve(thumbCache[k]); return T.core.invoke('thumb_data', { dir: dir, name: name }).then(function(url){ thumbCache[k] = url; return url; }); }
+     function getThumb(name, dir){ var k = dir + '\u0000' + name; if (k in thumbCache) return Promise.resolve(thumbCache[k]); return T.core.invoke('thumb_data', { dir: dir, name: name }).then(function(url){ if (!(k in thumbCache)) thumbOrder.push(k); thumbCache[k] = url; if (thumbOrder.length > 400){ var ok = thumbOrder.shift(); if (ok !== k && (ok in thumbCache)) delete thumbCache[ok]; } return url; }); }
+     function texAcquire(url){ if (!url) return; var R = window.__texRef || (window.__texRef = {}); R[url] = (R[url] || 0) + 1; }
+     function texRelease(url){ if (!url) return; var R = window.__texRef || (window.__texRef = {}); var n = (R[url] || 0) - 1; if (n > 0){ R[url] = n; return; } delete R[url]; try { if (PIXI.Assets && PIXI.Assets.unload){ PIXI.Assets.unload(url).catch(function(){}); } else if (PIXI.utils && PIXI.utils.TextureCache){ var t = PIXI.utils.TextureCache[url]; if (t) t.destroy(true); } } catch(_){} }
      function applyThumb(card, dir){
        var name = card.__item.name;
        getThumb(name, dir).then(function(url){
          if (!url || !card.__item || card.destroyed) return;
          loadTexture(url).then(function(tex){
            if (!card.__item || card.destroyed) return;
+           if (card.__texUrl && card.__texUrl !== url) texRelease(card.__texUrl);
+           texAcquire(url); card.__texUrl = url;
            var maxW = 240, maxH = 180, s = Math.min(maxW / tex.width, maxH / tex.height, 1);
            var w = Math.max(1, Math.round(tex.width * s)), h = Math.max(1, Math.round(tex.height * s));
            var sp = new PIXI.Sprite(tex); sp.width = w; sp.height = h; sp.x = 4; sp.y = 22;
@@ -260,7 +264,7 @@
      }
      function persist(){ return saveLayout(true); }
      function clearView(){
-       for (var i = 0; i < cards.length; i++){ try{ world.removeChild(cards[i]); cards[i].destroy({ children: true }); }catch(_){} }
+       for (var i = 0; i < cards.length; i++){ try{ if (cards[i].__texUrl) texRelease(cards[i].__texUrl); world.removeChild(cards[i]); cards[i].destroy({ children: true }); }catch(_){} }
        cards = []; items = []; mtimes = {}; meta = {};
        if (trashNode){ try{ world.removeChild(trashNode); trashNode.destroy({ children: true }); }catch(_){} trashNode = null; }
        for (var pi = 0; pi < portalCards.length; pi++){ try{ world.removeChild(portalCards[pi]); portalCards[pi].destroy({ children: true }); }catch(_){} } portalCards = [];
@@ -311,7 +315,7 @@
      function goForward(){ if (histIdx < history.length - 1){ if (carry) cancelCarry(); histIdx++; cwd = history[histIdx]; loadView(); updateNavButtons(); if (typeof scheduleSession === 'function') scheduleSession(); } }
 
      function cardForName(name){ for (var i = 0; i < cards.length; i++){ if (cards[i].__item && cards[i].__item.name === name) return cards[i]; } return null; }
-     function removeCardLocal(card){ var it = card.__item; var ii = items.indexOf(it); if (ii >= 0) items.splice(ii, 1); var ci = cards.indexOf(card); if (ci >= 0) cards.splice(ci, 1); world.removeChild(card); card.destroy({ children: true }); delete mtimes[it.name]; delete meta[it.name]; if (typeof selection !== 'undefined' && selection) selection.delete(card); }
+     function removeCardLocal(card){ var it = card.__item; var ii = items.indexOf(it); if (ii >= 0) items.splice(ii, 1); var ci = cards.indexOf(card); if (ci >= 0) cards.splice(ci, 1); if (card.__texUrl) texRelease(card.__texUrl); world.removeChild(card); card.destroy({ children: true }); delete mtimes[it.name]; delete meta[it.name]; if (typeof selection !== 'undefined' && selection) selection.delete(card); }
 
      // ---------- dialogs ----------
      var dialog = $('#dialog'), dlgMsg = $('#dlgMsg'), dlgYes = $('#dlgYes'), dlgNo = $('#dlgNo');
@@ -772,7 +776,7 @@
        else if (carry && carry.source === 'import'){ hud.textContent = 'Placing imported file [' + modeLabel() + ']  \u00b7  left-click confirm  \u00b7  right-click cancel  \u00b7  T toggle  \u00b7  Free mode (1) to drop into a folder'; }
        else if (carry){ hud.textContent = 'Moving ' + (carry.held.length > 1 ? carry.held.length + ' items ' : '') + '[' + (ctrlDown ? 'Free (Ctrl)' : modeLabel()) + ']  \u00b7  hold Ctrl = free / drop into folder  \u00b7  T toggle  \u00b7  release to drop  \u00b7  Esc cancel'; }
        else if (selection.size){ hud.textContent = selection.size + ' selected  \u00b7  drag = move  \u00b7  Ctrl+C copy / Ctrl+X cut  \u00b7  Del trash  \u00b7  Ctrl+F frame  \u00b7  Esc clear'; }
-       else { hud.textContent = 'v0.0.88  \u00b7  click = select  \u00b7  shift/ctrl = add/remove  \u00b7  drag empty = box select  \u00b7  middle-drag = pan  \u00b7  drag item = move  \u00b7  mode: ' + modeLabel() + (writable ? '' : '  \u00b7  read-only'); }
+       else { hud.textContent = 'v0.0.89  \u00b7  click = select  \u00b7  shift/ctrl = add/remove  \u00b7  drag empty = box select  \u00b7  middle-drag = pan  \u00b7  drag item = move  \u00b7  mode: ' + modeLabel() + (writable ? '' : '  \u00b7  read-only'); }
      }
      upBtn.addEventListener('click', function(){ navigate(parentOf(cwd)); });
      gotoBtn.addEventListener('click', function(){ if (pathInput.style.display === 'none'){ pathInput.style.display = 'inline-block'; pathInput.value = cwd; pathInput.focus(); pathInput.select(); } else { navigate(pathInput.value.trim()); pathInput.style.display = 'none'; } });
