@@ -772,7 +772,7 @@
        else if (carry && carry.source === 'import'){ hud.textContent = 'Placing imported file [' + modeLabel() + ']  \u00b7  left-click confirm  \u00b7  right-click cancel  \u00b7  T toggle  \u00b7  Free mode (1) to drop into a folder'; }
        else if (carry){ hud.textContent = 'Moving ' + (carry.held.length > 1 ? carry.held.length + ' items ' : '') + '[' + (ctrlDown ? 'Free (Ctrl)' : modeLabel()) + ']  \u00b7  hold Ctrl = free / drop into folder  \u00b7  T toggle  \u00b7  release to drop  \u00b7  Esc cancel'; }
        else if (selection.size){ hud.textContent = selection.size + ' selected  \u00b7  drag = move  \u00b7  Ctrl+C copy / Ctrl+X cut  \u00b7  Del trash  \u00b7  Ctrl+F frame  \u00b7  Esc clear'; }
-       else { hud.textContent = 'v0.0.86  \u00b7  click = select  \u00b7  shift/ctrl = add/remove  \u00b7  drag empty = box select  \u00b7  middle-drag = pan  \u00b7  drag item = move  \u00b7  mode: ' + modeLabel() + (writable ? '' : '  \u00b7  read-only'); }
+       else { hud.textContent = 'v0.0.87  \u00b7  click = select  \u00b7  shift/ctrl = add/remove  \u00b7  drag empty = box select  \u00b7  middle-drag = pan  \u00b7  drag item = move  \u00b7  mode: ' + modeLabel() + (writable ? '' : '  \u00b7  read-only'); }
      }
      upBtn.addEventListener('click', function(){ navigate(parentOf(cwd)); });
      gotoBtn.addEventListener('click', function(){ if (pathInput.style.display === 'none'){ pathInput.style.display = 'inline-block'; pathInput.value = cwd; pathInput.focus(); pathInput.select(); } else { navigate(pathInput.value.trim()); pathInput.style.display = 'none'; } });
@@ -1122,6 +1122,7 @@
      lines.push('start: heap ' + heap0 + 'MB  texCache ' + tex0 + '  domNodes ' + dom0);
      lines.push('sec | fps worst jank | renders ptr sm | cards items | heapMB tex dom | bg/s thumb/s | poll(ms)');
      var lt = [], po = null; try { po = new PerformanceObserver(function(list){ list.getEntries().forEach(function(e){ lt.push(Math.round(e.startTime) + ':' + Math.round(e.duration)); }); }); po.observe({ entryTypes: ['longtask'] }); } catch(_){}
+     var loaf = [], po2 = null; try { po2 = new PerformanceObserver(function(list){ list.getEntries().forEach(function(e){ var top = ''; if (e.scripts && e.scripts.length){ var sc = e.scripts.slice().sort(function(a, b){ return b.duration - a.duration; })[0]; top = (sc.sourceFunctionName || sc.invoker || sc.invokerType || '?') + (sc.sourceURL ? (' @' + (sc.sourceCharPosition || 0)) : '') + ' d' + Math.round(sc.duration) + (sc.forcedStyleAndLayoutDuration ? (' sl' + Math.round(sc.forcedStyleAndLayoutDuration)) : ''); } loaf.push('t' + Math.round(e.startTime) + ' dur' + Math.round(e.duration) + ' blk' + Math.round(e.blockingDuration || 0) + ' rnd' + Math.round((e.duration || 0) - (e.renderStart ? (e.renderStart - e.startTime) : (e.duration || 0))) + ' [' + top + ']'); }); }); po2.observe({ type: 'long-animation-frame', buffered: true }); } catch(_){}
      var sec = 0, maxWorst = 0, jankTotal = 0, DUR = 45;
      __plog = setInterval(function(){
        sec++;
@@ -1136,6 +1137,9 @@
          lines.push('=== summary: worst ' + maxWorst + 'ms, jank ' + jankTotal + '/' + DUR + 's | heap ' + heap0 + '->' + heapMB() + 'MB  tex ' + tex0 + '->' + texCount() + '  dom ' + dom0 + '->' + domCount() + ' ===');
          lines.push('longtasks (startMs:durMs) x' + lt.length + ':');
          lines.push(lt.length ? lt.join('  ') : '(none >50ms)');
+         if (po2) try { po2.disconnect(); } catch(_){}
+         lines.push('long animation frames [fn @charpos dN=scriptms slN=forced-layout-ms; rnd=render-ms] x' + loaf.length + ':');
+         lines.push(loaf.length ? loaf.join(String.fromCharCode(10)) : '(none >50ms)');
          try { window.__TAURI__.core.invoke('save_perf_log', { name: 'perflog-' + WIN_LABEL + '.txt', text: lines.join(String.fromCharCode(10)) }); } catch(e){}
          if (!wasOn && !PREFS.perfHud) perfStop();
        }
