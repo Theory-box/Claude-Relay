@@ -776,6 +776,33 @@ fn image_full(path: String) -> Result<String, String> {
 }
 
 #[tauri::command]
+fn bg_image(path: String, maxdim: u32) -> Result<String, String> {
+    let p = std::path::Path::new(&path);
+    match image::open(p) {
+        Ok(img) => {
+            let md = maxdim.clamp(640, 3840);
+            let (w, h) = (img.width(), img.height());
+            let img = if w.max(h) > md { img.resize(md, md, image::imageops::FilterType::Triangle) } else { img };
+            let rgb = img.to_rgb8();
+            let mut buf = Vec::new();
+            {
+                use image::ImageEncoder;
+                image::codecs::jpeg::JpegEncoder::new_with_quality(&mut buf, 82)
+                    .write_image(rgb.as_raw(), rgb.width(), rgb.height(), image::ExtendedColorType::Rgb8)
+                    .map_err(|e| e.to_string())?;
+            }
+            Ok(format!("data:image/jpeg;base64,{}", b64(&buf)))
+        }
+        Err(_) => {
+            let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
+            let mime = match ext.as_str() { "png" => "image/png", "jpg" | "jpeg" => "image/jpeg", "gif" => "image/gif", "webp" => "image/webp", "bmp" => "image/bmp", _ => "application/octet-stream" };
+            let bytes = std::fs::read(p).map_err(|e| e.to_string())?;
+            Ok(format!("data:{};base64,{}", mime, b64(&bytes)))
+        }
+    }
+}
+
+#[tauri::command]
 fn drag_out(window: tauri::WebviewWindow, paths: Vec<String>) -> Result<(), String> {
     if paths.is_empty() { return Err("no files".into()); }
     window.app_handle().run_on_main_thread(move || {
@@ -816,7 +843,7 @@ fn main() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
             quit, places, list_dir, add_dropped_file, make_folder, move_into, trash_item,
-            clear_trash, open_trash, thumb_data, open_item, open_folder, shell_verb, delete_file, paste_copy, paste_move, paste_shortcut, resolve_lnk, path_size, set_safety, load_spaces, save_spaces, save_layout, load_layout, save_session, load_session, path_exists, zip_items, unzip_item, rename_item, open_web, load_settings, save_settings, pick_folder, list_bg_images, load_portals, save_portals, folder_tree, image_full, read_file_b64, save_temp_png, make_text_file, read_text, write_text, drag_out
+            clear_trash, open_trash, thumb_data, open_item, open_folder, shell_verb, delete_file, paste_copy, paste_move, paste_shortcut, resolve_lnk, path_size, set_safety, load_spaces, save_spaces, save_layout, load_layout, save_session, load_session, path_exists, zip_items, unzip_item, rename_item, open_web, load_settings, save_settings, pick_folder, list_bg_images, load_portals, save_portals, folder_tree, image_full, bg_image, read_file_b64, save_temp_png, make_text_file, read_text, write_text, drag_out
         ])
         .setup(|app| {
             let handle = app.handle().clone();
