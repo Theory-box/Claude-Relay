@@ -5,6 +5,13 @@ use std::path::{Path, PathBuf};
 use tauri::Manager;
 use tauri::Emitter;
 
+static SM_TARGET: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
+
+#[tauri::command]
+fn sm_focus(label: String) {
+    if let Ok(mut g) = SM_TARGET.lock() { *g = label; }
+}
+
 fn spawn_spacemouse(app: tauri::AppHandle) {
     std::thread::spawn(move || {
         let api = match hidapi::HidApi::new() { Ok(a) => a, Err(_) => return };
@@ -28,12 +35,18 @@ fn spawn_spacemouse(app: tauri::AppHandle) {
                 Ok(n) if n >= 7 => {
                     errs = 0;
                     if buf[0] == 0x01 {
-                        let x = i16::from_le_bytes([buf[1], buf[2]]) as i32;
-                        let y = i16::from_le_bytes([buf[3], buf[4]]) as i32;
-                        let z = i16::from_le_bytes([buf[5], buf[6]]) as i32;
+                        let mut x = i16::from_le_bytes([buf[1], buf[2]]) as i32;
+                        let mut y = i16::from_le_bytes([buf[3], buf[4]]) as i32;
+                        let mut z = i16::from_le_bytes([buf[5], buf[6]]) as i32;
+                        if x.abs() < 2 { x = 0; }
+                        if y.abs() < 2 { y = 0; }
+                        if z.abs() < 2 { z = 0; }
                         let zero = x == 0 && y == 0 && z == 0;
                         if !zero || !last_zero {
-                            let _ = app.emit("spacemouse", serde_json::json!({"x": x, "y": y, "z": z}));
+                            let payload = serde_json::json!({"x": x, "y": y, "z": z});
+                            let tgt = SM_TARGET.lock().ok().map(|g| g.clone()).unwrap_or_default();
+                            let sent = if !tgt.is_empty() { app.emit_to(tgt.as_str(), "spacemouse", payload.clone()).is_ok() } else { false };
+                            if !sent { let _ = app.emit("spacemouse", payload); }
                         }
                         last_zero = zero;
                     }
@@ -854,7 +867,7 @@ fn main() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
             quit, places, list_dir, add_dropped_file, make_folder, move_into, trash_item,
-            clear_trash, open_trash, thumb_data, open_item, open_folder, shell_verb, delete_file, paste_copy, paste_move, paste_shortcut, resolve_lnk, path_size, set_safety, load_spaces, save_spaces, save_layout, load_layout, save_session, load_session, path_exists, zip_items, unzip_item, rename_item, open_web, load_settings, save_settings, pick_folder, list_bg_images, load_portals, save_portals, folder_tree, image_full, bg_image, save_perf_log, read_file_b64, save_temp_png, make_text_file, read_text, write_text, drag_out
+            clear_trash, open_trash, thumb_data, open_item, open_folder, shell_verb, delete_file, paste_copy, paste_move, paste_shortcut, resolve_lnk, path_size, set_safety, load_spaces, save_spaces, save_layout, load_layout, save_session, load_session, path_exists, zip_items, unzip_item, rename_item, open_web, load_settings, save_settings, pick_folder, list_bg_images, load_portals, save_portals, folder_tree, image_full, bg_image, save_perf_log, sm_focus, read_file_b64, save_temp_png, make_text_file, read_text, write_text, drag_out
         ])
         .setup(|app| {
             let handle = app.handle().clone();
