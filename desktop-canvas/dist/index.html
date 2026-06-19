@@ -221,7 +221,7 @@
            var cap = fitLabel('', name, { fill: 0xb6bac4, fontSize: 11, fontFamily: 'system-ui' }, w - 4); cap.x = 5; cap.y = 5;
            var old = card.removeChildren(); old.forEach(function(o){ try{ o.destroy(); }catch(_){} });
            card.addChild(frame); card.addChild(sp); card.addChild(cap);
-           card.hitArea = new PIXI.Rectangle(0, 0, w + 8, h + 30); wake();
+           card.hitArea = new PIXI.Rectangle(0, 0, w + 8, h + 30); if (window.__PERF && __PERF.on) __PERF.thumbCnt++; wake();
          }).catch(function(e){ showErr('tex: ' + e); });
        }).catch(function(e){ showErr('thumb: ' + e); });
      }
@@ -772,7 +772,7 @@
        else if (carry && carry.source === 'import'){ hud.textContent = 'Placing imported file [' + modeLabel() + ']  \u00b7  left-click confirm  \u00b7  right-click cancel  \u00b7  T toggle  \u00b7  Free mode (1) to drop into a folder'; }
        else if (carry){ hud.textContent = 'Moving ' + (carry.held.length > 1 ? carry.held.length + ' items ' : '') + '[' + (ctrlDown ? 'Free (Ctrl)' : modeLabel()) + ']  \u00b7  hold Ctrl = free / drop into folder  \u00b7  T toggle  \u00b7  release to drop  \u00b7  Esc cancel'; }
        else if (selection.size){ hud.textContent = selection.size + ' selected  \u00b7  drag = move  \u00b7  Ctrl+C copy / Ctrl+X cut  \u00b7  Del trash  \u00b7  Ctrl+F frame  \u00b7  Esc clear'; }
-       else { hud.textContent = 'v0.0.85  \u00b7  click = select  \u00b7  shift/ctrl = add/remove  \u00b7  drag empty = box select  \u00b7  middle-drag = pan  \u00b7  drag item = move  \u00b7  mode: ' + modeLabel() + (writable ? '' : '  \u00b7  read-only'); }
+       else { hud.textContent = 'v0.0.86  \u00b7  click = select  \u00b7  shift/ctrl = add/remove  \u00b7  drag empty = box select  \u00b7  middle-drag = pan  \u00b7  drag item = move  \u00b7  mode: ' + modeLabel() + (writable ? '' : '  \u00b7  read-only'); }
      }
      upBtn.addEventListener('click', function(){ navigate(parentOf(cwd)); });
      gotoBtn.addEventListener('click', function(){ if (pathInput.style.display === 'none'){ pathInput.style.display = 'inline-block'; pathInput.value = cwd; pathInput.focus(); pathInput.select(); } else { navigate(pathInput.value.trim()); pathInput.style.display = 'none'; } });
@@ -934,7 +934,7 @@
      self.spaceNudge = function(tx, ty, tz){ var d = PREFS.smDead, moved = false; var px = Math.abs(tx) > d ? tx : 0, py = Math.abs(tz) > d ? tz : 0; if (px || py){ camTween = null; world.x += px * PREFS.smPan * (PREFS.smInvX ? 1 : -1); world.y += py * PREFS.smPan * (PREFS.smInvY ? 1 : -1); moved = true; } if (Math.abs(ty) > d){ var f = Math.exp(ty * PREFS.smZoom * (PREFS.smInvZoom ? -1 : 1)); var s = world.scale.x, ns = Math.min(8, Math.max(0.1, s * f)); if (ns !== s){ var cx = app.screen.width / 2, cy = app.screen.height / 2; camTween = null; world.x = cx - (cx - world.x) * (ns / s); world.y = cy - (cy - world.y) * (ns / s); world.scale.set(ns); moved = true; } } if (moved) wake(); };
      var bgCur = 0, bgList = [], bgTimer = null, bgListSig = null, bgSecs = null, bgGen = 0;
      function clearBgTimer(){ if (bgTimer){ clearInterval(bgTimer); bgTimer = null; } }
-     function bgShow(path){ var md = Math.ceil(Math.max(root.clientWidth || 1920, root.clientHeight || 1080) * (window.devicePixelRatio || 1) * 1.1); T.core.invoke('bg_image', { path: path, maxdim: md }).then(function(url){ var imgs = [bgImgA, bgImgB]; var ni = 1 - bgCur; var nx = imgs[ni]; nx.style.objectFit = (PREFS.bgFit === 'fit') ? 'contain' : 'cover'; var go = function(){ nx.style.opacity = String(PREFS.bgOpacity); imgs[bgCur].style.opacity = '0'; bgCur = ni; }; nx.src = url; if (nx.decode){ nx.decode().then(go).catch(go); } else { nx.onload = go; } }).catch(function(){}); }
+     function bgShow(path){ var md = Math.ceil(Math.max(root.clientWidth || 1920, root.clientHeight || 1080) * (window.devicePixelRatio || 1) * 1.1); T.core.invoke('bg_image', { path: path, maxdim: md }).then(function(url){ var imgs = [bgImgA, bgImgB]; var ni = 1 - bgCur; var nx = imgs[ni]; nx.style.objectFit = (PREFS.bgFit === 'fit') ? 'contain' : 'cover'; var go = function(){ if (window.__PERF && __PERF.on) __PERF.bgCnt++; nx.style.opacity = String(PREFS.bgOpacity); imgs[bgCur].style.opacity = '0'; bgCur = ni; }; nx.src = url; if (nx.decode){ nx.decode().then(go).catch(go); } else { nx.onload = go; } }).catch(function(){}); }
      function bgPick(){ if (!bgList.length) return; bgShow(bgList[Math.floor(Math.random() * bgList.length)]); }
      self.applyPrefs = function(p){
        var imageMode = (p.bgMode === 'folder' && p.bgFolder);
@@ -1100,11 +1100,14 @@
      var r = m.getBoundingClientRect(); if (r.right > window.innerWidth) m.style.left = Math.max(4, window.innerWidth - r.width - 8) + 'px'; if (r.bottom > window.innerHeight) m.style.top = Math.max(4, window.innerHeight - r.height - 8) + 'px';
      window.addEventListener('keydown', vmKey, true);
    }
-   var __PERF = { fps: 0, worst: 0, jank: 0, ptrCnt: 0, ptrRate: 0, smCnt: 0, smRate: 0, on: false, raf: 0, last: 0, acc: 0, frames: 0, wAcc: 0, jAcc: 0 };
-   function perfStart(){ if (__PERF.on) return; __PERF.on = true; __PERF.last = performance.now(); __PERF.acc = 0; __PERF.frames = 0; __PERF.wAcc = 0; __PERF.jAcc = 0; var loop = function(now){ if (!__PERF.on) return; var dt = now - __PERF.last; __PERF.last = now; __PERF.frames++; __PERF.acc += dt; if (dt > __PERF.wAcc) __PERF.wAcc = dt; if (dt > 32) __PERF.jAcc++; if (__PERF.acc >= 1000){ __PERF.fps = Math.round(__PERF.frames * 1000 / __PERF.acc); __PERF.worst = Math.round(__PERF.wAcc); __PERF.jank = __PERF.jAcc; __PERF.ptrRate = __PERF.ptrCnt; __PERF.smRate = __PERF.smCnt; __PERF.frames = 0; __PERF.acc = 0; __PERF.wAcc = 0; __PERF.jAcc = 0; __PERF.ptrCnt = 0; __PERF.smCnt = 0; } __PERF.raf = requestAnimationFrame(loop); }; __PERF.raf = requestAnimationFrame(loop); }
+   var __PERF = { fps: 0, worst: 0, jank: 0, ptrCnt: 0, ptrRate: 0, smCnt: 0, smRate: 0, bgCnt: 0, bgRate: 0, thumbCnt: 0, thumbRate: 0, on: false, raf: 0, last: 0, acc: 0, frames: 0, wAcc: 0, jAcc: 0 };
+   function perfStart(){ if (__PERF.on) return; __PERF.on = true; __PERF.last = performance.now(); __PERF.acc = 0; __PERF.frames = 0; __PERF.wAcc = 0; __PERF.jAcc = 0; var loop = function(now){ if (!__PERF.on) return; var dt = now - __PERF.last; __PERF.last = now; __PERF.frames++; __PERF.acc += dt; if (dt > __PERF.wAcc) __PERF.wAcc = dt; if (dt > 32) __PERF.jAcc++; if (__PERF.acc >= 1000){ __PERF.fps = Math.round(__PERF.frames * 1000 / __PERF.acc); __PERF.worst = Math.round(__PERF.wAcc); __PERF.jank = __PERF.jAcc; __PERF.ptrRate = __PERF.ptrCnt; __PERF.smRate = __PERF.smCnt; __PERF.bgRate = __PERF.bgCnt; __PERF.thumbRate = __PERF.thumbCnt; __PERF.bgCnt = 0; __PERF.thumbCnt = 0; __PERF.frames = 0; __PERF.acc = 0; __PERF.wAcc = 0; __PERF.jAcc = 0; __PERF.ptrCnt = 0; __PERF.smCnt = 0; } __PERF.raf = requestAnimationFrame(loop); }; __PERF.raf = requestAnimationFrame(loop); }
    function perfStop(){ __PERF.on = false; if (__PERF.raf){ cancelAnimationFrame(__PERF.raf); __PERF.raf = 0; } }
    var WIN_LABEL = 'win'; try { WIN_LABEL = (window.__TAURI__.webviewWindow.getCurrentWebviewWindow().label) || 'win'; } catch(_){}
    function gpuInfo(){ try { var c = document.createElement('canvas'); var gl = c.getContext('webgl2') || c.getContext('webgl') || c.getContext('experimental-webgl'); if (!gl) return 'no-webgl'; var dbg = gl.getExtension('WEBGL_debug_renderer_info'); var r = dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : 'masked'; var v = dbg ? gl.getParameter(dbg.UNMASKED_VENDOR_WEBGL) : ''; var ver = gl.getParameter(gl.VERSION); return (v ? v + ' / ' : '') + r + ' [' + ver + ']'; } catch(e){ return 'err ' + e; } }
+   function texCount(){ try { return (window.PIXI && PIXI.utils && PIXI.utils.TextureCache) ? Object.keys(PIXI.utils.TextureCache).length : -1; } catch(_){ return -1; } }
+   function heapMB(){ try { return (performance && performance.memory) ? Math.round(performance.memory.usedJSHeapSize / 1048576) : -1; } catch(_){ return -1; } }
+   function domCount(){ try { return document.getElementsByTagName('*').length; } catch(_){ return -1; } }
    var __plog = null;
    function perfLogStart(){
      if (__plog) return;
@@ -1115,18 +1118,24 @@
      lines.push('dpr ' + (window.devicePixelRatio || 1) + '  screen ' + screen.width + 'x' + screen.height + '  inner ' + window.innerWidth + 'x' + window.innerHeight);
      lines.push('gpu: ' + gpuInfo());
      lines.push('panes ' + ((window.PM && PM.panes) ? PM.panes.length : 0) + '  bg ' + (PREFS.bgMode === 'folder' ? 'on' : 'off') + '  para ' + (PREFS.parallax ? 'on' : 'off') + '  hud ' + (PREFS.perfHud ? 'on' : 'off'));
-     lines.push('sec | fps worst(ms) jank | renders/s ptr/s sm/s | ticker cards items | pollLast pollMax(ms)');
-     var sec = 0, maxWorst = 0, jankTotal = 0;
+     var heap0 = heapMB(), tex0 = texCount(), dom0 = domCount();
+     lines.push('start: heap ' + heap0 + 'MB  texCache ' + tex0 + '  domNodes ' + dom0);
+     lines.push('sec | fps worst jank | renders ptr sm | cards items | heapMB tex dom | bg/s thumb/s | poll(ms)');
+     var lt = [], po = null; try { po = new PerformanceObserver(function(list){ list.getEntries().forEach(function(e){ lt.push(Math.round(e.startTime) + ':' + Math.round(e.duration)); }); }); po.observe({ entryTypes: ['longtask'] }); } catch(_){}
+     var sec = 0, maxWorst = 0, jankTotal = 0, DUR = 45;
      __plog = setInterval(function(){
        sec++;
        var snaps = (window.PM && PM.panes) ? PM.panes.map(function(pp){ return pp.perfSnap ? pp.perfSnap() : null; }).filter(Boolean) : [];
        var cards = 0, items = 0, renders = 0, pollLast = 0, pollMax = 0, tk = false;
        snaps.forEach(function(sn){ cards += sn.cards; items += sn.items; renders += sn.renders; pollLast = Math.max(pollLast, sn.pollMs); pollMax = Math.max(pollMax, sn.pollMax); if (sn.ticker) tk = true; });
        maxWorst = Math.max(maxWorst, __PERF.worst); jankTotal += __PERF.jank;
-       lines.push(sec + ' | ' + __PERF.fps + ' ' + __PERF.worst + ' ' + __PERF.jank + ' | ' + renders + ' ' + __PERF.ptrRate + ' ' + __PERF.smRate + ' | ' + (tk ? 'ON' : 'off') + ' ' + cards + ' ' + items + ' | ' + pollLast.toFixed(1) + ' ' + pollMax.toFixed(1));
-       if (sec >= 30){
+       lines.push(sec + ' | ' + __PERF.fps + ' ' + __PERF.worst + ' ' + __PERF.jank + ' | ' + renders + ' ' + __PERF.ptrRate + ' ' + __PERF.smRate + ' | ' + cards + ' ' + items + ' | ' + heapMB() + ' ' + texCount() + ' ' + domCount() + ' | ' + __PERF.bgRate + ' ' + __PERF.thumbRate + ' | ' + pollLast.toFixed(1) + '/' + pollMax.toFixed(1) + (tk ? '' : ' idle'));
+       if (sec >= DUR){
          clearInterval(__plog); __plog = null;
-         lines.push('=== summary: worst frame ' + maxWorst + 'ms, total jank frames ' + jankTotal + ' over 30s ===');
+         if (po) try { po.disconnect(); } catch(_){}
+         lines.push('=== summary: worst ' + maxWorst + 'ms, jank ' + jankTotal + '/' + DUR + 's | heap ' + heap0 + '->' + heapMB() + 'MB  tex ' + tex0 + '->' + texCount() + '  dom ' + dom0 + '->' + domCount() + ' ===');
+         lines.push('longtasks (startMs:durMs) x' + lt.length + ':');
+         lines.push(lt.length ? lt.join('  ') : '(none >50ms)');
          try { window.__TAURI__.core.invoke('save_perf_log', { name: 'perflog-' + WIN_LABEL + '.txt', text: lines.join(String.fromCharCode(10)) }); } catch(e){}
          if (!wasOn && !PREFS.perfHud) perfStop();
        }
@@ -1167,7 +1176,7 @@
      function chkRow(label, key){ var c = document.createElement('input'); c.type = 'checkbox'; c.checked = !!PREFS[key]; c.style.cssText = 'width:16px;height:16px;cursor:pointer;'; c.onchange = function(){ PREFS[key] = c.checked; savePrefs(); }; rowEl(label, c); }
      chkRow('Invert left/right', 'smInvX'); chkRow('Invert up/down', 'smInvY'); chkRow('Invert zoom', 'smInvZoom');
      chkRow('Performance overlay', 'perfHud');
-     var plogBtn = document.createElement('button'); plogBtn.textContent = 'Run 30s perf log'; plogBtn.style.cssText = 'background:#252934;border:1px solid #353a45;color:#d4d7df;border-radius:6px;padding:5px 10px;cursor:pointer;font:inherit;'; plogBtn.onclick = function(){ try{ window.__TAURI__.event.emit('perflog-start', {}); }catch(_){} plogBtn.textContent = 'Logging 30s\u2026'; plogBtn.disabled = true; setTimeout(function(){ plogBtn.textContent = 'Run 30s perf log'; plogBtn.disabled = false; }, 31000); }; rowEl('Diagnostics', plogBtn);
+     var plogBtn = document.createElement('button'); plogBtn.textContent = 'Run 45s perf log'; plogBtn.style.cssText = 'background:#252934;border:1px solid #353a45;color:#d4d7df;border-radius:6px;padding:5px 10px;cursor:pointer;font:inherit;'; plogBtn.onclick = function(){ try{ window.__TAURI__.event.emit('perflog-start', {}); }catch(_){} plogBtn.textContent = 'Logging 45s\u2026'; plogBtn.disabled = true; setTimeout(function(){ plogBtn.textContent = 'Run 45s perf log'; plogBtn.disabled = false; }, 46000); }; rowEl('Diagnostics', plogBtn);
      box.appendChild(bar); box.appendChild(body); document.body.appendChild(box);
      box.style.left = Math.max(20, Math.round((window.innerWidth - 380) / 2)) + 'px'; box.style.top = '70px';
      close.onclick = function(){ try{ box.remove(); }catch(_){} __prefsWin = null; };
