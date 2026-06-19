@@ -101,6 +101,7 @@
  </template>
  <script src="pixi.min.js"></script>
  <script src="vendor/pdf.min.js"></script>
+ <script src="vendor/jspdf.umd.min.js"></script>
  <script>
  function showErr(m){ var e=document.getElementById('err'); e.style.display='block'; document.getElementById('errtxt').textContent += m + "\n"; }
  try{ if (window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc = 'vendor/pdf.worker.min.js'; }catch(_){}
@@ -623,6 +624,8 @@
        var sel = []; selection.forEach(function(c){ if (c.__item && !c.__trash) sel.push(c); });
        var hdr = mkBtn(sel.length + ' items selected', '', function(){ hideMenu(); }); hdr.style.color = '#9aa0ab'; menu.appendChild(hdr);
        menu.appendChild(mkDragOut(sel));
+       var __imgs = sel.filter(function(c){ return isImage(c.__item.name); });
+       if (__imgs.length >= 2){ menu.appendChild(mkBtn('\u2317 Merge to PDF (' + __imgs.length + ')', '', function(){ hideMenu(); openMergePdf(__imgs.map(function(c){ return { path: joinPath(cwd, c.__item.name), name: c.__item.name }; })); })); }
        menu.appendChild(mkSep());
        menu.appendChild(mkBtn('Copy', '', function(){ copyItems('copy', sel); hideMenu(); }));
        menu.appendChild(mkBtn('Copy as shortcut', '', function(){ copyItems('shortcut', sel); hideMenu(); }));
@@ -777,7 +780,7 @@
        else if (carry && carry.source === 'import'){ hud.textContent = 'Placing imported file [' + modeLabel() + ']  \u00b7  left-click confirm  \u00b7  right-click cancel  \u00b7  T toggle  \u00b7  Free mode (1) to drop into a folder'; }
        else if (carry){ hud.textContent = 'Moving ' + (carry.held.length > 1 ? carry.held.length + ' items ' : '') + '[' + (ctrlDown ? 'Free (Ctrl)' : modeLabel()) + ']  \u00b7  hold Ctrl = free / drop into folder  \u00b7  T toggle  \u00b7  release to drop  \u00b7  Esc cancel'; }
        else if (selection.size){ hud.textContent = selection.size + ' selected  \u00b7  drag = move  \u00b7  Ctrl+C copy / Ctrl+X cut  \u00b7  Del trash  \u00b7  Ctrl+F frame  \u00b7  Esc clear'; }
-       else { hud.textContent = 'v0.0.94  \u00b7  click = select  \u00b7  shift/ctrl = add/remove  \u00b7  drag empty = box select  \u00b7  middle-drag = pan  \u00b7  drag item = move  \u00b7  mode: ' + modeLabel() + (writable ? '' : '  \u00b7  read-only'); }
+       else { hud.textContent = 'v0.0.95  \u00b7  click = select  \u00b7  shift/ctrl = add/remove  \u00b7  drag empty = box select  \u00b7  middle-drag = pan  \u00b7  drag item = move  \u00b7  mode: ' + modeLabel() + (writable ? '' : '  \u00b7  read-only'); }
      }
      upBtn.addEventListener('click', function(){ navigate(parentOf(cwd)); });
      gotoBtn.addEventListener('click', function(){ if (pathInput.style.display === 'none'){ pathInput.style.display = 'inline-block'; pathInput.value = cwd; pathInput.focus(); pathInput.select(); } else { navigate(pathInput.value.trim()); pathInput.style.display = 'none'; } });
@@ -1323,6 +1326,177 @@
        return pdf.getPage(1).then(function(page){ var un = page.getViewport({ scale: 1 }); inst.pageW1 = un.width; inst.pageH1 = un.height; var avail = (body.clientWidth || 720) - 24; inst.zoom = Math.max(0.2, Math.min(3, avail / un.width)); inst.rscale = inst.zoom; renderPage(); setTimeout(centerPage, 0); });
      }).catch(function(e){ title.textContent = 'error: ' + e; showErr('pdf: ' + e); });
    }
+   var MPDF_CSS = '.mpdf-win{position:fixed;z-index:99999;width:min(1040px,94vw);height:min(660px,90vh);background:#15171c;border:1px solid #3a4356;border-radius:12px;box-shadow:0 24px 70px rgba(0,0,0,.55);display:flex;flex-direction:column;overflow:hidden;font:13px/1.45 system-ui,Segoe UI,Roboto,Arial,sans-serif;color:#e6e8ee;}'
+     + '.mpdf-tb{height:42px;flex:0 0 42px;display:flex;align-items:center;gap:10px;padding:0 12px;background:linear-gradient(#191c22,#15171c);border-bottom:1px solid #2a2f3a;cursor:move;}'
+     + '.mpdf-tb h1{font-size:13px;font-weight:600;margin:0;}.mpdf-tb .sub{color:#6b7280;font-size:11px;}.mpdf-tb .x{margin-left:auto;width:26px;height:26px;border-radius:7px;display:flex;align-items:center;justify-content:center;color:#9aa0ac;cursor:pointer;}.mpdf-tb .x:hover{background:#262b34;color:#e6e8ee;}'
+     + '.mpdf-body{flex:1;display:flex;min-height:0;}'
+     + '.mpdf-left{width:288px;flex:0 0 288px;border-right:1px solid #2a2f3a;display:flex;flex-direction:column;background:#1a1c21;}'
+     + '.mpdf-lh{padding:10px 12px;display:flex;align-items:center;border-bottom:1px solid #2a2f3a;}.mpdf-lh .lbl{font-size:11px;text-transform:uppercase;letter-spacing:.6px;color:#9aa0ac;}.mpdf-lh .count{margin-left:auto;color:#6b7280;font-size:11px;}'
+     + '.mpdf-list{flex:1;overflow-y:auto;padding:8px;display:flex;flex-direction:column;gap:6px;}'
+     + '.mpdf-pg{display:flex;align-items:center;gap:9px;padding:7px 8px;border-radius:9px;background:#1c1f27;border:1px solid transparent;cursor:pointer;user-select:none;}'
+     + '.mpdf-pg:hover{background:#222732;}.mpdf-pg.sel{border-color:#46d17a;background:#1d2a22;}.mpdf-pg.dragging{opacity:.45;}'
+     + '.mpdf-pg .grip{color:#6b7280;cursor:grab;font-size:14px;letter-spacing:-2px;}.mpdf-pg .num{flex:0 0 18px;text-align:center;color:#9aa0ac;font-size:11px;}'
+     + '.mpdf-pg .thumb{flex:0 0 42px;height:42px;border-radius:6px;overflow:hidden;background:#0e1116;border:1px solid #2a2f3a;display:flex;align-items:center;justify-content:center;}.mpdf-pg .thumb img{max-width:100%;max-height:100%;display:block;}'
+     + '.mpdf-pg .meta{flex:1;min-width:0;}.mpdf-pg .name{font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}.mpdf-pg .dim{font-size:10.5px;color:#6b7280;}'
+     + '.mpdf-pg .rm{flex:0 0 auto;width:22px;height:22px;border-radius:6px;display:flex;align-items:center;justify-content:center;color:#6b7280;font-size:15px;}.mpdf-pg .rm:hover{background:#3a2226;color:#e07a7a;}'
+     + '.mpdf-dl{height:2px;background:#46d17a;border-radius:2px;margin:-3px 6px;}'
+     + '.mpdf-right{flex:1;display:flex;flex-direction:column;min-width:0;background:#15171c;}'
+     + '.mpdf-stage{flex:1;position:relative;display:flex;align-items:center;justify-content:center;background:linear-gradient(45deg,#101216 25%,transparent 25%) -10px 0/20px 20px,linear-gradient(-45deg,#101216 25%,transparent 25%) -10px 0/20px 20px,linear-gradient(45deg,transparent 75%,#101216 75%) -10px 0/20px 20px,linear-gradient(-45deg,transparent 75%,#101216 75%) -10px 0/20px 20px,#0c0e12;overflow:hidden;}'
+     + '.mpdf-frame{box-shadow:0 10px 40px rgba(0,0,0,.6);border:1px solid #000;max-width:84%;max-height:84%;}.mpdf-frame img{display:block;max-width:100%;max-height:100%;}'
+     + '.mpdf-badge{position:absolute;left:14px;top:12px;background:rgba(12,14,18,.78);border:1px solid #2a2f3a;padding:5px 9px;border-radius:8px;font-size:11px;color:#9aa0ac;}'
+     + '.mpdf-nav{position:absolute;bottom:12px;left:50%;transform:translateX(-50%);display:flex;gap:8px;align-items:center;background:rgba(12,14,18,.78);border:1px solid #2a2f3a;padding:6px 10px;border-radius:10px;}'
+     + '.mpdf-nav button{width:26px;height:26px;border-radius:7px;border:1px solid #3a4356;background:#1f2229;color:#e6e8ee;cursor:pointer;}.mpdf-nav button:hover{border-color:#46d17a;}.mpdf-nav .pos{font-size:11px;color:#9aa0ac;min-width:48px;text-align:center;}'
+     + '.mpdf-foot{flex:0 0 auto;border-top:1px solid #2a2f3a;background:#1a1c21;padding:11px 14px;display:flex;align-items:center;gap:16px;}'
+     + '.mpdf-foot label{color:#9aa0ac;font-size:11.5px;margin-right:8px;}.mpdf-foot select{background:#1f2229;border:1px solid #3a4356;color:#e6e8ee;border-radius:7px;padding:6px 8px;font:inherit;}'
+     + '.mpdf-out{color:#6b7280;font-size:11px;}.mpdf-sp{flex:1;}'
+     + '.mpdf-save{display:flex;align-items:center;gap:9px;padding:9px 14px;border-radius:10px;cursor:grab;background:linear-gradient(#2a6b45,#22573a);border:1px solid #2f8f55;color:#eafff2;font-weight:600;user-select:none;}.mpdf-save:hover{filter:brightness(1.08);}.mpdf-save.busy{opacity:.5;cursor:default;}.mpdf-save .small{font-weight:400;font-size:10.5px;color:#bfe9cf;}';
+
+   function openMergePdf(initial){
+     var T = window.__TAURI__;
+     if (!initial || !initial.length) return;
+     if (!document.getElementById('mpdf-style')){ var st = document.createElement('style'); st.id = 'mpdf-style'; st.textContent = MPDF_CSS; document.head.appendChild(st); }
+     var pages = initial.map(function(it){ return { path: it.path, name: it.name, dataUrl: null, fmt: 'JPEG', w: 0, h: 0, ready: false, bad: false }; });
+     var sel = 0, tempPath = null, tempReady = false, buildT = null, closed = false, gen = 0;
+
+     var win = document.createElement('div'); win.className = 'mpdf-win';
+     win.innerHTML =
+       '<div class="mpdf-tb"><h1>Merge to PDF</h1><span class="sub"></span><div class="x">\u2715</div></div>' +
+       '<div class="mpdf-body">' +
+         '<div class="mpdf-left"><div class="mpdf-lh"><span class="lbl">Pages</span><span class="count"></span></div><div class="mpdf-list"></div></div>' +
+         '<div class="mpdf-right"><div class="mpdf-stage"><div class="mpdf-badge">\u2026</div><div class="mpdf-frame"><img alt=""></div>' +
+           '<div class="mpdf-nav"><button class="up">\u2191</button><span class="pos">0 / 0</span><button class="dn">\u2193</button></div></div>' +
+           '<div class="mpdf-foot"><div><label>Sizing</label><select class="size">' +
+             '<option value="uniform" selected>Uniform width (match largest)</option><option value="original">Original size</option>' +
+             '<option value="a4">Fit to A4 page</option><option value="letter">Fit to Letter page</option></select></div>' +
+             '<span class="mpdf-out"></span><span class="mpdf-sp"></span>' +
+             '<div class="mpdf-save busy"><span style="font-size:15px">\u2913</span><span>Save PDF<br><span class="small">preparing\u2026</span></span></div>' +
+           '</div></div></div>';
+     document.body.appendChild(win);
+     win.style.left = Math.max(8, (window.innerWidth - win.offsetWidth) / 2) + 'px';
+     win.style.top = Math.max(8, (window.innerHeight - win.offsetHeight) / 2) + 'px';
+
+     var listEl = win.querySelector('.mpdf-list'), countEl = win.querySelector('.count'), subEl = win.querySelector('.sub');
+     var previewImg = win.querySelector('.mpdf-frame img'), badge = win.querySelector('.mpdf-badge'), posEl = win.querySelector('.pos');
+     var sizeSel = win.querySelector('.size'), outEl = win.querySelector('.mpdf-out'), saveEl = win.querySelector('.mpdf-save');
+     var saveSmall = saveEl.querySelector('.small');
+
+     function fmtFromMime(u){ var m = (String(u).match(/^data:([^;]+)/) || [])[1] || ''; return m === 'image/png' ? 'PNG' : 'JPEG'; }
+     function loadPage(pg){
+       return T.core.invoke('image_full', { path: pg.path }).then(function(u){
+         return new Promise(function(res){
+           var im = new Image();
+           im.onload = function(){
+             pg.w = im.naturalWidth || im.width; pg.h = im.naturalHeight || im.height;
+             var m = (String(u).match(/^data:([^;]+)/) || [])[1] || '';
+             if (m === 'image/jpeg' || m === 'image/png'){ pg.dataUrl = u; pg.fmt = (m === 'image/png') ? 'PNG' : 'JPEG'; }
+             else { try { var cv = document.createElement('canvas'); cv.width = pg.w; cv.height = pg.h; cv.getContext('2d').drawImage(im, 0, 0); pg.dataUrl = cv.toDataURL('image/png'); pg.fmt = 'PNG'; } catch (e){ pg.dataUrl = u; pg.fmt = 'JPEG'; } }
+             pg.ready = true; res();
+           };
+           im.onerror = function(){ pg.ready = true; pg.bad = true; res(); };
+           im.src = u;
+         });
+       }).catch(function(){ pg.ready = true; pg.bad = true; });
+     }
+
+     function renderList(){
+       listEl.innerHTML = '';
+       pages.forEach(function(pg, i){
+         var row = document.createElement('div'); row.className = 'mpdf-pg' + (i === sel ? ' sel' : ''); row.draggable = true; row.dataset.i = i;
+         var thumb = pg.dataUrl ? ('<img src="' + pg.dataUrl + '">') : '';
+         row.innerHTML = '<span class="grip">\u22ee\u22ee</span><span class="num">' + (i + 1) + '</span>' +
+           '<span class="thumb">' + thumb + '</span>' +
+           '<span class="meta"><div class="name">' + pg.name + '</div><div class="dim">' + (pg.w ? (pg.w + ' \u00d7 ' + pg.h) : (pg.bad ? 'unreadable' : 'loading\u2026')) + '</div></span>' +
+           '<span class="rm" title="Remove">\u2715</span>';
+         row.addEventListener('click', function(e){ if (e.target.classList.contains('rm')){ removeAt(i); e.stopPropagation(); return; } selectIdx(i); });
+         row.addEventListener('dragstart', function(e){ dragFrom = i; row.classList.add('dragging'); try { e.dataTransfer.effectAllowed = 'move'; } catch (_){} });
+         row.addEventListener('dragend', function(){ row.classList.remove('dragging'); clearLine(); });
+         row.addEventListener('dragover', function(e){ e.preventDefault(); showLine(row, i, e.clientY); });
+         row.addEventListener('drop', function(e){ e.preventDefault(); doDrop(); });
+         listEl.appendChild(row);
+       });
+       countEl.textContent = pages.length + (pages.length === 1 ? ' page' : ' pages');
+       subEl.textContent = '\u2014 ' + pages.length + ' images';
+       updatePreview(); updateOut();
+     }
+
+     var dragFrom = null, dropAt = null, lineEl = null;
+     function showLine(row, i, y){ clearLine(); var r = row.getBoundingClientRect(); var after = y > r.top + r.height / 2; dropAt = after ? i + 1 : i; lineEl = document.createElement('div'); lineEl.className = 'mpdf-dl'; if (after) row.after(lineEl); else row.before(lineEl); }
+     function clearLine(){ if (lineEl && lineEl.parentNode) lineEl.parentNode.removeChild(lineEl); lineEl = null; }
+     function doDrop(){ if (dragFrom === null || dropAt === null) return; var moved = pages.splice(dragFrom, 1)[0]; var idx = dropAt; if (dragFrom < dropAt) idx--; pages.splice(idx, 0, moved); sel = idx; dragFrom = null; dropAt = null; clearLine(); renderList(); scheduleBuild(); }
+
+     function selectIdx(i){ if (!pages.length) return; sel = Math.max(0, Math.min(pages.length - 1, i)); renderList(); }
+     function removeAt(i){ pages.splice(i, 1); if (sel >= pages.length) sel = pages.length - 1; if (sel < 0) sel = 0; renderList(); scheduleBuild(); }
+
+     function updatePreview(){
+       if (!pages.length){ previewImg.removeAttribute('src'); badge.textContent = 'No pages'; posEl.textContent = '0 / 0'; return; }
+       var pg = pages[sel];
+       if (pg.dataUrl) previewImg.src = pg.dataUrl; else previewImg.removeAttribute('src');
+       badge.textContent = pg.name + (pg.w ? ('  \u00b7  ' + pg.w + ' \u00d7 ' + pg.h) : '');
+       posEl.textContent = (sel + 1) + ' / ' + pages.length;
+     }
+     function updateOut(){
+       if (!pages.length){ outEl.textContent = ''; return; }
+       var mode = sizeSel.value, info = '';
+       if (mode === 'uniform'){ var mw = Math.max.apply(null, pages.map(function(p){ return p.w || 0; })); info = 'output width ' + mw + 'px \u00b7 all pages same width'; }
+       else if (mode === 'original') info = 'each page = its own image size';
+       else if (mode === 'a4') info = 'each image fit onto A4';
+       else info = 'each image fit onto Letter';
+       outEl.textContent = info;
+     }
+
+     function updateSave(){ if (tempReady && pages.length){ saveEl.classList.remove('busy'); saveSmall.textContent = 'drag & drop to a folder'; } else { saveEl.classList.add('busy'); saveSmall.textContent = pages.length ? 'preparing\u2026' : 'no pages'; } }
+     function scheduleBuild(){ tempReady = false; updateSave(); if (buildT) clearTimeout(buildT); buildT = setTimeout(buildPdf, 350); }
+     function buildPdf(){
+       if (!pages.length || !window.jspdf || closed) return;
+       var ready = pages.filter(function(p){ return p.ready && p.dataUrl && p.w && p.h; });
+       if (!ready.length) return;
+       var JsPDF = window.jspdf.jsPDF, mode = sizeSel.value, doc = null;
+       var maxW = Math.max.apply(null, ready.map(function(p){ return p.w; }));
+       var A4 = [794, 1123], LT = [816, 1056];
+       try {
+         for (var i = 0; i < ready.length; i++){
+           var pg = ready[i], pw, ph, dx = 0, dy = 0, dw, dh;
+           if (mode === 'original'){ pw = pg.w; ph = pg.h; dw = pw; dh = ph; }
+           else if (mode === 'a4' || mode === 'letter'){ var P = (mode === 'a4') ? A4 : LT; pw = P[0]; ph = P[1]; var s = Math.min(pw / pg.w, ph / pg.h); dw = pg.w * s; dh = pg.h * s; dx = (pw - dw) / 2; dy = (ph - dh) / 2; }
+           else { pw = maxW; ph = Math.round(pg.h * (maxW / pg.w)); dw = pw; dh = ph; }
+           var orient = pw > ph ? 'l' : 'p';
+           if (!doc) doc = new JsPDF({ unit: 'px', format: [pw, ph], orientation: orient, hotfixes: ['px_scaling'] });
+           else doc.addPage([pw, ph], orient);
+           doc.addImage(pg.dataUrl, pg.fmt, dx, dy, dw, dh);
+         }
+         var uri = doc.output('datauristring'); var b64 = uri.substring(uri.indexOf('base64,') + 7);
+         var myGen = ++gen;
+         T.core.invoke('save_temp_png', { b64data: b64, name: 'merged-' + Date.now() + '.pdf' }).then(function(p){ if (closed || myGen !== gen) return; tempPath = p; tempReady = true; updateSave(); }).catch(function(e){ saveSmall.textContent = 'build error'; });
+       } catch (e){ saveSmall.textContent = 'build error'; }
+     }
+
+     saveEl.addEventListener('pointerdown', function(e){ e.stopPropagation(); if (!tempReady || !tempPath){ saveSmall.textContent = 'preparing\u2026'; return; } T.core.invoke('drag_out', { paths: [tempPath] }).catch(function(err){ saveSmall.textContent = 'drag error'; }); });
+     sizeSel.addEventListener('change', function(){ updateOut(); scheduleBuild(); });
+     win.querySelector('.up').addEventListener('click', function(){ selectIdx(sel - 1); });
+     win.querySelector('.dn').addEventListener('click', function(){ selectIdx(sel + 1); });
+
+     function onKey(e){ if (closed) return; var t = e.target; if (t && (t.tagName === 'SELECT' || t.tagName === 'INPUT')) return;
+       if (e.key === 'ArrowUp'){ selectIdx(sel - 1); e.preventDefault(); e.stopPropagation(); }
+       else if (e.key === 'ArrowDown'){ selectIdx(sel + 1); e.preventDefault(); e.stopPropagation(); }
+       else if (e.key === 'Delete'){ if (pages.length) removeAt(sel); e.stopPropagation(); }
+       else if (e.key === 'Escape'){ doClose(); e.stopPropagation(); }
+     }
+     window.addEventListener('keydown', onKey, true);
+
+     function doClose(){ closed = true; try { window.removeEventListener('keydown', onKey, true); } catch (_){} try { win.remove(); } catch (_){} }
+     win.querySelector('.x').addEventListener('click', doClose);
+
+     // titlebar drag
+     (function(){ var tb = win.querySelector('.mpdf-tb'), dragging = false, ox = 0, oy = 0;
+       tb.addEventListener('pointerdown', function(e){ if (e.target.classList.contains('x')) return; dragging = true; var r = win.getBoundingClientRect(); ox = e.clientX - r.left; oy = e.clientY - r.top; tb.setPointerCapture(e.pointerId); });
+       tb.addEventListener('pointermove', function(e){ if (!dragging) return; win.style.left = Math.max(0, Math.min(window.innerWidth - 60, e.clientX - ox)) + 'px'; win.style.top = Math.max(0, Math.min(window.innerHeight - 30, e.clientY - oy)) + 'px'; });
+       tb.addEventListener('pointerup', function(e){ dragging = false; try { tb.releasePointerCapture(e.pointerId); } catch (_){} });
+     })();
+
+     renderList(); updateSave();
+     Promise.all(pages.map(loadPage)).then(function(){ if (closed) return; renderList(); scheduleBuild(); });
+   }
+
    function openViewer(list, idx, owner){
      if (!list || !list.length) return;
      var T = window.__TAURI__;
