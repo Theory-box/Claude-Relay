@@ -123,7 +123,7 @@
      var app = new PIXI.Application({ resizeTo: root, backgroundAlpha: 0, antialias: true, autoDensity: true, resolution: window.devicePixelRatio || 1 });
      var bgLayer = document.createElement('div'); bgLayer.style.cssText = 'position:absolute;inset:0;z-index:0;overflow:hidden;pointer-events:none;';
      var bgImgA = document.createElement('img'), bgImgB = document.createElement('img');
-     [bgImgA, bgImgB].forEach(function(im){ im.draggable = false; im.style.cssText = 'position:absolute;left:0;top:0;width:100%;height:100%;opacity:0;transition:opacity 0.7s ease, transform 0.12s ease;will-change:transform;'; bgLayer.appendChild(im); });
+     [bgImgA, bgImgB].forEach(function(im){ im.draggable = false; im.style.cssText = 'position:absolute;left:0;top:0;width:100%;height:100%;opacity:0;transition:opacity 0.7s ease, transform 0.12s ease;will-change:transform, opacity;'; bgLayer.appendChild(im); });
      root.appendChild(bgLayer);
      var paraOn = false, paraRAF = 0, pcx = -99999, pcy = -99999;
      function setPara(){ paraRAF = 0; if (!paraOn){ bgImgA.style.transform = ''; bgImgB.style.transform = ''; return; } var r = root.getBoundingClientRect(); if (!r.width || !r.height) return; var fx = (pcx - r.left) / r.width - 0.5, fy = (pcy - r.top) / r.height - 0.5; fx = Math.max(-0.5, Math.min(0.5, fx)); fy = Math.max(-0.5, Math.min(0.5, fy)); var mx = 14, t = 'translate(' + (-fx * 2 * mx).toFixed(1) + 'px,' + (-fy * 2 * mx).toFixed(1) + 'px) scale(1.08)'; bgImgA.style.transform = t; bgImgB.style.transform = t; }
@@ -776,7 +776,7 @@
        else if (carry && carry.source === 'import'){ hud.textContent = 'Placing imported file [' + modeLabel() + ']  \u00b7  left-click confirm  \u00b7  right-click cancel  \u00b7  T toggle  \u00b7  Free mode (1) to drop into a folder'; }
        else if (carry){ hud.textContent = 'Moving ' + (carry.held.length > 1 ? carry.held.length + ' items ' : '') + '[' + (ctrlDown ? 'Free (Ctrl)' : modeLabel()) + ']  \u00b7  hold Ctrl = free / drop into folder  \u00b7  T toggle  \u00b7  release to drop  \u00b7  Esc cancel'; }
        else if (selection.size){ hud.textContent = selection.size + ' selected  \u00b7  drag = move  \u00b7  Ctrl+C copy / Ctrl+X cut  \u00b7  Del trash  \u00b7  Ctrl+F frame  \u00b7  Esc clear'; }
-       else { hud.textContent = 'v0.0.89  \u00b7  click = select  \u00b7  shift/ctrl = add/remove  \u00b7  drag empty = box select  \u00b7  middle-drag = pan  \u00b7  drag item = move  \u00b7  mode: ' + modeLabel() + (writable ? '' : '  \u00b7  read-only'); }
+       else { hud.textContent = 'v0.0.90  \u00b7  click = select  \u00b7  shift/ctrl = add/remove  \u00b7  drag empty = box select  \u00b7  middle-drag = pan  \u00b7  drag item = move  \u00b7  mode: ' + modeLabel() + (writable ? '' : '  \u00b7  read-only'); }
      }
      upBtn.addEventListener('click', function(){ navigate(parentOf(cwd)); });
      gotoBtn.addEventListener('click', function(){ if (pathInput.style.display === 'none'){ pathInput.style.display = 'inline-block'; pathInput.value = cwd; pathInput.focus(); pathInput.select(); } else { navigate(pathInput.value.trim()); pathInput.style.display = 'none'; } });
@@ -936,22 +936,27 @@
      self.handleDrop = handleDrop; self.getCwd = function(){ return cwd; }; self.navigate = function(pp){ navigate(pp); };
      self.screenToWorld = function(cx, cy){ var r = root.getBoundingClientRect(); return { x: (cx - r.left - world.x) / world.scale.x, y: (cy - r.top - world.y) / world.scale.y }; }; self.renderPortals = renderPortals; self.addTentativePortal = function(wx, wy){ return makePortalCard({ pairId: null, x: wx, y: wy, target: null }); };
      self.spaceNudge = function(tx, ty, tz){ var d = PREFS.smDead, moved = false; var px = Math.abs(tx) > d ? tx : 0, py = Math.abs(tz) > d ? tz : 0; if (px || py){ camTween = null; world.x += px * PREFS.smPan * (PREFS.smInvX ? 1 : -1); world.y += py * PREFS.smPan * (PREFS.smInvY ? 1 : -1); moved = true; } if (Math.abs(ty) > d){ var f = Math.exp(ty * PREFS.smZoom * (PREFS.smInvZoom ? -1 : 1)); var s = world.scale.x, ns = Math.min(8, Math.max(0.1, s * f)); if (ns !== s){ var cx = app.screen.width / 2, cy = app.screen.height / 2; camTween = null; world.x = cx - (cx - world.x) * (ns / s); world.y = cy - (cy - world.y) * (ns / s); world.scale.set(ns); moved = true; } } if (moved) wake(); };
-     var bgCur = 0, bgList = [], bgTimer = null, bgListSig = null, bgSecs = null, bgGen = 0;
-     function clearBgTimer(){ if (bgTimer){ clearInterval(bgTimer); bgTimer = null; } }
-     function bgShow(path){ var md = Math.ceil(Math.max(root.clientWidth || 1920, root.clientHeight || 1080) * (window.devicePixelRatio || 1) * 1.1); T.core.invoke('bg_image', { path: path, maxdim: md }).then(function(url){ var imgs = [bgImgA, bgImgB]; var ni = 1 - bgCur; var nx = imgs[ni]; nx.style.objectFit = (PREFS.bgFit === 'fit') ? 'contain' : 'cover'; var go = function(){ if (window.__PERF && __PERF.on) __PERF.bgCnt++; nx.style.opacity = String(PREFS.bgOpacity); imgs[bgCur].style.opacity = '0'; bgCur = ni; }; nx.src = url; if (nx.decode){ nx.decode().then(go).catch(go); } else { nx.onload = go; } }).catch(function(){}); }
-     function bgPick(){ if (!bgList.length) return; bgShow(bgList[Math.floor(Math.random() * bgList.length)]); }
+     var bgCur = 0, bgList = [], bgTimer = null, bgListSig = null, bgSecs = null, bgGen = 0, bgReady = false, bgPreparing = false;
+     function clearBgTimer(){ if (bgTimer){ clearInterval(bgTimer); clearTimeout(bgTimer); bgTimer = null; } }
+     function bgFetch(path){ var md = Math.ceil(Math.max(root.clientWidth || 1920, root.clientHeight || 1080) * (window.devicePixelRatio || 1) * 1.1); return T.core.invoke('bg_image', { path: path, maxdim: md }); }
+     function bgLoadInto(ni, url){ var nx = [bgImgA, bgImgB][ni]; nx.style.objectFit = (PREFS.bgFit === 'fit') ? 'contain' : 'cover'; nx.src = url; if (nx.decode) return nx.decode().catch(function(){}); return new Promise(function(r){ nx.onload = r; nx.onerror = r; }); }
+     function bgReveal(ni){ if (window.__PERF && __PERF.on) __PERF.bgCnt++; [bgImgA, bgImgB][ni].style.opacity = String(PREFS.bgOpacity); [bgImgA, bgImgB][bgCur].style.opacity = '0'; bgCur = ni; }
+     function bgShowFirst(path){ var g = bgGen; bgFetch(path).then(function(url){ if (g !== bgGen) return; var ni = 1 - bgCur; bgLoadInto(ni, url).then(function(){ if (g !== bgGen) return; bgReveal(ni); bgPrepareNext(); }); }).catch(function(){}); }
+     function bgPrepareNext(){ bgReady = false; if (bgList.length < 2) return; var g = bgGen; bgPreparing = true; var path = bgList[Math.floor(Math.random() * bgList.length)]; bgFetch(path).then(function(url){ if (g !== bgGen){ bgPreparing = false; return; } var ni = 1 - bgCur; return bgLoadInto(ni, url).then(function(){ if (g !== bgGen){ bgPreparing = false; return; } bgReady = true; bgPreparing = false; }); }).catch(function(){ bgPreparing = false; }); }
+     function bgTick(){ if (bgList.length < 2) return; if (!bgReady){ if (!bgPreparing) bgPrepareNext(); return; } var ni = 1 - bgCur; bgReveal(ni); bgReady = false; bgPrepareNext(); }
+     function bgStartTimer(secs){ clearBgTimer(); if (bgList.length <= 1) return; var idx = (WIN_LABEL === 'screen-1') ? 1 : ((WIN_LABEL === 'screen-2') ? 2 : 0); var off = Math.min(secs * 1000 - 100, idx * 800); var begin = function(){ bgTimer = setInterval(bgTick, secs * 1000); }; if (off > 0) bgTimer = setTimeout(begin, off); else begin(); }
      self.applyPrefs = function(p){
        var imageMode = (p.bgMode === 'folder' && p.bgFolder);
        grid.visible = !imageMode;
        // cheap live updates (opacity/fit) every call, never touch the timer
-       [bgImgA, bgImgB].forEach(function(im){ im.style.objectFit = (p.bgFit === 'fit') ? 'contain' : 'cover'; if (im.getAttribute('src')) im.style.opacity = String(p.bgOpacity); });
+       [bgImgA, bgImgB].forEach(function(im){ im.style.objectFit = (p.bgFit === 'fit') ? 'contain' : 'cover'; }); var curIm = [bgImgA, bgImgB][bgCur]; if (curIm.getAttribute('src')) curIm.style.opacity = String(p.bgOpacity);
        paraOn = !!p.parallax; setPara();
        if (p.perfHud){ hudPanel.style.display = 'block'; if (!hudTimer) hudTimer = setInterval(hudUpdate, 250); } else { hudPanel.style.display = 'none'; if (hudTimer){ clearInterval(hudTimer); hudTimer = null; } }
        if (!imageMode){ clearBgTimer(); bgListSig = null; bgSecs = null; [bgImgA, bgImgB].forEach(function(im){ im.style.opacity = '0'; im.removeAttribute('src'); }); return; }
        var secs = Math.max(3, p.bgSeconds || 30);
        var listSig = p.bgFolder + '|' + (p.bgOrient || 'all');
        if (listSig === bgListSig){ // source unchanged; only restart timer if interval changed
-         if (secs !== bgSecs){ bgSecs = secs; clearBgTimer(); if (bgList.length > 1) bgTimer = setInterval(bgPick, secs * 1000); }
+         if (secs !== bgSecs){ bgSecs = secs; bgStartTimer(secs); }
          return;
        }
        bgListSig = listSig; bgSecs = secs;
@@ -959,8 +964,8 @@
        T.core.invoke('list_bg_images', { folder: p.bgFolder, orient: p.bgOrient || 'all' }).then(function(s2){
          if (gen !== bgGen) return; // superseded by a newer apply
          var arr = []; try{ arr = JSON.parse(s2 || '[]'); }catch(_){}
-         bgList = arr; clearBgTimer();
-         if (bgList.length){ bgPick(); if (bgList.length > 1) bgTimer = setInterval(bgPick, secs * 1000); }
+         bgList = arr; clearBgTimer(); bgReady = false; bgPreparing = false;
+         if (bgList.length){ bgShowFirst(bgList[Math.floor(Math.random() * bgList.length)]); bgStartTimer(secs); }
          else { [bgImgA, bgImgB].forEach(function(im){ im.style.opacity = '0'; }); }
        }).catch(function(e){ showErr('bg list: ' + e); });
      };
