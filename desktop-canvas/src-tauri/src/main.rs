@@ -776,6 +776,17 @@ fn image_full(path: String) -> Result<String, String> {
 }
 
 #[tauri::command]
+fn save_perf_log(app: tauri::AppHandle, name: String, text: String) -> Result<String, String> {
+    let dir = canvas_dir(&app)?;
+    let bad = "\\/:*?\"<>|";
+    let safe: String = name.chars().map(|c| if bad.contains(c) { '_' } else { c }).collect();
+    let fname = if safe.trim().is_empty() { "perflog.txt".to_string() } else { safe };
+    let pth = dir.join(fname);
+    std::fs::write(&pth, text.as_bytes()).map_err(|e| e.to_string())?;
+    Ok(pth.to_string_lossy().to_string())
+}
+
+#[tauri::command]
 fn bg_image(path: String, maxdim: u32) -> Result<String, String> {
     let p = std::path::Path::new(&path);
     match image::open(p) {
@@ -843,7 +854,7 @@ fn main() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
             quit, places, list_dir, add_dropped_file, make_folder, move_into, trash_item,
-            clear_trash, open_trash, thumb_data, open_item, open_folder, shell_verb, delete_file, paste_copy, paste_move, paste_shortcut, resolve_lnk, path_size, set_safety, load_spaces, save_spaces, save_layout, load_layout, save_session, load_session, path_exists, zip_items, unzip_item, rename_item, open_web, load_settings, save_settings, pick_folder, list_bg_images, load_portals, save_portals, folder_tree, image_full, bg_image, read_file_b64, save_temp_png, make_text_file, read_text, write_text, drag_out
+            clear_trash, open_trash, thumb_data, open_item, open_folder, shell_verb, delete_file, paste_copy, paste_move, paste_shortcut, resolve_lnk, path_size, set_safety, load_spaces, save_spaces, save_layout, load_layout, save_session, load_session, path_exists, zip_items, unzip_item, rename_item, open_web, load_settings, save_settings, pick_folder, list_bg_images, load_portals, save_portals, folder_tree, image_full, bg_image, save_perf_log, read_file_b64, save_temp_png, make_text_file, read_text, write_text, drag_out
         ])
         .setup(|app| {
             let handle = app.handle().clone();

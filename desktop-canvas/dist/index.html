@@ -130,8 +130,9 @@
      function onParaMove(e){ pcx = e.clientX; pcy = e.clientY; if (paraOn && !paraRAF) paraRAF = requestAnimationFrame(setPara); }
      window.addEventListener('pointermove', onParaMove, true);
      var hudPanel = document.createElement('div'); hudPanel.style.cssText = 'position:absolute;top:6px;right:6px;z-index:7;font:11px/1.45 ui-monospace,Menlo,monospace;color:#9fe6b0;background:rgba(10,12,16,.74);border:1px solid #2a3340;border-radius:8px;padding:7px 9px;white-space:pre;pointer-events:none;display:none;'; root.appendChild(hudPanel);
-     var renderCnt = 0, pollMs = 0, pollMax = 0, hudTimer = null;
-     function hudUpdate(){ var dpr = app.renderer.resolution || 1; var pxW = Math.round(app.screen.width * dpr), pxH = Math.round(app.screen.height * dpr); var rr = renderCnt * 4; renderCnt = 0; hudPanel.textContent = 'PERF\nfps ' + __PERF.fps + '  worst ' + __PERF.worst + 'ms\njank ' + __PERF.jank + '/s  renders ' + rr + '/s\nticker ' + (app.ticker.started ? 'ON' : 'off') + '\nptr ' + __PERF.ptrRate + '/s  sm ' + __PERF.smRate + '/s\ncards ' + cards.length + '  items ' + items.length + '\nres ' + pxW + 'x' + pxH + ' (dpr ' + dpr + ')\npoll ' + pollMs.toFixed(1) + 'ms (max ' + pollMax.toFixed(1) + ')\nbg ' + (PREFS.bgMode === 'folder' ? 'on' : 'off') + '  para ' + (PREFS.parallax ? 'on' : 'off'); }
+     var renderCnt = 0, hudLastR = 0, snapLastR = 0, pollMs = 0, pollMax = 0, hudTimer = null;
+     self.perfSnap = function(){ var r = renderCnt - snapLastR; snapLastR = renderCnt; return { cards: cards.length, items: items.length, renders: r, pollMs: pollMs, pollMax: pollMax, ticker: app.ticker.started }; };
+     function hudUpdate(){ var dpr = app.renderer.resolution || 1; var pxW = Math.round(app.screen.width * dpr), pxH = Math.round(app.screen.height * dpr); var rr = (renderCnt - hudLastR) * 4; hudLastR = renderCnt; hudPanel.textContent = 'PERF\nfps ' + __PERF.fps + '  worst ' + __PERF.worst + 'ms\njank ' + __PERF.jank + '/s  renders ' + rr + '/s\nticker ' + (app.ticker.started ? 'ON' : 'off') + '\nptr ' + __PERF.ptrRate + '/s  sm ' + __PERF.smRate + '/s\ncards ' + cards.length + '  items ' + items.length + '\nres ' + pxW + 'x' + pxH + ' (dpr ' + dpr + ')\npoll ' + pollMs.toFixed(1) + 'ms (max ' + pollMax.toFixed(1) + ')\nbg ' + (PREFS.bgMode === 'folder' ? 'on' : 'off') + '  para ' + (PREFS.parallax ? 'on' : 'off'); }
      var topBar = $('#bar');
      if (topBar){ topBar.style.opacity = '0'; topBar.style.transition = 'opacity 0.08s linear'; topBar.style.willChange = 'opacity'; var barRAF = 0, barCx = -99999, barCy = -99999;
        function setBarFade(){ barRAF = 0; var r = topBar.getBoundingClientRect(); var ddx = Math.max(r.left - barCx, 0, barCx - r.right), ddy = Math.max(r.top - barCy, 0, barCy - r.bottom); var dist = Math.sqrt(ddx * ddx + ddy * ddy); var op = Math.max(0, Math.min(1, 1 - dist / 200)); topBar.style.opacity = op.toFixed(3); topBar.style.pointerEvents = op > 0.05 ? 'auto' : 'none'; }
@@ -771,7 +772,7 @@
        else if (carry && carry.source === 'import'){ hud.textContent = 'Placing imported file [' + modeLabel() + ']  \u00b7  left-click confirm  \u00b7  right-click cancel  \u00b7  T toggle  \u00b7  Free mode (1) to drop into a folder'; }
        else if (carry){ hud.textContent = 'Moving ' + (carry.held.length > 1 ? carry.held.length + ' items ' : '') + '[' + (ctrlDown ? 'Free (Ctrl)' : modeLabel()) + ']  \u00b7  hold Ctrl = free / drop into folder  \u00b7  T toggle  \u00b7  release to drop  \u00b7  Esc cancel'; }
        else if (selection.size){ hud.textContent = selection.size + ' selected  \u00b7  drag = move  \u00b7  Ctrl+C copy / Ctrl+X cut  \u00b7  Del trash  \u00b7  Ctrl+F frame  \u00b7  Esc clear'; }
-       else { hud.textContent = 'v0.0.82  \u00b7  click = select  \u00b7  shift/ctrl = add/remove  \u00b7  drag empty = box select  \u00b7  middle-drag = pan  \u00b7  drag item = move  \u00b7  mode: ' + modeLabel() + (writable ? '' : '  \u00b7  read-only'); }
+       else { hud.textContent = 'v0.0.83  \u00b7  click = select  \u00b7  shift/ctrl = add/remove  \u00b7  drag empty = box select  \u00b7  middle-drag = pan  \u00b7  drag item = move  \u00b7  mode: ' + modeLabel() + (writable ? '' : '  \u00b7  read-only'); }
      }
      upBtn.addEventListener('click', function(){ navigate(parentOf(cwd)); });
      gotoBtn.addEventListener('click', function(){ if (pathInput.style.display === 'none'){ pathInput.style.display = 'inline-block'; pathInput.value = cwd; pathInput.focus(); pathInput.select(); } else { navigate(pathInput.value.trim()); pathInput.style.display = 'none'; } });
@@ -1101,6 +1102,36 @@
    var __PERF = { fps: 0, worst: 0, jank: 0, ptrCnt: 0, ptrRate: 0, smCnt: 0, smRate: 0, on: false, raf: 0, last: 0, acc: 0, frames: 0, wAcc: 0, jAcc: 0 };
    function perfStart(){ if (__PERF.on) return; __PERF.on = true; __PERF.last = performance.now(); __PERF.acc = 0; __PERF.frames = 0; __PERF.wAcc = 0; __PERF.jAcc = 0; var loop = function(now){ if (!__PERF.on) return; var dt = now - __PERF.last; __PERF.last = now; __PERF.frames++; __PERF.acc += dt; if (dt > __PERF.wAcc) __PERF.wAcc = dt; if (dt > 32) __PERF.jAcc++; if (__PERF.acc >= 1000){ __PERF.fps = Math.round(__PERF.frames * 1000 / __PERF.acc); __PERF.worst = Math.round(__PERF.wAcc); __PERF.jank = __PERF.jAcc; __PERF.ptrRate = __PERF.ptrCnt; __PERF.smRate = __PERF.smCnt; __PERF.frames = 0; __PERF.acc = 0; __PERF.wAcc = 0; __PERF.jAcc = 0; __PERF.ptrCnt = 0; __PERF.smCnt = 0; } __PERF.raf = requestAnimationFrame(loop); }; __PERF.raf = requestAnimationFrame(loop); }
    function perfStop(){ __PERF.on = false; if (__PERF.raf){ cancelAnimationFrame(__PERF.raf); __PERF.raf = 0; } }
+   var WIN_LABEL = 'win'; try { WIN_LABEL = (window.__TAURI__.webviewWindow.getCurrentWebviewWindow().label) || 'win'; } catch(_){}
+   function gpuInfo(){ try { var c = document.createElement('canvas'); var gl = c.getContext('webgl2') || c.getContext('webgl') || c.getContext('experimental-webgl'); if (!gl) return 'no-webgl'; var dbg = gl.getExtension('WEBGL_debug_renderer_info'); var r = dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : 'masked'; var v = dbg ? gl.getParameter(dbg.UNMASKED_VENDOR_WEBGL) : ''; var ver = gl.getParameter(gl.VERSION); return (v ? v + ' / ' : '') + r + ' [' + ver + ']'; } catch(e){ return 'err ' + e; } }
+   var __plog = null;
+   function perfLogStart(){
+     if (__plog) return;
+     var wasOn = __PERF.on; perfStart();
+     var lines = [];
+     lines.push('=== perf log [' + WIN_LABEL + '] ' + new Date().toISOString() + ' ===');
+     lines.push('ua: ' + navigator.userAgent);
+     lines.push('dpr ' + (window.devicePixelRatio || 1) + '  screen ' + screen.width + 'x' + screen.height + '  inner ' + window.innerWidth + 'x' + window.innerHeight);
+     lines.push('gpu: ' + gpuInfo());
+     lines.push('panes ' + ((window.PM && PM.panes) ? PM.panes.length : 0) + '  bg ' + (PREFS.bgMode === 'folder' ? 'on' : 'off') + '  para ' + (PREFS.parallax ? 'on' : 'off') + '  hud ' + (PREFS.perfHud ? 'on' : 'off'));
+     lines.push('sec | fps worst(ms) jank | renders/s ptr/s sm/s | ticker cards items | pollLast pollMax(ms)');
+     var sec = 0, maxWorst = 0, jankTotal = 0;
+     __plog = setInterval(function(){
+       sec++;
+       var snaps = (window.PM && PM.panes) ? PM.panes.map(function(pp){ return pp.perfSnap ? pp.perfSnap() : null; }).filter(Boolean) : [];
+       var cards = 0, items = 0, renders = 0, pollLast = 0, pollMax = 0, tk = false;
+       snaps.forEach(function(sn){ cards += sn.cards; items += sn.items; renders += sn.renders; pollLast = Math.max(pollLast, sn.pollMs); pollMax = Math.max(pollMax, sn.pollMax); if (sn.ticker) tk = true; });
+       maxWorst = Math.max(maxWorst, __PERF.worst); jankTotal += __PERF.jank;
+       lines.push(sec + ' | ' + __PERF.fps + ' ' + __PERF.worst + ' ' + __PERF.jank + ' | ' + renders + ' ' + __PERF.ptrRate + ' ' + __PERF.smRate + ' | ' + (tk ? 'ON' : 'off') + ' ' + cards + ' ' + items + ' | ' + pollLast.toFixed(1) + ' ' + pollMax.toFixed(1));
+       if (sec >= 30){
+         clearInterval(__plog); __plog = null;
+         lines.push('=== summary: worst frame ' + maxWorst + 'ms, total jank frames ' + jankTotal + ' over 30s ===');
+         try { window.__TAURI__.core.invoke('save_perf_log', { name: 'perflog-' + WIN_LABEL + '.txt', text: lines.join(String.fromCharCode(10)) }); } catch(e){}
+         if (!wasOn && !PREFS.perfHud) perfStop();
+       }
+     }, 1000);
+   }
+   try { window.__TAURI__.event.listen('perflog-start', function(){ perfLogStart(); }); } catch(_){}
    window.addEventListener('pointermove', function(){ if (__PERF.on) __PERF.ptrCnt++; }, true);
    function applyPrefsAll(){ if (typeof __PERF !== 'undefined'){ if (PREFS.perfHud) perfStart(); else perfStop(); } if (typeof PM === 'undefined' || !PM.panes) return; PM.panes.forEach(function(pp){ if (pp && pp.applyPrefs) try{ pp.applyPrefs(PREFS); }catch(_){} }); }
    function loadPrefs(){ return window.__TAURI__.core.invoke('load_settings').then(function(s){ try{ var o = JSON.parse(s || '{}'); for (var k in o){ if (o.hasOwnProperty(k)) PREFS[k] = o[k]; } }catch(_){} applyPrefsAll(); }).catch(function(){ applyPrefsAll(); }); }
@@ -1135,6 +1166,7 @@
      function chkRow(label, key){ var c = document.createElement('input'); c.type = 'checkbox'; c.checked = !!PREFS[key]; c.style.cssText = 'width:16px;height:16px;cursor:pointer;'; c.onchange = function(){ PREFS[key] = c.checked; savePrefs(); }; rowEl(label, c); }
      chkRow('Invert left/right', 'smInvX'); chkRow('Invert up/down', 'smInvY'); chkRow('Invert zoom', 'smInvZoom');
      chkRow('Performance overlay', 'perfHud');
+     var plogBtn = document.createElement('button'); plogBtn.textContent = 'Run 30s perf log'; plogBtn.style.cssText = 'background:#252934;border:1px solid #353a45;color:#d4d7df;border-radius:6px;padding:5px 10px;cursor:pointer;font:inherit;'; plogBtn.onclick = function(){ try{ window.__TAURI__.event.emit('perflog-start', {}); }catch(_){} plogBtn.textContent = 'Logging 30s\u2026'; plogBtn.disabled = true; setTimeout(function(){ plogBtn.textContent = 'Run 30s perf log'; plogBtn.disabled = false; }, 31000); }; rowEl('Diagnostics', plogBtn);
      box.appendChild(bar); box.appendChild(body); document.body.appendChild(box);
      box.style.left = Math.max(20, Math.round((window.innerWidth - 380) / 2)) + 'px'; box.style.top = '70px';
      close.onclick = function(){ try{ box.remove(); }catch(_){} __prefsWin = null; };
