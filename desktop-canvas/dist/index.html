@@ -108,7 +108,7 @@
  window.addEventListener('error', function(ev){ showErr('JS error: ' + (ev.message || ev.error)); });
  window.addEventListener('keydown', function(e){ if(e.key==='Escape'){ try{ window.__TAURI__.core.invoke('quit'); }catch(_){} } });
 
- var PREFS = { bgMode: 'default', bgFolder: '', bgFit: 'fill', bgOrient: 'all', bgSeconds: 30, bgOpacity: 1, parallax: false, smPan: 0.05, smZoom: 0.00012, smDead: 8, smInvX: false, smInvY: false, smInvZoom: true, perfHud: false };
+ var PREFS = { bgMode: 'default', bgFolder: '', bgFit: 'fill', bgOrient: 'all', bgSeconds: 30, bgOpacity: 1, bgFade: 0.7, parallax: false, smPan: 0.05, smZoom: 0.00012, smDead: 8, smInvX: false, smInvY: false, smInvZoom: true, perfHud: false };
  function makeCanvas(root, opts){
    try{
      if(typeof PIXI==='undefined'){ showErr('PIXI failed to load'); return; }
@@ -777,7 +777,7 @@
        else if (carry && carry.source === 'import'){ hud.textContent = 'Placing imported file [' + modeLabel() + ']  \u00b7  left-click confirm  \u00b7  right-click cancel  \u00b7  T toggle  \u00b7  Free mode (1) to drop into a folder'; }
        else if (carry){ hud.textContent = 'Moving ' + (carry.held.length > 1 ? carry.held.length + ' items ' : '') + '[' + (ctrlDown ? 'Free (Ctrl)' : modeLabel()) + ']  \u00b7  hold Ctrl = free / drop into folder  \u00b7  T toggle  \u00b7  release to drop  \u00b7  Esc cancel'; }
        else if (selection.size){ hud.textContent = selection.size + ' selected  \u00b7  drag = move  \u00b7  Ctrl+C copy / Ctrl+X cut  \u00b7  Del trash  \u00b7  Ctrl+F frame  \u00b7  Esc clear'; }
-       else { hud.textContent = 'v0.0.93  \u00b7  click = select  \u00b7  shift/ctrl = add/remove  \u00b7  drag empty = box select  \u00b7  middle-drag = pan  \u00b7  drag item = move  \u00b7  mode: ' + modeLabel() + (writable ? '' : '  \u00b7  read-only'); }
+       else { hud.textContent = 'v0.0.94  \u00b7  click = select  \u00b7  shift/ctrl = add/remove  \u00b7  drag empty = box select  \u00b7  middle-drag = pan  \u00b7  drag item = move  \u00b7  mode: ' + modeLabel() + (writable ? '' : '  \u00b7  read-only'); }
      }
      upBtn.addEventListener('click', function(){ navigate(parentOf(cwd)); });
      gotoBtn.addEventListener('click', function(){ if (pathInput.style.display === 'none'){ pathInput.style.display = 'inline-block'; pathInput.value = cwd; pathInput.focus(); pathInput.select(); } else { navigate(pathInput.value.trim()); pathInput.style.display = 'none'; } });
@@ -953,7 +953,7 @@
        var imageMode = (p.bgMode === 'folder' && p.bgFolder);
        grid.visible = !imageMode;
        // cheap live updates (opacity/fit) every call, never touch the timer
-       [bgImgA, bgImgB].forEach(function(im){ im.style.objectFit = (p.bgFit === 'fit') ? 'contain' : 'cover'; }); var curIm = [bgImgA, bgImgB][bgCur]; if (curIm.getAttribute('src')) curIm.style.opacity = String(p.bgOpacity);
+       var fadeSec = (p.bgFade != null ? p.bgFade : 0.7); [bgImgA, bgImgB].forEach(function(im){ im.style.objectFit = (p.bgFit === 'fit') ? 'contain' : 'cover'; im.style.transition = 'opacity ' + fadeSec + 's ease, transform 0.12s ease'; }); var curIm = [bgImgA, bgImgB][bgCur]; if (curIm.getAttribute('src')) curIm.style.opacity = String(p.bgOpacity);
        paraOn = !!p.parallax; setPara();
        if (p.perfHud){ hudPanel.style.display = 'block'; if (!hudTimer) hudTimer = setInterval(hudUpdate, 250); } else { hudPanel.style.display = 'none'; if (hudTimer){ clearInterval(hudTimer); hudTimer = null; } }
        if (!imageMode){ clearBgTimer(); bgListSig = null; bgSecs = null; [bgImgA, bgImgB].forEach(function(im){ im.style.opacity = '0'; im.removeAttribute('src'); if (im.__blobUrl){ try{ URL.revokeObjectURL(im.__blobUrl); }catch(_){} im.__blobUrl = null; } }); return; }
@@ -1193,6 +1193,7 @@
      var fitSel = selOf([['fill','Fill (cover)'],['fit','Fit (contain)']], PREFS.bgFit); fitSel.onchange = function(){ PREFS.bgFit = fitSel.value; savePrefs(); }; rowEl('Scaling', fitSel);
      var orSel = selOf([['all','All'],['landscape','Landscape only'],['portrait','Portrait only']], PREFS.bgOrient); orSel.onchange = function(){ PREFS.bgOrient = orSel.value; savePrefs(); }; rowEl('Orientation', orSel);
      var secIn = document.createElement('input'); secIn.type = 'number'; secIn.min = '3'; secIn.value = PREFS.bgSeconds; secIn.style.cssText = 'width:70px;background:#1f2229;border:1px solid #3a4356;color:#e6e8ee;border-radius:6px;padding:4px 6px;'; secIn.onchange = function(){ var v = parseInt(secIn.value, 10); if (v >= 3){ PREFS.bgSeconds = v; savePrefs(); } }; rowEl('Seconds between', secIn);
+     var fadeIn = document.createElement('input'); fadeIn.type = 'number'; fadeIn.min = '0'; fadeIn.max = '5'; fadeIn.step = '0.1'; fadeIn.value = (PREFS.bgFade != null ? PREFS.bgFade : 0.7); fadeIn.style.cssText = 'width:70px;background:#1f2229;border:1px solid #3a4356;color:#e6e8ee;border-radius:6px;padding:4px 6px;'; fadeIn.onchange = function(){ var v = parseFloat(fadeIn.value); if (!isNaN(v) && v >= 0 && v <= 5){ PREFS.bgFade = v; savePrefs(); } }; rowEl('Crossfade seconds (0 = instant)', fadeIn);
      var opIn = document.createElement('input'); opIn.type = 'range'; opIn.min = '0'; opIn.max = '1'; opIn.step = '0.05'; opIn.value = PREFS.bgOpacity; opIn.style.width = '140px'; opIn.oninput = function(){ PREFS.bgOpacity = parseFloat(opIn.value); savePrefs(); }; rowEl('Image opacity', opIn);
      var plx = document.createElement('input'); plx.type = 'checkbox'; plx.checked = !!PREFS.parallax; plx.style.cssText = 'width:16px;height:16px;cursor:pointer;'; plx.onchange = function(){ PREFS.parallax = plx.checked; savePrefs(); }; rowEl('Parallax (follow cursor)', plx);
      var smHdr = document.createElement('div'); smHdr.textContent = 'SpaceMouse'; smHdr.style.cssText = 'margin-top:6px;padding-top:11px;border-top:1px solid #2a2f3a;font-weight:600;color:#9fb3d6;'; body.appendChild(smHdr);
