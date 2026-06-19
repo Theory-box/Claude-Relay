@@ -800,7 +800,7 @@ fn save_perf_log(app: tauri::AppHandle, name: String, text: String) -> Result<St
 }
 
 #[tauri::command]
-fn bg_image(path: String, maxdim: u32) -> Result<String, String> {
+fn bg_image(path: String, maxdim: u32) -> Result<tauri::ipc::Response, String> {
     let p = std::path::Path::new(&path);
     match image::open(p) {
         Ok(img) => {
@@ -815,13 +815,11 @@ fn bg_image(path: String, maxdim: u32) -> Result<String, String> {
                     .write_image(rgb.as_raw(), rgb.width(), rgb.height(), image::ExtendedColorType::Rgb8)
                     .map_err(|e| e.to_string())?;
             }
-            Ok(format!("data:image/jpeg;base64,{}", b64(&buf)))
+            Ok(tauri::ipc::Response::new(buf))
         }
         Err(_) => {
-            let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
-            let mime = match ext.as_str() { "png" => "image/png", "jpg" | "jpeg" => "image/jpeg", "gif" => "image/gif", "webp" => "image/webp", "bmp" => "image/bmp", _ => "application/octet-stream" };
             let bytes = std::fs::read(p).map_err(|e| e.to_string())?;
-            Ok(format!("data:{};base64,{}", mime, b64(&bytes)))
+            Ok(tauri::ipc::Response::new(bytes))
         }
     }
 }
