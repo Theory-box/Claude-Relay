@@ -1,110 +1,36 @@
-# Desktop Canvas — TODO
+# Desktop Canvas — TODO & Optimization Notes
 
-Windows-only desktop-replacement: infinite spatial canvas fused with a filesystem browser.
-AI writes all code; built on GitHub CI, delivered as a bare exe. Branch: feature/desktop-canvas.
+_Last updated v0.0.87. main stays clean; work on feature/desktop-canvas._
 
----
+## Recently shipped (don't rebuild)
+- Core: per-monitor bottom canvas, pan/zoom/drag, drop-to-card, thumbnails, trash, folders + nav + address bar, placement engine, selection + box-select, saved spaces, search, copy/cut/paste/shortcut, back/forward, split panes + session restore, native drag-out, portals, zip/extract.
+- Rename; basic web window; smooth zoom + pan/icon momentum; image viewer right-click (partial).
+- Background images: folder cycle, fit/fill, orientation filter, opacity, crossfade, screen-size downscale, parallax (cursor-driven).
+- Toolbar distance-fade; "Add" submenu; render-on-demand; PDF viewer + DPI export/drag-out + image-editor pan/zoom.
+- SpaceMouse Compact pan/zoom with Preferences (speed/deadzone/invert), active-window targeting.
+- Sort a selection into a drawn area (overflow downward).
+- Viewport culling of off-screen cards.
+- Diagnostics: perf overlay + 45s perf log (fps/jank/heap/texCache/DOM/long-tasks + Long-Animation-Frame attribution).
 
-## Done
+## Performance / optimization (audit) — ordered by value, all "no visual sacrifice" unless noted
+1. **Don't wake the render loop on plain pointermove.** `wake` is bound to `pointermove`, so moving the mouse renders the scene continuously even though nothing on the canvas changes on hover (the only highlight `hl` appears during a drag). Drags/pans/zooms/animations/SpaceMouse already keep the ticker awake on their own (carry/camTween/panVel set `__act`). Removing `pointermove` from the wake list lets the canvas idle while you just move the cursor — likely the single biggest idle-CPU/GPU win. (~100 wasted renders/sec seen in logs.)
+2. **Free thumbnail textures + bound the thumb cache (memory leak).** `loadTexture` caches every thumbnail in PIXI's global TextureCache by data-URL and `card.destroy({children:true})` never frees the texture/baseTexture; `thumbCache` keeps every data-URL string forever. Long sessions with lots of navigation grow RAM/VRAM → GC stalls. Fix: destroy textures on card teardown (or LRU-cap the cache) and bound/clear `thumbCache` on navigation. Directly addresses "gets heavier over time."
+3. **Toolbar fade: stop the per-frame layout read + redundant writes.** `setBarFade` calls `getBoundingClientRect` every mouse-move frame (forced layout) and writes `#bar` opacity every frame even when unchanged. Cache the bar rect (recompute on resize) and only write opacity when it changes by a threshold.
+4. **Throttle the per-frame `diag.textContent` rebuild + `drawSelection`.** Both run every ticker frame; the diag string allocates each frame (GC churn) and selection graphics are redrawn even when nothing moved. Update diag ~4x/sec or on-change; redraw selection only on selection/camera change. (Much smaller once #1 lands, since the ticker won't run during plain hover.)
+5. **Perf overlay non-persistent.** It currently saves to PREFS and restarts on launch; an always-on rAF + 250ms timer per window. Make it always start off so it can't be left on and silently tax every session.
+6. **Grid as a TilingSprite.** The default dot grid is ~2,600 tessellated circles in one Graphics, redrawn every awake frame when no background image is set. A 1-tile TilingSprite is ~2 triangles and also makes the grid effectively infinite (currently bounded to ±1600). Visual result identical.
+7. **Background image via temp-file asset URL instead of base64 data-URL over IPC.** `bg_image` returns a multi-hundred-KB base64 string that's decoded on the main thread each cycle x3 monitors. Writing the downscaled JPEG to temp and loading it via the asset protocol avoids the base64 + IPC payload and the per-cycle main-thread cost.
+8. **Consolidate the window `pointermove` listeners** (wake, parallax, bar-fade, perf-ptr, spacemouse) into one dispatcher to cut per-event dispatch overhead. Minor.
+9. **PIXI tweaks:** `powerPreference:'high-performance'`; keep `antialias:true` (no visual sacrifice goal). Consider only redrawing selection/diag on change.
 
-### Core canvas & files (v0.0.1–0.0.43)
-- Per-monitor always-on-bottom window; pan / zoom-to-cursor / drag.
-- OS drop → copy + card + persisted layout; cross-window sync; shell thumbnails.
-- Folders + navigation + address bar + Back/Forward; drives view at top.
-- Placement engine: carry/preview, Free vs Push, collision sort, padding.
-- Trash Can (app-local) + confirms; reload-storm fix; SAFE_MODE.
-- Selection + box-select + multi-move; Saved Spaces (persisted bookmarks).
-- Search (Space) + Ctrl+F; copy / cut / paste; copy-as-shortcut (.lnk).
-- Folder-shortcut (.lnk to folder) navigates in-canvas.
-- Native drag-OUT to other apps (single + multi) via SHDoDragDrop.
-- Split panes + per-monitor session restore; per-pane coord + zoom isolation.
+## Feature backlog
+- Backgrounds Pass 2: custom grid/background colors; per-monitor independent images.
+- Image viewer right-click: add Rename / Delete / Properties (needs body-level dialogs above the viewer).
+- Web: save a site as a shortcut card that opens a web panel; live web nodes.
+- Bigger: Image->PDF builder; fun widgets (chess, sticky notes, calculator, clock, paint); minimap; shared top bar for split panes; texture streaming / LOD for huge images.
+- Medium: viewer/editor windows that span all monitors (currently clipped to one); drag-out copy/move prompt; "gather" move mode.
+- Smaller: undo/redo; native copy-progress dialog (IFileOperation); bookmark tabs; confirm-before-trash-drop.
+- SpaceMouse extras: twist as alternate zoom; the two buttons -> frame-all / reset; device hot-plug re-detect.
 
-### Viewers & editing
-- Floating image viewer (movable/resizable, arrow paging, zoom/pan) (v0.0.45).
-- Text files: New Text File + floating editor (Save/Ctrl+S/Esc, Ctrl+scroll font) (v0.0.47).
-- Name truncation, error-bar ×, Properties panel, in-app open by default (v0.0.54).
-- MULTI-INSTANCE viewers + editors with focused-overlay keyboard routing (v0.0.58).
-
-### Portals (v0.0.55–0.0.57)
-- Bidirectional shortcuts; two-token placement; click-teleport; drag-reposition; delete pair.
-- Square tile + portal disc; spawn-in-view; show-as-you-place; broken portals auto-remove.
-
-### Archives (v0.0.57)
-- Zip (Compress-Archive) on file/folder/multi-select; Extract here (Expand-Archive) on .zip.
-
----
-
-## Backlog
-
-### Next build (decided)
-- RENAME files / folders (in-place rename; in_root-guarded; refresh layout key).
-
-### Settings / Preferences window  (NEW — phased)
-- Button top-right, right of "Go to", labelled "Settings". Global settings persisted to
-  app_data/settings.json (load/save like portals); applied on launch + live on change, all panes/windows.
-- BACKGROUND IMAGE (replaces the grid). Implement as a screen-fixed DOM layer behind the
-  transparent Pixi canvas (NOT in the world — does not pan/zoom). Phases:
-  - P1: single chosen image on all screens. Scale-to-fit vs scale-to-fill (object-fit
-    contain/cover — never stretch; fill expands beyond border + crops). Transparency slider
-    fading image → default background (0 = default bg).
-  - P2: GRID settings (point spacing, point color, background color) for grid mode.
-  - P3: crossfade between images (two stacked layers, opacity transition).
-  - P4: folder select → cycle every X seconds, random order; landscape-only vs portrait-only filter.
-    Single shared image across all screens first (simplest).
-  - P5: per-monitor random image; avoid showing the same image on two monitors (needs
-    cross-window coordination via a shared command/store — windows are separate processes).
-  - P6: per-monitor folder selection.
-  - P7: PARALLAX — slight bg pan on mouse-move (depth effect). Cheap (CSS transform only);
-    image scaled with overscan (~1.05–1.08x) so panning never reveals edges.
-  - Split-screen panes share one background (same process — easy; preferred).
-
-### Image viewer / text editor right-click  (NEW)
-- Right-click inside the image viewer (and text editor): "drag/move out to another app"
-  (reuse SHDoDragDrop), Properties, and file-type-appropriate actions (open with, etc.).
-
-### Embedded web browser  (NEW — feasibility noted, future)
-- Use Tauri's built-in WebView2 child webviews (Chromium core, same engine as Brave/Chrome) —
-  embeddable with NO default toolbar (we supply our own chrome). Brave itself can't be embedded
-  (only launched externally); WebView2 gives the same engine.
-- Little web viewer with our own toolbar (back/fwd/url) = very feasible (like the image viewer).
-- Sites saved as shortcut cards (store URL) → click opens a web panel. Trivial.
-- "Pages as nodes": live web content is a separate native layer ABOVE the Pixi canvas — it
-  repositions on pan and can set a zoom factor, but won't truly scale/integrate like a sprite.
-  Cheaper pattern: node shows a snapshot/thumbnail card; clicking "wakes" it into a live webview.
-- Watch memory: each live webview is a real browser instance — cap concurrent live nodes,
-  snapshot inactive ones. (CEF/other engines = too heavy; WebView2 is the right tool.)
-
-### Other bigger features
-- IMAGE → PDF builder window (drag images, grid = page order, reorder, Process → draggable PDF).
-- PDF VIEWER (floating, page/zoom/pan like image viewer).
-- FUN WIDGETS / SUB-APPS (chess vs computer first; sticky notes, calculator, clock, paint, visualizer).
-- TEXTURE STREAMING / LOD for images (display-res + mipmaps; then zoom-driven full-res + culling).
-- SHARED TOP MENU BAR for split panes (focused-pane-driven).
-- MINIMAP overlay with a draggable viewport rectangle.
-
-### Medium
-- VIEWER/EDITOR windows span all monitors (currently each floating window is clipped to its
-  own monitor's window; make them carry across screens — needs a separate top-level OS window
-  not bound to one monitor).
-- SORT/RELAX scoped to selection (fall back to everything if nothing selected).
-- DRAG-OUT copy/move prompt when dropping onto another canvas/window.
-- "GATHER" move mode: selected items cluster around the dragged item.
-
-### Smaller / parked
-- Static bottom-left Trash icon.
-- Undo / redo for item placement + movement.
-- Native Windows copy-progress dialog (IFileOperation on a worker thread, non-freezing).
-- Gate open-relax so intentional Free-mode stacks aren't auto-separated.
-- Confirm before dropping onto Trash.
-- Bookmark TABS (alongside Saved Spaces).
-- Perf: spatial-hash / inscribed-circle broad phase; thumbnail cache + lazy/visible-first load.
-
-### Deferred (blocked)
-- RAR creation — Windows has no built-in archiver; would need a bundled tool.
-
----
-
-## Notes
-- Real Windows Recycle Bin integration (today: app-local Trash Can folder).
-- Explorer / folder-tree view was built (v0.0.48–52) then removed v0.0.53 as not useful;
-  physics sandbox preserved at prototypes/explorer-physics-sim.html, notes in EXPLORER.md.
+## Deferred
+- RAR creation (no built-in Windows archiver).
