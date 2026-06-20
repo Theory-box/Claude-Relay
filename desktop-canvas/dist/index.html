@@ -157,7 +157,7 @@
      var hl = new PIXI.Graphics(); hl.eventMode = 'none'; hl.visible = false; world.addChild(hl);
 
      var cwd = '', homePath = '', placesList = [];
-     var items = [], cards = [], thumbCache = {}, thumbOrder = [], mtimes = {}, meta = {}, portalCards = [];
+     var items = [], cards = [], thumbCache = {}, thumbOrder = [], mtimes = {}, meta = {}, portalCards = [], widgets = [];
      var trash = { x: -320, y: -210 }, trashNode = null;
      var panning = false, last = null, reloadPending = false, confirming = false, animating = false; var panVel = { x: 0, y: 0 };
      var lastCursor = null, sortAnim = null, writable = true, spaces = [], camTween = null, sortArea = null, clip = null, ctrlDown = false, safetyOn = true;
@@ -597,6 +597,8 @@
        if (writable) sortMenu.appendChild(mkBtn('New Folder', '', function(){ hideMenu(); promptDialog('New folder name', 'New Folder', 'Create', function(name){ createFolder(name); }); }));
        if (writable) sortMenu.appendChild(mkBtn('New Text File', '', function(){ hideMenu(); promptDialog('Text file name', 'New File.txt', 'Create', function(name){ createTextFile(name); }); }));
        sortMenu.appendChild(mkBtn('Add Portal', '', function(){ hideMenu(); openPortalPlacer(); }));
+       var __wh = mkBtn('Widgets', '', function(){}); __wh.style.color = '#9aa0ab'; __wh.style.cursor = 'default'; sortMenu.appendChild(mkSep()); sortMenu.appendChild(__wh);
+       sortMenu.appendChild(mkBtn('\u201c\u201d  Quote', '', function(){ hideMenu(); spawnQuoteWidget(); }));
        sortMenu.appendChild(mkBtn('Web window', '', function(){ hideMenu(); T.core.invoke('open_web', {}); }));
        positionFlyout(anchor);
      }
@@ -780,7 +782,7 @@
        else if (carry && carry.source === 'import'){ hud.textContent = 'Placing imported file [' + modeLabel() + ']  \u00b7  left-click confirm  \u00b7  right-click cancel  \u00b7  T toggle  \u00b7  Free mode (1) to drop into a folder'; }
        else if (carry){ hud.textContent = 'Moving ' + (carry.held.length > 1 ? carry.held.length + ' items ' : '') + '[' + (ctrlDown ? 'Free (Ctrl)' : modeLabel()) + ']  \u00b7  hold Ctrl = free / drop into folder  \u00b7  T toggle  \u00b7  release to drop  \u00b7  Esc cancel'; }
        else if (selection.size){ hud.textContent = selection.size + ' selected  \u00b7  drag = move  \u00b7  Ctrl+C copy / Ctrl+X cut  \u00b7  Del trash  \u00b7  Ctrl+F frame  \u00b7  Esc clear'; }
-       else { hud.textContent = 'v0.0.95  \u00b7  click = select  \u00b7  shift/ctrl = add/remove  \u00b7  drag empty = box select  \u00b7  middle-drag = pan  \u00b7  drag item = move  \u00b7  mode: ' + modeLabel() + (writable ? '' : '  \u00b7  read-only'); }
+       else { hud.textContent = 'v0.0.96  \u00b7  click = select  \u00b7  shift/ctrl = add/remove  \u00b7  drag empty = box select  \u00b7  middle-drag = pan  \u00b7  drag item = move  \u00b7  mode: ' + modeLabel() + (writable ? '' : '  \u00b7  read-only'); }
      }
      upBtn.addEventListener('click', function(){ navigate(parentOf(cwd)); });
      gotoBtn.addEventListener('click', function(){ if (pathInput.style.display === 'none'){ pathInput.style.display = 'inline-block'; pathInput.value = cwd; pathInput.focus(); pathInput.select(); } else { navigate(pathInput.value.trim()); pathInput.style.display = 'none'; } });
@@ -927,7 +929,7 @@
 
      function cullCards(){ var sc = world.scale.x; if (!sc) return; var m = 140; var L = (-world.x) / sc - m, Tp = (-world.y) / sc - m, Rr = (app.screen.width - world.x) / sc + m, Bb = (app.screen.height - world.y) / sc + m; for (var i = 0; i < cards.length; i++){ var c = cards[i]; if (!c.__item) continue; var w = (c.hitArea ? c.hitArea.width : 90), h = (c.hitArea ? c.hitArea.height : 90); c.visible = (c.x < Rr && c.x + w > L && c.y < Bb && c.y + h > Tp); } for (var j = 0; j < portalCards.length; j++){ var pc = portalCards[j]; var pw = (pc.__pw || 90), ph = (pc.__ph || 90); pc.visible = (pc.x < Rr && pc.x + pw > L && pc.y < Bb && pc.y + ph > Tp); } }
      var diag = $('#diag');
-     app.ticker.add(function(){ renderCnt++; cullCards(); if (sortAnim) stepSort(); if (carry && carry.gliding){ carry.glideCw.x += carry.vel.x; carry.glideCw.y += carry.vel.y; carry.vel.x *= 0.85; carry.vel.y *= 0.85; resolveCarry(carry.glideCw); if (Math.hypot(carry.vel.x, carry.vel.y) < 0.6){ carry.gliding = false; commitCarry(); } } if (camTween){ world.scale.set(world.scale.x + (camTween.s - world.scale.x) * 0.25); world.x += (camTween.x - world.x) * 0.25; world.y += (camTween.y - world.y) * 0.25; if (--camTween.f <= 0){ world.scale.set(camTween.s); world.x = camTween.x; world.y = camTween.y; camTween = null; } } else if (!panning && (Math.abs(panVel.x) > 0.06 || Math.abs(panVel.y) > 0.06)){ world.x += panVel.x; world.y += panVel.y; panVel.x *= 0.9; panVel.y *= 0.9; if (Math.abs(panVel.x) <= 0.06) panVel.x = 0; if (Math.abs(panVel.y) <= 0.06) panVel.y = 0; } if (carry || selection.size) drawSelection(); diag.textContent = 'zoom ' + Math.round(world.scale.x * 100) + '%  items ' + items.length + (selection.size ? '  sel ' + selection.size : '') + (animating ? '  sorting' : (carry ? '  ' + carry.source : '')); var __act = sortAnim || camTween || carry || panning || Math.abs(panVel.x) > 0.06 || Math.abs(panVel.y) > 0.06; if (__act) idleCount = 0; else idleCount++; if (idleCount > 24 && app.ticker.started) app.ticker.stop(); });
+     app.ticker.add(function(){ renderCnt++; cullCards(); for (var __wi = 0; __wi < widgets.length; __wi++){ widgets[__wi].sync(world.x, world.y, world.scale.x); } if (sortAnim) stepSort(); if (carry && carry.gliding){ carry.glideCw.x += carry.vel.x; carry.glideCw.y += carry.vel.y; carry.vel.x *= 0.85; carry.vel.y *= 0.85; resolveCarry(carry.glideCw); if (Math.hypot(carry.vel.x, carry.vel.y) < 0.6){ carry.gliding = false; commitCarry(); } } if (camTween){ world.scale.set(world.scale.x + (camTween.s - world.scale.x) * 0.25); world.x += (camTween.x - world.x) * 0.25; world.y += (camTween.y - world.y) * 0.25; if (--camTween.f <= 0){ world.scale.set(camTween.s); world.x = camTween.x; world.y = camTween.y; camTween = null; } } else if (!panning && (Math.abs(panVel.x) > 0.06 || Math.abs(panVel.y) > 0.06)){ world.x += panVel.x; world.y += panVel.y; panVel.x *= 0.9; panVel.y *= 0.9; if (Math.abs(panVel.x) <= 0.06) panVel.x = 0; if (Math.abs(panVel.y) <= 0.06) panVel.y = 0; } if (carry || selection.size) drawSelection(); diag.textContent = 'zoom ' + Math.round(world.scale.x * 100) + '%  items ' + items.length + (selection.size ? '  sel ' + selection.size : '') + (animating ? '  sorting' : (carry ? '  ' + carry.source : '')); var __act = sortAnim || camTween || carry || panning || Math.abs(panVel.x) > 0.06 || Math.abs(panVel.y) > 0.06; if (__act) idleCount = 0; else idleCount++; if (idleCount > 24 && app.ticker.started) app.ticker.stop(); });
 
      (async function(){
        try{ placesList = JSON.parse(await T.core.invoke('places') || '[]'); }catch(e){ showErr('places: ' + e); }
@@ -939,6 +941,7 @@
      })();
      self.handleDrop = handleDrop; self.getCwd = function(){ return cwd; }; self.navigate = function(pp){ navigate(pp); };
      self.screenToWorld = function(cx, cy){ var r = root.getBoundingClientRect(); return { x: (cx - r.left - world.x) / world.scale.x, y: (cy - r.top - world.y) / world.scale.y }; }; self.renderPortals = renderPortals; self.addTentativePortal = function(wx, wy){ return makePortalCard({ pairId: null, x: wx, y: wy, target: null }); };
+     function spawnQuoteWidget(){ var wcx = (app.screen.width / 2 - world.x) / world.scale.x, wcy = (app.screen.height / 2 - world.y) / world.scale.y; var w = createQuoteWidget(root, wcx - 160, wcy - 110, { scale: function(){ return world.scale.x; }, wake: wake, onClose: function(ww){ var i = widgets.indexOf(ww); if (i >= 0) widgets.splice(i, 1); } }); widgets.push(w); w.sync(world.x, world.y, world.scale.x); wake(); }
      self.spaceNudge = function(tx, ty, tz){ var d = PREFS.smDead, moved = false; var px = Math.abs(tx) > d ? tx : 0, py = Math.abs(tz) > d ? tz : 0; if (px || py){ camTween = null; world.x += px * PREFS.smPan * (PREFS.smInvX ? 1 : -1); world.y += py * PREFS.smPan * (PREFS.smInvY ? 1 : -1); moved = true; } if (Math.abs(ty) > d){ var f = Math.exp(ty * PREFS.smZoom * (PREFS.smInvZoom ? -1 : 1)); var s = world.scale.x, ns = Math.min(8, Math.max(0.1, s * f)); if (ns !== s){ var cx = app.screen.width / 2, cy = app.screen.height / 2; camTween = null; world.x = cx - (cx - world.x) * (ns / s); world.y = cy - (cy - world.y) * (ns / s); world.scale.set(ns); moved = true; } } if (moved) wake(); };
      var bgCur = 0, bgList = [], bgTimer = null, bgListSig = null, bgSecs = null, bgGen = 0, bgReady = false, bgPreparing = false, bgPendingSwap = false;
      function clearBgTimer(){ if (bgTimer){ clearInterval(bgTimer); clearTimeout(bgTimer); bgTimer = null; } }
@@ -1495,6 +1498,136 @@
 
      renderList(); updateSave();
      Promise.all(pages.map(loadPage)).then(function(){ if (closed) return; renderList(); scheduleBuild(); });
+   }
+
+   var QUOTE_SEED = [
+     { author: 'Lao Tzu', text: 'The journey of a thousand miles begins with a single step.' },
+     { author: 'Confucius', text: 'It does not matter how slowly you go as long as you do not stop.' },
+     { author: 'Aristotle', text: 'We are what we repeatedly do. Excellence, then, is not an act, but a habit.' },
+     { author: 'Seneca', text: 'Luck is what happens when preparation meets opportunity.' },
+     { author: 'Marcus Aurelius', text: 'You have power over your mind, not outside events. Realize this, and you will find strength.' },
+     { author: 'Epictetus', text: 'It is not what happens to you, but how you react to it that matters.' },
+     { author: 'Ralph Waldo Emerson', text: 'What lies behind us and what lies before us are tiny matters compared to what lies within us.' },
+     { author: 'Mark Twain', text: 'The secret of getting ahead is getting started.' },
+     { author: 'Theodore Roosevelt', text: 'Believe you can and you are halfway there.' },
+     { author: 'Eleanor Roosevelt', text: 'The future belongs to those who believe in the beauty of their dreams.' },
+     { author: 'Albert Einstein', text: 'Life is like riding a bicycle. To keep your balance you must keep moving.' },
+     { author: 'Maya Angelou', text: 'People will forget what you said, but they will never forget how you made them feel.' },
+     { author: 'Nelson Mandela', text: 'It always seems impossible until it is done.' },
+     { author: 'Winston Churchill', text: 'Success is not final, failure is not fatal: it is the courage to continue that counts.' },
+     { author: 'Steve Jobs', text: 'Your time is limited, so do not waste it living someone else\u2019s life.' },
+     { author: 'Henry Ford', text: 'Whether you think you can, or you think you cannot, you are right.' },
+     { author: 'Vincent van Gogh', text: 'Great things are done by a series of small things brought together.' },
+     { author: 'Leonardo da Vinci', text: 'Simplicity is the ultimate sophistication.' },
+     { author: 'Benjamin Franklin', text: 'An investment in knowledge pays the best interest.' },
+     { author: 'Oscar Wilde', text: 'Be yourself; everyone else is already taken.' },
+     { author: 'Helen Keller', text: 'Alone we can do so little; together we can do so much.' },
+     { author: 'Walt Disney', text: 'The way to get started is to quit talking and begin doing.' },
+     { author: 'Anne Frank', text: 'Whoever is happy will make others happy too.' },
+     { author: 'Buddha', text: 'The mind is everything. What you think you become.' },
+     { author: 'Plato', text: 'The beginning is the most important part of the work.' },
+     { author: 'Socrates', text: 'The only true wisdom is in knowing you know nothing.' },
+     { author: 'Thomas Edison', text: 'I have not failed. I have just found ten thousand ways that will not work.' },
+     { author: 'C.S. Lewis', text: 'You are never too old to set another goal or to dream a new dream.' },
+     { author: 'Frank Zappa', text: 'A mind is like a parachute. It does not work if it is not open.' },
+     { author: 'John Lennon', text: 'Life is what happens when you are busy making other plans.' }
+   ];
+
+   var QS = { ready: false, cache: [], byid: {}, dislikedSet: {}, likedSet: {}, seen: {}, fetching: false, _t: null, _waiters: [] };
+   function qsNorm(t){ var s = String(t || '').toLowerCase(); var o = ''; for (var i = 0; i < s.length; i++){ var c = s[i]; o += (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') ? c : ' '; } return o.replace(/\s+/g, ' ').trim(); }
+   function qsAdd(author, text, id){
+     var t = String(text || '').trim(); if (!t) return false;
+     var key = qsNorm(t); if (QS.seen[key]) return false; QS.seen[key] = 1;
+     id = id || ('q' + (QS.cache.length + 1) + '-' + key.slice(0, 12).replace(/ /g, ''));
+     var q = { id: id, text: t, author: String(author || 'Unknown').trim() || 'Unknown' };
+     QS.cache.push(q); QS.byid[id] = q; return true;
+   }
+   function qsSave(){ if (QS._t) clearTimeout(QS._t); QS._t = setTimeout(function(){ try { window.__TAURI__.core.invoke('save_quotes', { data: JSON.stringify({ cache: QS.cache, disliked: Object.keys(QS.dislikedSet), liked: Object.keys(QS.likedSet) }) }); } catch (e){} }, 500); }
+   function qsAvailable(){ var out = []; for (var i = 0; i < QS.cache.length; i++){ var q = QS.cache[i]; if (!QS.dislikedSet[q.id]) out.push(q.id); } return out; }
+   function qsDislike(id){ QS.dislikedSet[id] = 1; qsSave(); }
+   function qsLike(id){ if (QS.likedSet[id]) delete QS.likedSet[id]; else QS.likedSet[id] = 1; qsSave(); }
+   function qsFetch(){
+     if (QS.fetching) return Promise.resolve(); QS.fetching = true;
+     var ctl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+     var to = ctl ? setTimeout(function(){ try { ctl.abort(); } catch (e){} }, 6000) : null;
+     function done(added){ if (to) clearTimeout(to); QS.fetching = false; if (added) qsSave(); return added; }
+     return fetch('https://api.quotable.io/quotes/random?limit=25', ctl ? { signal: ctl.signal } : {})
+       .then(function(r){ return r.json(); })
+       .then(function(arr){ var n = 0; (arr || []).forEach(function(q){ if (qsAdd(q.author, q.content, q._id)) n++; }); if (!n) throw new Error('empty'); return done(n); })
+       .catch(function(){
+         return fetch('https://dummyjson.com/quotes?limit=30&skip=' + Math.floor(Math.random() * 50)).then(function(r){ return r.json(); })
+           .then(function(d){ var n = 0; ((d && d.quotes) || []).forEach(function(q){ if (qsAdd(q.author, q.quote, 'dj' + q.id)) n++; }); return done(n); })
+           .catch(function(){ return done(0); });
+       });
+   }
+   function qsInit(){
+     if (QS.ready) return Promise.resolve();
+     return window.__TAURI__.core.invoke('load_quotes').then(function(s){
+       var d = {}; try { d = JSON.parse(s || '{}'); } catch (e){}
+       (d.cache || []).forEach(function(q){ qsAdd(q.author, q.text, q.id); });
+       (d.disliked || []).forEach(function(id){ QS.dislikedSet[id] = 1; });
+       (d.liked || []).forEach(function(id){ QS.likedSet[id] = 1; });
+     }).catch(function(){}).then(function(){
+       if (QS.cache.length < 5){ QUOTE_SEED.forEach(function(q){ qsAdd(q.author, q.text); }); qsSave(); }
+       QS.ready = true;
+       if (qsAvailable().length < 60) qsFetch();
+     });
+   }
+
+   function createQuoteWidget(root, wx, wy, ctx){
+     var W = { wx: wx, wy: wy, seq: [], pos: 0 };
+     var el = document.createElement('div');
+     el.style.cssText = 'position:absolute;left:0;top:0;z-index:4;width:320px;transform-origin:0 0;background:linear-gradient(#20242c,#191c22);border:1px solid #3a4356;border-radius:14px;box-shadow:0 14px 40px rgba(0,0,0,.5);color:#e9ecf2;font:14px/1.5 Georgia,\'Times New Roman\',serif;user-select:none;overflow:hidden;';
+     el.innerHTML =
+       '<div class="qh" style="height:26px;display:flex;align-items:center;padding:0 8px;cursor:move;background:rgba(255,255,255,.03);border-bottom:1px solid #2a2f3a;font:600 10px/1 system-ui;letter-spacing:.6px;color:#7d8492;text-transform:uppercase;">QUOTE<span style="flex:1"></span><span class="qx" style="cursor:pointer;color:#8a91a0;font-size:13px;padding:2px 4px;">\u2715</span></div>' +
+       '<div class="qbody" style="padding:16px 16px 6px;"><div class="qtext" style="min-height:64px;">\u2026</div><div class="qauth" style="margin-top:10px;text-align:right;color:#9aa0ac;font:italic 12.5px Georgia,serif;"></div></div>' +
+       '<div style="display:flex;align-items:center;gap:6px;padding:8px 12px 12px;font-family:system-ui;">' +
+         '<button class="qprev" style="width:30px;height:30px;border-radius:8px;border:1px solid #3a4356;background:#1f2229;color:#e6e8ee;cursor:pointer;">\u2039</button>' +
+         '<button class="qnext" style="width:30px;height:30px;border-radius:8px;border:1px solid #3a4356;background:#1f2229;color:#e6e8ee;cursor:pointer;">\u203a</button>' +
+         '<span style="flex:1"></span>' +
+         '<button class="qlike" title="Like" style="width:30px;height:30px;border-radius:8px;border:1px solid #3a4356;background:#1f2229;cursor:pointer;font-size:14px;">\u2661</button>' +
+         '<button class="qdis" title="Dislike (never show again)" style="width:30px;height:30px;border-radius:8px;border:1px solid #3a4356;background:#1f2229;cursor:pointer;font-size:14px;">\u2715</button>' +
+       '</div>';
+     root.appendChild(el);
+     var qtext = el.querySelector('.qtext'), qauth = el.querySelector('.qauth'), likeBtn = el.querySelector('.qlike');
+
+     function curId(){ return W.seq.length ? W.seq[((W.pos % W.seq.length) + W.seq.length) % W.seq.length] : null; }
+     function shuffle(a){ for (var i = a.length - 1; i > 0; i--){ var j = Math.floor(Math.random() * (i + 1)); var t = a[i]; a[i] = a[j]; a[j] = t; } return a; }
+     function rebuild(keepId){ W.seq = shuffle(qsAvailable()); if (keepId){ var k = W.seq.indexOf(keepId); if (k > 0){ W.seq.splice(k, 1); W.seq.unshift(keepId); } } W.pos = 0; }
+     function render(){
+       var id = curId();
+       if (!id){ qtext.textContent = QS.ready ? 'No quotes available.' : 'Loading\u2026'; qauth.textContent = ''; return; }
+       var q = QS.byid[id]; if (!q){ qtext.textContent = '\u2026'; return; }
+       qtext.textContent = '\u201c' + q.text + '\u201d'; qauth.textContent = '\u2014 ' + q.author;
+       likeBtn.textContent = QS.likedSet[id] ? '\u2665' : '\u2661'; likeBtn.style.color = QS.likedSet[id] ? '#e0738f' : '#e6e8ee';
+     }
+     function step(d){
+       if (!W.seq.length){ rebuild(); render(); return; }
+       W.pos += d;
+       if (W.pos >= W.seq.length){ if (qsAvailable().length > W.seq.length){ var c = curId(); rebuild(c); W.pos = 0; } else { W.pos = 0; } qsFetch().then(function(n){ if (n) { /* new ones available next cycle */ } }); }
+       if (W.pos < 0) W.pos = W.seq.length - 1;
+       render();
+     }
+     el.querySelector('.qprev').addEventListener('click', function(e){ e.stopPropagation(); step(-1); });
+     el.querySelector('.qnext').addEventListener('click', function(e){ e.stopPropagation(); step(1); });
+     likeBtn.addEventListener('click', function(e){ e.stopPropagation(); var id = curId(); if (id){ qsLike(id); render(); } });
+     el.querySelector('.qdis').addEventListener('click', function(e){ e.stopPropagation(); var id = curId(); if (!id) return; qsDislike(id); var k = W.seq.indexOf(id); if (k >= 0) W.seq.splice(k, 1); if (W.pos >= W.seq.length) W.pos = 0; render(); });
+     el.querySelector('.qx').addEventListener('click', function(e){ e.stopPropagation(); destroy(); });
+
+     // drag by header
+     var hdr = el.querySelector('.qh'), drag = false, sx = 0, sy = 0, owx = 0, owy = 0;
+     hdr.addEventListener('pointerdown', function(e){ if (e.target.classList.contains('qx')) return; drag = true; sx = e.clientX; sy = e.clientY; owx = W.wx; owy = W.wy; try { hdr.setPointerCapture(e.pointerId); } catch (_){} e.stopPropagation(); });
+     hdr.addEventListener('pointermove', function(e){ if (!drag) return; var sc = ctx.scale() || 1; W.wx = owx + (e.clientX - sx) / sc; W.wy = owy + (e.clientY - sy) / sc; if (W.__cam) W.sync(W.__cam.x, W.__cam.y, W.__cam.s); ctx.wake(); });
+     hdr.addEventListener('pointerup', function(e){ drag = false; try { hdr.releasePointerCapture(e.pointerId); } catch (_){} if (ctx.onChange) ctx.onChange(); });
+     el.addEventListener('pointerdown', function(e){ e.stopPropagation(); });
+
+     W.sync = function(camX, camY, scale){ W.__cam = { x: camX, y: camY, s: scale }; el.style.transform = 'translate(' + (camX + W.wx * scale) + 'px,' + (camY + W.wy * scale) + 'px) scale(' + scale + ')'; };
+     function destroy(){ try { el.remove(); } catch (_){} if (ctx.onClose) ctx.onClose(W); }
+     W.destroy = destroy; W.el = el;
+
+     qsInit().then(function(){ rebuild(); render(); });
+     render();
+     return W;
    }
 
    function openViewer(list, idx, owner){
