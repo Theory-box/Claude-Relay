@@ -31,7 +31,9 @@ pub struct Cursor {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Input {
     pub kind: String, // "button"
-    pub name: String, // gilrs button name, e.g. "RightTrigger2"
+    pub name: String, // raw hardware code (stable per device)
+    #[serde(default)]
+    pub label: String, // friendly label for display
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -84,26 +86,7 @@ pub fn default_config() -> Config {
             invert_y: false,
         },
         layers: vec![
-            Layer {
-                name: "base".into(),
-                bindings: vec![
-                    Binding {
-                        input: Input { kind: "button".into(), name: "RightTrigger2".into() },
-                        on_press: vec![Action::Mouse { button: "left".into(), hold: true }],
-                    },
-                    Binding {
-                        input: Input { kind: "button".into(), name: "LeftTrigger2".into() },
-                        on_press: vec![Action::Mouse { button: "right".into(), hold: false }],
-                    },
-                    Binding {
-                        input: Input { kind: "button".into(), name: "LeftTrigger".into() },
-                        on_press: vec![
-                            Action::EnterLayer { layer: "alt".into(), mode: "momentary".into() },
-                            Action::Modifier { modname: "shift".into() },
-                        ],
-                    },
-                ],
-            },
+            Layer { name: "base".into(), bindings: vec![] },
             Layer { name: "alt".into(), bindings: vec![] },
         ],
     }

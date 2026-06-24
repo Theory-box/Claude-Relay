@@ -11,34 +11,30 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tauri::{Emitter, Manager};
 
-use gilrs::{Axis, Button, Gilrs};
+use gilrs::{Axis, Button, EventType, Gilrs};
 
-const BUTTONS: &[(Button, &str)] = &[
-    (Button::South, "South"),
-    (Button::East, "East"),
-    (Button::North, "North"),
-    (Button::West, "West"),
-    (Button::LeftTrigger, "LeftTrigger"),
-    (Button::LeftTrigger2, "LeftTrigger2"),
-    (Button::RightTrigger, "RightTrigger"),
-    (Button::RightTrigger2, "RightTrigger2"),
-    (Button::Select, "Select"),
-    (Button::Start, "Start"),
-    (Button::Mode, "Mode"),
-    (Button::LeftThumb, "LeftThumb"),
-    (Button::RightThumb, "RightThumb"),
-    (Button::DPadUp, "DPadUp"),
-    (Button::DPadDown, "DPadDown"),
-    (Button::DPadLeft, "DPadLeft"),
-    (Button::DPadRight, "DPadRight"),
-];
-
-const AXES: &[(Axis, &str)] = &[
-    (Axis::LeftStickX, "LeftStickX"),
-    (Axis::LeftStickY, "LeftStickY"),
-    (Axis::RightStickX, "RightStickX"),
-    (Axis::RightStickY, "RightStickY"),
-];
+fn btn_label(btn: Button, code_u32: u32) -> String {
+    match btn {
+        Button::South => "A".into(),
+        Button::East => "B".into(),
+        Button::North => "Y".into(),
+        Button::West => "X".into(),
+        Button::LeftTrigger => "LB".into(),
+        Button::RightTrigger => "RB".into(),
+        Button::LeftTrigger2 => "LT".into(),
+        Button::RightTrigger2 => "RT".into(),
+        Button::Select => "Back".into(),
+        Button::Start => "Start".into(),
+        Button::Mode => "Guide".into(),
+        Button::LeftThumb => "L3".into(),
+        Button::RightThumb => "R3".into(),
+        Button::DPadUp => "D-Up".into(),
+        Button::DPadDown => "D-Down".into(),
+        Button::DPadLeft => "D-Left".into(),
+        Button::DPadRight => "D-Right".into(),
+        _ => format!("button {}", code_u32),
+    }
+}
 
 fn config_path() -> std::path::PathBuf {
     let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
@@ -155,56 +151,86 @@ fn spawn_engine(app: tauri::AppHandle, shared: Arc<Shared>) {
         });
         let mut last = Instant::now();
         let mut last_status = Instant::now();
-        let mut prev_buttons: HashSet<String> = HashSet::new();
+        let mut prev_pressed: HashSet<String> = HashSet::new();
+        let mut pressed: HashSet<String> = HashSet::new(); // raw codes currently down
+        let mut labels: HashMap<String, String> = HashMap::new(); // code -> friendly label
+        let mut axis_vals: HashMap<String, f64> = HashMap::new(); // code -> value (diag)
 
         loop {
             while let Some(ev) = gilrs.next_event() {
-                let _ = ev;
+                match ev.event {
+                    EventType::ButtonPressed(btn, code) => {
+                        let cu = code.into_u32();
+                        let c = cu.to_string();
+                        labels.insert(c.clone(), btn_label(btn, cu));
+                        pressed.insert(c);
+                    }
+                    EventType::ButtonReleased(_, code) => {
+                        pressed.remove(&code.into_u32().to_string());
+                    }
+                    EventType::ButtonChanged(btn, val, code) => {
+                        let cu = code.into_u32();
+                        let c = cu.to_string();
+                        if val > 0.5 {
+                            labels.insert(c.clone(), btn_label(btn, cu));
+                            pressed.insert(c);
+                        } else {
+                            pressed.remove(&c);
+                        }
+                    }
+                    EventType::AxisChanged(_, val, code) => {
+                        axis_vals.insert(code.into_u32().to_string(), val as f64);
+                    }
+                    EventType::Disconnected => {
+                        pressed.clear();
+                        axis_vals.clear();
+                    }
+                    _ => {}
+                }
             }
 
             if shared.dirty.swap(false, Ordering::SeqCst) {
                 eng.set_config(shared.cfg.lock().unwrap().clone());
             }
 
-            let gp = gilrs.gamepads().next().map(|(_, g)| g);
-            let mut pressed: HashSet<String> = HashSet::new();
-            let mut axes: HashMap<String, f64> = HashMap::new();
+            // Controller name + left-stick axes for the cursor (the stick maps fine).
             let mut name = String::from("(no controller)");
-            if let Some(gp) = gp {
-                name = gp.name().to_string();
-                for (b, n) in BUTTONS {
-                    if gp.is_pressed(*b) {
-                        pressed.insert(n.to_string());
-                    }
-                }
-                for (a, n) in AXES {
-                    axes.insert(n.to_string(), gp.value(*a) as f64);
-                }
-                // Analog triggers are reported as axes by gilrs; treat them as buttons.
-                let lz = gp.value(Axis::LeftZ) as f64;
-                let rz = gp.value(Axis::RightZ) as f64;
-                axes.insert("LeftZ".to_string(), lz);
-                axes.insert("RightZ".to_string(), rz);
-                if lz > 0.5 { pressed.insert("LeftTrigger2".to_string()); }
-                if rz > 0.5 { pressed.insert("RightTrigger2".to_string()); }
+            let mut cursor_axes: HashMap<String, f64> = HashMap::new();
+            if let Some((_, g)) = gilrs.gamepads().next() {
+                name = g.name().to_string();
+                cursor_axes.insert("LeftStickX".to_string(), g.value(Axis::LeftStickX) as f64);
+                cursor_axes.insert("LeftStickY".to_string(), g.value(Axis::LeftStickY) as f64);
             }
 
             if shared.learn.load(Ordering::SeqCst) {
-                if let Some(newp) = pressed.difference(&prev_buttons).next() {
+                if let Some(newc) = pressed.difference(&prev_pressed).next() {
                     shared.learn.store(false, Ordering::SeqCst);
-                    let _ = app.emit("learned", newp.clone());
+                    let payload = serde_json::json!({
+                        "code": newc,
+                        "label": labels.get(newc).cloned().unwrap_or_else(|| newc.clone()),
+                    });
+                    let _ = app.emit("learned", payload.to_string());
                 }
             }
-            prev_buttons = pressed.clone();
+            prev_pressed = pressed.clone();
 
-            let mut pressed_list: Vec<String> = pressed.iter().cloned().collect();
+            let mut pressed_list: Vec<String> = pressed
+                .iter()
+                .map(|c| labels.get(c).cloned().unwrap_or_else(|| c.clone()))
+                .collect();
             pressed_list.sort();
-            let axes_dbg = serde_json::to_value(&axes).unwrap_or(serde_json::json!({}));
+            let mut axes_show = cursor_axes.clone();
+            for (k, v) in &axis_vals {
+                if v.abs() > 0.05 {
+                    axes_show.insert(format!("axis{}", k), *v);
+                }
+            }
+            let axes_dbg = serde_json::to_value(&axes_show).unwrap_or(serde_json::json!({}));
 
             let dt = last.elapsed().as_secs_f64().min(0.1);
             last = Instant::now();
             if shared.running.load(Ordering::SeqCst) {
-                let st = InputState { pressed, axes };
+                let st = InputState { pressed: pressed.clone(), axes: cursor_axes };
                 eng.tick(&st, dt, out.as_mut());
             }
 

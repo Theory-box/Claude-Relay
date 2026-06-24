@@ -57,7 +57,7 @@ function binding() { const l = layer(); return l && l.bindings[selBinding]; }
 function action() { const b = binding(); return b && b.on_press[selAction]; }
 
 function inputLabel(inp) {
-  return (BTN_LABEL[inp.name] || inp.name);
+  return inp.label || BTN_LABEL[inp.name] || inp.name || "(unset)";
 }
 function actionLabel(a) {
   switch (a.type) {
@@ -227,7 +227,7 @@ $("renLayer").onclick = () => {
 };
 $("addBinding").onclick = () => {
   const l = layer(); if (!l) return;
-  l.bindings.push({ input: { kind: "button", name: "South" }, on_press: [] });
+  l.bindings.push({ input: { kind: "button", name: "", label: "unset — Learn input" }, on_press: [] });
   selBinding = l.bindings.length - 1; renderBindings(); pushConfig();
 };
 $("delBinding").onclick = () => {
@@ -316,15 +316,17 @@ listen("status", (e) => {
       "Accessibility: " + (s.trusted ? "YES" : "NO") +
       "   pressed: [" + (s.pressed || []).join(", ") + "]" +
       "   LX " + f("LeftStickX") + " LY " + f("LeftStickY") +
-      "  LT " + f("LeftZ") + " RT " + f("RightZ") +
       "   engine: " + (s.eng || "") +
       "   fired: " + (s.fired || "-");
   } catch (_) {}
 });
 listen("learned", (e) => {
+  let code, label;
+  try { const p = JSON.parse(e.payload); code = p.code; label = p.label; }
+  catch (_) { code = e.payload; label = e.payload; }
   const b = binding();
-  if (b) { b.input = { kind: "button", name: e.payload }; renderBindings(); pushConfig(); }
-  $("status").textContent = "learned: " + e.payload;
+  if (b) { b.input = { kind: "button", name: code, label: label }; renderBindings(); pushConfig(); }
+  $("status").textContent = "learned: " + (label || code);
 });
 
 async function init() {
