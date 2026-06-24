@@ -102,7 +102,8 @@ def _mode_status(cursor):
 SCALAR_KEYS = ['deadzone', 'move_speed', 'look_speed', 'boost_mult',
                'invert_left_y', 'invert_right_y',
                'lx_axis', 'ly_axis', 'rx_axis', 'ry_axis', 'boost_btn',
-               'toggle_btn', 'toggle_behavior', 'toggle_key']
+               'toggle_btn', 'toggle_kind', 'toggle_axis_sign',
+               'toggle_behavior', 'toggle_key']
 
 
 def _settings_path():
@@ -176,9 +177,10 @@ class VIEW3D_OT_gp_load(bpy.types.Operator):
 
 class VIEW3D_OT_gp_learn_button(bpy.types.Operator):
     bl_idname = "view3d.gp_learn_button"
-    bl_label = "Listen for a button"
-    bl_description = "Press a button on the controller to assign it as the Fly/Cursor switch"
+    bl_label = "Listen for a button or trigger"
+    bl_description = "Press a button or pull a trigger to assign it as the Fly/Cursor switch"
     _timer = None
+    _base = None
 
     def modal(self, context, event):
         if event.type == 'ESC':
@@ -188,11 +190,21 @@ class VIEW3D_OT_gp_learn_button(bpy.types.Operator):
         if _js is None or _pg is None:
             return self._end(context, "no controller")
         _pg.event.pump()
+        prefs = context.preferences.addons[__name__].preferences
         try:
             for i in range(_js.get_numbuttons()):
                 if _js.get_button(i):
-                    context.preferences.addons[__name__].preferences.toggle_btn = i
+                    prefs.toggle_kind = 'BUTTON'
+                    prefs.toggle_btn = i
                     return self._end(context, "learned button %d" % i)
+            for i in range(_js.get_numaxes()):
+                base = self._base[i] if (self._base and i < len(self._base)) else 0.0
+                dev = _js.get_axis(i) - base
+                if abs(dev) > 0.6:
+                    prefs.toggle_kind = 'AXIS'
+                    prefs.toggle_btn = i
+                    prefs.toggle_axis_sign = 'POS' if dev > 0 else 'NEG'
+                    return self._end(context, "learned axis %d %s" % (i, "+" if dev > 0 else "-"))
         except Exception:
             pass
         return {'RUNNING_MODAL'}
@@ -209,10 +221,15 @@ class VIEW3D_OT_gp_learn_button(bpy.types.Operator):
         if not ok:
             self.report({'ERROR'}, msg)
             return {'CANCELLED'}
+        _pg.event.pump()
+        try:
+            self._base = [_js.get_axis(i) for i in range(_js.get_numaxes())]
+        except Exception:
+            self._base = []
         wm = context.window_manager
         self._timer = wm.event_timer_add(1.0 / 60.0, window=context.window)
         wm.modal_handler_add(self)
-        self.report({'INFO'}, "press a button on the controller...")
+        self.report({'INFO'}, "press a button or pull a trigger...")
         return {'RUNNING_MODAL'}
 
 
@@ -302,7 +319,14 @@ class VIEW3D_OT_gamepad_fly(bpy.types.Operator):
 
         # controller switch — evaluated in BOTH modes so it can flip back
         if p.toggle_btn >= 0:
-            cur = button(p.toggle_btn)
+            if p.toggle_kind == 'AXIS':
+                try:
+                    v = _js.get_axis(p.toggle_btn)
+                except Exception:
+                    v = 0.0
+                cur = (v > 0.3) if p.toggle_axis_sign == 'POS' else (v < -0.3)
+            else:
+                cur = button(p.toggle_btn)
             if _apply_mode(wm, p.toggle_behavior, cur and not self._tbtn_prev,
                            (not cur) and self._tbtn_prev):
                 _redraw(context)
@@ -427,7 +451,12 @@ class GamepadFlyPrefs(bpy.types.AddonPreferences):
 
     toggle_behavior: EnumProperty(name="Switch behavior", items=_BEHAVIOR_ITEMS,
                                   default='HOLD_FLY')
-    toggle_btn: IntProperty(name="Fly/Cursor button (-1 = none)", default=-1, min=-1, max=20)
+    toggle_kind: EnumProperty(name="Switch input",
+                              items=[('BUTTON', "Button", ""), ('AXIS', "Trigger / Axis", "")],
+                              default='BUTTON')
+    toggle_btn: IntProperty(name="Index (-1 = none)", default=-1, min=-1, max=31)
+    toggle_axis_sign: EnumProperty(name="Axis dir",
+                                   items=[('POS', "+", ""), ('NEG', "-", "")], default='POS')
     toggle_key: EnumProperty(name="Fly/Cursor key (optional)", items=_TOGGLE_KEY_ITEMS,
                              default='ACCENT_GRAVE')
 
@@ -450,9 +479,12 @@ class GamepadFlyPrefs(bpy.types.AddonPreferences):
         c.separator()
         c.label(text="Fly / Cursor switch")
         c.prop(self, "toggle_behavior")
+        c.operator("view3d.gp_learn_button", text="Listen (button or trigger)", icon='REC')
         r = c.row()
-        r.operator("view3d.gp_learn_button", text="Listen for a button", icon='REC')
+        r.prop(self, "toggle_kind", text="")
         r.prop(self, "toggle_btn")
+        if self.toggle_kind == 'AXIS':
+            r.prop(self, "toggle_axis_sign", text="")
         c.prop(self, "toggle_key")
 
 
@@ -477,7 +509,11 @@ class VIEW3D_PT_gamepad_fly(bpy.types.Panel):
         row.operator("view3d.gamepad_mode",
                      text="Switch to %s" % ("FLY" if wm.gamepad_cursor_mode else "CURSOR"))
         if p.toggle_btn >= 0:
-            col.label(text="Switch: button %d (%s)" % (p.toggle_btn, p.toggle_behavior))
+            if p.toggle_kind == 'AXIS':
+                src = "axis %d%s" % (p.toggle_btn, "+" if p.toggle_axis_sign == 'POS' else "-")
+            else:
+                src = "button %d" % p.toggle_btn
+            col.label(text="Switch: %s (%s)" % (src, p.toggle_behavior))
         else:
             col.label(text="Switch: key %s (%s)" % (p.toggle_key, p.toggle_behavior))
         if wm.gamepad_status:
