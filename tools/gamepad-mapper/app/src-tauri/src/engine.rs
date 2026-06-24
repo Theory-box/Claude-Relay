@@ -17,6 +17,7 @@ pub fn mod_flag(name: &str) -> u64 {
 }
 
 fn def_left() -> String { "left".to_string() }
+fn def_precision() -> f64 { 0.3 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Cursor {
@@ -51,6 +52,8 @@ pub enum Action {
     EnterLayer { layer: String, mode: String },
     #[serde(rename = "exit_layer")]
     ExitLayer { #[serde(default)] layer: Option<String> },
+    #[serde(rename = "precision")]
+    Precision { #[serde(default = "def_precision")] factor: f64 },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -109,6 +112,7 @@ pub trait Out {
 enum Revert {
     PopLayer(String),
     ClearMod(String, String),
+    ClearPrecision(String),
     KeyUp(String, u64),
     MouseUp(String, u64),
 }
@@ -119,6 +123,7 @@ pub struct Engine {
     prev: HashSet<String>,
     reverts: HashMap<String, Vec<Revert>>,
     mods: HashMap<String, u64>,
+    precision: HashMap<String, f64>,
     held_mouse: Option<String>,
 }
 
@@ -143,6 +148,7 @@ impl Engine {
             prev: HashSet::new(),
             reverts: HashMap::new(),
             mods: HashMap::new(),
+            precision: HashMap::new(),
             held_mouse: None,
         }
     }
@@ -153,6 +159,7 @@ impl Engine {
         self.prev.clear();
         self.reverts.clear();
         self.mods.clear();
+        self.precision.clear();
         self.held_mouse = None;
     }
 
@@ -188,7 +195,8 @@ impl Engine {
             let ax = deadzone(*st.axes.get(&self.cfg.cursor.axis_x).unwrap_or(&0.0), self.cfg.deadzone);
             let ay = deadzone(*st.axes.get(&self.cfg.cursor.axis_y).unwrap_or(&0.0), self.cfg.deadzone);
             if ax != 0.0 || ay != 0.0 {
-                let spd = self.cfg.cursor.speed * dt;
+                let mult = self.precision.values().cloned().fold(1.0_f64, f64::min);
+                let spd = self.cfg.cursor.speed * mult * dt;
                 let ey = if self.cfg.cursor.invert_y { -ay } else { ay };
                 out.move_cursor(
                     curve(ax, self.cfg.cursor.curve) * spd,
@@ -259,9 +267,13 @@ impl Engine {
             }
             Action::Scroll { amount } => out.scroll(*amount),
             Action::Modifier { modname } => {
-                out.key(modname, 0, true);
+                out.key(modname, mod_flag(modname), true);
                 self.mods.insert(name.to_string(), mod_flag(modname));
                 return Some(Revert::ClearMod(name.to_string(), modname.clone()));
+            }
+            Action::Precision { factor } => {
+                self.precision.insert(name.to_string(), *factor);
+                return Some(Revert::ClearPrecision(name.to_string()));
             }
             Action::EnterLayer { layer, mode } => match mode.as_str() {
                 "toggle" => {
@@ -301,6 +313,9 @@ impl Engine {
             Revert::ClearMod(n, m) => {
                 self.mods.remove(&n);
                 out.key(&m, 0, false);
+            }
+            Revert::ClearPrecision(n) => {
+                self.precision.remove(&n);
             }
             Revert::KeyUp(k, f) => out.key(&k, f, false),
             Revert::MouseUp(b, f) => {

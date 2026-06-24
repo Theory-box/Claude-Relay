@@ -67,6 +67,7 @@ function actionLabel(a) {
     case "modifier": return "hold " + a.mod;
     case "enter_layer": return "enter '" + a.layer + "' (" + a.mode + ")";
     case "exit_layer": return "exit layer";
+    case "precision": return "slow cursor " + Math.round((a.factor || 0.3) * 100) + "%";
   }
   return a.type;
 }
@@ -162,6 +163,12 @@ function renderFields() {
     sel.value = a.mod || "shift";
     sel.onchange = () => { a.mod = sel.value; changed(); };
     r.append("modifier ", sel); box.append(r);
+  } else if (a.type === "precision") {
+    const r = frow();
+    const inp = document.createElement("input"); inp.type = "number"; inp.min = 5; inp.max = 100; inp.step = 5;
+    inp.value = Math.round((a.factor ?? 0.3) * 100);
+    inp.onchange = () => { let p = parseInt(inp.value); if (isNaN(p)) p = 30; a.factor = Math.min(100, Math.max(5, p)) / 100; changed(); };
+    r.append("cursor speed % while held ", inp); box.append(r);
   } else if (a.type === "enter_layer") {
     const r = frow();
     const sel = document.createElement("select");
@@ -245,6 +252,7 @@ $("addAction").onclick = () => {
   if (t === "scroll") Object.assign(a, { amount: 1 });
   if (t === "modifier") Object.assign(a, { mod: "shift" });
   if (t === "enter_layer") Object.assign(a, { layer: cfg.layers[0].name, mode: "momentary" });
+  if (t === "precision") Object.assign(a, { factor: 0.3 });
   b.on_press.push(a); selAction = b.on_press.length - 1; renderActions(); renderBindings(); pushConfig();
 };
 $("delAction").onclick = () => {
