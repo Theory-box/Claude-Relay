@@ -85,6 +85,16 @@ fn learn_next(state: tauri::State<Arc<Shared>>) {
     state.learn.store(true, Ordering::SeqCst);
 }
 
+#[tauri::command]
+fn request_accessibility() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        return macos_accessibility_client::accessibility::application_is_trusted_with_prompt();
+    }
+    #[allow(unreachable_code)]
+    true
+}
+
 #[cfg(target_os = "macos")]
 fn make_out() -> Box<dyn Out + Send> { Box::new(macout::MacOut::new()) }
 
@@ -137,6 +147,13 @@ fn spawn_engine(app: tauri::AppHandle, shared: Arc<Shared>) {
                 for (a, n) in AXES {
                     axes.insert(n.to_string(), gp.value(*a) as f64);
                 }
+                // Analog triggers are reported as axes by gilrs; treat them as buttons.
+                if gp.value(Axis::LeftZ) > 0.5 {
+                    pressed.insert("LeftTrigger2".to_string());
+                }
+                if gp.value(Axis::RightZ) > 0.5 {
+                    pressed.insert("RightTrigger2".to_string());
+                }
             }
 
             if shared.learn.load(Ordering::SeqCst) {
@@ -183,9 +200,14 @@ fn main() {
             get_config,
             set_config,
             set_running,
-            learn_next
+            learn_next,
+            request_accessibility
         ])
         .setup(move |app| {
+            #[cfg(target_os = "macos")]
+            {
+                let _ = macos_accessibility_client::accessibility::application_is_trusted_with_prompt();
+            }
             spawn_engine(app.handle().clone(), shared.clone());
             Ok(())
         })

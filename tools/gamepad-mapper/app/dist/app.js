@@ -259,6 +259,12 @@ $("run").onclick = async () => {
   $("run").className = running ? "running" : "primary";
 };
 $("save").onclick = async () => { await pushConfig(); $("status").textContent = "saved"; };
+$("grant").onclick = async () => {
+  const ok = await invoke("request_accessibility");
+  $("status").textContent = ok
+    ? "Accessibility granted"
+    : "enable in System Settings > Privacy & Security > Accessibility, then restart the app";
+};
 
 // settings bindings
 document.querySelectorAll("#settings [data-path]").forEach((el) => {
