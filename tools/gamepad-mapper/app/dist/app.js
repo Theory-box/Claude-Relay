@@ -71,6 +71,7 @@ function actionLabel(a) {
     case "enter_layer": return "enter '" + a.layer + "' (" + a.mode + ")";
     case "exit_layer": return "exit layer";
     case "precision": return "slow cursor " + Math.round((a.factor || 0.3) * 100) + "%";
+    case "cursor": return "cursor " + (a.mode || "toggle");
   }
   return a.type;
 }
@@ -189,6 +190,14 @@ function renderFields() {
     inp.value = Math.round((a.factor ?? 0.3) * 100);
     inp.onchange = () => { let p = parseInt(inp.value); if (isNaN(p)) p = 30; a.factor = Math.min(100, Math.max(5, p)) / 100; changed(); };
     r.append("cursor speed % while held ", inp); box.append(r);
+  } else if (a.type === "cursor") {
+    const r = frow();
+    const sel = document.createElement("select");
+    [["toggle", "toggle on/off"], ["off", "turn off"], ["on", "turn on"]]
+      .forEach(([v, t]) => sel.add(new Option(t, v)));
+    sel.value = a.mode || "toggle";
+    sel.onchange = () => { a.mode = sel.value; changed(); };
+    r.append("stick cursor ", sel); box.append(r);
   } else if (a.type === "enter_layer") {
     const r = frow();
     const sel = document.createElement("select");
@@ -278,6 +287,7 @@ $("addAction").onclick = () => {
   if (t === "modifier") Object.assign(a, { mod: "shift" });
   if (t === "enter_layer") Object.assign(a, { layer: cfg.layers[0].name, mode: "momentary" });
   if (t === "precision") Object.assign(a, { factor: 0.3 });
+  if (t === "cursor") Object.assign(a, { mode: "toggle" });
   list.push(a); selAction = list.length - 1; renderActions(); renderBindings(); pushConfig();
 };
 $("delAction").onclick = () => {
@@ -352,6 +362,7 @@ listen("status", (e) => {
       "   mods: [" + (s.mods || []).join(", ") + "]" +
       "   LX " + f("LeftStickX") + " LY " + f("LeftStickY") +
       "   engine: " + (s.eng || "") +
+      "   cursor: " + (s.cursor_on === false ? "PAUSED" : "on") +
       "   debounce: " + (s.debounce_ms ?? "-") + "ms" +
       "   fired: " + (s.fired || "-");
     const tr = $("trace");

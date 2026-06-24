@@ -19,6 +19,7 @@ pub fn mod_flag(name: &str) -> u64 {
 fn def_left() -> String { "left".to_string() }
 fn def_precision() -> f64 { 0.3 }
 fn def_tap() -> String { "tap".to_string() }
+fn def_toggle() -> String { "toggle".to_string() }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Cursor {
@@ -55,6 +56,8 @@ pub enum Action {
     ExitLayer { #[serde(default)] layer: Option<String> },
     #[serde(rename = "precision")]
     Precision { #[serde(default = "def_precision")] factor: f64 },
+    #[serde(rename = "cursor")]
+    Cursor { #[serde(default = "def_toggle")] mode: String },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -135,6 +138,7 @@ pub struct Engine {
     held_mouse: Option<String>,
     held_keys: HashMap<String, u64>,
     release_timer: HashMap<String, f64>,
+    cursor_paused: bool,
 }
 
 fn deadzone(v: f64, d: f64) -> f64 {
@@ -162,6 +166,7 @@ impl Engine {
             held_mouse: None,
             held_keys: HashMap::new(),
             release_timer: HashMap::new(),
+            cursor_paused: false,
         }
     }
 
@@ -201,6 +206,10 @@ impl Engine {
         self.mods.values().fold(0, |a, b| a | b)
     }
 
+    pub fn cursor_active(&self) -> bool {
+        self.cfg.cursor.enabled && !self.cursor_paused
+    }
+
     pub fn active_mods(&self) -> Vec<String> {
         let f = self.cur_mods();
         let mut v = Vec::new();
@@ -225,7 +234,7 @@ impl Engine {
     }
 
     pub fn tick(&mut self, st: &InputState, dt: f64, out: &mut dyn Out) {
-        if self.cfg.cursor.enabled {
+        if self.cfg.cursor.enabled && !self.cursor_paused {
             let ax = deadzone(*st.axes.get(&self.cfg.cursor.axis_x).unwrap_or(&0.0), self.cfg.deadzone);
             let ay = deadzone(*st.axes.get(&self.cfg.cursor.axis_y).unwrap_or(&0.0), self.cfg.deadzone);
             if ax != 0.0 || ay != 0.0 {
@@ -336,6 +345,11 @@ impl Engine {
                 self.precision.insert(name.to_string(), *factor);
                 return Some(Revert::ClearPrecision(name.to_string()));
             }
+            Action::Cursor { mode } => match mode.as_str() {
+                "on" => self.cursor_paused = false,
+                "off" => self.cursor_paused = true,
+                _ => self.cursor_paused = !self.cursor_paused,
+            },
             Action::EnterLayer { layer, mode } => match mode.as_str() {
                 "toggle" => {
                     if let Some(p) = self.stack.iter().position(|x| x == layer) {
@@ -424,6 +438,26 @@ mod tests {
           ]
         }"#;
         serde_json::from_str(json).unwrap()
+    }
+
+    #[test]
+    fn cursor_toggle() {
+        let json = r#"{
+          "deadzone":0.12,
+          "cursor":{"enabled":true,"axis_x":"LeftStickX","axis_y":"LeftStickY","speed":0,"curve":2.0,"invert_y":false},
+          "layers":[{"name":"base","bindings":[
+            {"input":{"kind":"button","name":"A"},"on_press":[{"type":"cursor","mode":"toggle"}]}
+          ]}]
+        }"#;
+        let cfg: Config = serde_json::from_str(json).unwrap();
+        let mut e = Engine::new(cfg);
+        let mut o = Fake { ev: vec![] };
+        assert!(e.cursor_active());
+        e.tick(&st(&["A"]), 0.01, &mut o);
+        assert!(!e.cursor_active(), "press should pause cursor");
+        e.tick(&st(&[]), 0.08, &mut o);
+        e.tick(&st(&["A"]), 0.01, &mut o);
+        assert!(e.cursor_active(), "second press should resume cursor");
     }
 
     #[test]

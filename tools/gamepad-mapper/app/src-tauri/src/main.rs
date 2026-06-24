@@ -285,6 +285,7 @@ fn spawn_engine(app: tauri::AppHandle, shared: Arc<Shared>) {
                     "mods": eng.active_mods(),
                     "trace": trace.iter().cloned().collect::<Vec<_>>(),
                     "debounce_ms": eng.cfg.release_debounce_ms,
+                    "cursor_on": eng.cursor_active(),
                 });
                 let _ = app.emit("status", status.to_string());
             }
