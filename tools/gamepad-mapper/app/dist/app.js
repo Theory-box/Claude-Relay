@@ -48,7 +48,8 @@ function setPath(obj, path, val) {
 }
 
 async function pushConfig() {
-  try { await invoke("set_config", { json: JSON.stringify(cfg) }); } catch (e) { console.error(e); }
+  try { await invoke("set_config", { json: JSON.stringify(cfg) }); }
+  catch (e) { $("status").textContent = "CONFIG ERROR: " + e; console.error(e); }
 }
 
 function layer() { return cfg.layers.find((l) => l.name === selLayer); }
@@ -271,7 +272,7 @@ document.querySelectorAll("#settings [data-path]").forEach((el) => {
   const path = el.dataset.path;
   el.addEventListener("change", () => {
     if (el.type === "checkbox") setPath(cfg, path, el.checked);
-    else setPath(cfg, path, parseFloat(el.value));
+    else { const v = parseFloat(el.value); if (!isNaN(v)) setPath(cfg, path, v); }
     pushConfig();
   });
 });
@@ -293,8 +294,9 @@ listen("status", (e) => {
       "Accessibility: " + (s.trusted ? "YES" : "NO") +
       "   pressed: [" + (s.pressed || []).join(", ") + "]" +
       "   LX " + f("LeftStickX") + " LY " + f("LeftStickY") +
-      "  RX " + f("RightStickX") + " RY " + f("RightStickY") +
-      "  LT " + f("LeftZ") + " RT " + f("RightZ");
+      "  LT " + f("LeftZ") + " RT " + f("RightZ") +
+      "   engine: " + (s.eng || "") +
+      "   fired: " + (s.fired || "-");
   } catch (_) {}
 });
 listen("learned", (e) => {

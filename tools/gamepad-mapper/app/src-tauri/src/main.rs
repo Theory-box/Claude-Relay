@@ -112,6 +112,35 @@ fn make_out() -> Box<dyn Out + Send> {
     Box::new(Noop)
 }
 
+struct LogOut {
+    inner: Box<dyn Out + Send>,
+    log: Arc<Mutex<String>>,
+}
+impl Out for LogOut {
+    fn key(&mut self, k: &str, f: u64, d: bool) {
+        *self.log.lock().unwrap() = format!("key {} {}", k, if d { "down" } else { "up" });
+        self.inner.key(k, f, d);
+    }
+    fn key_tap(&mut self, k: &str, f: u64) {
+        *self.log.lock().unwrap() = format!("key {}", k);
+        self.inner.key_tap(k, f);
+    }
+    fn mouse(&mut self, b: &str, d: bool, f: u64) {
+        *self.log.lock().unwrap() = format!("{} {}", b, if d { "down" } else { "up" });
+        self.inner.mouse(b, d, f);
+    }
+    fn mouse_tap(&mut self, b: &str, f: u64) {
+        *self.log.lock().unwrap() = format!("{} click", b);
+        self.inner.mouse_tap(b, f);
+    }
+    fn scroll(&mut self, a: i32) {
+        self.inner.scroll(a);
+    }
+    fn move_cursor(&mut self, dx: f64, dy: f64, h: Option<&str>) {
+        self.inner.move_cursor(dx, dy, h);
+    }
+}
+
 fn spawn_engine(app: tauri::AppHandle, shared: Arc<Shared>) {
     std::thread::spawn(move || {
         let mut gilrs = match Gilrs::new() {
@@ -119,7 +148,11 @@ fn spawn_engine(app: tauri::AppHandle, shared: Arc<Shared>) {
             Err(_) => return,
         };
         let mut eng = Engine::new(shared.cfg.lock().unwrap().clone());
-        let mut out = make_out();
+        let last_fired = Arc::new(Mutex::new(String::from("-")));
+        let mut out: Box<dyn Out + Send> = Box::new(LogOut {
+            inner: make_out(),
+            log: last_fired.clone(),
+        });
         let mut last = Instant::now();
         let mut last_status = Instant::now();
         let mut prev_buttons: HashSet<String> = HashSet::new();
@@ -181,6 +214,13 @@ fn spawn_engine(app: tauri::AppHandle, shared: Arc<Shared>) {
                 let trusted = macos_accessibility_client::accessibility::application_is_trusted();
                 #[cfg(not(target_os = "macos"))]
                 let trusted = true;
+                let eng_summary: String = eng
+                    .cfg
+                    .layers
+                    .iter()
+                    .map(|l| format!("{}({})", l.name, l.bindings.len()))
+                    .collect::<Vec<_>>()
+                    .join(" ");
                 let status = serde_json::json!({
                     "running": shared.running.load(Ordering::SeqCst),
                     "controller": name,
@@ -188,6 +228,8 @@ fn spawn_engine(app: tauri::AppHandle, shared: Arc<Shared>) {
                     "trusted": trusted,
                     "pressed": pressed_list,
                     "axes": axes_dbg,
+                    "eng": eng_summary,
+                    "fired": last_fired.lock().unwrap().clone(),
                 });
                 let _ = app.emit("status", status.to_string());
             }
