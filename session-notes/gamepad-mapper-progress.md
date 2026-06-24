@@ -44,7 +44,26 @@ Xbox 360 Controller: axes 0/1 = left stick, 2/3 = right stick, 4 = LT, 5 = RT
 - Action type 'modifier' = shift (held): ORs Shift into other fired events -> shift-click.
 - Action type 'key', key='shift', hold on: posts a real Shift key down/up.
 
+## Tauri rewrite (current direction)
+- tools/gamepad-mapper/app/ = Tauri 2 app, NORMAL window (not a desktop overlay).
+  Rust backend: engine.rs (config + layer/stacked-action logic, unit tests pass on CI),
+  macout.rs (core-graphics CGEvent output), main.rs (gilrs polling thread + commands
+  get_config/set_config/set_running/learn_next + status/learned events). Web editor in
+  dist/ (index.html, app.js, style.css). Build: .github/workflows/build-mac-app.yml on
+  macos-latest -> cargo tauri build -> GamepadMapper.app (~2.5MB), zipped artifact.
+- Inputs are gilrs SEMANTIC names: RT=RightTrigger2, LT=LeftTrigger2, LB=LeftTrigger,
+  RB=RightTrigger, A=South, B=East, X=West, Y=North, L3/R3=Left/RightThumb, DPad*. Sticks
+  LeftStickX/Y, RightStickX/Y. Learn input captures whatever button is pressed.
+- Build went green after one fix: core-graphics scroll-event constructor differs by
+  version; scroll output is STUBBED (no-op) for now -> needs wiring with correct API.
+- Tkinter app (tools/gamepad-mapper/gamepad_mapper.py) still exists/works; Tauri is the
+  new path. Both unsigned -> Gatekeeper "Open Anyway" each rebuild.
+
 ## Next
-- Confirm CI build launches on device; iterate pyobjc/Tk-on-mac if needed.
-- Tk learn-output Cmd-bit detection on macOS may still need tuning.
-- Possible: profiles, per-app auto layer switching, polish.
+- Device-test the Tauri app: launch, grant Accessibility, Start, learn inputs, verify
+  clicks/keys/layers/cursor fire system-wide.
+- Wire real scroll output (confirm core-graphics scroll API for the pinned version).
+- Blender add-on regression: most likely conflict from running standalone app + addon
+  together; confirm with standalone quit. (was: tools/gamepad-mapper/blender_gamepad_fly.py)
+- Possible later: Apple Developer ID signing/notarization in CI to kill Gatekeeper,
+  per-app auto layer switching, profiles.
