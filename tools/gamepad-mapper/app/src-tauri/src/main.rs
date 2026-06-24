@@ -151,6 +151,8 @@ fn spawn_engine(app: tauri::AppHandle, shared: Arc<Shared>) {
         });
         let mut last = Instant::now();
         let mut last_status = Instant::now();
+        let trace_start = Instant::now();
+        let mut trace: std::collections::VecDeque<String> = std::collections::VecDeque::new();
         let mut prev_pressed: HashSet<String> = HashSet::new();
         let mut prev_running = false;
         let mut pressed: HashSet<String> = HashSet::new(); // raw codes currently down
@@ -164,11 +166,19 @@ fn spawn_engine(app: tauri::AppHandle, shared: Arc<Shared>) {
                     EventType::ButtonPressed(btn, code) => {
                         let cu = code.into_u32();
                         let c = cu.to_string();
-                        labels.insert(c.clone(), btn_label(btn, cu));
+                        let lbl = btn_label(btn, cu);
+                        trace.push_back(format!("{} DN @{}ms", lbl, trace_start.elapsed().as_millis()));
+                        if trace.len() > 24 { trace.pop_front(); }
+                        labels.insert(c.clone(), lbl);
                         pressed.insert(c);
                     }
                     EventType::ButtonReleased(_, code) => {
-                        pressed.remove(&code.into_u32().to_string());
+                        let cu = code.into_u32();
+                        let c = cu.to_string();
+                        let lbl = labels.get(&c).cloned().unwrap_or_else(|| c.clone());
+                        trace.push_back(format!("{} UP @{}ms", lbl, trace_start.elapsed().as_millis()));
+                        if trace.len() > 24 { trace.pop_front(); }
+                        pressed.remove(&c);
                     }
                     EventType::AxisChanged(_, val, code) => {
                         let cu = code.into_u32();
@@ -273,6 +283,8 @@ fn spawn_engine(app: tauri::AppHandle, shared: Arc<Shared>) {
                     "eng": eng_summary,
                     "fired": last_fired.lock().unwrap().clone(),
                     "mods": eng.active_mods(),
+                    "trace": trace.iter().cloned().collect::<Vec<_>>(),
+                    "debounce_ms": eng.cfg.release_debounce_ms,
                 });
                 let _ = app.emit("status", status.to_string());
             }

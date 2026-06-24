@@ -352,7 +352,10 @@ listen("status", (e) => {
       "   mods: [" + (s.mods || []).join(", ") + "]" +
       "   LX " + f("LeftStickX") + " LY " + f("LeftStickY") +
       "   engine: " + (s.eng || "") +
+      "   debounce: " + (s.debounce_ms ?? "-") + "ms" +
       "   fired: " + (s.fired || "-");
+    const tr = $("trace");
+    if (tr) tr.textContent = "trace: " + (s.trace || []).slice(-12).join("   ");
   } catch (_) {}
 });
 listen("learned", (e) => {

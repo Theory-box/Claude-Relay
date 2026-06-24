@@ -78,7 +78,11 @@ pub struct Config {
     pub deadzone: f64,
     pub cursor: Cursor,
     pub layers: Vec<Layer>,
+    #[serde(default = "def_debounce")]
+    pub release_debounce_ms: f64,
 }
+
+fn def_debounce() -> f64 { 60.0 }
 
 pub fn default_config() -> Config {
     Config {
@@ -95,6 +99,7 @@ pub fn default_config() -> Config {
             Layer { name: "base".into(), bindings: vec![] },
             Layer { name: "alt".into(), bindings: vec![] },
         ],
+        release_debounce_ms: 60.0,
     }
 }
 
@@ -243,7 +248,7 @@ impl Engine {
                 }
             }
         }
-        const DEBOUNCE: f64 = 0.045;
+        let debounce = (self.cfg.release_debounce_ms / 1000.0).max(0.0);
         for name in names {
             let phys = st.pressed.contains(&name);
             let was = self.prev.contains(&name);
@@ -268,7 +273,7 @@ impl Engine {
                 // physically released but still logically pressed: debounce bounce
                 let t = self.release_timer.entry(name.clone()).or_insert(0.0);
                 *t += dt;
-                if *t >= DEBOUNCE {
+                if *t >= debounce {
                     self.release_timer.remove(&name);
                     if let Some(revs) = self.reverts.remove(&name) {
                         for r in revs.into_iter().rev() {
@@ -445,7 +450,7 @@ mod tests {
         let ups_mid = o.ev.iter().filter(|s| s.starts_with("mouse left false")).count();
         assert_eq!(ups_mid, 0, "bounce within debounce must not release");
         // genuine release past debounce
-        e.tick(&st(&[]), 0.06, &mut o);
+        e.tick(&st(&[]), 0.08, &mut o);
         let ups = o.ev.iter().filter(|s| s.starts_with("mouse left false")).count();
         assert_eq!(ups, 1, "should release up exactly once");
         assert_eq!(o.ev.iter().filter(|s| s.starts_with("mouse left true")).count(), 1);
@@ -458,7 +463,7 @@ mod tests {
         e.tick(&st(&["LeftTrigger"]), 0.01, &mut o);
         e.tick(&st(&["LeftTrigger", "RightTrigger2"]), 0.01, &mut o);
         assert!(o.ev.iter().any(|s| s == &format!("mousetap left {}", MOD_SHIFT)));
-        e.tick(&st(&["RightTrigger2"]), 0.06, &mut o); // released LeftTrigger
+        e.tick(&st(&["RightTrigger2"]), 0.08, &mut o); // released LeftTrigger
         assert_eq!(e.cur_mods(), 0);
     }
 
@@ -470,7 +475,7 @@ mod tests {
         assert_eq!(e.stack, vec!["base", "alt"]);
         e.tick(&st(&["South", "North"]), 0.01, &mut o);
         assert!(o.ev.iter().any(|s| s == "keytap x 0"));
-        e.tick(&st(&[]), 0.06, &mut o);
+        e.tick(&st(&[]), 0.08, &mut o);
         assert_eq!(e.stack, vec!["base"]);
     }
 

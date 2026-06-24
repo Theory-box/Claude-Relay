@@ -22,9 +22,11 @@
     <label>speed <input type="number" step="50" data-path="cursor.speed" /></label>
     <label>accel <input type="number" step="0.1" data-path="cursor.curve" /></label>
     <label><input type="checkbox" data-path="cursor.invert_y" /> invert Y</label>
+    <label title="ignore button release blips shorter than this — raise it if a held button rapidly clicks">debounce ms <input type="number" step="5" min="0" max="400" data-path="release_debounce_ms" /></label>
   </section>
 
   <div class="diag" id="diag">diagnostics…</div>
+  <div class="diag" id="trace">trace…</div>
 
   <main>
     <div class="pane">
