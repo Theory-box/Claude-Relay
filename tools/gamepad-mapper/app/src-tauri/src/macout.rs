@@ -2,6 +2,7 @@ use crate::engine::Out;
 use core_graphics::event::{
     CGEvent, CGEventFlags, CGEventTapLocation, CGEventType, CGMouseButton,
 };
+use core_graphics::display::CGDisplay;
 use core_graphics::event_source::{CGEventSource, CGEventSourceStateID};
 use core_graphics::geometry::CGPoint;
 
@@ -82,6 +83,7 @@ impl Out for MacOut {
     fn move_cursor(&mut self, dx: f64, dy: f64, held: Option<&str>) {
         let loc = cur_loc();
         let np = CGPoint::new(loc.x + dx, loc.y + dy);
+        let _ = CGDisplay::main().move_cursor_to_point(np);
         let ty = match held {
             Some("left") => CGEventType::LeftMouseDragged,
             Some("right") => CGEventType::RightMouseDragged,

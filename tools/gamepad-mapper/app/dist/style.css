@@ -54,6 +54,7 @@ input[type="number"] { width: 70px; }
   flex-wrap: wrap;
 }
 .settings label { color: var(--muted); display: inline-flex; align-items: center; gap: 5px; }
+.diag { padding: 6px 12px; border-bottom: 1px solid var(--line); color: var(--muted); font-family: ui-monospace, monospace; font-size: 12px; }
 main { display: grid; grid-template-columns: 1fr 1.6fr 1.6fr; gap: 10px; padding: 10px; flex: 1; min-height: 0; }
 .pane { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px; display: flex; flex-direction: column; min-height: 0; }
 .pane h3 { margin: 0 0 8px; font-size: 12px; text-transform: uppercase; color: var(--muted); letter-spacing: .04em; }

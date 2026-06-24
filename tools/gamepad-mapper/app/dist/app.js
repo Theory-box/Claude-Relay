@@ -287,6 +287,14 @@ listen("status", (e) => {
     const s = JSON.parse(e.payload);
     if (!document.activeElement || document.activeElement.tagName !== "INPUT")
       $("status").textContent = (s.running ? "running" : "stopped") + " | " + s.controller + " | " + (s.layers || []).join(" > ");
+    const ax = s.axes || {};
+    const f = (k) => (ax[k] !== undefined ? ax[k].toFixed(2) : "-");
+    $("diag").textContent =
+      "Accessibility: " + (s.trusted ? "YES" : "NO") +
+      "   pressed: [" + (s.pressed || []).join(", ") + "]" +
+      "   LX " + f("LeftStickX") + " LY " + f("LeftStickY") +
+      "  RX " + f("RightStickX") + " RY " + f("RightStickY") +
+      "  LT " + f("LeftZ") + " RT " + f("RightZ");
   } catch (_) {}
 });
 listen("learned", (e) => {

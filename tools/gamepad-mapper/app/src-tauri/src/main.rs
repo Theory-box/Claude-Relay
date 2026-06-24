@@ -148,12 +148,12 @@ fn spawn_engine(app: tauri::AppHandle, shared: Arc<Shared>) {
                     axes.insert(n.to_string(), gp.value(*a) as f64);
                 }
                 // Analog triggers are reported as axes by gilrs; treat them as buttons.
-                if gp.value(Axis::LeftZ) > 0.5 {
-                    pressed.insert("LeftTrigger2".to_string());
-                }
-                if gp.value(Axis::RightZ) > 0.5 {
-                    pressed.insert("RightTrigger2".to_string());
-                }
+                let lz = gp.value(Axis::LeftZ) as f64;
+                let rz = gp.value(Axis::RightZ) as f64;
+                axes.insert("LeftZ".to_string(), lz);
+                axes.insert("RightZ".to_string(), rz);
+                if lz > 0.5 { pressed.insert("LeftTrigger2".to_string()); }
+                if rz > 0.5 { pressed.insert("RightTrigger2".to_string()); }
             }
 
             if shared.learn.load(Ordering::SeqCst) {
@@ -164,6 +164,10 @@ fn spawn_engine(app: tauri::AppHandle, shared: Arc<Shared>) {
             }
             prev_buttons = pressed.clone();
 
+            let mut pressed_list: Vec<String> = pressed.iter().cloned().collect();
+            pressed_list.sort();
+            let axes_dbg = serde_json::to_value(&axes).unwrap_or(serde_json::json!({}));
+
             let dt = last.elapsed().as_secs_f64().min(0.1);
             last = Instant::now();
             if shared.running.load(Ordering::SeqCst) {
@@ -171,12 +175,19 @@ fn spawn_engine(app: tauri::AppHandle, shared: Arc<Shared>) {
                 eng.tick(&st, dt, out.as_mut());
             }
 
-            if last_status.elapsed() > Duration::from_millis(250) {
+            if last_status.elapsed() > Duration::from_millis(200) {
                 last_status = Instant::now();
+                #[cfg(target_os = "macos")]
+                let trusted = macos_accessibility_client::accessibility::application_is_trusted();
+                #[cfg(not(target_os = "macos"))]
+                let trusted = true;
                 let status = serde_json::json!({
                     "running": shared.running.load(Ordering::SeqCst),
                     "controller": name,
                     "layers": eng.stack,
+                    "trusted": trusted,
+                    "pressed": pressed_list,
+                    "axes": axes_dbg,
                 });
                 let _ = app.emit("status", status.to_string());
             }
