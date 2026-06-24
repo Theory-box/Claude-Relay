@@ -1,0 +1,43 @@
+name: build-mac
+
+on:
+  push:
+    branches: [ "feature/gamepad-mapper" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pygame pyobjc-framework-Quartz pyobjc-framework-ApplicationServices pyinstaller
+
+      - name: Build .app
+        working-directory: tools/gamepad-mapper
+        run: |
+          pyinstaller --noconfirm --windowed --name "GamepadMapper" \
+            --collect-all pygame \
+            --osx-bundle-identifier "com.theorybox.gamepadmapper" \
+            gamepad_mapper.py
+
+      - name: Ad-hoc code sign (so Accessibility grant sticks)
+        working-directory: tools/gamepad-mapper/dist
+        run: codesign --force --deep -s - "GamepadMapper.app" || true
+
+      - name: Zip the app bundle
+        working-directory: tools/gamepad-mapper/dist
+        run: ditto -c -k --sequesterRsrc --keepParent "GamepadMapper.app" "GamepadMapper-mac.zip"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: GamepadMapper-mac
+          path: tools/gamepad-mapper/dist/GamepadMapper-mac.zip
