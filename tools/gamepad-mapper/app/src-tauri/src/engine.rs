@@ -18,6 +18,7 @@ pub fn mod_flag(name: &str) -> u64 {
 
 fn def_left() -> String { "left".to_string() }
 fn def_precision() -> f64 { 0.3 }
+fn def_tap() -> String { "tap".to_string() }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Cursor {
@@ -41,9 +42,9 @@ pub struct Input {
 #[serde(tag = "type")]
 pub enum Action {
     #[serde(rename = "key")]
-    Key { key: String, #[serde(default)] mods: Vec<String>, #[serde(default)] hold: bool },
+    Key { key: String, #[serde(default)] mods: Vec<String>, #[serde(default = "def_tap")] event: String },
     #[serde(rename = "mouse")]
-    Mouse { #[serde(default = "def_left")] button: String, #[serde(default)] hold: bool },
+    Mouse { #[serde(default = "def_left")] button: String, #[serde(default = "def_tap")] event: String },
     #[serde(rename = "scroll")]
     Scroll { amount: i32 },
     #[serde(rename = "modifier")]
@@ -61,6 +62,8 @@ pub struct Binding {
     pub input: Input,
     #[serde(default)]
     pub on_press: Vec<Action>,
+    #[serde(default)]
+    pub on_release: Vec<Action>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -125,6 +128,8 @@ pub struct Engine {
     mods: HashMap<String, u64>,
     precision: HashMap<String, f64>,
     held_mouse: Option<String>,
+    held_keys: HashMap<String, u64>,
+    release_timer: HashMap<String, f64>,
 }
 
 fn deadzone(v: f64, d: f64) -> f64 {
@@ -150,6 +155,8 @@ impl Engine {
             mods: HashMap::new(),
             precision: HashMap::new(),
             held_mouse: None,
+            held_keys: HashMap::new(),
+            release_timer: HashMap::new(),
         }
     }
 
@@ -161,6 +168,8 @@ impl Engine {
         self.mods.clear();
         self.precision.clear();
         self.held_mouse = None;
+        self.held_keys.clear();
+        self.release_timer.clear();
     }
 
     pub fn release_all(&mut self, out: &mut dyn Out) {
@@ -172,7 +181,15 @@ impl Engine {
                 }
             }
         }
+        let hk: Vec<(String, u64)> = self.held_keys.drain().collect();
+        for (k, f) in hk {
+            out.key(&k, f, false);
+        }
+        if let Some(b) = self.held_mouse.take() {
+            out.mouse(&b, false, 0);
+        }
         self.prev.clear();
+        self.release_timer.clear();
     }
 
     fn cur_mods(&self) -> u64 {
@@ -226,29 +243,45 @@ impl Engine {
                 }
             }
         }
+        const DEBOUNCE: f64 = 0.045;
         for name in names {
-            let now = st.pressed.contains(&name);
+            let phys = st.pressed.contains(&name);
             let was = self.prev.contains(&name);
-            if now && !was {
-                if let Some(b) = self.resolve(&name) {
-                    let mut revs = Vec::new();
-                    for a in &b.on_press {
-                        if let Some(r) = self.do_action(a, &name, out) {
-                            revs.push(r);
+            if phys {
+                // re-pressed (or still held) — cancel any pending release blip
+                self.release_timer.remove(&name);
+                if !was {
+                    if let Some(b) = self.resolve(&name) {
+                        let mut revs = Vec::new();
+                        for a in &b.on_press {
+                            if let Some(r) = self.do_action(a, &name, out) {
+                                revs.push(r);
+                            }
+                        }
+                        if !revs.is_empty() {
+                            self.reverts.insert(name.clone(), revs);
                         }
                     }
-                    if !revs.is_empty() {
-                        self.reverts.insert(name.clone(), revs);
-                    }
+                    self.prev.insert(name.clone());
                 }
-                self.prev.insert(name.clone());
-            } else if !now && was {
-                if let Some(revs) = self.reverts.remove(&name) {
-                    for r in revs.into_iter().rev() {
-                        self.apply_revert(r, out);
+            } else if was {
+                // physically released but still logically pressed: debounce bounce
+                let t = self.release_timer.entry(name.clone()).or_insert(0.0);
+                *t += dt;
+                if *t >= DEBOUNCE {
+                    self.release_timer.remove(&name);
+                    if let Some(revs) = self.reverts.remove(&name) {
+                        for r in revs.into_iter().rev() {
+                            self.apply_revert(r, out);
+                        }
                     }
+                    if let Some(b) = self.resolve(&name) {
+                        for a in &b.on_release {
+                            self.do_action(a, &name, out);
+                        }
+                    }
+                    self.prev.remove(&name);
                 }
-                self.prev.remove(&name);
             }
         }
     }
@@ -256,25 +289,36 @@ impl Engine {
     fn do_action(&mut self, a: &Action, name: &str, out: &mut dyn Out) -> Option<Revert> {
         let flags = self.cur_mods();
         match a {
-            Action::Key { key, mods, hold } => {
+            Action::Key { key, mods, event } => {
                 let mut f = flags;
                 for m in mods {
                     f |= mod_flag(m);
                 }
-                if *hold {
-                    out.key(key, f, true);
-                    return Some(Revert::KeyUp(key.clone(), f));
-                } else {
-                    out.key_tap(key, f);
+                match event.as_str() {
+                    "down" => {
+                        out.key(key, f, true);
+                        self.held_keys.insert(key.clone(), f);
+                    }
+                    "up" => {
+                        out.key(key, f, false);
+                        self.held_keys.remove(key);
+                    }
+                    _ => out.key_tap(key, f),
                 }
             }
-            Action::Mouse { button, hold } => {
-                if *hold {
-                    out.mouse(button, true, flags);
-                    self.held_mouse = Some(button.clone());
-                    return Some(Revert::MouseUp(button.clone(), flags));
-                } else {
-                    out.mouse_tap(button, flags);
+            Action::Mouse { button, event } => {
+                match event.as_str() {
+                    "down" => {
+                        out.mouse(button, true, flags);
+                        self.held_mouse = Some(button.clone());
+                    }
+                    "up" => {
+                        out.mouse(button, false, flags);
+                        if self.held_mouse.as_deref() == Some(button.as_str()) {
+                            self.held_mouse = None;
+                        }
+                    }
+                    _ => out.mouse_tap(button, flags),
                 }
             }
             Action::Scroll { amount } => out.scroll(*amount),
@@ -378,13 +422,43 @@ mod tests {
     }
 
     #[test]
+    fn hold_down_up_no_repeat() {
+        let json = r#"{
+          "deadzone":0.12,
+          "cursor":{"enabled":false,"axis_x":"LeftStickX","axis_y":"LeftStickY","speed":0,"curve":2.0,"invert_y":false},
+          "layers":[{"name":"base","bindings":[
+            {"input":{"kind":"button","name":"A"},
+             "on_press":[{"type":"mouse","button":"left","event":"down"}],
+             "on_release":[{"type":"mouse","button":"left","event":"up"}]}
+          ]}]
+        }"#;
+        let cfg: Config = serde_json::from_str(json).unwrap();
+        let mut e = Engine::new(cfg);
+        let mut o = Fake { ev: vec![] };
+        // press + hold several ticks
+        for _ in 0..5 { e.tick(&st(&["A"]), 0.01, &mut o); }
+        let downs = o.ev.iter().filter(|s| s.starts_with("mouse left true")).count();
+        assert_eq!(downs, 1, "should press down exactly once while held");
+        // a one-frame bounce (released then re-pressed) must NOT commit a release
+        e.tick(&st(&[]), 0.01, &mut o);
+        e.tick(&st(&["A"]), 0.01, &mut o);
+        let ups_mid = o.ev.iter().filter(|s| s.starts_with("mouse left false")).count();
+        assert_eq!(ups_mid, 0, "bounce within debounce must not release");
+        // genuine release past debounce
+        e.tick(&st(&[]), 0.06, &mut o);
+        let ups = o.ev.iter().filter(|s| s.starts_with("mouse left false")).count();
+        assert_eq!(ups, 1, "should release up exactly once");
+        assert_eq!(o.ev.iter().filter(|s| s.starts_with("mouse left true")).count(), 1);
+    }
+
+    #[test]
     fn shift_click() {
         let mut e = Engine::new(cfg());
         let mut o = Fake { ev: vec![] };
         e.tick(&st(&["LeftTrigger"]), 0.01, &mut o);
         e.tick(&st(&["LeftTrigger", "RightTrigger2"]), 0.01, &mut o);
         assert!(o.ev.iter().any(|s| s == &format!("mousetap left {}", MOD_SHIFT)));
-        e.tick(&st(&["RightTrigger2"]), 0.01, &mut o); // released LeftTrigger
+        e.tick(&st(&["RightTrigger2"]), 0.06, &mut o); // released LeftTrigger
         assert_eq!(e.cur_mods(), 0);
     }
 
@@ -396,7 +470,7 @@ mod tests {
         assert_eq!(e.stack, vec!["base", "alt"]);
         e.tick(&st(&["South", "North"]), 0.01, &mut o);
         assert!(o.ev.iter().any(|s| s == "keytap x 0"));
-        e.tick(&st(&[]), 0.01, &mut o);
+        e.tick(&st(&[]), 0.06, &mut o);
         assert_eq!(e.stack, vec!["base"]);
     }
 

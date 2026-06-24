@@ -66,3 +66,10 @@ main { display: grid; grid-template-columns: 1fr 1.6fr 1.6fr; gap: 10px; padding
 .fields { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; }
 .fields .frow { display: flex; gap: 6px; align-items: center; }
 .fields label { color: var(--muted); display: inline-flex; gap: 4px; align-items: center; }
+
+.phasetabs { display: flex; gap: 6px; margin-bottom: 8px; }
+.phasetab {
+  flex: 1; padding: 6px 8px; font-size: 12px; cursor: pointer;
+  border: 1px solid #3a3f4b; background: #20242c; color: #c7ccd6; border-radius: 6px;
+}
+.phasetab.sel { background: #2d6cdf; border-color: #2d6cdf; color: #fff; }

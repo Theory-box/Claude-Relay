@@ -6,6 +6,7 @@ let running = false;
 let selLayer = "base";
 let selBinding = 0;
 let selAction = 0;
+let selPhase = "on_press";
 
 const BTN_LABEL = {
   South: "A", East: "B", North: "Y", West: "X",
@@ -54,15 +55,17 @@ async function pushConfig() {
 
 function layer() { return cfg.layers.find((l) => l.name === selLayer); }
 function binding() { const l = layer(); return l && l.bindings[selBinding]; }
-function action() { const b = binding(); return b && b.on_press[selAction]; }
+function phaseList(b) { if (b && !b.on_release) b.on_release = []; return b ? b[selPhase] : null; }
+function action() { const l = phaseList(binding()); return l && l[selAction]; }
 
 function inputLabel(inp) {
   return inp.label || BTN_LABEL[inp.name] || inp.name || "(unset)";
 }
+function evtTag(a) { return a.event && a.event !== "tap" ? " (" + a.event + ")" : ""; }
 function actionLabel(a) {
   switch (a.type) {
-    case "key": return "key " + (a.mods || []).map((m) => m + "+").join("") + a.key + (a.hold ? " (hold)" : "");
-    case "mouse": return a.button + " click" + (a.hold ? " (hold)" : "");
+    case "key": return "key " + (a.mods || []).map((m) => m + "+").join("") + a.key + evtTag(a);
+    case "mouse": return a.button + " click" + evtTag(a);
     case "scroll": return "scroll " + a.amount;
     case "modifier": return "hold " + a.mod;
     case "enter_layer": return "enter '" + a.layer + "' (" + a.mode + ")";
@@ -90,8 +93,10 @@ function renderBindings() {
   const l = layer();
   if (l) l.bindings.forEach((b, i) => {
     const li = document.createElement("li");
-    const acts = b.on_press.map(actionLabel).join(" + ") || "(empty)";
-    li.textContent = inputLabel(b.input) + " → " + acts;
+    if (!b.on_release) b.on_release = [];
+    const press = b.on_press.map(actionLabel).join(" + ") || "(none)";
+    const rel = b.on_release.length ? "  ⤴ " + b.on_release.map(actionLabel).join(" + ") : "";
+    li.textContent = inputLabel(b.input) + " → " + press + rel;
     if (i === selBinding) li.className = "sel";
     li.onclick = () => { selBinding = i; selAction = 0; renderActions(); renderBindings(); };
     ul.appendChild(li);
@@ -103,7 +108,22 @@ function renderActions() {
   const ul = $("actions");
   ul.innerHTML = "";
   const b = binding();
-  if (b) b.on_press.forEach((a, i) => {
+
+  const tabs = $("phaseTabs");
+  if (tabs) {
+    tabs.innerHTML = "";
+    [["on_press", "On Press (button down)"], ["on_release", "On Release (button up)"]].forEach(([ph, lbl]) => {
+      const t = document.createElement("button");
+      const n = b ? (b[ph] ? b[ph].length : 0) : 0;
+      t.textContent = lbl + (n ? " (" + n + ")" : "");
+      t.className = "phasetab" + (selPhase === ph ? " sel" : "");
+      t.onclick = () => { selPhase = ph; selAction = 0; renderActions(); renderFields(); };
+      tabs.appendChild(t);
+    });
+  }
+
+  const list = phaseList(b);
+  if (list) list.forEach((a, i) => {
     const li = document.createElement("li");
     li.textContent = actionLabel(a);
     if (i === selAction) li.className = "sel";
@@ -141,7 +161,7 @@ function renderFields() {
       lab.append(c, m); r.append(lab);
     });
     box.append(r);
-    box.append(holdRow(a, changed));
+    box.append(eventRow(a, changed));
     box.append(learnOutBtn(a, changed));
   } else if (a.type === "mouse") {
     const r = frow();
@@ -150,7 +170,7 @@ function renderFields() {
     sel.value = a.button || "left";
     sel.onchange = () => { a.button = sel.value; changed(); };
     r.append("button ", sel);
-    box.append(r, holdRow(a, changed));
+    box.append(r, eventRow(a, changed));
   } else if (a.type === "scroll") {
     const r = frow();
     const inp = document.createElement("input"); inp.type = "number"; inp.value = a.amount ?? 1;
@@ -185,12 +205,16 @@ function renderFields() {
   }
 }
 
-function holdRow(a, changed) {
-  const lab = document.createElement("label");
-  const c = document.createElement("input"); c.type = "checkbox"; c.checked = !!a.hold;
-  c.onchange = () => { a.hold = c.checked; changed(); };
-  lab.append(c, "hold (vs tap)");
-  const r = frow(); r.append(lab); return r;
+function eventRow(a, changed) {
+  if (!a.event) a.event = "tap";
+  const r = frow();
+  const sel = document.createElement("select");
+  [["tap", "click (down+up)"], ["down", "button down only"], ["up", "button up only"]]
+    .forEach(([v, t]) => sel.add(new Option(t, v)));
+  sel.value = a.event;
+  sel.onchange = () => { a.event = sel.value; changed(); };
+  r.append("event ", sel);
+  return r;
 }
 
 function learnOutBtn(a, changed) {
@@ -234,7 +258,7 @@ $("renLayer").onclick = () => {
 };
 $("addBinding").onclick = () => {
   const l = layer(); if (!l) return;
-  l.bindings.push({ input: { kind: "button", name: "", label: "unset — Learn input" }, on_press: [] });
+  l.bindings.push({ input: { kind: "button", name: "", label: "unset — Learn input" }, on_press: [], on_release: [] });
   selBinding = l.bindings.length - 1; renderBindings(); pushConfig();
 };
 $("delBinding").onclick = () => {
@@ -245,19 +269,21 @@ $("learnInput").onclick = () => { $("status").textContent = "press a control..."
 
 $("addAction").onclick = () => {
   const b = binding(); if (!b) return;
+  const list = phaseList(b);
   const t = $("actionType").value;
   const a = { type: t };
-  if (t === "key") Object.assign(a, { key: "g", mods: [], hold: false });
-  if (t === "mouse") Object.assign(a, { button: "left", hold: false });
+  if (t === "key") Object.assign(a, { key: "g", mods: [], event: "tap" });
+  if (t === "mouse") Object.assign(a, { button: "left", event: "tap" });
   if (t === "scroll") Object.assign(a, { amount: 1 });
   if (t === "modifier") Object.assign(a, { mod: "shift" });
   if (t === "enter_layer") Object.assign(a, { layer: cfg.layers[0].name, mode: "momentary" });
   if (t === "precision") Object.assign(a, { factor: 0.3 });
-  b.on_press.push(a); selAction = b.on_press.length - 1; renderActions(); renderBindings(); pushConfig();
+  list.push(a); selAction = list.length - 1; renderActions(); renderBindings(); pushConfig();
 };
 $("delAction").onclick = () => {
-  const b = binding(); if (!b || !b.on_press.length) return;
-  b.on_press.splice(selAction, 1); selAction = 0; renderActions(); renderBindings(); pushConfig();
+  const b = binding(); const list = phaseList(b);
+  if (!list || !list.length) return;
+  list.splice(selAction, 1); selAction = 0; renderActions(); renderBindings(); pushConfig();
 };
 
 $("run").onclick = async () => {
