@@ -266,6 +266,26 @@ $("grant").onclick = async () => {
     ? "Accessibility granted"
     : "enable in System Settings > Privacy & Security > Accessibility, then restart the app";
 };
+$("copylog").onclick = () => {
+  const log =
+    "=== Gamepad Mapper log ===\n" +
+    "status: " + JSON.stringify(lastStatus, null, 2) + "\n\n" +
+    "config: " + JSON.stringify(cfg, null, 2);
+  const done = () => { $("status").textContent = "log copied — paste it to share"; };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(log).then(done).catch(() => fallbackCopy(log, done));
+  } else {
+    fallbackCopy(log, done);
+  }
+};
+function fallbackCopy(text, done) {
+  const ta = document.createElement("textarea");
+  ta.value = text;
+  document.body.appendChild(ta);
+  ta.select();
+  try { document.execCommand("copy"); done(); } catch (_) {}
+  document.body.removeChild(ta);
+}
 
 // settings bindings
 document.querySelectorAll("#settings [data-path]").forEach((el) => {
@@ -283,9 +303,11 @@ function fillSettings() {
   });
 }
 
+let lastStatus = {};
 listen("status", (e) => {
   try {
     const s = JSON.parse(e.payload);
+    lastStatus = s;
     if (!document.activeElement || document.activeElement.tagName !== "INPUT")
       $("status").textContent = (s.running ? "running" : "stopped") + " | " + s.controller + " | " + (s.layers || []).join(" > ");
     const ax = s.axes || {};

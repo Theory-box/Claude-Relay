@@ -1,6 +1,6 @@
 use crate::engine::Out;
 use core_graphics::event::{
-    CGEvent, CGEventFlags, CGEventTapLocation, CGEventType, CGMouseButton,
+    CGEvent, CGEventFlags, CGEventTapLocation, CGEventType, CGMouseButton, EventField,
 };
 use core_graphics::display::CGDisplay;
 use core_graphics::event_source::{CGEventSource, CGEventSourceStateID};
@@ -69,6 +69,7 @@ impl Out for MacOut {
             let ty = if down { d } else { u };
             if let Ok(ev) = CGEvent::new_mouse_event(src, ty, cur_loc(), b) {
                 ev.set_flags(CGEventFlags::from_bits_truncate(flags));
+                ev.set_integer_value_field(EventField::MOUSE_EVENT_CLICK_STATE, 1);
                 ev.post(CGEventTapLocation::HID);
             }
         }
