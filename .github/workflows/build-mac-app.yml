@@ -37,9 +37,23 @@ jobs:
         working-directory: tools/gamepad-mapper/app/src-tauri
         run: cargo tauri build --bundles app
 
-      - name: Ad-hoc code sign (avoids "damaged" on Apple Silicon)
+      - name: Import signing certificate
+        env:
+          MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
+          MACOS_CERT_PWD: ${{ secrets.MACOS_CERT_PWD }}
+        run: |
+          echo "$MACOS_CERT_P12" | openssl base64 -d -A > /tmp/cert.p12
+          security create-keychain -p actions build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p actions build.keychain
+          security set-keychain-settings -t 3600 -l build.keychain
+          security import /tmp/cert.p12 -k build.keychain -P "$MACOS_CERT_PWD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k actions build.keychain
+          rm -f /tmp/cert.p12
+
+      - name: Sign the app (stable self-signed identity)
         working-directory: tools/gamepad-mapper/app/src-tauri/target/release/bundle/macos
-        run: codesign --force --deep -s - "GamepadMapper.app"
+        run: codesign --force --deep -s "GamepadMapper Self Signed" "GamepadMapper.app"
 
       - name: Zip the app
         working-directory: tools/gamepad-mapper/app/src-tauri/target/release/bundle/macos

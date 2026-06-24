@@ -152,6 +152,7 @@ fn spawn_engine(app: tauri::AppHandle, shared: Arc<Shared>) {
         let mut last = Instant::now();
         let mut last_status = Instant::now();
         let mut prev_pressed: HashSet<String> = HashSet::new();
+        let mut prev_running = false;
         let mut pressed: HashSet<String> = HashSet::new(); // raw codes currently down
         let mut labels: HashMap<String, String> = HashMap::new(); // code -> friendly label
         let mut axis_vals: HashMap<String, f64> = HashMap::new(); // code -> value (diag)
@@ -168,16 +169,6 @@ fn spawn_engine(app: tauri::AppHandle, shared: Arc<Shared>) {
                     }
                     EventType::ButtonReleased(_, code) => {
                         pressed.remove(&code.into_u32().to_string());
-                    }
-                    EventType::ButtonChanged(btn, val, code) => {
-                        let cu = code.into_u32();
-                        let c = cu.to_string();
-                        if val > 0.5 {
-                            labels.insert(c.clone(), btn_label(btn, cu));
-                            pressed.insert(c);
-                        } else {
-                            pressed.remove(&c);
-                        }
                     }
                     EventType::AxisChanged(_, val, code) => {
                         let cu = code.into_u32();
@@ -209,6 +200,7 @@ fn spawn_engine(app: tauri::AppHandle, shared: Arc<Shared>) {
             }
 
             if shared.dirty.swap(false, Ordering::SeqCst) {
+                eng.release_all(out.as_mut());
                 eng.set_config(shared.cfg.lock().unwrap().clone());
             }
 
@@ -248,7 +240,12 @@ fn spawn_engine(app: tauri::AppHandle, shared: Arc<Shared>) {
 
             let dt = last.elapsed().as_secs_f64().min(0.1);
             last = Instant::now();
-            if shared.running.load(Ordering::SeqCst) {
+            let running = shared.running.load(Ordering::SeqCst);
+            if !running && prev_running {
+                eng.release_all(out.as_mut());
+            }
+            prev_running = running;
+            if running {
                 let st = InputState { pressed: pressed.clone(), axes: cursor_axes };
                 eng.tick(&st, dt, out.as_mut());
             }

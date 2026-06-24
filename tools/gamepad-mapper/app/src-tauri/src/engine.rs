@@ -163,6 +163,18 @@ impl Engine {
         self.held_mouse = None;
     }
 
+    pub fn release_all(&mut self, out: &mut dyn Out) {
+        let keys: Vec<String> = self.reverts.keys().cloned().collect();
+        for k in keys {
+            if let Some(revs) = self.reverts.remove(&k) {
+                for r in revs.into_iter().rev() {
+                    self.apply_revert(r, out);
+                }
+            }
+        }
+        self.prev.clear();
+    }
+
     fn cur_mods(&self) -> u64 {
         self.mods.values().fold(0, |a, b| a | b)
     }
