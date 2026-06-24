@@ -16,8 +16,14 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
-      - name: Install Tauri CLI
-        run: cargo install tauri-cli --version "^2.0" --locked
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: tools/gamepad-mapper/app/src-tauri
+
+      - name: Install Tauri CLI (prebuilt)
+        uses: taiki-e/install-action@v2
+        with:
+          tool: tauri-cli
 
       - name: Generate icons
         working-directory: tools/gamepad-mapper/app/src-tauri
@@ -27,9 +33,9 @@ jobs:
         working-directory: tools/gamepad-mapper/app/src-tauri
         run: cargo test
 
-      - name: Build app
+      - name: Build app (.app only)
         working-directory: tools/gamepad-mapper/app/src-tauri
-        run: cargo tauri build
+        run: cargo tauri build --bundles app
 
       - name: Ad-hoc code sign (avoids "damaged" on Apple Silicon)
         working-directory: tools/gamepad-mapper/app/src-tauri/target/release/bundle/macos
