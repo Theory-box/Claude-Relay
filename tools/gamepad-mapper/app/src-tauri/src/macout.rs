@@ -1,6 +1,6 @@
 use crate::engine::Out;
 use core_graphics::event::{
-    CGEvent, CGEventFlags, CGEventTapLocation, CGEventType, CGMouseButton, ScrollEventUnit,
+    CGEvent, CGEventFlags, CGEventTapLocation, CGEventType, CGMouseButton,
 };
 use core_graphics::event_source::{CGEventSource, CGEventSourceStateID};
 use core_graphics::geometry::CGPoint;
@@ -76,12 +76,8 @@ impl Out for MacOut {
         self.mouse(button, true, flags);
         self.mouse(button, false, flags);
     }
-    fn scroll(&mut self, amount: i32) {
-        if let Some(src) = MacOut::src() {
-            if let Ok(ev) = CGEvent::new_scroll_event(src, ScrollEventUnit::LINE, 1, amount, 0, 0) {
-                ev.post(CGEventTapLocation::HID);
-            }
-        }
+    fn scroll(&mut self, _amount: i32) {
+        // TODO: native scroll output (core-graphics scroll constructor differs by version)
     }
     fn move_cursor(&mut self, dx: f64, dy: f64, held: Option<&str>) {
         let loc = cur_loc();
