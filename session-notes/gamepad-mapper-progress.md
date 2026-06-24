@@ -31,11 +31,20 @@ Xbox 360 Controller: axes 0/1 = left stick, 2/3 = right stick, 4 = LT, 5 = RT
 (triggers rest -1, go +1 — analog axes, not buttons). 15 buttons (0-14), no hats.
 
 ## Status
-- v1 engine + GUI written, not yet device-tested. Quartz output + Tk modifier capture
-  on macOS are the most likely spots needing iteration.
-- CI build untested (first run will reveal PyInstaller/pyobjc bundling tweaks).
+- v1 engine + GUI. Engine verified by tools/gamepad-mapper/test_engine.py (11/11):
+  shift-click flag, momentary + latched layers, exit_layer, revert-on-release,
+  layer resolution precedence. GUI construct + field-edit path smoke-tested under Xvfb.
+- Fixed: UI instability (field edits no longer rebuild/destroy the active widget; they
+  update listbox labels in place). Added cursor/feel settings panel (deadzone, cursor
+  speed/accel/invert, stick axes). Added modifier keycodes so a 'shift' keystroke (hold)
+  works in addition to the modifier action. tkinter import made optional so engine is
+  importable headlessly.
+
+## Shift (two working paths)
+- Action type 'modifier' = shift (held): ORs Shift into other fired events -> shift-click.
+- Action type 'key', key='shift', hold on: posts a real Shift key down/up.
 
 ## Next
-- Confirm CI produces a launchable .app; fix packaging if needed.
-- Tk learn-output modifier bits on macOS (Cmd detection) may need adjustment.
-- Possible: profiles, per-app layer auto-switching, GUI polish.
+- Confirm CI build launches on device; iterate pyobjc/Tk-on-mac if needed.
+- Tk learn-output Cmd-bit detection on macOS may still need tuning.
+- Possible: profiles, per-app auto layer switching, polish.

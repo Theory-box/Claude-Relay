@@ -12,8 +12,12 @@ import time
 import subprocess
 from pathlib import Path
 
-import tkinter as tk
-from tkinter import ttk, simpledialog, messagebox
+try:
+    import tkinter as tk
+    from tkinter import ttk, simpledialog, messagebox
+    HAVE_TK = True
+except Exception:
+    HAVE_TK = False
 
 CONFIG = Path.home() / ".gamepad_mapper.json"
 
@@ -33,6 +37,8 @@ KEYCODES = {
     'backslash': 42, 'grave': 50,
     'f1': 122, 'f2': 120, 'f3': 99, 'f4': 118, 'f5': 96, 'f6': 97, 'f7': 98,
     'f8': 100, 'f9': 101, 'f10': 109, 'f11': 103, 'f12': 111,
+    'shift': 56, 'rightshift': 60, 'control': 59, 'ctrl': 59,
+    'option': 58, 'alt': 58, 'command': 55, 'cmd': 55, 'capslock': 57,
 }
 
 TK_KEYMAP = {
@@ -262,8 +268,8 @@ class Engine:
         c = self.cfg.get("cursor", {})
         if c.get("enabled"):
             try:
-                ax = dz(self.js.get_axis(c["axis_x"]), self.cfg["deadzone"])
-                ay = dz(self.js.get_axis(c["axis_y"]), self.cfg["deadzone"])
+                ax = dz(self.js.get_axis(int(c["axis_x"])), self.cfg["deadzone"])
+                ay = dz(self.js.get_axis(int(c["axis_y"])), self.cfg["deadzone"])
                 if ax or ay:
                     spd = c["speed"] * dt
                     ey = -ay if c.get("invert_y") else ay
@@ -324,6 +330,16 @@ class App:
         self.status = ttk.Label(top, text="stopped")
         self.status.pack(side="left", padx=8)
 
+        sf = ttk.LabelFrame(self.root, text="Cursor / feel", padding=4)
+        sf.pack(fill="x", padx=6)
+        self._num_field(sf, "deadzone", ["deadzone"], 0.0, 0.6, 0.01, False)
+        self._bool_field(sf, "cursor on", ["cursor", "enabled"])
+        self._num_field(sf, "cursor speed", ["cursor", "speed"], 50, 4000, 50, True)
+        self._num_field(sf, "cursor accel", ["cursor", "curve"], 1.0, 4.0, 0.1, False)
+        self._bool_field(sf, "invert Y", ["cursor", "invert_y"])
+        self._num_field(sf, "stick X axis", ["cursor", "axis_x"], 0, 15, 1, True)
+        self._num_field(sf, "stick Y axis", ["cursor", "axis_y"], 0, 15, 1, True)
+
         body = ttk.Frame(self.root, padding=6)
         body.pack(fill="both", expand=True)
 
@@ -367,6 +383,44 @@ class App:
         body.columnconfigure(1, weight=2)
         body.columnconfigure(2, weight=2)
         body.rowconfigure(0, weight=1)
+
+    # --- settings field helpers ---
+    def _cfg_get(self, path):
+        d = self.cfg
+        for k in path[:-1]:
+            d = d.setdefault(k, {})
+        return d.get(path[-1])
+
+    def _cfg_set(self, path, val):
+        d = self.cfg
+        for k in path[:-1]:
+            d = d.setdefault(k, {})
+        d[path[-1]] = val
+
+    def _num_field(self, parent, label, path, lo, hi, step, is_int):
+        f = ttk.Frame(parent)
+        f.pack(side="left", padx=4)
+        ttk.Label(f, text=label).pack()
+        var = tk.DoubleVar(value=float(self._cfg_get(path) or 0))
+
+        def apply(*_):
+            try:
+                v = var.get()
+                self._cfg_set(path, int(round(v)) if is_int else float(v))
+            except Exception:
+                pass
+        sb = ttk.Spinbox(f, from_=lo, to=hi, increment=step, textvariable=var,
+                         width=7, command=apply)
+        sb.pack()
+        sb.bind("<KeyRelease>", apply)
+        return sb
+
+    def _bool_field(self, parent, label, path):
+        f = ttk.Frame(parent)
+        f.pack(side="left", padx=4)
+        var = tk.BooleanVar(value=bool(self._cfg_get(path)))
+        ttk.Checkbutton(f, text=label, variable=var,
+                        command=lambda: self._cfg_set(path, var.get())).pack()
 
     # --- helpers to get current selection ---
     def cur_layer(self):
@@ -471,22 +525,32 @@ class App:
 
     def _set(self, a, k, val):
         a[k] = val
-        self.refresh_actions_keep()
+        self.update_list_labels()
 
     def _set_mod(self, a, m, on):
         mods = set(a.get("mods", []))
         mods.add(m) if on else mods.discard(m)
         a["mods"] = sorted(mods)
-        self.refresh_actions_keep()
+        self.update_list_labels()
 
-    def refresh_actions_keep(self):
-        sel = self.act_list.curselection()
-        self.refresh_bindings()
-        if sel:
-            try:
-                self.act_list.selection_set(sel[0])
-            except Exception:
-                pass
+    def update_list_labels(self):
+        # refresh only the listbox row text in place; never touch the fields frame
+        ly = self.cur_layer()
+        bsel = self.bind_list.curselection()
+        if not (ly and bsel):
+            return
+        i = bsel[0]
+        b = self.cfg["layers"][ly]["bindings"][i]
+        acts = " + ".join(action_label(a) for a in b.get("on_press", [])) or "(empty)"
+        self.bind_list.delete(i)
+        self.bind_list.insert(i, "%s -> %s" % (input_label(b["input"]), acts))
+        self.bind_list.selection_set(i)
+        asel = self.act_list.curselection()
+        if asel and asel[0] < len(b.get("on_press", [])):
+            j = asel[0]
+            self.act_list.delete(j)
+            self.act_list.insert(j, action_label(b["on_press"][j]))
+            self.act_list.selection_set(j)
 
     # --- structural edits ---
     def add_layer(self):
@@ -594,12 +658,12 @@ class App:
             if ev.state & 0x10:
                 mods.append("alt")
             a["type"] = "key"; a["key"] = name; a["mods"] = mods
-            top.destroy(); self.refresh_actions_keep()
+            top.destroy(); self.update_list_labels(); self.refresh_action_fields()
 
         def finish_btn(ev):
             a["type"] = "mouse"
             a["button"] = {1: "left", 2: "middle", 3: "right"}.get(ev.num, "left")
-            top.destroy(); self.refresh_actions_keep()
+            top.destroy(); self.update_list_labels(); self.refresh_action_fields()
 
         top.bind("<Key>", finish_key)
         top.bind("<Button>", finish_btn)
@@ -702,9 +766,12 @@ class App:
 
 
 def main():
+    if not HAVE_TK:
+        print("tkinter is not available in this Python.")
+        return
     root = tk.Tk()
     App(root)
-    root.geometry("900x420")
+    root.geometry("980x460")
     root.mainloop()
 
 
