@@ -31,6 +31,10 @@ jobs:
         working-directory: tools/gamepad-mapper/app/src-tauri
         run: cargo tauri build
 
+      - name: Ad-hoc code sign (avoids "damaged" on Apple Silicon)
+        working-directory: tools/gamepad-mapper/app/src-tauri/target/release/bundle/macos
+        run: codesign --force --deep -s - "GamepadMapper.app"
+
       - name: Zip the app
         working-directory: tools/gamepad-mapper/app/src-tauri/target/release/bundle/macos
         run: ditto -c -k --keepParent "GamepadMapper.app" "$GITHUB_WORKSPACE/GamepadMapper-mac.zip"
