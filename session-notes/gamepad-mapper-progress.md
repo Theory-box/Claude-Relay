@@ -67,3 +67,19 @@ Xbox 360 Controller: axes 0/1 = left stick, 2/3 = right stick, 4 = LT, 5 = RT
   together; confirm with standalone quit. (was: tools/gamepad-mapper/blender_gamepad_fly.py)
 - Possible later: Apple Developer ID signing/notarization in CI to kill Gatekeeper,
   per-app auto layer switching, profiles.
+
+## Blender add-on trimmed to fly-only (v0.8.0)
+- tools/gamepad-mapper/blender_gamepad_fly.py rewritten: removed ALL button->keystroke/
+  mouse remapping (GamepadBinding, learn/learn-output, Quartz _post_* output, the in-
+  Blender mouse-warp "mouse mode", cursor_speed/curve/invert_cursor_y). Add-on now only
+  flies the viewport: left stick = move on view plane, right stick = look (yaw/pitch),
+  optional boost button. Kept settings: deadzone, move_speed, look_speed, boost_mult,
+  invert_left_y/right_y, lx/ly/rx/ry axis indices, boost_btn (-1=off). Still uses pygame.
+- New: Fly/Cursor mode toggle. A configurable hotkey (pref toggle_key, EnumProperty of
+  common keys, default ACCENT_GRAVE) flips WindowManager.gamepad_cursor_mode. In CURSOR
+  mode the modal yields (does nothing) so the standalone GamepadMapper app drives the OS
+  pointer; in FLY mode the add-on controls the camera. Key is swallowed while running so
+  it doesn't trigger Blender's own shortcut. Panel has Start/Stop + Switch button + mode.
+- No Accessibility/Quartz needed anymore (add-on only moves the Blender viewport via bpy).
+- No IPC between add-on and app: both can read the pad; mode just controls whether the
+  add-on flies. To avoid the app's cursor moving under Blender during flight, stop the app.
