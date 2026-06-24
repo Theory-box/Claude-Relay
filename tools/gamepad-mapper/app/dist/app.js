@@ -251,19 +251,41 @@ function learnOutBtn(a, changed) {
 }
 
 // --- structural edits ---
+function uniqueLayerName(base) {
+  let n = base, i = 1;
+  while (cfg.layers.find((l) => l.name === n)) { i++; n = base + i; }
+  return n;
+}
 $("addLayer").onclick = () => {
-  const n = prompt("Layer name:");
-  if (n && !cfg.layers.find((l) => l.name === n)) { cfg.layers.push({ name: n, bindings: [] }); selLayer = n; renderLayers(); renderBindings(); pushConfig(); }
-};
-$("delLayer").onclick = () => {
-  if (selLayer === "base") return alert("Can't delete base layer.");
-  cfg.layers = cfg.layers.filter((l) => l.name !== selLayer);
-  selLayer = "base"; renderLayers(); renderBindings(); pushConfig();
+  let n = ($("layerName").value || "").trim();
+  if (!n) n = uniqueLayerName("layer");
+  if (cfg.layers.find((l) => l.name === n)) { $("status").textContent = "layer '" + n + "' already exists"; return; }
+  cfg.layers.push({ name: n, bindings: [] });
+  selLayer = n; selBinding = 0; selAction = 0;
+  $("layerName").value = "";
+  renderLayers(); renderBindings(); pushConfig();
 };
 $("renLayer").onclick = () => {
-  if (selLayer === "base") return;
-  const n = prompt("New name:", selLayer);
-  if (n && !cfg.layers.find((l) => l.name === n)) { layer().name = n; selLayer = n; renderLayers(); renderBindings(); pushConfig(); }
+  if (selLayer === "base") { $("status").textContent = "the base layer can't be renamed"; return; }
+  const n = ($("layerName").value || "").trim();
+  if (!n) { $("status").textContent = "type a new name in the box first"; return; }
+  if (cfg.layers.find((l) => l.name === n)) { $("status").textContent = "layer '" + n + "' already exists"; return; }
+  const old = selLayer;
+  layer().name = n;
+  // keep any enter_layer/exit_layer actions pointing at the renamed layer
+  cfg.layers.forEach((l) => l.bindings.forEach((b) => {
+    [].concat(b.on_press || [], b.on_release || []).forEach((a) => {
+      if ((a.type === "enter_layer" || a.type === "exit_layer") && a.layer === old) a.layer = n;
+    });
+  }));
+  selLayer = n; $("layerName").value = "";
+  renderLayers(); renderBindings(); pushConfig();
+};
+$("delLayer").onclick = () => {
+  if (selLayer === "base") { $("status").textContent = "the base layer can't be deleted"; return; }
+  cfg.layers = cfg.layers.filter((l) => l.name !== selLayer);
+  selLayer = "base"; selBinding = 0; selAction = 0;
+  renderLayers(); renderBindings(); pushConfig();
 };
 $("addBinding").onclick = () => {
   const l = layer(); if (!l) return;
