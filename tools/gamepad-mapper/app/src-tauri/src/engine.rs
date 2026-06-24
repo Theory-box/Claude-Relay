@@ -108,7 +108,7 @@ pub trait Out {
 
 enum Revert {
     PopLayer(String),
-    ClearMod(String),
+    ClearMod(String, String),
     KeyUp(String, u64),
     MouseUp(String, u64),
 }
@@ -158,6 +158,16 @@ impl Engine {
 
     fn cur_mods(&self) -> u64 {
         self.mods.values().fold(0, |a, b| a | b)
+    }
+
+    pub fn active_mods(&self) -> Vec<String> {
+        let f = self.cur_mods();
+        let mut v = Vec::new();
+        if f & MOD_SHIFT != 0 { v.push("shift".to_string()); }
+        if f & MOD_CTRL != 0 { v.push("ctrl".to_string()); }
+        if f & MOD_ALT != 0 { v.push("alt".to_string()); }
+        if f & MOD_CMD != 0 { v.push("cmd".to_string()); }
+        v
     }
 
     fn resolve(&self, name: &str) -> Option<Binding> {

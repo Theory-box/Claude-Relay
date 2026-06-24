@@ -315,6 +315,7 @@ listen("status", (e) => {
     $("diag").textContent =
       "Accessibility: " + (s.trusted ? "YES" : "NO") +
       "   pressed: [" + (s.pressed || []).join(", ") + "]" +
+      "   mods: [" + (s.mods || []).join(", ") + "]" +
       "   LX " + f("LeftStickX") + " LY " + f("LeftStickY") +
       "   engine: " + (s.eng || "") +
       "   fired: " + (s.fired || "-");

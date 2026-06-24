@@ -155,6 +155,7 @@ fn spawn_engine(app: tauri::AppHandle, shared: Arc<Shared>) {
         let mut pressed: HashSet<String> = HashSet::new(); // raw codes currently down
         let mut labels: HashMap<String, String> = HashMap::new(); // code -> friendly label
         let mut axis_vals: HashMap<String, f64> = HashMap::new(); // code -> value (diag)
+        let mut axis_base: HashMap<u32, f64> = HashMap::new(); // code -> resting value
 
         loop {
             while let Some(ev) = gilrs.next_event() {
@@ -179,7 +180,25 @@ fn spawn_engine(app: tauri::AppHandle, shared: Arc<Shared>) {
                         }
                     }
                     EventType::AxisChanged(_, val, code) => {
-                        axis_vals.insert(code.into_u32().to_string(), val as f64);
+                        let cu = code.into_u32();
+                        let v = val as f64;
+                        axis_vals.insert(cu.to_string(), v);
+                        let base = *axis_base.entry(cu).or_insert(v);
+                        let dev = v - base;
+                        let pos = format!("axis{}+", cu);
+                        let neg = format!("axis{}-", cu);
+                        if dev > 0.6 {
+                            labels.insert(pos.clone(), format!("axis {} +", cu));
+                            pressed.insert(pos);
+                        } else {
+                            pressed.remove(&pos);
+                        }
+                        if dev < -0.6 {
+                            labels.insert(neg.clone(), format!("axis {} -", cu));
+                            pressed.insert(neg);
+                        } else {
+                            pressed.remove(&neg);
+                        }
                     }
                     EventType::Disconnected => {
                         pressed.clear();
@@ -256,6 +275,7 @@ fn spawn_engine(app: tauri::AppHandle, shared: Arc<Shared>) {
                     "axes": axes_dbg,
                     "eng": eng_summary,
                     "fired": last_fired.lock().unwrap().clone(),
+                    "mods": eng.active_mods(),
                 });
                 let _ = app.emit("status", status.to_string());
             }
