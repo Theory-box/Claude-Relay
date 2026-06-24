@@ -7,6 +7,8 @@ let selLayer = "base";
 let selBinding = 0;
 let selAction = 0;
 let selPhase = "on_press";
+let selBranch = -1;        // -1 = default branch; >=0 = override index
+let learnTarget = "input"; // 'input' or 'override'
 
 const BTN_LABEL = {
   South: "A", East: "B", North: "Y", West: "X",
@@ -55,7 +57,19 @@ async function pushConfig() {
 
 function layer() { return cfg.layers.find((l) => l.name === selLayer); }
 function binding() { const l = layer(); return l && l.bindings[selBinding]; }
-function phaseList(b) { if (b && !b.on_release) b.on_release = []; return b ? b[selPhase] : null; }
+function branchContainer(b) {
+  if (!b) return null;
+  if (!b.overrides) b.overrides = [];
+  if (selBranch >= 0 && selBranch < b.overrides.length) return b.overrides[selBranch];
+  return b; // default branch
+}
+function phaseList(b) {
+  const c = branchContainer(b);
+  if (!c) return null;
+  if (!c.on_press) c.on_press = [];
+  if (!c.on_release) c.on_release = [];
+  return c[selPhase];
+}
 function action() { const l = phaseList(binding()); return l && l[selAction]; }
 
 function inputLabel(inp) {
@@ -83,7 +97,7 @@ function renderLayers() {
     const li = document.createElement("li");
     li.textContent = l.name;
     if (l.name === selLayer) li.className = "sel";
-    li.onclick = () => { selLayer = l.name; selBinding = 0; selAction = 0; renderBindings(); renderLayers(); };
+    li.onclick = () => { selLayer = l.name; selBinding = 0; selBranch = -1; selAction = 0; renderBindings(); renderLayers(); };
     ul.appendChild(li);
   });
 }
@@ -97,9 +111,10 @@ function renderBindings() {
     if (!b.on_release) b.on_release = [];
     const press = b.on_press.map(actionLabel).join(" + ") || "(none)";
     const rel = b.on_release.length ? "  ⤴ " + b.on_release.map(actionLabel).join(" + ") : "";
-    li.textContent = inputLabel(b.input) + " → " + press + rel;
+    const ovr = (b.overrides && b.overrides.length) ? "  [+" + b.overrides.length + " override" + (b.overrides.length > 1 ? "s" : "") + "]" : "";
+    li.textContent = inputLabel(b.input) + " → " + press + rel + ovr;
     if (i === selBinding) li.className = "sel";
-    li.onclick = () => { selBinding = i; selAction = 0; renderActions(); renderBindings(); };
+    li.onclick = () => { selBinding = i; selBranch = -1; selPhase = "on_press"; selAction = 0; renderActions(); renderBindings(); };
     ul.appendChild(li);
   });
   renderActions();
@@ -109,13 +124,46 @@ function renderActions() {
   const ul = $("actions");
   ul.innerHTML = "";
   const b = binding();
+  if (b && !b.overrides) b.overrides = [];
+
+  const btabs = $("branchTabs");
+  if (btabs) {
+    btabs.innerHTML = "";
+    if (b) {
+      const mk = (idx, label) => {
+        const t = document.createElement("button");
+        t.textContent = label;
+        t.className = "branchtab" + (selBranch === idx ? " sel" : "");
+        t.onclick = () => { selBranch = idx; selPhase = "on_press"; selAction = 0; renderActions(); renderFields(); };
+        btabs.appendChild(t);
+      };
+      mk(-1, "Default");
+      b.overrides.forEach((ov, i) => mk(i, "When " + (ov.when_label || ov.when)));
+      const add = document.createElement("button");
+      add.textContent = "+ override";
+      add.className = "branchtab add";
+      add.onclick = () => startLearnOverride();
+      btabs.appendChild(add);
+      if (selBranch >= 0 && selBranch < b.overrides.length) {
+        const rm = document.createElement("button");
+        rm.textContent = "− remove";
+        rm.className = "branchtab";
+        rm.onclick = () => {
+          b.overrides.splice(selBranch, 1); selBranch = -1; selAction = 0;
+          renderActions(); renderBindings(); pushConfig();
+        };
+        btabs.appendChild(rm);
+      }
+    }
+  }
 
   const tabs = $("phaseTabs");
   if (tabs) {
     tabs.innerHTML = "";
+    const cont = branchContainer(b);
     [["on_press", "On Press (button down)"], ["on_release", "On Release (button up)"]].forEach(([ph, lbl]) => {
       const t = document.createElement("button");
-      const n = b ? (b[ph] ? b[ph].length : 0) : 0;
+      const n = cont && cont[ph] ? cont[ph].length : 0;
       t.textContent = lbl + (n ? " (" + n + ")" : "");
       t.className = "phasetab" + (selPhase === ph ? " sel" : "");
       t.onclick = () => { selPhase = ph; selAction = 0; renderActions(); renderFields(); };
@@ -290,13 +338,19 @@ $("delLayer").onclick = () => {
 $("addBinding").onclick = () => {
   const l = layer(); if (!l) return;
   l.bindings.push({ input: { kind: "button", name: "", label: "unset — Learn input" }, on_press: [], on_release: [] });
-  selBinding = l.bindings.length - 1; renderBindings(); pushConfig();
+  selBinding = l.bindings.length - 1; selBranch = -1; selAction = 0; renderBindings(); pushConfig();
 };
 $("delBinding").onclick = () => {
   const l = layer(); if (!l || !l.bindings.length) return;
-  l.bindings.splice(selBinding, 1); selBinding = 0; renderBindings(); pushConfig();
+  l.bindings.splice(selBinding, 1); selBinding = 0; selBranch = -1; selAction = 0; renderBindings(); pushConfig();
 };
-$("learnInput").onclick = () => { $("status").textContent = "press a control..."; invoke("learn_next"); };
+$("learnInput").onclick = () => { learnTarget = "input"; $("status").textContent = "press a control..."; invoke("learn_next"); };
+function startLearnOverride() {
+  if (!binding()) return;
+  learnTarget = "override";
+  $("status").textContent = "press the control to use as the override condition...";
+  invoke("learn_next");
+}
 
 $("addAction").onclick = () => {
   const b = binding(); if (!b) return;
@@ -396,7 +450,18 @@ listen("learned", (e) => {
   try { const p = JSON.parse(e.payload); code = p.code; label = p.label; }
   catch (_) { code = e.payload; label = e.payload; }
   const b = binding();
-  if (b) { b.input = { kind: "button", name: code, label: label }; renderBindings(); pushConfig(); }
+  if (!b) return;
+  if (learnTarget === "override") {
+    learnTarget = "input";
+    if (!b.overrides) b.overrides = [];
+    b.overrides.push({ when: code, when_label: label, on_press: [], on_release: [] });
+    selBranch = b.overrides.length - 1; selPhase = "on_press"; selAction = 0;
+    renderActions(); renderBindings(); pushConfig();
+    $("status").textContent = "override when: " + (label || code);
+    return;
+  }
+  b.input = { kind: "button", name: code, label: label };
+  renderBindings(); pushConfig();
   $("status").textContent = "learned: " + (label || code);
 });
 

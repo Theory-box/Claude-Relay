@@ -73,3 +73,11 @@ main { display: grid; grid-template-columns: 1fr 1.6fr 1.6fr; gap: 10px; padding
   border: 1px solid #3a3f4b; background: #20242c; color: #c7ccd6; border-radius: 6px;
 }
 .phasetab.sel { background: #2d6cdf; border-color: #2d6cdf; color: #fff; }
+
+.branchtabs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.branchtab {
+  padding: 5px 9px; font-size: 12px; cursor: pointer;
+  border: 1px solid #3a3f4b; background: #20242c; color: #c7ccd6; border-radius: 6px;
+}
+.branchtab.sel { background: #6d4ad8; border-color: #6d4ad8; color: #fff; }
+.branchtab.add { border-style: dashed; color: #9aa3b2; }

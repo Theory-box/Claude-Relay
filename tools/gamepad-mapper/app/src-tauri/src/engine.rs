@@ -61,12 +61,25 @@ pub enum Action {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct Override {
+    pub when: String,
+    #[serde(default)]
+    pub when_label: String,
+    #[serde(default)]
+    pub on_press: Vec<Action>,
+    #[serde(default)]
+    pub on_release: Vec<Action>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Binding {
     pub input: Input,
     #[serde(default)]
     pub on_press: Vec<Action>,
     #[serde(default)]
     pub on_release: Vec<Action>,
+    #[serde(default)]
+    pub overrides: Vec<Override>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -139,6 +152,7 @@ pub struct Engine {
     held_keys: HashMap<String, u64>,
     release_timer: HashMap<String, f64>,
     cursor_paused: bool,
+    active_branch: HashMap<String, i32>,
 }
 
 fn deadzone(v: f64, d: f64) -> f64 {
@@ -167,6 +181,7 @@ impl Engine {
             held_keys: HashMap::new(),
             release_timer: HashMap::new(),
             cursor_paused: false,
+            active_branch: HashMap::new(),
         }
     }
 
@@ -180,6 +195,7 @@ impl Engine {
         self.held_mouse = None;
         self.held_keys.clear();
         self.release_timer.clear();
+        self.active_branch.clear();
     }
 
     pub fn release_all(&mut self, out: &mut dyn Out) {
@@ -200,6 +216,7 @@ impl Engine {
         }
         self.prev.clear();
         self.release_timer.clear();
+        self.active_branch.clear();
     }
 
     fn cur_mods(&self) -> u64 {
@@ -266,8 +283,22 @@ impl Engine {
                 self.release_timer.remove(&name);
                 if !was {
                     if let Some(b) = self.resolve(&name) {
+                        // pick the first override whose 'when' control is held; else default (-1)
+                        let mut branch: i32 = -1;
+                        for (i, ov) in b.overrides.iter().enumerate() {
+                            if st.pressed.contains(&ov.when) {
+                                branch = i as i32;
+                                break;
+                            }
+                        }
+                        self.active_branch.insert(name.clone(), branch);
+                        let acts: &Vec<Action> = if branch >= 0 {
+                            &b.overrides[branch as usize].on_press
+                        } else {
+                            &b.on_press
+                        };
                         let mut revs = Vec::new();
-                        for a in &b.on_press {
+                        for a in acts {
                             if let Some(r) = self.do_action(a, &name, out) {
                                 revs.push(r);
                             }
@@ -290,7 +321,13 @@ impl Engine {
                         }
                     }
                     if let Some(b) = self.resolve(&name) {
-                        for a in &b.on_release {
+                        let branch = self.active_branch.remove(&name).unwrap_or(-1);
+                        let rel: &Vec<Action> = if branch >= 0 && (branch as usize) < b.overrides.len() {
+                            &b.overrides[branch as usize].on_release
+                        } else {
+                            &b.on_release
+                        };
+                        for a in rel {
                             self.do_action(a, &name, out);
                         }
                     }
@@ -438,6 +475,31 @@ mod tests {
           ]
         }"#;
         serde_json::from_str(json).unwrap()
+    }
+
+    #[test]
+    fn override_when_held() {
+        let json = r#"{
+          "deadzone":0.12,
+          "cursor":{"enabled":false,"axis_x":"LeftStickX","axis_y":"LeftStickY","speed":0,"curve":2.0,"invert_y":false},
+          "layers":[{"name":"base","bindings":[
+            {"input":{"kind":"button","name":"A"},
+             "on_press":[{"type":"mouse","button":"left"}],
+             "overrides":[{"when":"X","on_press":[{"type":"mouse","button":"right"}]}]}
+          ]}]
+        }"#;
+        let cfg: Config = serde_json::from_str(json).unwrap();
+        let mut e = Engine::new(cfg);
+        let mut o = Fake { ev: vec![] };
+        // A alone -> default (left)
+        e.tick(&st(&["A"]), 0.01, &mut o);
+        e.tick(&st(&[]), 0.08, &mut o);
+        assert!(o.ev.iter().any(|s| s == "mousetap left 0"));
+        assert!(!o.ev.iter().any(|s| s == "mousetap right 0"));
+        // hold X, then press A -> override (right)
+        e.tick(&st(&["X"]), 0.01, &mut o);
+        e.tick(&st(&["X", "A"]), 0.01, &mut o);
+        assert!(o.ev.iter().any(|s| s == "mousetap right 0"), "override should fire while X held");
     }
 
     #[test]
