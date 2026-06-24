@@ -1,0 +1,67 @@
+:root {
+  --bg: #1e2127;
+  --panel: #262b33;
+  --panel2: #2f353f;
+  --line: #3a414d;
+  --text: #e6e9ee;
+  --muted: #9aa3b2;
+  --accent: #1f8e6c;
+  --accent2: #534ab7;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font: 13px/1.4 -apple-system, system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line);
+}
+.status { color: var(--muted); margin-left: 8px; }
+button {
+  background: var(--panel2);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 5px 10px;
+  cursor: pointer;
+}
+button:hover { border-color: var(--muted); }
+button.primary { background: var(--accent); border-color: transparent; }
+button.running { background: #a33; }
+select, input[type="number"], input[type="text"] {
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 4px 6px;
+}
+input[type="number"] { width: 70px; }
+.settings {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line);
+  flex-wrap: wrap;
+}
+.settings label { color: var(--muted); display: inline-flex; align-items: center; gap: 5px; }
+main { display: grid; grid-template-columns: 1fr 1.6fr 1.6fr; gap: 10px; padding: 10px; flex: 1; min-height: 0; }
+.pane { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px; display: flex; flex-direction: column; min-height: 0; }
+.pane h3 { margin: 0 0 8px; font-size: 12px; text-transform: uppercase; color: var(--muted); letter-spacing: .04em; }
+.list { list-style: none; margin: 0 0 8px; padding: 0; overflow: auto; flex: 1; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); }
+.list li { padding: 6px 9px; cursor: pointer; border-bottom: 1px solid var(--line); }
+.list li:last-child { border-bottom: none; }
+.list li.sel { background: var(--accent2); }
+.row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.fields { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; }
+.fields .frow { display: flex; gap: 6px; align-items: center; }
+.fields label { color: var(--muted); display: inline-flex; gap: 4px; align-items: center; }

@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Gamepad Mapper</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header>
+    <button id="run" class="primary">Start</button>
+    <button id="save">Save</button>
+    <span id="status" class="status">stopped</span>
+  </header>
+
+  <section class="settings" id="settings">
+    <strong>Cursor / feel</strong>
+    <label>deadzone <input type="number" step="0.01" min="0" max="0.6" data-path="deadzone" /></label>
+    <label><input type="checkbox" data-path="cursor.enabled" /> cursor on</label>
+    <label>speed <input type="number" step="50" data-path="cursor.speed" /></label>
+    <label>accel <input type="number" step="0.1" data-path="cursor.curve" /></label>
+    <label><input type="checkbox" data-path="cursor.invert_y" /> invert Y</label>
+  </section>
+
+  <main>
+    <div class="pane">
+      <h3>Layers</h3>
+      <ul id="layers" class="list"></ul>
+      <div class="row">
+        <button id="addLayer">+</button>
+        <button id="delLayer">−</button>
+        <button id="renLayer">rename</button>
+      </div>
+    </div>
+
+    <div class="pane">
+      <h3>Bindings</h3>
+      <ul id="bindings" class="list"></ul>
+      <div class="row">
+        <button id="addBinding">+</button>
+        <button id="delBinding">−</button>
+        <button id="learnInput">Learn input</button>
+      </div>
+    </div>
+
+    <div class="pane">
+      <h3>Actions (run on press)</h3>
+      <ul id="actions" class="list"></ul>
+      <div class="row">
+        <select id="actionType">
+          <option value="key">key</option>
+          <option value="mouse">mouse</option>
+          <option value="scroll">scroll</option>
+          <option value="modifier">modifier</option>
+          <option value="enter_layer">enter_layer</option>
+          <option value="exit_layer">exit_layer</option>
+        </select>
+        <button id="addAction">+</button>
+        <button id="delAction">−</button>
+      </div>
+      <div id="fields" class="fields"></div>
+    </div>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
