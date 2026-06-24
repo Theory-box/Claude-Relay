@@ -108,7 +108,7 @@ pub trait Out {
 
 enum Revert {
     PopLayer(String),
-    ClearMod(String),
+    ClearMod(String, String),
     KeyUp(String, u64),
     MouseUp(String, u64),
 }
@@ -259,8 +259,9 @@ impl Engine {
             }
             Action::Scroll { amount } => out.scroll(*amount),
             Action::Modifier { modname } => {
+                out.key(modname, 0, true);
                 self.mods.insert(name.to_string(), mod_flag(modname));
-                return Some(Revert::ClearMod(name.to_string()));
+                return Some(Revert::ClearMod(name.to_string(), modname.clone()));
             }
             Action::EnterLayer { layer, mode } => match mode.as_str() {
                 "toggle" => {
@@ -297,8 +298,9 @@ impl Engine {
                     self.stack.remove(p);
                 }
             }
-            Revert::ClearMod(n) => {
+            Revert::ClearMod(n, m) => {
                 self.mods.remove(&n);
+                out.key(&m, 0, false);
             }
             Revert::KeyUp(k, f) => out.key(&k, f, false),
             Revert::MouseUp(b, f) => {
