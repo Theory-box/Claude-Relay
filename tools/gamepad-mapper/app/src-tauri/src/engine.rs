@@ -108,7 +108,7 @@ pub trait Out {
 
 enum Revert {
     PopLayer(String),
-    ClearMod(String, String),
+    ClearMod(String),
     KeyUp(String, u64),
     MouseUp(String, u64),
 }
