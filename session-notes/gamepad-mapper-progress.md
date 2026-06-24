@@ -83,3 +83,14 @@ Xbox 360 Controller: axes 0/1 = left stick, 2/3 = right stick, 4 = LT, 5 = RT
 - No Accessibility/Quartz needed anymore (add-on only moves the Blender viewport via bpy).
 - No IPC between add-on and app: both can read the pad; mode just controls whether the
   add-on flies. To avoid the app's cursor moving under Blender during flight, stop the app.
+
+## Add-on v0.9.0 — controller-button Fly/Cursor switch
+- toggle can now be a CONTROLLER BUTTON (pref toggle_btn, -1=none) learned via new
+  VIEW3D_OT_gp_learn_button modal (pumps pygame, captures first pressed button index).
+  Keyboard toggle_key kept as optional alternative.
+- toggle_behavior EnumProperty: TOGGLE (press flips), HOLD_FLY (fly while held, cursor on
+  release), HOLD_CURSOR (cursor while held, fly on release). Default HOLD_FLY. _apply_mode()
+  helper drives both the keyboard path and the button edge-detection (self._tbtn_prev).
+- Button switch is evaluated in BOTH modes (before the cursor-mode early return) so it can
+  flip back out of cursor mode. App-side sync: bind same button; for HOLD_FLY use app
+  on_press=cursor "off", on_release=cursor "on" (so fly=app paused, cursor=app driving).

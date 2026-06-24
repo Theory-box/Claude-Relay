@@ -1,12 +1,12 @@
 bl_info = {
     "name": "Gamepad Fly Navigation",
     "author": "Claude Relay",
-    "version": (0, 8, 0),
+    "version": (0, 9, 0),
     "blender": (4, 2, 0),
     "location": "View3D > Sidebar (N) > Gamepad",
-    "description": "Fly the 3D viewport with the left/right sticks. A hotkey toggles "
-                   "between Fly mode and Cursor mode (Cursor mode yields the sticks to "
-                   "the standalone GamepadMapper app, which drives the OS pointer).",
+    "description": "Fly the 3D viewport with the left/right sticks. A controller button "
+                   "(or key) switches between Fly mode and Cursor mode; Cursor mode yields "
+                   "the sticks to the standalone GamepadMapper app, which drives the OS pointer.",
     "category": "3D View",
 }
 
@@ -92,13 +92,17 @@ def _redraw(context):
             area.tag_redraw()
 
 
+def _mode_status(cursor):
+    return "CURSOR mode (app drives pointer)" if cursor else "FLY mode"
+
+
 # ----------------------------------------------------------------------------
 # settings persistence
 # ----------------------------------------------------------------------------
 SCALAR_KEYS = ['deadzone', 'move_speed', 'look_speed', 'boost_mult',
                'invert_left_y', 'invert_right_y',
                'lx_axis', 'ly_axis', 'rx_axis', 'ry_axis', 'boost_btn',
-               'toggle_key']
+               'toggle_btn', 'toggle_behavior', 'toggle_key']
 
 
 def _settings_path():
@@ -170,19 +174,85 @@ class VIEW3D_OT_gp_load(bpy.types.Operator):
         return {'FINISHED'}
 
 
+class VIEW3D_OT_gp_learn_button(bpy.types.Operator):
+    bl_idname = "view3d.gp_learn_button"
+    bl_label = "Listen for a button"
+    bl_description = "Press a button on the controller to assign it as the Fly/Cursor switch"
+    _timer = None
+
+    def modal(self, context, event):
+        if event.type == 'ESC':
+            return self._end(context, "cancelled")
+        if event.type != 'TIMER':
+            return {'RUNNING_MODAL'}
+        if _js is None or _pg is None:
+            return self._end(context, "no controller")
+        _pg.event.pump()
+        try:
+            for i in range(_js.get_numbuttons()):
+                if _js.get_button(i):
+                    context.preferences.addons[__name__].preferences.toggle_btn = i
+                    return self._end(context, "learned button %d" % i)
+        except Exception:
+            pass
+        return {'RUNNING_MODAL'}
+
+    def _end(self, context, msg):
+        if self._timer is not None:
+            context.window_manager.event_timer_remove(self._timer)
+            self._timer = None
+        self.report({'INFO'}, msg)
+        return {'FINISHED'}
+
+    def execute(self, context):
+        ok, msg = _ensure_pygame()
+        if not ok:
+            self.report({'ERROR'}, msg)
+            return {'CANCELLED'}
+        wm = context.window_manager
+        self._timer = wm.event_timer_add(1.0 / 60.0, window=context.window)
+        wm.modal_handler_add(self)
+        self.report({'INFO'}, "press a button on the controller...")
+        return {'RUNNING_MODAL'}
+
+
 class VIEW3D_OT_gamepad_mode(bpy.types.Operator):
     bl_idname = "view3d.gamepad_mode"
     bl_label = "Toggle Fly / Cursor"
-    bl_description = "Switch between Fly mode (sticks fly the camera) and Cursor mode " \
-                     "(sticks are released to the standalone GamepadMapper app)"
+    bl_description = "Manually switch between Fly mode and Cursor mode"
 
     def execute(self, context):
         wm = context.window_manager
         wm.gamepad_cursor_mode = not wm.gamepad_cursor_mode
-        wm.gamepad_status = ("CURSOR mode (app drives pointer)"
-                             if wm.gamepad_cursor_mode else "FLY mode")
+        wm.gamepad_status = _mode_status(wm.gamepad_cursor_mode)
         _redraw(context)
         return {'FINISHED'}
+
+
+def _apply_mode(wm, behavior, rising, falling):
+    """Update cursor mode from an input edge. Returns True if it changed."""
+    changed = False
+    if behavior == 'TOGGLE':
+        if rising:
+            wm.gamepad_cursor_mode = not wm.gamepad_cursor_mode
+            changed = True
+    elif behavior == 'HOLD_FLY':
+        if rising:
+            wm.gamepad_cursor_mode = False
+            changed = True
+        elif falling:
+            wm.gamepad_cursor_mode = True
+            changed = True
+    elif behavior == 'HOLD_CURSOR':
+        if rising:
+            wm.gamepad_cursor_mode = True
+            changed = True
+        elif falling:
+            wm.gamepad_cursor_mode = False
+            changed = True
+    if changed:
+        wm.gamepad_status = _mode_status(wm.gamepad_cursor_mode)
+    return changed
 
 
 class VIEW3D_OT_gamepad_fly(bpy.types.Operator):
@@ -190,6 +260,7 @@ class VIEW3D_OT_gamepad_fly(bpy.types.Operator):
     bl_label = "Gamepad (modal)"
     _timer = None
     _last = 0.0
+    _tbtn_prev = False
 
     def modal(self, context, event):
         wm = context.window_manager
@@ -201,13 +272,11 @@ class VIEW3D_OT_gamepad_fly(bpy.types.Operator):
 
         p = context.preferences.addons[__name__].preferences
 
-        # hotkey: flip fly/cursor mode and swallow the key so Blender ignores it
-        if event.type == p.toggle_key and event.value == 'PRESS':
-            wm.gamepad_cursor_mode = not wm.gamepad_cursor_mode
-            wm.gamepad_status = ("CURSOR mode (app drives pointer)"
-                                 if wm.gamepad_cursor_mode else "FLY mode")
+        # keyboard switch (kept as an alternative to the controller button)
+        if event.type == p.toggle_key and event.value in {'PRESS', 'RELEASE'}:
+            _apply_mode(wm, p.toggle_behavior, event.value == 'PRESS', event.value == 'RELEASE')
             _redraw(context)
-            return {'RUNNING_MODAL'}
+            return {'RUNNING_MODAL'}  # swallow so Blender ignores it
 
         if event.type != 'TIMER':
             return {'PASS_THROUGH'}
@@ -217,11 +286,6 @@ class VIEW3D_OT_gamepad_fly(bpy.types.Operator):
         now = time.perf_counter()
         dt = min(now - self._last, 0.1)
         self._last = now
-
-        # Cursor mode: do nothing — the standalone app reads the sticks instead.
-        if wm.gamepad_cursor_mode:
-            return {'PASS_THROUGH'}
-
         _pg.event.pump()
 
         def axis(i):
@@ -235,6 +299,18 @@ class VIEW3D_OT_gamepad_fly(bpy.types.Operator):
                 return _js.get_button(i) == 1
             except Exception:
                 return False
+
+        # controller switch — evaluated in BOTH modes so it can flip back
+        if p.toggle_btn >= 0:
+            cur = button(p.toggle_btn)
+            if _apply_mode(wm, p.toggle_behavior, cur and not self._tbtn_prev,
+                           (not cur) and self._tbtn_prev):
+                _redraw(context)
+            self._tbtn_prev = cur
+
+        # Cursor mode: do nothing with the sticks — the standalone app reads them.
+        if wm.gamepad_cursor_mode:
+            return {'PASS_THROUGH'}
 
         lx, ly = axis(p.lx_axis), axis(p.ly_axis)
         rx, ry = axis(p.rx_axis), axis(p.ry_axis)
@@ -281,6 +357,7 @@ class VIEW3D_OT_gamepad_fly(bpy.types.Operator):
         wm = context.window_manager
         wm.gamepad_cursor_mode = False
         wm.gamepad_status = "FLY mode"
+        self._tbtn_prev = False
         self.report({'INFO'}, "Gamepad: %s" % msg)
         self._last = time.perf_counter()
         self._timer = wm.event_timer_add(1.0 / 90.0, window=context.window)
@@ -313,6 +390,12 @@ class VIEW3D_OT_gamepad_toggle(bpy.types.Operator):
 # ----------------------------------------------------------------------------
 # preferences + panel
 # ----------------------------------------------------------------------------
+_BEHAVIOR_ITEMS = [
+    ('TOGGLE', "Toggle (press to switch)", "Each press flips between Fly and Cursor"),
+    ('HOLD_FLY', "Hold to Fly", "Fly while held, Cursor when released"),
+    ('HOLD_CURSOR', "Hold to Cursor", "Cursor while held, Fly when released"),
+]
+
 _TOGGLE_KEY_ITEMS = [
     ('ACCENT_GRAVE', "` (backtick)", ""),
     ('TAB', "Tab", ""),
@@ -341,7 +424,11 @@ class GamepadFlyPrefs(bpy.types.AddonPreferences):
     rx_axis: IntProperty(name="Right X axis", default=2, min=0, max=15)
     ry_axis: IntProperty(name="Right Y axis", default=3, min=0, max=15)
     boost_btn: IntProperty(name="Boost button (-1 = off)", default=4, min=-1, max=20)
-    toggle_key: EnumProperty(name="Fly/Cursor key", items=_TOGGLE_KEY_ITEMS,
+
+    toggle_behavior: EnumProperty(name="Switch behavior", items=_BEHAVIOR_ITEMS,
+                                  default='HOLD_FLY')
+    toggle_btn: IntProperty(name="Fly/Cursor button (-1 = none)", default=-1, min=-1, max=20)
+    toggle_key: EnumProperty(name="Fly/Cursor key (optional)", items=_TOGGLE_KEY_ITEMS,
                              default='ACCENT_GRAVE')
 
     def draw(self, ctx):
@@ -356,12 +443,16 @@ class GamepadFlyPrefs(bpy.types.AddonPreferences):
         r = c.row(); r.prop(self, "deadzone"); r.prop(self, "boost_mult")
         r = c.row(); r.prop(self, "invert_left_y"); r.prop(self, "invert_right_y")
         c.separator()
-        c.label(text="Stick axes (use the standalone app or a tester to find indices)")
+        c.label(text="Stick axes")
         r = c.row(); r.prop(self, "lx_axis"); r.prop(self, "ly_axis")
         r = c.row(); r.prop(self, "rx_axis"); r.prop(self, "ry_axis")
         c.prop(self, "boost_btn")
         c.separator()
-        c.label(text="Mode switch")
+        c.label(text="Fly / Cursor switch")
+        c.prop(self, "toggle_behavior")
+        r = c.row()
+        r.operator("view3d.gp_learn_button", text="Listen for a button", icon='REC')
+        r.prop(self, "toggle_btn")
         c.prop(self, "toggle_key")
 
 
@@ -385,7 +476,10 @@ class VIEW3D_PT_gamepad_fly(bpy.types.Panel):
         row.enabled = running
         row.operator("view3d.gamepad_mode",
                      text="Switch to %s" % ("FLY" if wm.gamepad_cursor_mode else "CURSOR"))
-        col.label(text="Hotkey: %s" % p.toggle_key)
+        if p.toggle_btn >= 0:
+            col.label(text="Switch: button %d (%s)" % (p.toggle_btn, p.toggle_behavior))
+        else:
+            col.label(text="Switch: key %s (%s)" % (p.toggle_key, p.toggle_behavior))
         if wm.gamepad_status:
             col.label(text=wm.gamepad_status)
         col.separator()
@@ -397,6 +491,7 @@ classes = (
     VIEW3D_OT_gp_install_pygame,
     VIEW3D_OT_gp_save,
     VIEW3D_OT_gp_load,
+    VIEW3D_OT_gp_learn_button,
     VIEW3D_OT_gamepad_mode,
     VIEW3D_OT_gamepad_fly,
     VIEW3D_OT_gamepad_toggle,
