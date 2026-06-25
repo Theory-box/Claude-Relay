@@ -358,6 +358,13 @@ function renderScrollAxes() {
 }
 $("learnScrollY").onclick = () => { learnTarget = "scroll_y"; $("status").textContent = "push the stick UP or DOWN..."; invoke("learn_next"); };
 $("learnScrollX").onclick = () => { learnTarget = "scroll_x"; $("status").textContent = "push the stick LEFT or RIGHT..."; invoke("learn_next"); };
+function renderPrecAxis() {
+  if ($("precAxisName")) {
+    const pa = cfg.precision_axis;
+    $("precAxisName").textContent = pa && pa.axis ? (pa.axis + (pa.sign === "NEG" ? "-" : "+")) : "(none)";
+  }
+}
+$("learnPrec").onclick = () => { learnTarget = "precision"; $("status").textContent = "pull the trigger you want for slow-down..."; invoke("learn_next"); };
 
 $("addAction").onclick = () => {
   const b = binding(); if (!b) return;
@@ -425,6 +432,7 @@ document.querySelectorAll("#settings [data-path]").forEach((el) => {
 });
 function fillSettings() {
   renderScrollAxes();
+  renderPrecAxis();
   document.querySelectorAll("#settings [data-path]").forEach((el) => {
     const v = getPath(cfg, el.dataset.path);
     if (el.type === "checkbox") el.checked = !!v; else el.value = v;
@@ -457,6 +465,16 @@ listen("learned", (e) => {
   let code, label;
   try { const p = JSON.parse(e.payload); code = p.code; label = p.label; }
   catch (_) { code = e.payload; label = e.payload; }
+  if (learnTarget === "precision") {
+    learnTarget = "input";
+    if (!cfg.precision_axis) cfg.precision_axis = { enabled: true, axis: "", sign: "POS", factor: 0.3 };
+    cfg.precision_axis.sign = code.endsWith("-") ? "NEG" : "POS";
+    cfg.precision_axis.axis = stripDir(code);
+    cfg.precision_axis.enabled = true;
+    fillSettings(); pushConfig();
+    $("status").textContent = "slow-down trigger set: " + cfg.precision_axis.axis;
+    return;
+  }
   if (learnTarget === "scroll_y" || learnTarget === "scroll_x") {
     const which = learnTarget; learnTarget = "input";
     if (!cfg.scroll) cfg.scroll = { enabled: false, axis_x: "", axis_y: "", speed: 800, invert_x: false, invert_y: false };

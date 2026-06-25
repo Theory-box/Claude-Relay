@@ -60,6 +60,23 @@ fn def_scrollstick() -> ScrollStick {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct PrecisionAxis {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub axis: String,
+    #[serde(default = "def_pos")]
+    pub sign: String,
+    #[serde(default = "def_precision")]
+    pub factor: f64,
+}
+
+fn def_pos() -> String { "POS".to_string() }
+fn def_precision_axis() -> PrecisionAxis {
+    PrecisionAxis { enabled: false, axis: String::new(), sign: "POS".into(), factor: 0.3 }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Input {
     pub kind: String, // "button"
     pub name: String, // raw hardware code (stable per device)
@@ -123,6 +140,8 @@ pub struct Config {
     pub cursor: Cursor,
     #[serde(default = "def_scrollstick")]
     pub scroll: ScrollStick,
+    #[serde(default = "def_precision_axis")]
+    pub precision_axis: PrecisionAxis,
     pub layers: Vec<Layer>,
     #[serde(default = "def_debounce")]
     pub release_debounce_ms: f64,
@@ -142,6 +161,7 @@ pub fn default_config() -> Config {
             invert_y: false,
         },
         scroll: def_scrollstick(),
+        precision_axis: def_precision_axis(),
         layers: vec![
             Layer { name: "base".into(), bindings: vec![] },
             Layer { name: "alt".into(), bindings: vec![] },
@@ -186,6 +206,7 @@ pub struct Engine {
     active_branch: HashMap<String, i32>,
     scroll_acc_x: f64,
     scroll_acc_y: f64,
+    prec_rest: Option<f64>,
 }
 
 fn deadzone(v: f64, d: f64) -> f64 {
@@ -217,6 +238,7 @@ impl Engine {
             active_branch: HashMap::new(),
             scroll_acc_x: 0.0,
             scroll_acc_y: 0.0,
+            prec_rest: None,
         }
     }
 
@@ -231,6 +253,7 @@ impl Engine {
         self.held_keys.clear();
         self.release_timer.clear();
         self.active_branch.clear();
+        self.prec_rest = None;
     }
 
     pub fn release_all(&mut self, out: &mut dyn Out) {
@@ -286,11 +309,32 @@ impl Engine {
     }
 
     pub fn tick(&mut self, st: &InputState, dt: f64, out: &mut dyn Out) {
+        // pressure-sensitive precision: scale slow-down by how far the trigger is pulled
+        let pa_enabled = self.cfg.precision_axis.enabled;
+        let pa_axis = self.cfg.precision_axis.axis.clone();
+        let pa_neg = self.cfg.precision_axis.sign == "NEG";
+        let pa_factor = self.cfg.precision_axis.factor;
+        let mut analog_prec = 1.0_f64;
+        if pa_enabled && !pa_axis.is_empty() {
+            let pv = *st.axes.get(&pa_axis).unwrap_or(&0.0);
+            let rest = *self.prec_rest.get_or_insert(pv); // first sample assumed at rest
+            let full = if pa_neg { -1.0 } else { 1.0 };
+            let denom = full - rest;
+            let mut t = if denom.abs() > 0.1 { (pv - rest) / denom } else { 0.0 };
+            t = t.clamp(0.0, 1.0);
+            analog_prec = 1.0 + t * (pa_factor - 1.0);
+        }
+
         if self.cfg.cursor.enabled && !self.cursor_paused {
             let ax = deadzone(*st.axes.get(&self.cfg.cursor.axis_x).unwrap_or(&0.0), self.cfg.deadzone);
             let ay = deadzone(*st.axes.get(&self.cfg.cursor.axis_y).unwrap_or(&0.0), self.cfg.deadzone);
             if ax != 0.0 || ay != 0.0 {
-                let mult = self.precision.values().cloned().fold(1.0_f64, f64::min);
+                let mult = self
+                    .precision
+                    .values()
+                    .cloned()
+                    .fold(1.0_f64, f64::min)
+                    .min(analog_prec);
                 let spd = self.cfg.cursor.speed * mult * dt;
                 let ey = if self.cfg.cursor.invert_y { -ay } else { ay };
                 out.move_cursor(
@@ -512,7 +556,7 @@ mod tests {
         fn mouse(&mut self, b: &str, d: bool, f: u64) { self.ev.push(format!("mouse {} {} {}", b, d, f)); }
         fn mouse_tap(&mut self, b: &str, f: u64) { self.ev.push(format!("mousetap {} {}", b, f)); }
         fn scroll(&mut self, dx: i32, dy: i32) { self.ev.push(format!("scroll {} {}", dx, dy)); }
-        fn move_cursor(&mut self, _: f64, _: f64, _: Option<&str>) {}
+        fn move_cursor(&mut self, dx: f64, dy: f64, _: Option<&str>) { self.ev.push(format!("move {:.3} {:.3}", dx, dy)); }
     }
 
     fn st(pressed: &[&str]) -> InputState {
@@ -538,6 +582,31 @@ mod tests {
           ]
         }"#;
         serde_json::from_str(json).unwrap()
+    }
+
+    #[test]
+    fn analog_precision() {
+        let json = r#"{
+          "deadzone":0.0,
+          "cursor":{"enabled":true,"axis_x":"LX","axis_y":"LY","speed":1000.0,"curve":1.0,"invert_y":false},
+          "precision_axis":{"enabled":true,"axis":"RT","sign":"POS","factor":0.5},
+          "layers":[{"name":"base","bindings":[]}]
+        }"#;
+        let cfg: Config = serde_json::from_str(json).unwrap();
+        let mut e = Engine::new(cfg);
+        let mut o = Fake { ev: vec![] };
+        let mk = |lx: f64, rt: f64| {
+            let mut a: HashMap<String, f64> = HashMap::new();
+            a.insert("LX".to_string(), lx);
+            a.insert("RT".to_string(), rt);
+            InputState { pressed: HashSet::new(), axes: a }
+        };
+        // trigger at rest (-1) -> no slow: dx = 1000 * 0.01
+        e.tick(&mk(1.0, -1.0), 0.01, &mut o);
+        assert!(o.ev.iter().any(|s| s == "move 10.000 0.000"), "{:?}", o.ev);
+        // trigger fully pulled (+1) -> factor 0.5: dx = 5
+        e.tick(&mk(1.0, 1.0), 0.01, &mut o);
+        assert!(o.ev.iter().any(|s| s == "move 5.000 0.000"), "{:?}", o.ev);
     }
 
     #[test]
