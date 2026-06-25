@@ -458,7 +458,7 @@ listen("status", (e) => {
       "   debounce: " + (s.debounce_ms ?? "-") + "ms" +
       "   fired: " + (s.fired || "-");
     const tr = $("trace");
-    if (tr) tr.textContent = "trace: " + (s.trace || []).slice(-12).join("   ");
+    if (tr) tr.textContent = (s.axinfo ? s.axinfo + "    " : "") + "trace: " + (s.trace || []).slice(-10).join("   ");
   } catch (_) {}
 });
 listen("learned", (e) => {

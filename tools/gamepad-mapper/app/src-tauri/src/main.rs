@@ -251,6 +251,12 @@ fn spawn_engine(app: tauri::AppHandle, shared: Arc<Shared>) {
             }
             let axes_dbg = serde_json::to_value(&axes_show).unwrap_or(serde_json::json!({}));
 
+            // full axes (semantic + raw) for the engine and diagnostics
+            let mut engine_axes = cursor_axes.clone();
+            for (k, v) in &axis_vals {
+                engine_axes.insert(format!("axis{}", k), *v);
+            }
+
             let dt = last.elapsed().as_secs_f64().min(0.1);
             last = Instant::now();
             let running = shared.running.load(Ordering::SeqCst);
@@ -259,11 +265,7 @@ fn spawn_engine(app: tauri::AppHandle, shared: Arc<Shared>) {
             }
             prev_running = running;
             if running {
-                let mut engine_axes = cursor_axes.clone();
-                for (k, v) in &axis_vals {
-                    engine_axes.insert(format!("axis{}", k), *v);
-                }
-                let st = InputState { pressed: pressed.clone(), axes: engine_axes };
+                let st = InputState { pressed: pressed.clone(), axes: engine_axes.clone() };
                 eng.tick(&st, dt, out.as_mut());
             }
 
@@ -280,6 +282,21 @@ fn spawn_engine(app: tauri::AppHandle, shared: Arc<Shared>) {
                     .map(|l| format!("{}({})", l.name, l.bindings.len()))
                     .collect::<Vec<_>>()
                     .join(" ");
+                let axinfo = {
+                    let f = |key: &String| {
+                        if key.is_empty() {
+                            "—".to_string()
+                        } else {
+                            format!("{}={:+.2}", key, engine_axes.get(key).copied().unwrap_or(0.0))
+                        }
+                    };
+                    format!(
+                        "scrollY {} | scrollX {} | prec {}",
+                        f(&eng.cfg.scroll.axis_y),
+                        f(&eng.cfg.scroll.axis_x),
+                        f(&eng.cfg.precision_axis.axis)
+                    )
+                };
                 let status = serde_json::json!({
                     "running": shared.running.load(Ordering::SeqCst),
                     "controller": name,
@@ -293,6 +310,7 @@ fn spawn_engine(app: tauri::AppHandle, shared: Arc<Shared>) {
                     "trace": trace.iter().cloned().collect::<Vec<_>>(),
                     "debounce_ms": eng.cfg.release_debounce_ms,
                     "cursor_on": eng.cursor_active(),
+                    "axinfo": axinfo,
                 });
                 let _ = app.emit("status", status.to_string());
             }
