@@ -251,6 +251,10 @@ impl Engine {
         if let Some(b) = self.held_mouse.take() {
             out.mouse(&b, false, 0);
         }
+        // safety: make sure no modifier key is left held
+        for m in ["shift", "ctrl", "alt", "cmd"] {
+            out.key(m, 0, false);
+        }
         self.prev.clear();
         self.release_timer.clear();
         self.active_branch.clear();
@@ -444,28 +448,36 @@ impl Engine {
         let flags = self.cur_mods();
         match a {
             Action::Key { key, mods, event } => {
-                let mut f = flags;
-                for m in mods {
-                    f |= mod_flag(m);
-                }
+                let base = flags;
                 match event.as_str() {
                     "down" => {
+                        let mut f = base;
+                        for m in mods {
+                            f |= mod_flag(m);
+                        }
                         out.key(key, f, true);
                         self.held_keys.insert(key.clone(), f);
                     }
                     "up" => {
+                        let mut f = base;
+                        for m in mods {
+                            f |= mod_flag(m);
+                        }
                         out.key(key, f, false);
                         self.held_keys.remove(key);
                     }
                     _ => {
-                        // hold the real modifier keys around the tap; flag-only combos
-                        // are ignored by some apps
+                        // press modifiers (flag accumulates), tap key, release modifiers
+                        // (flag steps back down) so no modifier is left "stuck"
+                        let mut cur = base;
                         for m in mods {
-                            out.key(m, f, true);
+                            cur |= mod_flag(m);
+                            out.key(m, cur, true);
                         }
-                        out.key_tap(key, f);
+                        out.key_tap(key, cur);
                         for m in mods.iter().rev() {
-                            out.key(m, f, false);
+                            cur &= !mod_flag(m);
+                            out.key(m, cur, false);
                         }
                     }
                 }
@@ -610,7 +622,7 @@ mod tests {
         // ctrl flag = 0x40000 = 262144
         assert!(o.ev.iter().any(|s| s == "key ctrl 262144 true"), "{:?}", o.ev);
         assert!(o.ev.iter().any(|s| s == "keytap z 262144"), "{:?}", o.ev);
-        assert!(o.ev.iter().any(|s| s == "key ctrl 262144 false"), "{:?}", o.ev);
+        assert!(o.ev.iter().any(|s| s == "key ctrl 0 false"), "{:?}", o.ev);
     }
 
     #[test]
