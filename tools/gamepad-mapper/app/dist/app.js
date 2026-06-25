@@ -194,7 +194,7 @@ function renderFields() {
   if (a.type === "key") {
     const r = frow();
     const inp = document.createElement("input");
-    inp.type = "text"; inp.value = a.key || ""; inp.placeholder = "key";
+    inp.type = "text"; inp.value = a.key || ""; inp.placeholder = "e.g. f3, a, up, space, return";
     inp.oninput = () => { a.key = inp.value; changed(); };
     r.append("key ", inp);
     ["cmd", "shift", "ctrl", "alt"].forEach((m) => {

@@ -53,6 +53,17 @@ fn keycode(name: &str) -> Option<u16> {
     map.iter().find(|(k, _)| *k == n).map(|(_, v)| *v)
 }
 
+// macOS function/navigation keys carry the "secondary Fn" flag on real presses;
+// some apps ignore synthetic F-keys/arrows without it.
+fn needs_fn(kc: u16) -> bool {
+    matches!(
+        kc,
+        122 | 120 | 99 | 118 | 96 | 97 | 98 | 100 | 101 | 109 | 103 | 111 // F1-F12
+            | 123 | 124 | 125 | 126                                       // arrows
+            | 115 | 119 | 116 | 121 | 117                                  // home/end/pgup/pgdn/fwddel
+    )
+}
+
 fn mbtn(b: &str) -> (CGEventType, CGEventType, CGMouseButton) {
     match b {
         "right" => (CGEventType::RightMouseDown, CGEventType::RightMouseUp, CGMouseButton::Right),
@@ -71,8 +82,9 @@ fn cur_loc() -> CGPoint {
 impl Out for MacOut {
     fn key(&mut self, key: &str, flags: u64, down: bool) {
         if let (Some(kc), Some(src)) = (keycode(key), MacOut::src()) {
+            let f = flags | if needs_fn(kc) { 0x0080_0000 } else { 0 };
             if let Ok(ev) = CGEvent::new_keyboard_event(src, kc, down) {
-                ev.set_flags(CGEventFlags::from_bits_truncate(flags));
+                ev.set_flags(CGEventFlags::from_bits_truncate(f));
                 ev.post(CGEventTapLocation::HID);
             }
         }
