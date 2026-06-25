@@ -457,7 +457,17 @@ impl Engine {
                         out.key(key, f, false);
                         self.held_keys.remove(key);
                     }
-                    _ => out.key_tap(key, f),
+                    _ => {
+                        // hold the real modifier keys around the tap; flag-only combos
+                        // are ignored by some apps
+                        for m in mods {
+                            out.key(m, f, true);
+                        }
+                        out.key_tap(key, f);
+                        for m in mods.iter().rev() {
+                            out.key(m, f, false);
+                        }
+                    }
                 }
             }
             Action::Mouse { button, event } => {
@@ -582,6 +592,25 @@ mod tests {
           ]
         }"#;
         serde_json::from_str(json).unwrap()
+    }
+
+    #[test]
+    fn key_combo_presses_real_modifier() {
+        let json = r#"{
+          "deadzone":0.12,
+          "cursor":{"enabled":false,"axis_x":"LeftStickX","axis_y":"LeftStickY","speed":0,"curve":2.0,"invert_y":false},
+          "layers":[{"name":"base","bindings":[
+            {"input":{"kind":"button","name":"A"},"on_press":[{"type":"key","key":"z","mods":["ctrl"]}]}
+          ]}]
+        }"#;
+        let cfg: Config = serde_json::from_str(json).unwrap();
+        let mut e = Engine::new(cfg);
+        let mut o = Fake { ev: vec![] };
+        e.tick(&st(&["A"]), 0.01, &mut o);
+        // ctrl flag = 0x40000 = 262144
+        assert!(o.ev.iter().any(|s| s == "key ctrl 262144 true"), "{:?}", o.ev);
+        assert!(o.ev.iter().any(|s| s == "keytap z 262144"), "{:?}", o.ev);
+        assert!(o.ev.iter().any(|s| s == "key ctrl 262144 false"), "{:?}", o.ev);
     }
 
     #[test]
