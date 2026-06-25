@@ -291,10 +291,9 @@ fn spawn_engine(app: tauri::AppHandle, shared: Arc<Shared>) {
                         }
                     };
                     format!(
-                        "scrollY {} | scrollX {} | prec {}",
+                        "scrollY {} | scrollX {}",
                         f(&eng.cfg.scroll.axis_y),
-                        f(&eng.cfg.scroll.axis_x),
-                        f(&eng.cfg.precision_axis.axis)
+                        f(&eng.cfg.scroll.axis_x)
                     )
                 };
                 let status = serde_json::json!({

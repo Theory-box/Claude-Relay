@@ -60,23 +60,6 @@ fn def_scrollstick() -> ScrollStick {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct PrecisionAxis {
-    #[serde(default)]
-    pub enabled: bool,
-    #[serde(default)]
-    pub axis: String,
-    #[serde(default = "def_pos")]
-    pub sign: String,
-    #[serde(default = "def_precision")]
-    pub factor: f64,
-}
-
-fn def_pos() -> String { "POS".to_string() }
-fn def_precision_axis() -> PrecisionAxis {
-    PrecisionAxis { enabled: false, axis: String::new(), sign: "POS".into(), factor: 0.3 }
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Input {
     pub kind: String, // "button"
     pub name: String, // raw hardware code (stable per device)
@@ -100,7 +83,7 @@ pub enum Action {
     #[serde(rename = "exit_layer")]
     ExitLayer { #[serde(default)] layer: Option<String> },
     #[serde(rename = "precision")]
-    Precision { #[serde(default = "def_precision")] factor: f64 },
+    Precision { #[serde(default = "def_precision")] factor: f64, #[serde(default)] pressure: bool },
     #[serde(rename = "cursor")]
     Cursor { #[serde(default = "def_toggle")] mode: String },
 }
@@ -140,8 +123,6 @@ pub struct Config {
     pub cursor: Cursor,
     #[serde(default = "def_scrollstick")]
     pub scroll: ScrollStick,
-    #[serde(default = "def_precision_axis")]
-    pub precision_axis: PrecisionAxis,
     pub layers: Vec<Layer>,
     #[serde(default = "def_debounce")]
     pub release_debounce_ms: f64,
@@ -161,7 +142,6 @@ pub fn default_config() -> Config {
             invert_y: false,
         },
         scroll: def_scrollstick(),
-        precision_axis: def_precision_axis(),
         layers: vec![
             Layer { name: "base".into(), bindings: vec![] },
             Layer { name: "alt".into(), bindings: vec![] },
@@ -206,7 +186,7 @@ pub struct Engine {
     active_branch: HashMap<String, i32>,
     scroll_acc_x: f64,
     scroll_acc_y: f64,
-    prec_rest: Option<f64>,
+    axis_base: HashMap<String, f64>,
 }
 
 fn deadzone(v: f64, d: f64) -> f64 {
@@ -238,7 +218,7 @@ impl Engine {
             active_branch: HashMap::new(),
             scroll_acc_x: 0.0,
             scroll_acc_y: 0.0,
-            prec_rest: None,
+            axis_base: HashMap::new(),
         }
     }
 
@@ -253,7 +233,6 @@ impl Engine {
         self.held_keys.clear();
         self.release_timer.clear();
         self.active_branch.clear();
-        self.prec_rest = None;
     }
 
     pub fn release_all(&mut self, out: &mut dyn Out) {
@@ -309,33 +288,50 @@ impl Engine {
     }
 
     pub fn tick(&mut self, st: &InputState, dt: f64, out: &mut dyn Out) {
-        // pressure-sensitive precision: scale slow-down by how far the trigger is pulled
-        let pa_enabled = self.cfg.precision_axis.enabled;
-        let pa_axis = self.cfg.precision_axis.axis.clone();
-        let pa_neg = self.cfg.precision_axis.sign == "NEG";
-        let pa_factor = self.cfg.precision_axis.factor;
-        let mut analog_prec = 1.0_f64;
-        if pa_enabled && !pa_axis.is_empty() {
-            let pv = *st.axes.get(&pa_axis).unwrap_or(&0.0);
-            let rest = *self.prec_rest.get_or_insert(pv); // first sample assumed at rest
-            let full = if pa_neg { -1.0 } else { 1.0 };
-            let denom = full - rest;
-            let mut t = if denom.abs() > 0.1 { (pv - rest) / denom } else { 0.0 };
-            t = t.clamp(0.0, 1.0);
-            analog_prec = 1.0 + t * (pa_factor - 1.0);
+        // capture each axis's resting value once (first sample, controller at rest)
+        for (k, v) in &st.axes {
+            self.axis_base.entry(k.clone()).or_insert(*v);
+        }
+
+        // cursor slow-down multiplier: fixed precision actions, plus pressure-sensitive
+        // precision actions bound to a trigger axis (scaled by how far it's pulled)
+        let mut prec_mult = 1.0_f64;
+        for f in self.precision.values() {
+            prec_mult = prec_mult.min(*f);
+        }
+        for lname in &self.stack {
+            if let Some(layer) = self.cfg.layers.iter().find(|l| &l.name == lname) {
+                for b in &layer.bindings {
+                    let nm = &b.input.name;
+                    if !(nm.starts_with("axis") && (nm.ends_with('+') || nm.ends_with('-'))) {
+                        continue;
+                    }
+                    let factor = b.on_press.iter().find_map(|a| match a {
+                        Action::Precision { factor, pressure } if *pressure => Some(*factor),
+                        _ => None,
+                    });
+                    if let Some(factor) = factor {
+                        let axkey = nm.trim_end_matches(|c| c == '+' || c == '-');
+                        let sign = if nm.ends_with('-') { -1.0 } else { 1.0 };
+                        let v = *st.axes.get(axkey).unwrap_or(&0.0);
+                        let base = *self.axis_base.get(axkey).unwrap_or(&v);
+                        let denom = sign - base;
+                        let t = if denom.abs() > 0.1 {
+                            ((v - base) / denom).clamp(0.0, 1.0)
+                        } else {
+                            0.0
+                        };
+                        prec_mult = prec_mult.min(1.0 + t * (factor - 1.0));
+                    }
+                }
+            }
         }
 
         if self.cfg.cursor.enabled && !self.cursor_paused {
             let ax = deadzone(*st.axes.get(&self.cfg.cursor.axis_x).unwrap_or(&0.0), self.cfg.deadzone);
             let ay = deadzone(*st.axes.get(&self.cfg.cursor.axis_y).unwrap_or(&0.0), self.cfg.deadzone);
             if ax != 0.0 || ay != 0.0 {
-                let mult = self
-                    .precision
-                    .values()
-                    .cloned()
-                    .fold(1.0_f64, f64::min)
-                    .min(analog_prec);
-                let spd = self.cfg.cursor.speed * mult * dt;
+                let spd = self.cfg.cursor.speed * prec_mult * dt;
                 let ey = if self.cfg.cursor.invert_y { -ay } else { ay };
                 out.move_cursor(
                     curve(ax, self.cfg.cursor.curve) * spd,
@@ -485,7 +481,11 @@ impl Engine {
                 self.mods.insert(name.to_string(), mod_flag(modname));
                 return Some(Revert::ClearMod(name.to_string(), modname.clone()));
             }
-            Action::Precision { factor } => {
+            Action::Precision { factor, pressure } => {
+                if *pressure {
+                    // applied continuously in tick() based on trigger position
+                    return None;
+                }
                 self.precision.insert(name.to_string(), *factor);
                 return Some(Revert::ClearPrecision(name.to_string()));
             }
@@ -585,26 +585,27 @@ mod tests {
     }
 
     #[test]
-    fn analog_precision() {
+    fn pressure_precision() {
         let json = r#"{
           "deadzone":0.0,
           "cursor":{"enabled":true,"axis_x":"LX","axis_y":"LY","speed":1000.0,"curve":1.0,"invert_y":false},
-          "precision_axis":{"enabled":true,"axis":"RT","sign":"POS","factor":0.5},
-          "layers":[{"name":"base","bindings":[]}]
+          "layers":[{"name":"base","bindings":[
+            {"input":{"kind":"button","name":"axis5+"},"on_press":[{"type":"precision","factor":0.5,"pressure":true}]}
+          ]}]
         }"#;
         let cfg: Config = serde_json::from_str(json).unwrap();
         let mut e = Engine::new(cfg);
         let mut o = Fake { ev: vec![] };
-        let mk = |lx: f64, rt: f64| {
+        let mk = |lx: f64, tr: f64| {
             let mut a: HashMap<String, f64> = HashMap::new();
             a.insert("LX".to_string(), lx);
-            a.insert("RT".to_string(), rt);
+            a.insert("axis5".to_string(), tr);
             InputState { pressed: HashSet::new(), axes: a }
         };
-        // trigger at rest (-1) -> no slow: dx = 1000 * 0.01
+        // trigger at rest (-1) captured as baseline -> full speed
         e.tick(&mk(1.0, -1.0), 0.01, &mut o);
         assert!(o.ev.iter().any(|s| s == "move 10.000 0.000"), "{:?}", o.ev);
-        // trigger fully pulled (+1) -> factor 0.5: dx = 5
+        // trigger fully pulled (+1) -> 0.5x
         e.tick(&mk(1.0, 1.0), 0.01, &mut o);
         assert!(o.ev.iter().any(|s| s == "move 5.000 0.000"), "{:?}", o.ev);
     }

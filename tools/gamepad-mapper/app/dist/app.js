@@ -84,7 +84,7 @@ function actionLabel(a) {
     case "modifier": return "hold " + a.mod;
     case "enter_layer": return "enter '" + a.layer + "' (" + a.mode + ")";
     case "exit_layer": return "exit layer";
-    case "precision": return "slow cursor " + Math.round((a.factor || 0.3) * 100) + "%";
+    case "precision": return "slow cursor " + Math.round((a.factor || 0.3) * 100) + "%" + (a.pressure ? " (pressure)" : "");
     case "cursor": return "cursor " + (a.mode || "toggle");
   }
   return a.type;
@@ -237,7 +237,13 @@ function renderFields() {
     const inp = document.createElement("input"); inp.type = "number"; inp.min = 5; inp.max = 100; inp.step = 5;
     inp.value = Math.round((a.factor ?? 0.3) * 100);
     inp.onchange = () => { let p = parseInt(inp.value); if (isNaN(p)) p = 30; a.factor = Math.min(100, Math.max(5, p)) / 100; changed(); };
-    r.append("cursor speed % while held ", inp); box.append(r);
+    r.append("cursor speed % at full ", inp); box.append(r);
+    const r2 = frow();
+    const lab = document.createElement("label");
+    const c = document.createElement("input"); c.type = "checkbox"; c.checked = !!a.pressure;
+    c.onchange = () => { a.pressure = c.checked; changed(); };
+    lab.append(c, "pressure-sensitive (bind to a trigger)");
+    r2.append(lab); box.append(r2);
   } else if (a.type === "cursor") {
     const r = frow();
     const sel = document.createElement("select");
@@ -358,13 +364,6 @@ function renderScrollAxes() {
 }
 $("learnScrollY").onclick = () => { learnTarget = "scroll_y"; $("status").textContent = "push the stick UP or DOWN..."; invoke("learn_next"); };
 $("learnScrollX").onclick = () => { learnTarget = "scroll_x"; $("status").textContent = "push the stick LEFT or RIGHT..."; invoke("learn_next"); };
-function renderPrecAxis() {
-  if ($("precAxisName")) {
-    const pa = cfg.precision_axis;
-    $("precAxisName").textContent = pa && pa.axis ? (pa.axis + (pa.sign === "NEG" ? "-" : "+")) : "(none)";
-  }
-}
-$("learnPrec").onclick = () => { learnTarget = "precision"; $("status").textContent = "pull the trigger you want for slow-down..."; invoke("learn_next"); };
 
 $("addAction").onclick = () => {
   const b = binding(); if (!b) return;
@@ -376,7 +375,7 @@ $("addAction").onclick = () => {
   if (t === "scroll") Object.assign(a, { amount: 1 });
   if (t === "modifier") Object.assign(a, { mod: "shift" });
   if (t === "enter_layer") Object.assign(a, { layer: cfg.layers[0].name, mode: "momentary" });
-  if (t === "precision") Object.assign(a, { factor: 0.3 });
+  if (t === "precision") Object.assign(a, { factor: 0.3, pressure: false });
   if (t === "cursor") Object.assign(a, { mode: "toggle" });
   list.push(a); selAction = list.length - 1; renderActions(); renderBindings(); pushConfig();
 };
@@ -432,7 +431,6 @@ document.querySelectorAll("#settings [data-path]").forEach((el) => {
 });
 function fillSettings() {
   renderScrollAxes();
-  renderPrecAxis();
   document.querySelectorAll("#settings [data-path]").forEach((el) => {
     const v = getPath(cfg, el.dataset.path);
     if (el.type === "checkbox") el.checked = !!v; else el.value = v;
@@ -465,16 +463,6 @@ listen("learned", (e) => {
   let code, label;
   try { const p = JSON.parse(e.payload); code = p.code; label = p.label; }
   catch (_) { code = e.payload; label = e.payload; }
-  if (learnTarget === "precision") {
-    learnTarget = "input";
-    if (!cfg.precision_axis) cfg.precision_axis = { enabled: true, axis: "", sign: "POS", factor: 0.3 };
-    cfg.precision_axis.sign = code.endsWith("-") ? "NEG" : "POS";
-    cfg.precision_axis.axis = stripDir(code);
-    cfg.precision_axis.enabled = true;
-    fillSettings(); pushConfig();
-    $("status").textContent = "slow-down trigger set: " + cfg.precision_axis.axis;
-    return;
-  }
   if (learnTarget === "scroll_y" || learnTarget === "scroll_x") {
     const which = learnTarget; learnTarget = "input";
     if (!cfg.scroll) cfg.scroll = { enabled: false, axis_x: "", axis_y: "", speed: 800, invert_x: false, invert_y: false };
