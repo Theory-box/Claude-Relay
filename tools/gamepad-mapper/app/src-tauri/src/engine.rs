@@ -32,6 +32,34 @@ pub struct Cursor {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct ScrollStick {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub axis_x: String,
+    #[serde(default)]
+    pub axis_y: String,
+    #[serde(default = "def_scroll_speed")]
+    pub speed: f64,
+    #[serde(default)]
+    pub invert_x: bool,
+    #[serde(default)]
+    pub invert_y: bool,
+}
+
+fn def_scroll_speed() -> f64 { 800.0 }
+fn def_scrollstick() -> ScrollStick {
+    ScrollStick {
+        enabled: false,
+        axis_x: String::new(),
+        axis_y: String::new(),
+        speed: 800.0,
+        invert_x: false,
+        invert_y: false,
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Input {
     pub kind: String, // "button"
     pub name: String, // raw hardware code (stable per device)
@@ -93,6 +121,8 @@ pub struct Layer {
 pub struct Config {
     pub deadzone: f64,
     pub cursor: Cursor,
+    #[serde(default = "def_scrollstick")]
+    pub scroll: ScrollStick,
     pub layers: Vec<Layer>,
     #[serde(default = "def_debounce")]
     pub release_debounce_ms: f64,
@@ -111,6 +141,7 @@ pub fn default_config() -> Config {
             curve: 2.0,
             invert_y: false,
         },
+        scroll: def_scrollstick(),
         layers: vec![
             Layer { name: "base".into(), bindings: vec![] },
             Layer { name: "alt".into(), bindings: vec![] },
@@ -129,7 +160,7 @@ pub trait Out {
     fn key_tap(&mut self, key: &str, flags: u64);
     fn mouse(&mut self, button: &str, down: bool, flags: u64);
     fn mouse_tap(&mut self, button: &str, flags: u64);
-    fn scroll(&mut self, amount: i32);
+    fn scroll(&mut self, dx: i32, dy: i32);
     fn move_cursor(&mut self, dx: f64, dy: f64, held: Option<&str>);
 }
 
@@ -153,6 +184,8 @@ pub struct Engine {
     release_timer: HashMap<String, f64>,
     cursor_paused: bool,
     active_branch: HashMap<String, i32>,
+    scroll_acc_x: f64,
+    scroll_acc_y: f64,
 }
 
 fn deadzone(v: f64, d: f64) -> f64 {
@@ -182,6 +215,8 @@ impl Engine {
             release_timer: HashMap::new(),
             cursor_paused: false,
             active_branch: HashMap::new(),
+            scroll_acc_x: 0.0,
+            scroll_acc_y: 0.0,
         }
     }
 
@@ -263,6 +298,34 @@ impl Engine {
                     curve(ey, self.cfg.cursor.curve) * spd,
                     self.held_mouse.as_deref(),
                 );
+            }
+        }
+
+        if self.cfg.scroll.enabled {
+            let s = &self.cfg.scroll;
+            let mut vy = 0.0;
+            let mut vx = 0.0;
+            if !s.axis_y.is_empty() {
+                let v = deadzone(*st.axes.get(&s.axis_y).unwrap_or(&0.0), self.cfg.deadzone);
+                vy = if s.invert_y { -v } else { v };
+            }
+            if !s.axis_x.is_empty() {
+                let v = deadzone(*st.axes.get(&s.axis_x).unwrap_or(&0.0), self.cfg.deadzone);
+                vx = if s.invert_x { -v } else { v };
+            }
+            if vy != 0.0 || vx != 0.0 {
+                self.scroll_acc_y += vy * s.speed * dt;
+                self.scroll_acc_x += vx * s.speed * dt;
+                let iy = self.scroll_acc_y.trunc() as i32;
+                let ix = self.scroll_acc_x.trunc() as i32;
+                if iy != 0 || ix != 0 {
+                    out.scroll(ix, iy);
+                    self.scroll_acc_y -= iy as f64;
+                    self.scroll_acc_x -= ix as f64;
+                }
+            } else {
+                self.scroll_acc_x = 0.0;
+                self.scroll_acc_y = 0.0;
             }
         }
 
@@ -372,7 +435,7 @@ impl Engine {
                     _ => out.mouse_tap(button, flags),
                 }
             }
-            Action::Scroll { amount } => out.scroll(*amount),
+            Action::Scroll { amount } => out.scroll(0, *amount),
             Action::Modifier { modname } => {
                 out.key(modname, mod_flag(modname), true);
                 self.mods.insert(name.to_string(), mod_flag(modname));
@@ -448,7 +511,7 @@ mod tests {
         fn key_tap(&mut self, k: &str, f: u64) { self.ev.push(format!("keytap {} {}", k, f)); }
         fn mouse(&mut self, b: &str, d: bool, f: u64) { self.ev.push(format!("mouse {} {} {}", b, d, f)); }
         fn mouse_tap(&mut self, b: &str, f: u64) { self.ev.push(format!("mousetap {} {}", b, f)); }
-        fn scroll(&mut self, a: i32) { self.ev.push(format!("scroll {}", a)); }
+        fn scroll(&mut self, dx: i32, dy: i32) { self.ev.push(format!("scroll {} {}", dx, dy)); }
         fn move_cursor(&mut self, _: f64, _: f64, _: Option<&str>) {}
     }
 
@@ -475,6 +538,24 @@ mod tests {
           ]
         }"#;
         serde_json::from_str(json).unwrap()
+    }
+
+    #[test]
+    fn scroll_stick() {
+        let json = r#"{
+          "deadzone":0.1,
+          "cursor":{"enabled":false,"axis_x":"LeftStickX","axis_y":"LeftStickY","speed":0,"curve":2.0,"invert_y":false},
+          "scroll":{"enabled":true,"axis_x":"","axis_y":"RY","speed":1000.0,"invert_x":false,"invert_y":false},
+          "layers":[{"name":"base","bindings":[]}]
+        }"#;
+        let cfg: Config = serde_json::from_str(json).unwrap();
+        let mut e = Engine::new(cfg);
+        let mut o = Fake { ev: vec![] };
+        let mut axes: HashMap<String, f64> = HashMap::new();
+        axes.insert("RY".to_string(), 1.0);
+        let s = InputState { pressed: HashSet::new(), axes };
+        e.tick(&s, 0.05, &mut o); // 1.0 * 1000 * 0.05 = 50
+        assert!(o.ev.iter().any(|x| x == "scroll 0 50"), "{:?}", o.ev);
     }
 
     #[test]

@@ -351,6 +351,13 @@ function startLearnOverride() {
   $("status").textContent = "press the control to use as the override condition...";
   invoke("learn_next");
 }
+function stripDir(code) { return code.replace(/[+-]$/, ""); }
+function renderScrollAxes() {
+  if ($("scrollYName")) $("scrollYName").textContent = (cfg.scroll && cfg.scroll.axis_y) || "(none)";
+  if ($("scrollXName")) $("scrollXName").textContent = (cfg.scroll && cfg.scroll.axis_x) || "(none)";
+}
+$("learnScrollY").onclick = () => { learnTarget = "scroll_y"; $("status").textContent = "push the stick UP or DOWN..."; invoke("learn_next"); };
+$("learnScrollX").onclick = () => { learnTarget = "scroll_x"; $("status").textContent = "push the stick LEFT or RIGHT..."; invoke("learn_next"); };
 
 $("addAction").onclick = () => {
   const b = binding(); if (!b) return;
@@ -417,6 +424,7 @@ document.querySelectorAll("#settings [data-path]").forEach((el) => {
   });
 });
 function fillSettings() {
+  renderScrollAxes();
   document.querySelectorAll("#settings [data-path]").forEach((el) => {
     const v = getPath(cfg, el.dataset.path);
     if (el.type === "checkbox") el.checked = !!v; else el.value = v;
@@ -449,6 +457,15 @@ listen("learned", (e) => {
   let code, label;
   try { const p = JSON.parse(e.payload); code = p.code; label = p.label; }
   catch (_) { code = e.payload; label = e.payload; }
+  if (learnTarget === "scroll_y" || learnTarget === "scroll_x") {
+    const which = learnTarget; learnTarget = "input";
+    if (!cfg.scroll) cfg.scroll = { enabled: false, axis_x: "", axis_y: "", speed: 800, invert_x: false, invert_y: false };
+    const axis = stripDir(code);
+    if (which === "scroll_y") cfg.scroll.axis_y = axis; else cfg.scroll.axis_x = axis;
+    renderScrollAxes(); pushConfig();
+    $("status").textContent = "scroll axis set: " + axis;
+    return;
+  }
   const b = binding();
   if (!b) return;
   if (learnTarget === "override") {

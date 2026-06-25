@@ -6,6 +6,24 @@ use core_graphics::display::CGDisplay;
 use core_graphics::event_source::{CGEventSource, CGEventSourceStateID};
 use core_graphics::geometry::CGPoint;
 
+use std::ffi::c_void;
+
+#[link(name = "CoreGraphics", kind = "framework")]
+extern "C" {
+    fn CGEventCreateScrollWheelEvent(
+        source: *const c_void,
+        units: u32,
+        wheel_count: u32,
+        ...
+    ) -> *mut c_void;
+    fn CGEventPost(tap: u32, event: *const c_void);
+}
+
+#[link(name = "CoreFoundation", kind = "framework")]
+extern "C" {
+    fn CFRelease(cf: *const c_void);
+}
+
 pub struct MacOut;
 
 impl MacOut {
@@ -78,8 +96,18 @@ impl Out for MacOut {
         self.mouse(button, true, flags);
         self.mouse(button, false, flags);
     }
-    fn scroll(&mut self, _amount: i32) {
-        // TODO: native scroll output (core-graphics scroll constructor differs by version)
+    fn scroll(&mut self, dx: i32, dy: i32) {
+        if dx == 0 && dy == 0 {
+            return;
+        }
+        // wheel1 = vertical, wheel2 = horizontal; pixel units (0) for smooth scrolling
+        unsafe {
+            let ev = CGEventCreateScrollWheelEvent(std::ptr::null(), 0u32, 2u32, dy, dx);
+            if !ev.is_null() {
+                CGEventPost(0u32, ev); // kCGHIDEventTap
+                CFRelease(ev as *const std::ffi::c_void);
+            }
+        }
     }
     fn move_cursor(&mut self, dx: f64, dy: f64, held: Option<&str>) {
         let loc = cur_loc();

@@ -94,3 +94,17 @@ Xbox 360 Controller: axes 0/1 = left stick, 2/3 = right stick, 4 = LT, 5 = RT
 - Button switch is evaluated in BOTH modes (before the cursor-mode early return) so it can
   flip back out of cursor mode. App-side sync: bind same button; for HOLD_FLY use app
   on_press=cursor "off", on_release=cursor "on" (so fly=app paused, cursor=app driving).
+
+## Scroll stick + real scroll output + full axes to engine
+- macout.rs: implemented native scroll via FFI CGEventCreateScrollWheelEvent (pixel units,
+  null source, wheel1=vertical wheel2=horizontal) + CGEventPost(kCGHIDEventTap)+CFRelease.
+  Unstubs the Scroll action too. Out::scroll now takes (dx, dy); updated Fake/Noop/LogOut.
+- engine.rs: ScrollStick config block {enabled, axis_x, axis_y, speed(def 800 px/s @ full),
+  invert_x, invert_y}; tick accumulates fractional px (acc += v*speed*dt) and emits integer
+  scroll, resets acc when centered. Config.scroll serde-defaults via def_scrollstick.
+- main.rs: now passes ALL axes to the engine (was left-stick only): added RightStickX/Y
+  semantic + merged raw "axis{code}" values into InputState.axes. Needed so a scroll/cursor
+  axis can reference the right stick.
+- UI: scroll-stick settings (enable/speed/invert V+H) + Learn buttons for vert/horiz axis
+  (learnTarget scroll_y/scroll_x; learned code has +/- stripped to the raw "axis{code}").
+  Stick directions can still be learned as pseudo-buttons for non-scroll actions.

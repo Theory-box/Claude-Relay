@@ -102,7 +102,7 @@ fn make_out() -> Box<dyn Out + Send> {
         fn key_tap(&mut self, _: &str, _: u64) {}
         fn mouse(&mut self, _: &str, _: bool, _: u64) {}
         fn mouse_tap(&mut self, _: &str, _: u64) {}
-        fn scroll(&mut self, _: i32) {}
+        fn scroll(&mut self, _: i32, _: i32) {}
         fn move_cursor(&mut self, _: f64, _: f64, _: Option<&str>) {}
     }
     Box::new(Noop)
@@ -129,8 +129,9 @@ impl Out for LogOut {
         *self.log.lock().unwrap() = format!("{} click", b);
         self.inner.mouse_tap(b, f);
     }
-    fn scroll(&mut self, a: i32) {
-        self.inner.scroll(a);
+    fn scroll(&mut self, dx: i32, dy: i32) {
+        *self.log.lock().unwrap() = format!("scroll {} {}", dx, dy);
+        self.inner.scroll(dx, dy);
     }
     fn move_cursor(&mut self, dx: f64, dy: f64, h: Option<&str>) {
         self.inner.move_cursor(dx, dy, h);
@@ -221,6 +222,8 @@ fn spawn_engine(app: tauri::AppHandle, shared: Arc<Shared>) {
                 name = g.name().to_string();
                 cursor_axes.insert("LeftStickX".to_string(), g.value(Axis::LeftStickX) as f64);
                 cursor_axes.insert("LeftStickY".to_string(), g.value(Axis::LeftStickY) as f64);
+                cursor_axes.insert("RightStickX".to_string(), g.value(Axis::RightStickX) as f64);
+                cursor_axes.insert("RightStickY".to_string(), g.value(Axis::RightStickY) as f64);
             }
 
             if shared.learn.load(Ordering::SeqCst) {
@@ -256,7 +259,11 @@ fn spawn_engine(app: tauri::AppHandle, shared: Arc<Shared>) {
             }
             prev_running = running;
             if running {
-                let st = InputState { pressed: pressed.clone(), axes: cursor_axes };
+                let mut engine_axes = cursor_axes.clone();
+                for (k, v) in &axis_vals {
+                    engine_axes.insert(format!("axis{}", k), *v);
+                }
+                let st = InputState { pressed: pressed.clone(), axes: engine_axes };
                 eng.tick(&st, dt, out.as_mut());
             }
 

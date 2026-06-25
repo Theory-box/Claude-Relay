@@ -23,6 +23,13 @@
     <label>accel <input type="number" step="0.1" data-path="cursor.curve" /></label>
     <label><input type="checkbox" data-path="cursor.invert_y" /> invert Y</label>
     <label title="ignore button release blips shorter than this — raise it if a held button rapidly clicks">debounce ms <input type="number" step="5" min="0" max="400" data-path="release_debounce_ms" /></label>
+    <strong style="margin-left:12px">Scroll stick</strong>
+    <label><input type="checkbox" data-path="scroll.enabled" /> scroll on</label>
+    <label>speed <input type="number" step="50" min="0" max="4000" data-path="scroll.speed" /></label>
+    <label><input type="checkbox" data-path="scroll.invert_y" /> invert V</label>
+    <label><input type="checkbox" data-path="scroll.invert_x" /> invert H</label>
+    <label>vert axis: <span id="scrollYName">(none)</span> <button id="learnScrollY">learn</button></label>
+    <label>horiz axis: <span id="scrollXName">(none)</span> <button id="learnScrollX">learn</button></label>
   </section>
 
   <div class="diag" id="diag">diagnostics…</div>
