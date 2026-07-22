@@ -139,3 +139,9 @@ Radius-derived rest length so fat strands/chains space out instead of overlappin
 - Broken strands split into free ends → reactive again, so with bonding on a tear can re-heal (no cooldown, by design).
 - Reset preserves breakable + breakStrain.
 - Deferred fast-follows discussed: fatigue/damage accumulation (wear), force-based (tension) mode, optional re-bond cooldown.
+
+---
+
+## Cut & break now SEVER, not delete
+
+Previously cut (G.segs.filter) and break (removeDead splice) deleted the whole segment, leaving a gap (material appeared to vanish). Now both call **severSegment(i,t)**: splits the segment at param t into two half-segments (A–m1, m2–B) with two fresh free-end nodes at the split point (tiny perpendicular offset), proportional rest lengths, original edge dropped. Material (total rest length) is conserved; the strand just separates where you cut/tear. Cut computes t from the cut-line/segment intersection; break severs at midpoint (t=0.5). Verified: material conserved, splits into pieces, no NaN on the real scene. Note: reset re-imports for file scenes (discards the split nodes → back to original); demo-scene reset is a no-op after a sever (node-count guard).
