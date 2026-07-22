@@ -739,7 +739,9 @@ function segColor(s){
   }
 }
 function render(){
+  ctx.setTransform(1,0,0,1,0,0);
   ctx.clearRect(0,0,S.W,S.H);
+  ctx.setTransform(view.z,0,0,view.z,view.ox,view.oy);   // zoom + pan
   ctx.strokeStyle='rgba(90,95,136,0.10)';ctx.lineWidth=1;ctx.strokeRect(S.pad-6,S.pad-6,S.W-2*(S.pad-6),S.H-2*(S.pad-6));
   // draw non-solid segments sorted by height (low first) for a weave cue; solid walls on top, opaque
   const order=G.segs.map((s,i)=>i).sort((i,j)=>{
@@ -787,7 +789,8 @@ function cutLine(x0,y0,x1,y1){
   for(let i=0;i<G.segs.length;i++)G.objs[G.segs[i].obj].segIdx.push(i);
   buildNbrs();computeExclusions();refreshStats();   // keep original rest-bend; cut points just become free ends/hinges
   return remove.size;}
-function canvasXY(e){const r=cvs.getBoundingClientRect();return [e.clientX-r.left,e.clientY-r.top];}
+let view={z:1,ox:0,oy:0},panning=false,panSX=0,panSY=0,panOX=0,panOY=0;
+function canvasXY(e){const r=cvs.getBoundingClientRect();const sx=e.clientX-r.left,sy=e.clientY-r.top;return [(sx-view.ox)/view.z,(sy-view.oy)/view.z];}
 function dragApply(){if(grab<0||grab>=G.nodes.length)return;const n=G.nodes[grab];
   n.x+=(gx-n.x)*0.5;n.y+=(gy-n.y)*0.5;n.px=n.x;n.py=n.y;}
 cvs.style.cursor='grab';
@@ -795,14 +798,33 @@ cvs.addEventListener('pointerdown',e=>{const [mx,my]=canvasXY(e);
   if(tool==='cut'){cutting=true;cx0=cx1=mx;cy0=cy1=my;cvs.setPointerCapture(e.pointerId);return;}
   let best=-1,bd=28*28;
   for(let i=0;i<G.nodes.length;i++){const n=G.nodes[i];const d=(n.x-mx)*(n.x-mx)+(n.y-my)*(n.y-my);if(d<bd){bd=d;best=i;}}
-  if(best>=0){grab=best;gx=mx;gy=my;cvs.setPointerCapture(e.pointerId);cvs.style.cursor='grabbing';}});
-cvs.addEventListener('pointermove',e=>{const [mx,my]=canvasXY(e);
+  if(best>=0){grab=best;gx=mx;gy=my;cvs.setPointerCapture(e.pointerId);cvs.style.cursor='grabbing';}
+  else{const r=cvs.getBoundingClientRect();panning=true;panSX=e.clientX-r.left;panSY=e.clientY-r.top;panOX=view.ox;panOY=view.oy;cvs.setPointerCapture(e.pointerId);cvs.style.cursor='move';}});   // drag empty space = pan
+cvs.addEventListener('pointermove',e=>{
+  if(panning){const r=cvs.getBoundingClientRect();view.ox=panOX+(e.clientX-r.left-panSX);view.oy=panOY+(e.clientY-r.top-panSY);return;}
+  const [mx,my]=canvasXY(e);
   if(cutting){cx1=mx;cy1=my;return;}
   if(grab>=0){gx=mx;gy=my;}});
 cvs.addEventListener('pointerup',()=>{
+  if(panning){panning=false;cvs.style.cursor=tool==='cut'?'crosshair':'grab';return;}
   if(cutting){cutting=false;if(Math.hypot(cx1-cx0,cy1-cy0)>4)cutLine(cx0,cy0,cx1,cy1);return;}
   grab=-1;cvs.style.cursor='grab';});
-cvs.addEventListener('pointercancel',()=>{grab=-1;cutting=false;cvs.style.cursor=tool==='cut'?'crosshair':'grab';});
+cvs.addEventListener('pointercancel',()=>{grab=-1;cutting=false;panning=false;cvs.style.cursor=tool==='cut'?'crosshair':'grab';});
+cvs.addEventListener('wheel',e=>{e.preventDefault();const r=cvs.getBoundingClientRect();const sx=e.clientX-r.left,sy=e.clientY-r.top;
+  const wx=(sx-view.ox)/view.z,wy=(sy-view.oy)/view.z;                       // world point under cursor
+  const nz=clamp(view.z*Math.exp(-e.deltaY*0.0012),0.25,6);
+  view.ox=sx-wx*nz;view.oy=sy-wy*nz;view.z=nz;},{passive:false});           // zoom toward cursor
+function resetView(){view.z=1;view.ox=0;view.oy=0;}
+
+function stepFrame(){attract();endpointForces();for(let k=0;k<S.speed;k++){integrate();flagBondBreaks();constraints();collide();wallCCD();dragApply();}maintainBonds();}
+window.addEventListener('keydown',e=>{const tag=(e.target.tagName||'').toLowerCase();if(tag==='input'||tag==='select'||tag==='textarea')return;
+  const k=e.key.toLowerCase();
+  if(k==='r'){resetSim();}
+  else if(k==='g'){setTool('move');}
+  else if(k==='k'){setTool('cut');}
+  else if(k==='f'){resetView();}
+  else if(k===' '){e.preventDefault();S.running=!S.running;const bp=document.getElementById('bPlay');if(bp)bp.textContent=S.running?'Pause':'Play';}
+  else if((k==='arrowright'||k==='arrowleft')&&!S.running){e.preventDefault();stepFrame();}});
 
 let ema=60,lastT=performance.now();
 function frame(now){const dt=now-lastT;lastT=now;ema=ema*0.9+(1000/Math.max(1,dt))*0.1;
