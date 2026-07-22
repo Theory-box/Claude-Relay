@@ -740,8 +740,8 @@ function segColor(s){
 }
 function render(){
   ctx.setTransform(1,0,0,1,0,0);
-  ctx.clearRect(0,0,S.W,S.H);
-  ctx.setTransform(view.z,0,0,view.z,view.ox,view.oy);   // zoom + pan
+  ctx.clearRect(0,0,cvs.width,cvs.height);                                        // clear the FULL device-pixel canvas
+  ctx.setTransform(S.dpr*view.z,0,0,S.dpr*view.z,S.dpr*view.ox,S.dpr*view.oy);    // DPR * zoom/pan (world -> device pixels)
   ctx.strokeStyle='rgba(90,95,136,0.10)';ctx.lineWidth=1;ctx.strokeRect(S.pad-6,S.pad-6,S.W-2*(S.pad-6),S.H-2*(S.pad-6));
   // draw non-solid segments sorted by height (low first) for a weave cue; solid walls on top, opaque
   const order=G.segs.map((s,i)=>i).sort((i,j)=>{
@@ -794,7 +794,9 @@ function canvasXY(e){const r=cvs.getBoundingClientRect();const sx=e.clientX-r.le
 function dragApply(){if(grab<0||grab>=G.nodes.length)return;const n=G.nodes[grab];
   n.x+=(gx-n.x)*0.5;n.y+=(gy-n.y)*0.5;n.px=n.x;n.py=n.y;}
 cvs.style.cursor='grab';
-cvs.addEventListener('pointerdown',e=>{const [mx,my]=canvasXY(e);
+cvs.addEventListener('pointerdown',e=>{
+  if(e.button===1){const r=cvs.getBoundingClientRect();panning=true;panSX=e.clientX-r.left;panSY=e.clientY-r.top;panOX=view.ox;panOY=view.oy;cvs.setPointerCapture(e.pointerId);cvs.style.cursor='move';e.preventDefault();return;}   // middle-mouse pan
+  const [mx,my]=canvasXY(e);
   if(tool==='cut'){cutting=true;cx0=cx1=mx;cy0=cy1=my;cvs.setPointerCapture(e.pointerId);return;}
   let best=-1,bd=28*28;
   for(let i=0;i<G.nodes.length;i++){const n=G.nodes[i];const d=(n.x-mx)*(n.x-mx)+(n.y-my)*(n.y-my);if(d<bd){bd=d;best=i;}}
@@ -811,9 +813,13 @@ cvs.addEventListener('pointerup',()=>{
   grab=-1;cvs.style.cursor='grab';});
 cvs.addEventListener('pointercancel',()=>{grab=-1;cutting=false;panning=false;cvs.style.cursor=tool==='cut'?'crosshair':'grab';});
 cvs.addEventListener('wheel',e=>{e.preventDefault();const r=cvs.getBoundingClientRect();const sx=e.clientX-r.left,sy=e.clientY-r.top;
-  const wx=(sx-view.ox)/view.z,wy=(sy-view.oy)/view.z;                       // world point under cursor
-  const nz=clamp(view.z*Math.exp(-e.deltaY*0.0012),0.25,6);
-  view.ox=sx-wx*nz;view.oy=sy-wy*nz;view.z=nz;},{passive:false});           // zoom toward cursor
+  const pinch=e.ctrlKey;                                                          // Mac pinch surfaces as wheel+ctrlKey
+  const mouseWheel=!pinch&&e.deltaX===0&&Math.abs(e.deltaY)>=50&&Number.isInteger(e.deltaY);   // classic mouse notch
+  if(pinch||mouseWheel){const wx=(sx-view.ox)/view.z,wy=(sy-view.oy)/view.z;      // zoom toward cursor
+    const nz=clamp(view.z*Math.exp(-e.deltaY*(pinch?0.01:0.0015)),0.25,6);
+    view.ox=sx-wx*nz;view.oy=sy-wy*nz;view.z=nz;}
+  else{view.ox-=e.deltaX;view.oy-=e.deltaY;}                                      // two-finger trackpad scroll = pan
+},{passive:false});
 function resetView(){view.z=1;view.ox=0;view.oy=0;}
 
 function stepFrame(){attract();endpointForces();for(let k=0;k<S.speed;k++){integrate();flagBondBreaks();constraints();collide();wallCCD();dragApply();}maintainBonds();}
