@@ -782,7 +782,6 @@ function cutLine(x0,y0,x1,y1){
   G.segs=G.segs.filter((_,i)=>!remove.has(i));
   for(const o of G.objs)o.segIdx=[];
   for(let i=0;i<G.segs.length;i++)G.objs[G.segs[i].obj].segIdx.push(i);
-  for(const oi of cutObjs){const o=G.objs[oi],t=objType(o);const p=ensureProf(o,t);if(!p.sStr&&!p.wStr){p.sStr=0.5;p.wStr=0.3;}}  // fresh cut ends grip/seek their own kind
   buildNbrs();computeExclusions();refreshStats();   // keep original rest-bend; cut points just become free ends/hinges
   return remove.size;}
 function canvasXY(e){const r=cvs.getBoundingClientRect();return [e.clientX-r.left,e.clientY-r.top];}

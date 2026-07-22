@@ -97,3 +97,11 @@ far strands' rest memory is byte-identical before/after a cut.
 Headless Playwright (chromium at `/home/claude/.pw`, env `PLAYWRIGHT_BROWSERS_PATH`). Extract the
 `<script>` block → `node --check` for syntax. Write tests to `.js` files then run. Always
 `pkill -9 chromium` after each test (sandbox gets flaky otherwise). Verify numerically, not by eye.
+
+---
+
+## Follow-up fixes (cutting audit)
+
+- **Cross-object bonding** now works one-way (either side attracting is enough; a repel blocks it).
+- **Merge scope** fixed: merging one string of a multi-string object joins only that string, not the whole object (reassigns the fused connected-piece; averages attributes only in the clean single-string case).
+- **Removed cut auto-rejoin.** It set the whole object's own-type profile on cut, which in the type-based model activates attraction for *every* same-type end — causing scene-wide "everything zooms together" on the first cut, cuts snapping back instantly, and lag + reset-proof weirdness (a persisted setting, not geometry; turning off bonding masked it). Cutting now just cuts. Proper per-cut rejoin needs the deferred "separate ids by connected geometry" (per-piece ids) feature so it can target only the two fresh ends.
