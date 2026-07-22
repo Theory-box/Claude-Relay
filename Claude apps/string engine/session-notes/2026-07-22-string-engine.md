@@ -145,3 +145,9 @@ Radius-derived rest length so fat strands/chains space out instead of overlappin
 ## Cut & break now SEVER, not delete
 
 Previously cut (G.segs.filter) and break (removeDead splice) deleted the whole segment, leaving a gap (material appeared to vanish). Now both call **severSegment(i,t)**: splits the segment at param t into two half-segments (A–m1, m2–B) with two fresh free-end nodes at the split point (tiny perpendicular offset), proportional rest lengths, original edge dropped. Material (total rest length) is conserved; the strand just separates where you cut/tear. Cut computes t from the cut-line/segment intersection; break severs at midpoint (t=0.5). Verified: material conserved, splits into pieces, no NaN on the real scene. Note: reset re-imports for file scenes (discards the split nodes → back to original); demo-scene reset is a no-op after a sever (node-count guard).
+
+---
+
+## Fix: break + self-bonding freeze (runaway break/rebond loop)
+
+When a shape was both breakable AND self-bonding, a break created two free ends ~1.2px apart → self-connectivity instantly re-bonded/merged them → the re-merged segment was still over-strained → broke again → forever, growing nodes and running rebuildTopology twice/frame until the program froze. Fix: a **bonding cooldown** — severSegment stamps the new ends with `noBond = S.frame + 30`; endpointForces skips force+bond for any end whose cooldown hasn't expired (added a global `S.frame` counter, incremented in frame()/stepFrame()). Freshly-severed ends stay inert for 30 frames so they separate instead of re-healing into a loop. Verified: breakable+self-bonding strand under a sustained yank stabilizes at a bounded node count (8→14→14…) instead of exploding; no NaN.
