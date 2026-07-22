@@ -151,8 +151,8 @@
           <div class="ctrl"><label>Pad · vs others <input id="ePadON" class="numin" type="number" step="0.5"></label><input id="ePadO" type="range" min="0" max="24" value="0" step="0.5"><div class="stat" style="margin-top:3px"><span>cushion against other objects</span></div></div>
           <div class="ctrl"><label>Pad · self <input id="ePadSN" class="numin" type="number" step="0.5"></label><input id="ePadS" type="range" min="0" max="24" value="0" step="0.5"><div class="stat" style="margin-top:3px"><span>cushion within its own body</span></div></div>
           <div class="seg" style="margin-top:10px"><button id="eAutoSpace">expand to fit</button></div>
-          <div class="stat" style="margin-top:3px"><span>links grow until no two points sit closer than the thickness+padding — the mesh gently inflates so nothing overlaps (off = keep imported shape)</span></div>
-          <div class="ctrl" id="eSpaceRow" style="margin-top:6px"><label>Spacing ×<input id="eSpaceN" class="numin" type="number" step="0.05"></label><input id="eSpace" type="range" min="0.5" max="3" value="1" step="0.05"><div class="stat" style="margin-top:3px"><span>extra breathing room beyond bare contact</span></div></div>
+          <div class="stat" style="margin-top:3px"><span>scales the whole object (proportions kept) — Size sets how big; it can't go below the point where its thickness+padding would overlap (off = keep imported shape)</span></div>
+          <div class="ctrl" id="eSpaceRow" style="margin-top:6px"><label>Size ×<input id="eSpaceN" class="numin" type="number" step="0.05"></label><input id="eSpace" type="range" min="0.25" max="5" value="1" step="0.05"><div class="stat" style="margin-top:3px"><span>1 = authored size · higher = bigger · floored so nothing overlaps</span></div></div>
         </div>
         <div class="etabpanel" data-epanel="affinity">
           <div id="interWrap"></div>
@@ -223,20 +223,22 @@ const S={temp:0.7,speed:1,running:true,W:0,H:0,dpr:1,pad:26,scene:'box',
 const OBJDEF={r:3,stiff:0.12,curl:0,grow:0,affinity:1,polarity:1,solid:false,fixed:false,color:null,autoSpace:false,spaceMult:1,breakable:false,brkStretch:true,brkAbs:false,bendAbsLim:90,brkRel:false,bendRelLim:60};
 // per-object attribute + global offset (0 = use imported value untouched)
 function effR(o){return Math.max(0.5,o.r+S.gThick);}
-function objMinContact(o){return (2*effR(o)+(o.padSelf||0))*(o.spaceMult||1);}   // closest two points may sit this far apart before overlapping
-function objScaleNeeded(o){let minR=1e9;for(const si of o.segIdx){const s=G.segs[si];if(s.bond)continue;if(s.rest0===undefined)s.rest0=s.rest;if(s.rest0<minR)minR=s.rest0;}
-  if(minR>=1e9||minR<=0)return 1;return Math.min(8,Math.max(1,objMinContact(o)/minR));}   // uniform factor so the shortest link reaches contact (capped so one degenerate tiny edge can't explode the whole shape)
-function applyAutoSpace(o){if(!o.segIdx)return;const f=objScaleNeeded(o);o.spaceScale=f;   // instant (used on load)
+function objMinContact(o){return 2*effR(o)+(o.padSelf||0);}   // closest two points may sit this far apart before their padded thickness overlaps
+function objTargetScale(o){   // spacing (spaceMult) is a DIRECT size multiplier; floored so the shortest link never sits closer than contact
+  let minR=1e9;for(const si of o.segIdx){const s=G.segs[si];if(s.bond)continue;if(s.rest0===undefined)s.rest0=s.rest;if(s.rest0<minR)minR=s.rest0;}
+  const floor=(minR>=1e9||minR<=0)?1:objMinContact(o)/minR;   // minimum scale so the shortest link clears the padded thickness (rises as thickness/padding grows)
+  return Math.min(12,Math.max(o.spaceMult||1,floor));}         // honor the requested size, but never overlap; capped so a degenerate tiny edge can't explode it
+function applyAutoSpace(o){if(!o.segIdx)return;const f=objTargetScale(o);o.spaceScale=f;   // instant (used on load)
   for(const si of o.segIdx){const s=G.segs[si];if(s.bond)continue;s.rest=s.rest0*f;}}
 function clearAutoSpace(o){for(const si of o.segIdx){const s=G.segs[si];if(s.rest0!==undefined)s.rest=s.rest0;}o.spaceScale=1;}   // restore authored lengths
 function refreshAutoSpace(o){if(o.autoSpace)applyAutoSpace(o);else clearAutoSpace(o);}
-function relaxSpacing(){   // LIVE, gradual: scale the WHOLE object up (all links x one factor, proportions preserved) until its shortest link clears the padded thickness, so the mesh inflates uniformly to fit; collision steers the extra size outward. Reacts to thickness/padding/spacing changes; settles once big enough
+function relaxSpacing(){   // LIVE, gradual: scale the WHOLE object (all links x one factor, proportions preserved) toward the requested size, floored so nothing overlaps. Spacing grows/shrinks it; raising thickness raises the floor so it inflates to make room. Collision steers the extra size outward
   let recompute=false;
   for(const o of G.objs){if(!o.autoSpace||!o.segIdx||!o.segIdx.length)continue;
-    const needed=objScaleNeeded(o);o.spaceScale=(o.spaceScale!=null?o.spaceScale:1);o.spaceScale+=(needed-o.spaceScale)*0.08;   // ease the scale toward what's needed
+    const target=objTargetScale(o);o.spaceScale=(o.spaceScale!=null?o.spaceScale:1);o.spaceScale+=(target-o.spaceScale)*0.08;
     for(const si of o.segIdx){const s=G.segs[si];if(s.bond)continue;if(s.rest0===undefined)s.rest0=s.rest;s.rest=s.rest0*o.spaceScale;}
     recompute=true;}
-  if(recompute&&(S.frame%30===0))computeExclusions();}   // as the mesh grows, refresh exclusions so self-collision on folds keeps working
+  if(recompute&&(S.frame%30===0))computeExclusions();}
 function effStiff(o){return clamp(o.stiff+S.gStiff,0,1);}
 function effCurl(o){return o.curl+S.gCurl;}
 function effGrow(o){return o.grow+S.gGrow;}
