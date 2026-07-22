@@ -154,8 +154,7 @@
           <div class="stat" style="margin-top:3px"><span>space this object's nodes by radius so fat strands don't overlap (off = keep imported shape)</span></div>
           <div class="ctrl" id="eSpaceRow" style="margin-top:6px"><label>Spacing <input id="eSpaceN" class="numin" type="number" step="0.05"></label><input id="eSpace" type="range" min="0.5" max="2.5" value="1" step="0.05"></div>
           <div class="seg" style="margin-top:10px"><button id="eBreak">breakable</button></div>
-          <div class="stat" style="margin-top:3px"><span>segments snap when stretched too far (off = unbreakable)</span></div>
-          <div class="ctrl" id="eBreakRow" style="margin-top:6px"><label>Break at <input id="eBreakSN" class="numin" type="number" step="0.1"></label><input id="eBreakS" type="range" min="1.2" max="6" value="2.5" step="0.1"><div class="stat" style="margin-top:3px"><span>× rest length before it tears</span></div></div>
+          <div class="stat" style="margin-top:3px"><span>edges tear when stretched past the break distance (set in Connect · off = unbreakable)</span></div>
         </div>
         <div class="etabpanel" data-epanel="affinity">
           <div id="interWrap"></div>
@@ -187,8 +186,8 @@
         <div class="seg" style="margin-top:10px"><button id="sBond" class="on">bonding master (kill-switch)</button></div>
         <div class="stat" style="margin-top:3px"><span>on by default \u00b7 turn bonding on per-object in its Connect tab</span></div>
         <p class="eyebrow" style="margin:12px 0 4px">Defaults for new connections</p>
-        <div class="ctrl" style="margin-top:6px"><label>Snap range <span class="val" id="vBSnap">9</span></label><input id="sBSnap" type="range" min="2" max="30" value="9" step="1"></div>
-        <div class="ctrl"><label>Break dist <span class="val" id="vBBrk">27</span></label><input id="sBBrk" type="range" min="6" max="150" value="27" step="3"><div class="stat" style="margin-top:3px"><span>how far a bond stretches before it lets go (kept above snap = no buzz)</span></div></div>
+        <div class="ctrl" style="margin-top:6px"><label>Snap distance <span class="val" id="vBSnap">1.5</span></label><input id="sBSnap" type="range" min="0.3" max="4" value="1.5" step="0.1"></div>
+        <div class="ctrl"><label>Break distance <span class="val" id="vBBrk">2.5</span></label><input id="sBBrk" type="range" min="0.5" max="8" value="2.5" step="0.1"><div class="stat" style="margin-top:3px"><span>× rest length; stays above snap = no buzz</span></div></div>
         <div class="ctrl"><label>Merge time <span class="val" id="vBCure">0 · instant</span></label><input id="sBCure" type="range" min="0" max="900" value="0" step="15"><div class="stat" style="margin-top:3px"><span>0 = fuse on contact</span><span>high = stays elastic</span></div></div>
         <div class="ctrl" style="margin-top:6px"><label>Merge blend <span class="val" id="vBBlend">1 · average</span></label><input id="sBBlend" type="range" min="0" max="1" value="1" step="0.1"><div class="stat" style="margin-top:3px"><span>0 = keep separate settings</span><span>1 = average into one</span></div></div>
         <div class="seg" style="margin-top:5px"><button id="sBTimerCont" class="on">continuous</button><button id="sBTimerCum">cumulative</button></div>
@@ -222,8 +221,8 @@ const PALETTE=['#37e0d4','#7b8cff','#ff5fa2','#ffb02e','#b06bff','#4ade80','#ff7
 // G.objs:  {name,r,stiff,curl,affinity,polarity,solid,fixed,color, nodeIdx:[], segIdx:[]}
 const G={nodes:[],segs:[],objs:[],nbrs:[]};
 const S={temp:0.7,speed:1,running:true,W:0,H:0,dpr:1,pad:26,scene:'box',
-  gCurl:0,gStiff:0,gThick:0,gGrow:0,weave:0.6,view:'default',iters:3,wallPad:5,attract:0.4,repel:0,tol:0.4,selected:-1,weld:0.003,damp:0,contactDamp:0.6,chunk:false,bonding:true,bondSnap:9,bondBrk:27,bondCure:0,bondBlend:1,bondTimer:'continuous'};
-const OBJDEF={r:3,stiff:0.12,curl:0,grow:0,affinity:1,polarity:1,solid:false,fixed:false,color:null,autoSpace:false,spaceMult:1,breakable:false,breakStrain:2.5};
+  gCurl:0,gStiff:0,gThick:0,gGrow:0,weave:0.6,view:'default',iters:3,wallPad:5,attract:0.4,repel:0,tol:0.4,selected:-1,weld:0.003,damp:0,contactDamp:0.6,chunk:false,bonding:true,bondSnap:1.5,bondBrk:2.5,bondCure:0,bondBlend:1,bondTimer:'continuous'};
+const OBJDEF={r:3,stiff:0.12,curl:0,grow:0,affinity:1,polarity:1,solid:false,fixed:false,color:null,autoSpace:false,spaceMult:1,breakable:false};
 // per-object attribute + global offset (0 = use imported value untouched)
 function effR(o){return Math.max(0.5,o.r+S.gThick);}
 function segAutoRest(s){const ra=effR(G.objs[G.nodes[s.a].obj]),rb=effR(G.objs[G.nodes[s.b].obj]);   // radius-derived spacing so fat segments don't overlap
@@ -353,7 +352,7 @@ function snapshotInit(){G.init=G.nodes.map(n=>[n.x,n.y,n.h]);}      // remember 
 function captureSettings(){const m={_g:{}};
   for(const o of G.objs)m[o.name]={inter:o.inter?Object.assign({},o.inter):null,interSelf:o.interSelf,selfSolid:o.selfSolid,
     damp:o.damp,padSelf:o.padSelf,padOther:o.padOther,ids:o.ids?o.ids.slice():null,r:o.r,stiff:o.stiff,curl:o.curl,grow:o.grow,
-    affinity:o.affinity,polarity:o.polarity,bondOn:o.bondOn,autoSpace:o.autoSpace,spaceMult:o.spaceMult,breakable:o.breakable,breakStrain:o.breakStrain,endType:o.endType?JSON.parse(JSON.stringify(o.endType)):null,
+    affinity:o.affinity,polarity:o.polarity,bondOn:o.bondOn,autoSpace:o.autoSpace,spaceMult:o.spaceMult,breakable:o.breakable,endType:o.endType?JSON.parse(JSON.stringify(o.endType)):null,
     solid:o.solid,fixed:o.fixed};
   for(const k of ['temp','damp','speed','weave','iters','wallPad','contactDamp','weld','gCurl','gStiff','gThick','gGrow','chunk','bonding','bondSnap','bondBrk','bondCure','bondBlend','bondTimer','view'])m._g[k]=S[k];
   return m;}
@@ -366,7 +365,7 @@ function restoreSettings(m){
     if(s.affinity!==undefined)o.affinity=s.affinity;if(s.polarity!==undefined)o.polarity=s.polarity;
     if(s.endType)o.endType=JSON.parse(JSON.stringify(s.endType));if(s.bondOn!==undefined)o.bondOn=s.bondOn;
     if(s.spaceMult!==undefined)o.spaceMult=s.spaceMult;if(s.autoSpace!==undefined){o.autoSpace=s.autoSpace;if(o.autoSpace)applyAutoSpace(o);}
-    if(s.breakable!==undefined)o.breakable=s.breakable;if(s.breakStrain!==undefined)o.breakStrain=s.breakStrain;
+    if(s.breakable!==undefined)o.breakable=s.breakable;
     if(s.solid!==undefined)setObjSolid(o,s.solid);if(s.fixed!==undefined)setObjFixed(o,s.fixed);
     if(s.ids)setObjIds(o,s.ids);}}
 function sceneIds(){const s=new Set();for(const seg of G.segs)if(seg.ids)for(const id of seg.ids)s.add(id);return [...s].sort((a,b)=>a-b);}
@@ -380,9 +379,10 @@ function initInteractions(){for(const o of G.objs){
   if(o.interSelf===undefined)o.interSelf=0;
   if(o.selfSolid===undefined)o.selfSolid=true;
   if(o.endType===undefined)o.endType={};if(o.bondOn===undefined)o.bondOn=false;}}   // per-object bonding participation
-const ENDDEF={wStr:0,wRange:120,sStr:0,sRange:28,snap:10,brk:30,merge:0,blend:1};
+const ENDDEF={wStr:0,wRange:120,sStr:0,sRange:28,snap:1.5,brk:2.5,merge:0,blend:1};   // snap/brk are ratios x rest length
 function endProf(o,t){return (o.endType&&o.endType[t])||null;}                 // read-only; null = inert
-function ensureProf(o,t){o.endType=o.endType||{};if(!o.endType[t])o.endType[t]={wStr:0,wRange:120,sStr:0,sRange:28,snap:S.bondSnap,brk:Math.max(S.bondBrk||27,S.bondSnap+2),merge:S.bondCure,blend:S.bondBlend};return o.endType[t];}
+function ensureProf(o,t){o.endType=o.endType||{};if(!o.endType[t])o.endType[t]={wStr:0,wRange:120,sStr:0,sRange:28,snap:S.bondSnap,brk:Math.max(S.bondBrk||2.5,(S.bondSnap||1.5)*1.2),merge:S.bondCure,blend:S.bondBlend};return o.endType[t];}
+function objBrk(o){const p=o&&o.endType&&o.endType[objType(o)];return (p&&p.brk)?p.brk:2.5;}   // an object's break ratio = its own-type connection break, else default
 function objType(o){return (o.ids&&o.ids.length?o.ids[0]:o.name);}   // connector-type = object's base id
 function interVal(o,tids,same){if(same)return o.interSelf||0;if(!o.inter)return 0;
   let best=0;for(const id of tids){const v=o.inter[id];if(v!==undefined&&Math.abs(v)>Math.abs(best))best=v;}return best;}
@@ -668,9 +668,10 @@ function endpointForces(){
           let gated=false;                                        // hysteresis: a pair that just broke can't re-heal until pulled apart past its break distance
           if(a.sepFrom===n2||bn.sepFrom===n1){const sd=Math.max(a.sepFrom===n2?(a.sepDist||0):0,bn.sepFrom===n1?(bn.sepDist||0):0);
             if(dist<sd)gated=true;else{a.sepFrom=-1;bn.sepFrom=-1;}}   // separated enough -> clear the gate, allow re-bond
-          const snap=Math.max(p1?p1.snap:0,p2?p2.snap:0);
-          if(!gated&&dist<snap){const mgs=[p1?p1.merge:null,p2?p2.merge:null].filter(v=>v!=null),bls=[p1?p1.blend:null,p2?p2.blend:null].filter(v=>v!=null),bks=[p1?p1.brk:null,p2?p2.brk:null].filter(v=>v!=null);
-            newBonds.push({a:n1,b:n2,merge:mgs.length?Math.min(...mgs):0,blend:bls.length?Math.min(...bls):1,brk:bks.length?Math.max(...bks):0});}}}}}   // either side wanting separate (blend 0) keeps them separate
+          const bondRest=effR(o1)+effR(o2);                       // the length this bond would have; snap/break scale to it
+          const snapR=Math.max(p1?p1.snap:0,p2?p2.snap:0);
+          if(!gated&&dist<snapR*bondRest){const mgs=[p1?p1.merge:null,p2?p2.merge:null].filter(v=>v!=null),bls=[p1?p1.blend:null,p2?p2.blend:null].filter(v=>v!=null),bks=[p1?p1.brk:null,p2?p2.brk:null].filter(v=>v!=null);
+            newBonds.push({a:n1,b:n2,merge:mgs.length?Math.min(...mgs):0,blend:bls.length?Math.min(...bls):1,brk:bks.length?Math.max(...bks):2.5});}}}}}   // either side wanting separate (blend 0) keeps them separate
   if(newBonds.length){
     const existing=new Set();for(const s of G.segs)existing.add(Math.min(s.a,s.b)+'_'+Math.max(s.a,s.b));
     let added=false;const done=new Set();
@@ -683,11 +684,11 @@ function endpointForces(){
     if(added)rebuildTopology();
   }
 }
-function flagBondBreaks(){if(!S.bonding)return;for(const s of G.segs){if(!s.bond||!s.brk||s.brk<=0)continue;   // holding bond breaks past its (per-connection) break distance
-  const a=G.nodes[s.a],b=G.nodes[s.b];if(Math.hypot(a.x-b.x,a.y-b.y)>s.brk)s.dead=true;}}
+function flagBondBreaks(){if(!S.bonding)return;for(const s of G.segs){if(!s.bond||!s.brk)continue;   // holding bond releases past break-ratio x rest
+  const a=G.nodes[s.a],b=G.nodes[s.b];if(s.rest>0&&Math.hypot(a.x-b.x,a.y-b.y)>s.brk*s.rest)s.dead=true;}}
 function flagStrainBreaks(){const toSever=[];for(let i=0;i<G.segs.length;i++){const s=G.segs[i];if(s.dead||s.bond)continue;const o=G.objs[s.obj];if(!o||!o.breakable)continue;
-  const a=G.nodes[s.a],b=G.nodes[s.b];const len=Math.hypot(a.x-b.x,a.y-b.y);
-  if(s.rest>0&&len/s.rest>o.breakStrain)toSever.push(i);}   // over-strained
+  const br=objBrk(o);const a=G.nodes[s.a],b=G.nodes[s.b];const len=Math.hypot(a.x-b.x,a.y-b.y);
+  if(s.rest>0&&len/s.rest>br)toSever.push(i);}   // tears past break-ratio x rest
   if(!toSever.length)return;
   let any=false;for(const i of toSever){const s=G.segs[i];const held=(s.a===grab||s.b===grab);   // sever at a node; a lone edge returns false (indivisible)
     if(severEdgeAt(i,true)){any=true;if(held)grab=-1;}}
@@ -811,7 +812,6 @@ document.getElementById('toolCut').addEventListener('click',()=>setTool('cut'));
 function dupNode(n,obj){const src=G.nodes[n];   // duplicate a node so an edge can detach from others sharing it
   G.nodes.push({x:src.x,y:src.y,h:src.h,z0:src.z0,px:src.px,py:src.py,ph:src.ph,obj:obj,fixed:false,solid:src.solid,inv:src.solid?0.25:1,ids:src.ids?src.ids.slice():[],aff:src.aff});
   const idx=G.nodes.length-1;const o=G.objs[obj];if(o&&o.nodeIdx)o.nodeIdx.push(idx);return idx;}
-function sepDistFor(oi){const o=G.objs[oi];const p=o&&o.endType&&o.endType[objType(o)];return p?(p.brk||Math.max((p.snap||9)*3,24)):30;}  // how far a fresh break must pull apart before it can re-heal
 function severEdgeAt(si,preferA){   // detach edge si from whatever shares its chosen endpoint node; NO new edges, NO subdividing (an edge is the atomic unit)
   const s=G.segs[si];if(s.dead)return false;
   const degA=G.nbrs[s.a]?G.nbrs[s.a].length:0,degB=G.nbrs[s.b]?G.nbrs[s.b].length:0;
@@ -823,7 +823,7 @@ function severEdgeAt(si,preferA){   // detach edge si from whatever shares its c
   const other=atA?s.b:s.a,O=G.nodes[other],Nn=G.nodes[nn];   // nudge the duplicate off the original so the two fresh ends aren't coincident
   const dx=Nn.x-O.x,dy=Nn.y-O.y,L=Math.hypot(dx,dy)||1,ox=-dy/L,oy=dx/L;
   Nn.x+=ox*1.2;Nn.y+=oy*1.2;Nn.px=Nn.x;Nn.py=Nn.y;
-  const D=sepDistFor(s.obj);                   // hysteresis: this pair can't re-bond to each other until pulled apart past D
+  const D=objBrk(G.objs[s.obj])*(s.rest||10);  // hysteresis: this pair can't re-bond to each other until pulled apart past break distance
   Nn.sepFrom=orig;Nn.sepDist=D;G.nodes[orig].sepFrom=nn;G.nodes[orig].sepDist=D;
   if(atA)s.a=nn;else s.b=nn;                   // this edge now hangs off the duplicate; the original node keeps the other edges
   return true;}
@@ -929,9 +929,7 @@ function selectObject(i){if(i!==S.selected)activeConnTarget=null;S.selected=i;re
   sv('eSpace','eSpaceN',o.spaceMult||1);
   document.getElementById('eAutoSpace').classList.toggle('on',!!o.autoSpace);
   document.getElementById('eSpaceRow').style.display=o.autoSpace?'':'none';
-  sv('eBreakS','eBreakSN',o.breakStrain||2.5);
   document.getElementById('eBreak').classList.toggle('on',!!o.breakable);
-  document.getElementById('eBreakRow').style.display=o.breakable?'':'none';
   document.getElementById('eIds').value=(o.ids||[]).join(',');
   document.getElementById('eSolid').classList.toggle('on',!!o.solid);
   document.getElementById('eFixed').classList.toggle('on',!!o.fixed);
@@ -966,8 +964,10 @@ function buildInterUI(o){
         ew.appendChild(profRow('weak range',()=>rd().wRange,x=>st('wRange',x),0,240,5));
         ew.appendChild(profRow('strong grip',()=>rd().sStr,x=>st('sStr',x),-1,1,0.05));
         ew.appendChild(profRow('strong range',()=>rd().sRange,x=>st('sRange',x),0,80,2));
-        ew.appendChild(profRow('snap',()=>rd().snap,x=>st('snap',x),0,40,1));
-        ew.appendChild(profRow('break dist',()=>rd().brk,x=>st('brk',Math.max(x,(rd().snap||0)+2)),0,150,5));
+        const brkRow=profRow('break distance',()=>rd().brk,x=>st('brk',Math.max(x,(rd().snap||0.3)*1.2)),0.5,8,0.1);   // floored at snap x1.2
+        ew.appendChild(profRow('snap distance',()=>rd().snap,x=>{const cur=rd(),oldS=cur.snap||1,r=(cur.brk||oldS*1.6)/oldS;st('snap',x);   // moving snap scales break proportionally
+          const nb=Math.max(x*r,x*1.2);st('brk',nb);const bn=brkRow.querySelector('.numin'),br=brkRow.querySelector('input[type=range]');if(bn)bn.value=+nb.toFixed(2);if(br)br.value=nb;},0.3,4,0.1));
+        ew.appendChild(brkRow);
         ew.appendChild(profRow('merge time',()=>rd().merge,x=>st('merge',x),0,900,15));
         ew.appendChild(profRow('blend',()=>rd().blend,x=>st('blend',x),0,1,0.1));};
       const sh=document.createElement('p');sh.className='eyebrow';sh.style.cssText='margin:12px 0 4px;color:var(--accent)';sh.textContent='self \u00b7 own ends';ew.appendChild(sh);
@@ -1014,10 +1014,8 @@ bindPair('eDamp','eDampN',(o,v)=>o.damp=v);
 bindPair('ePadO','ePadON',(o,v)=>o.padOther=v);
 bindPair('ePadS','ePadSN',(o,v)=>o.padSelf=v);
 bindPair('eSpace','eSpaceN',(o,v)=>{o.spaceMult=v;if(o.autoSpace){applyAutoSpace(o);computeExclusions();}});
-bindPair('eBreakS','eBreakSN',(o,v)=>o.breakStrain=v);
 document.getElementById('eBreak').addEventListener('click',()=>{const o=selObj();if(!o)return;o.breakable=!o.breakable;
-  document.getElementById('eBreak').classList.toggle('on',o.breakable);
-  document.getElementById('eBreakRow').style.display=o.breakable?'':'none';});
+  document.getElementById('eBreak').classList.toggle('on',o.breakable);});
 document.getElementById('eAutoSpace').addEventListener('click',()=>{const o=selObj();if(!o)return;o.autoSpace=!o.autoSpace;
   document.getElementById('eAutoSpace').classList.toggle('on',o.autoSpace);
   document.getElementById('eSpaceRow').style.display=o.autoSpace?'':'none';

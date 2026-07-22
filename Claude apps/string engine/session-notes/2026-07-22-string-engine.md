@@ -176,3 +176,14 @@ Bonding and breaking were triggered at the same threshold, so a pair at the boun
 - **Re-heal gate:** severEdgeAt tags the two fresh ends with mutual sepFrom + sepDist(=object's own-type brk); endpointForces won't re-bond that pair until they've pulled apart past sepDist (then clears the tag). So a fresh break can't instantly re-heal into a loop.
 - UI: removed the vestigial global "Break distance" slider; added a **Break dist** default in Physics ("Defaults for new connections") and a per-connection **break dist** row in the Connect profile, floored above snap (setter: max(x, snap+2)) so it can't invert into a buzz.
 - Verified: break then bonding-on (no grow) = 0 fresh severs (no buzz); ends settle 4->2. Strain-break (per-object "Break at x rest") kept separate. Note: grow + self-bonding still churns (grow continuously re-tears — a force fight, not the threshold buzz); bounded by atomic edges; safety cap next to smooth it.
+
+---
+
+## Unified breaking: one ratio-based concept, snap+break linked
+
+Consolidated the two confusing break controls into one. snap and brk are now RATIOS (x rest length), not distances:
+- **Bonding:** snaps when `dist < snap * (effR(a)+effR(b))` (the would-be bond length).
+- **Breaking (bond release AND strand tearing):** `dist/rest > brk`. Holding bonds use s.brk*s.rest; strain-break uses `objBrk(o)` = the object's own-type profile brk (default 2.5). Re-heal gate distance = brk*rest.
+- **UI:** Connect profile has **snap distance** + **break distance** (ratios). Moving snap scales break proportionally (preserves current ratio); break floored at snap*1.2 (setter + live coupling updates the break slider DOM). Global "Snap distance"/"Break distance" defaults in Physics now ratios (1.5 / 2.5).
+- **Removed:** General "Break at x rest length" slider and per-object breakStrain (OBJDEF/capture/restore); the General **breakable toggle stays** and now uses the object's own-type break ratio (note in UI points to Connect for the value). Removed sepDistFor.
+- Verified: strain tears at ratio, bond snaps at ratio, snap->break link scales, break floors at snap*1.2, load/run/cut/reset clean, no NaN.
