@@ -178,7 +178,9 @@
         <div class="ctrl"><label>Collision smoothing <span class="val" id="vCD">0.60</span></label><input id="sCD" type="range" min="0" max="1" value="0.6" step="0.05"><div class="stat" style="margin-top:3px"><span>bouncy</span><span>settled</span></div></div>
         <div class="seg" style="margin-top:8px"><button id="sChunk">temporal spread · interactions</button></div>
         <div class="stat" style="margin-top:3px"><span>spreads attraction/repulsion over 3 frames — faster on dense scenes</span></div>
-        <div class="seg" style="margin-top:10px"><button id="sBond">endpoint bonding</button></div>
+        <div class="seg" style="margin-top:10px"><button id="sBond" class="on">bonding master (kill-switch)</button></div>
+        <div class="stat" style="margin-top:3px"><span>on by default \u00b7 turn bonding on per-object in its Connect tab</span></div>
+        <p class="eyebrow" style="margin:12px 0 4px">Defaults for new connections</p>
         <div class="ctrl" style="margin-top:6px"><label>Snap range <span class="val" id="vBSnap">9</span></label><input id="sBSnap" type="range" min="2" max="30" value="9" step="1"></div>
         <div class="ctrl"><label>Break distance <span class="val" id="vBBreak">unbreakable</span></label><input id="sBBreak" type="range" min="0" max="150" value="0" step="5"><div class="stat" style="margin-top:3px"><span>0 = never breaks</span><span>low = snaps easily</span></div></div>
         <div class="ctrl"><label>Merge time <span class="val" id="vBCure">0 · instant</span></label><input id="sBCure" type="range" min="0" max="900" value="0" step="15"><div class="stat" style="margin-top:3px"><span>0 = fuse on contact</span><span>high = stays elastic</span></div></div>
@@ -214,7 +216,7 @@ const PALETTE=['#37e0d4','#7b8cff','#ff5fa2','#ffb02e','#b06bff','#4ade80','#ff7
 // G.objs:  {name,r,stiff,curl,affinity,polarity,solid,fixed,color, nodeIdx:[], segIdx:[]}
 const G={nodes:[],segs:[],objs:[],nbrs:[]};
 const S={temp:0.7,speed:1,running:true,W:0,H:0,dpr:1,pad:26,scene:'box',
-  gCurl:0,gStiff:0,gThick:0,gGrow:0,weave:0.6,view:'default',iters:3,wallPad:5,attract:0.4,repel:0,tol:0.4,selected:-1,weld:0.003,damp:0,contactDamp:0.6,chunk:false,bonding:false,bondSnap:9,bondBreak:0,bondCure:0,bondBlend:1,bondTimer:'continuous'};
+  gCurl:0,gStiff:0,gThick:0,gGrow:0,weave:0.6,view:'default',iters:3,wallPad:5,attract:0.4,repel:0,tol:0.4,selected:-1,weld:0.003,damp:0,contactDamp:0.6,chunk:false,bonding:true,bondSnap:9,bondBreak:0,bondCure:0,bondBlend:1,bondTimer:'continuous'};
 const OBJDEF={r:3,stiff:0.12,curl:0,grow:0,affinity:1,polarity:1,solid:false,fixed:false,color:null};
 // per-object attribute + global offset (0 = use imported value untouched)
 function effR(o){return Math.max(0.5,o.r+S.gThick);}
@@ -340,7 +342,7 @@ function snapshotInit(){G.init=G.nodes.map(n=>[n.x,n.y,n.h]);}      // remember 
 function captureSettings(){const m={_g:{}};
   for(const o of G.objs)m[o.name]={inter:o.inter?Object.assign({},o.inter):null,interSelf:o.interSelf,selfSolid:o.selfSolid,
     damp:o.damp,padSelf:o.padSelf,padOther:o.padOther,ids:o.ids?o.ids.slice():null,r:o.r,stiff:o.stiff,curl:o.curl,grow:o.grow,
-    affinity:o.affinity,polarity:o.polarity,endType:o.endType?JSON.parse(JSON.stringify(o.endType)):null,
+    affinity:o.affinity,polarity:o.polarity,bondOn:o.bondOn,endType:o.endType?JSON.parse(JSON.stringify(o.endType)):null,
     solid:o.solid,fixed:o.fixed};
   for(const k of ['temp','damp','speed','weave','iters','wallPad','contactDamp','weld','gCurl','gStiff','gThick','gGrow','chunk','bonding','bondSnap','bondBreak','bondCure','bondBlend','bondTimer','view'])m._g[k]=S[k];
   return m;}
@@ -351,7 +353,7 @@ function restoreSettings(m){
     if(s.damp!==undefined)o.damp=s.damp;if(s.padSelf!==undefined)o.padSelf=s.padSelf;if(s.padOther!==undefined)o.padOther=s.padOther;
     if(s.r!==undefined)o.r=s.r;if(s.stiff!==undefined)o.stiff=s.stiff;if(s.curl!==undefined)o.curl=s.curl;if(s.grow!==undefined)o.grow=s.grow;
     if(s.affinity!==undefined)o.affinity=s.affinity;if(s.polarity!==undefined)o.polarity=s.polarity;
-    if(s.endType)o.endType=JSON.parse(JSON.stringify(s.endType));
+    if(s.endType)o.endType=JSON.parse(JSON.stringify(s.endType));if(s.bondOn!==undefined)o.bondOn=s.bondOn;
     if(s.solid!==undefined)setObjSolid(o,s.solid);if(s.fixed!==undefined)setObjFixed(o,s.fixed);
     if(s.ids)setObjIds(o,s.ids);}}
 function sceneIds(){const s=new Set();for(const seg of G.segs)if(seg.ids)for(const id of seg.ids)s.add(id);return [...s].sort((a,b)=>a-b);}
@@ -364,7 +366,7 @@ function initInteractions(){for(const o of G.objs){
   if(!o.inter)o.inter={};                         // all interactions default 0 -> stable
   if(o.interSelf===undefined)o.interSelf=0;
   if(o.selfSolid===undefined)o.selfSolid=true;
-  if(o.endType===undefined)o.endType={};}}         // endpoint rules {typeId: {weak/strong force + snap + merge + blend}}
+  if(o.endType===undefined)o.endType={};if(o.bondOn===undefined)o.bondOn=false;}}   // per-object bonding participation
 const ENDDEF={wStr:0,wRange:120,sStr:0,sRange:28,snap:10,merge:0,blend:1};
 function endProf(o,t){return (o.endType&&o.endType[t])||null;}                 // read-only; null = inert
 function ensureProf(o,t){o.endType=o.endType||{};if(!o.endType[t])o.endType[t]={wStr:0,wRange:120,sStr:0,sRange:28,snap:S.bondSnap,merge:S.bondCure,blend:S.bondBlend};return o.endType[t];}
@@ -622,7 +624,7 @@ function rebuildTopology(){for(const o of G.objs)o.segIdx=[];for(let i=0;i<G.seg
 function endpointForces(){
   const ends=G.ends;if(!ends||ends.length<2)return;
   const objs=G.objs;
-  let any=S.bonding;for(const o of objs){if(o.endType){for(const k in o.endType){const p=o.endType[k];if(p&&(p.wStr||p.sStr)){any=true;break;}}}if(any)break;}
+  let any=false;for(const o of objs){if(S.bonding&&o.bondOn&&o.endType){for(const k in o.endType){const p=o.endType[k];if(p&&(p.wStr||p.sStr)){any=true;break;}}}if(any)break;}
   if(!any)return;
   let maxR=30;for(const o of objs)if(o.endType)for(const k in o.endType){const p=o.endType[k];if(p.wRange>maxR)maxR=p.wRange;if(p.sRange>maxR)maxR=p.sRange;}
   const ER=maxR+10,ER2=ER*ER,cell=ER,bkt=new Map();
@@ -633,6 +635,7 @@ function endpointForces(){
       for(const n2 of arr){if(n2<=n1)continue;const bn=G.nodes[n2];
         const dxp=bn.x-a.x,dyp=bn.y-a.y,d2=dxp*dxp+dyp*dyp;if(d2>ER2||d2<1e-6)continue;
         const o1=objs[a.obj],o2=objs[bn.obj];
+        if(!o1.bondOn||!o2.bondOn)continue;                       // both objects must opt into bonding
         const t1=objType(o1),t2=objType(o2);                     // connector-type = object id
         const p1=endProf(o1,t2),p2=endProf(o2,t1);
         if(!p1&&!p2)continue;
@@ -767,7 +770,7 @@ function render(){
 // ---------- loop ----------
 // ---------- drag to pull things around ----------
 let grab=-1,gx=0,gy=0;
-let tool='move',cutting=false,cx0=0,cy0=0,cx1=0,cy1=0;
+let tool='move',cutting=false,cx0=0,cy0=0,cx1=0,cy1=0,activeConnTarget=null;
 function setTool(t){tool=t;
   document.getElementById('toolMove').classList.toggle('on',t==='move');
   document.getElementById('toolCut').classList.toggle('on',t==='cut');
@@ -842,7 +845,7 @@ function renderObjectList(){
   });
 }
 function selObj(){return S.selected>=0?G.objs[S.selected]:null;}
-function selectObject(i){S.selected=i;renderObjectList();const o=G.objs[i],ed=document.getElementById('objEditor');
+function selectObject(i){if(i!==S.selected)activeConnTarget=null;S.selected=i;renderObjectList();const o=G.objs[i],ed=document.getElementById('objEditor');
   if(!o){ed.style.display='none';return;}ed.style.display='';
   document.getElementById('objName').textContent=o.name||('object '+(i+1));
   const sv=(rid,nid,val)=>{const v=+val;document.getElementById(rid).value=v;document.getElementById(nid).value=Math.round(v*1000)/1000;};
@@ -870,20 +873,46 @@ function buildInterUI(o){
     wrap.appendChild(interRow('→ '+id,()=>(o.inter&&o.inter[id])||0,x=>{o.inter=o.inter||{};o.inter[id]=x;}));}
   const ew=document.getElementById('endWrap');if(ew){ew.innerHTML='';
     const myType=objType(o);
-    const types=[...new Set(G.objs.filter(x=>x.segIdx&&x.segIdx.length>0).map(x=>objType(x)))];
-    if(!types.includes(myType))types.unshift(myType);
-    for(const tp of types){
-      const hdr=document.createElement('p');hdr.className='eyebrow';hdr.style.cssText='margin:14px 0 4px;color:var(--accent)';
-      hdr.textContent=tp===myType?(tp+' \u00b7 own kind'):tp;ew.appendChild(hdr);
-      const rd=()=>endProf(o,tp)||ENDDEF,st=(k,x)=>{ensureProf(o,tp)[k]=x;};
-      ew.appendChild(profRow('weak pull',()=>rd().wStr,x=>st('wStr',x),-1,1,0.05));
-      ew.appendChild(profRow('weak range',()=>rd().wRange,x=>st('wRange',x),0,240,5));
-      ew.appendChild(profRow('strong grip',()=>rd().sStr,x=>st('sStr',x),-1,1,0.05));
-      ew.appendChild(profRow('strong range',()=>rd().sRange,x=>st('sRange',x),0,80,2));
-      ew.appendChild(profRow('snap',()=>rd().snap,x=>st('snap',x),0,40,1));
-      ew.appendChild(profRow('merge time',()=>rd().merge,x=>st('merge',x),0,900,15));
-      ew.appendChild(profRow('blend',()=>rd().blend,x=>st('blend',x),0,1,0.1));}}
+    const togRow=document.createElement('div');togRow.className='seg';togRow.style.marginBottom='8px';
+    const togBtn=document.createElement('button');togBtn.textContent='endpoint bonding';togBtn.className=o.bondOn?'on':'';
+    togBtn.addEventListener('click',()=>{o.bondOn=!o.bondOn;selectObject(S.selected);});
+    togRow.appendChild(togBtn);ew.appendChild(togRow);
+    if(!o.bondOn){const n=document.createElement('p');n.className='note';n.style.marginTop='0';
+      n.textContent='Turn on to let this object\u2019s ends bond \u2014 to itself, and to objects you add below.';ew.appendChild(n);}
+    else{
+      const controls=(type)=>{const rd=()=>endProf(o,type)||ENDDEF,st=(k,x)=>{ensureProf(o,type)[k]=x;};
+        ew.appendChild(profRow('weak pull',()=>rd().wStr,x=>st('wStr',x),-1,1,0.05));
+        ew.appendChild(profRow('weak range',()=>rd().wRange,x=>st('wRange',x),0,240,5));
+        ew.appendChild(profRow('strong grip',()=>rd().sStr,x=>st('sStr',x),-1,1,0.05));
+        ew.appendChild(profRow('strong range',()=>rd().sRange,x=>st('sRange',x),0,80,2));
+        ew.appendChild(profRow('snap',()=>rd().snap,x=>st('snap',x),0,40,1));
+        ew.appendChild(profRow('merge time',()=>rd().merge,x=>st('merge',x),0,900,15));
+        ew.appendChild(profRow('blend',()=>rd().blend,x=>st('blend',x),0,1,0.1));};
+      const sh=document.createElement('p');sh.className='eyebrow';sh.style.cssText='margin:12px 0 4px;color:var(--accent)';sh.textContent='self \u00b7 own ends';ew.appendChild(sh);
+      controls(myType);
+      const eh=document.createElement('p');eh.className='eyebrow';eh.style.cssText='margin:16px 0 4px;color:var(--accent)';eh.textContent='external connections';ew.appendChild(eh);
+      const targets=Object.keys(o.endType||{}).filter(t=>t!==myType);
+      if(targets.length){const chipRow=document.createElement('div');chipRow.className='seg';chipRow.style.cssText='flex-wrap:wrap;margin-bottom:6px';
+        for(const t of targets){const c=document.createElement('button');c.textContent=t;c.className=(activeConnTarget===t?'on':'');
+          c.addEventListener('click',()=>{activeConnTarget=t;selectObject(S.selected);});chipRow.appendChild(c);}
+        ew.appendChild(chipRow);}
+      const others=[...new Set(G.objs.filter(x=>x.segIdx&&x.segIdx.length>0).map(objType))].filter(t=>t!==myType&&!targets.includes(t));
+      if(others.length){const add=document.createElement('select');add.className='numin';add.style.cssText='width:100%;margin-bottom:6px;padding:7px';
+        const def=document.createElement('option');def.textContent='+ add object\u2026';def.value='';add.appendChild(def);
+        for(const t of others){const op=document.createElement('option');op.textContent=t;op.value=t;add.appendChild(op);}
+        add.addEventListener('change',()=>{if(!add.value)return;addConnection(o,add.value);activeConnTarget=add.value;selectObject(S.selected);});
+        ew.appendChild(add);}
+      if(activeConnTarget&&targets.includes(activeConnTarget)){
+        const rmRow=document.createElement('div');rmRow.className='seg';rmRow.style.margin='4px 0';
+        const rm=document.createElement('button');rm.textContent='\u2212 remove '+activeConnTarget;
+        rm.addEventListener('click',()=>{delete o.endType[activeConnTarget];activeConnTarget=null;selectObject(S.selected);});
+        rmRow.appendChild(rm);ew.appendChild(rmRow);
+        controls(activeConnTarget);
+      }else if(targets.length){const n=document.createElement('p');n.className='note';n.textContent='Select a connection above to edit it.';ew.appendChild(n);}
+    }}
 }
+function addConnection(o,t){ensureProf(o,t);o.bondOn=true;                 // create this side + mirror the other side (directional: each keeps its own values)
+  const myT=objType(o);for(const b of G.objs)if(objType(b)===t){ensureProf(b,myT);b.bondOn=true;}}
 function profRow(label,getV,setV,min,max,step){
   const row=document.createElement('div');row.className='ctrl';const v=getV();
   row.innerHTML='<label>'+label+' <input class="numin" type="number"></label><input type="range">';

@@ -105,3 +105,15 @@ Headless Playwright (chromium at `/home/claude/.pw`, env `PLAYWRIGHT_BROWSERS_PA
 - **Cross-object bonding** now works one-way (either side attracting is enough; a repel blocks it).
 - **Merge scope** fixed: merging one string of a multi-string object joins only that string, not the whole object (reassigns the fused connected-piece; averages attributes only in the clean single-string case).
 - **Removed cut auto-rejoin.** It set the whole object's own-type profile on cut, which in the type-based model activates attraction for *every* same-type end — causing scene-wide "everything zooms together" on the first cut, cuts snapping back instantly, and lag + reset-proof weirdness (a persisted setting, not geometry; turning off bonding masked it). Cutting now just cuts. Proper per-cut rejoin needs the deferred "separate ids by connected geometry" (per-piece ids) feature so it can target only the two fresh ends.
+
+---
+
+## Per-object bonding UI (relationship editor)
+
+Replaced the per-type "wall of every type in the scene" with a proper relationship editor in the Connect tab:
+- **Per-object "endpoint bonding" toggle.** Off = object sits out. On = reveals sections below.
+- **Self section** — this object's own ends bonding to each other (edits the own-type profile).
+- **External list** — add/remove other objects; click an entry to make it active and edit its profile. Each entry is this object's directional pull toward that target (weak/strong/snap/merge/blend).
+- **Auto-mirror + directional:** adding B to A's list also creates A's entry on B and enables B's bonding, but each side keeps its OWN values (so A can chase while B flees).
+- **Gate:** a bond needs BOTH objects' bonding on (consent) AND the master on.
+- **Master bonding** is now a kill-switch in Physics, defaults ON (so a forgotten master never silently blocks per-object bonding). Physics snap/break/merge/blend relabeled "defaults for new connections" (template new relationships inherit).
