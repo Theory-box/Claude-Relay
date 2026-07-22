@@ -193,3 +193,11 @@ Consolidated the two confusing break controls into one. snap and brk are now RAT
 ## Fix: bonding could form Y-junctions (one endpoint bonding to two partners in one batch)
 
 The newBonds batch deduped only by pair key, so if endpoint n1 was near both n2 and n3, it pushed (n1,n2) and (n1,n3) and merged BOTH -> n1 became degree 3 (a Y). Endpoint bonding is meant endpoint-to-endpoint, one-to-one. Fix in the newBonds loop: record each candidate's distance (d), **sort by distance** (nearest pairs claim endpoints first), track a **usedNodes** set (skip a bond if either endpoint is already used this batch), and a **degree guard** (skip if either endpoint isn't a genuine free end, nbrs.length>1). So each free end accepts at most one bond and bonding never attaches to a non-endpoint. Verified: three ends clustered on one point -> max degree 2 (no Y); normal two-end bonding still fuses into a line; authored high-degree mesh nodes are untouched (bonding only ever touches degree-1 ends).
+
+---
+
+## Bend-break (angle-based) + reach readout
+
+**Bend break** — a second, independent breaking axis alongside stretch break. computeRestBend now also stores each degree-2 node's rest angle (n.bAng) via jointAngle(a,n,c) (PI=straight). New **flagBendBreaks** (runs in the k-loop after flagStrainBreaks): per-object **bendMode** ('off'/'abs'/'rel') + **bendLimit** (degrees). abs = joint tears if it folds sharper than the limit; rel = tears if bent >limit degrees from its own rest angle (so curved/curly shapes hold at rest, squiggly lines can wander with abs). Severs at the node (detaches one incident edge via severEdgeAt) — atomic-edge consistent. OBJDEF + capture/restore updated. Verified: abs holds straight/shallow, breaks at 64°<90° limit; rel holds a curved arc at rest, breaks when bent 62°>40° past rest.
+
+**Reach readout** — above the snap/break sliders (per profile): `surface ≈ Npx (reach Mpx) · snap → Xpx · break → Ypx`, warns "⚠ too low to touch" when snap distance in px < 2*(effR+pad). Converts the snap/break RATIOS to px live (updates as you drag snap/break) using bondRest=2*effR, so you can set snap/break against the object's actual padded surface. Snap ratio range widened to 0.3–8, break to 0.5–16 for headroom with thick padding. UI: bend toggle cycles off→absolute→relative; all in the Connect tab.
