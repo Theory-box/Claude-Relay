@@ -310,6 +310,12 @@ function computeExclusions(){ // skip collisions between a strand's own topologi
 function jointAngle(a,n,c){let ax=a.x-n.x,ay=a.y-n.y,cx=c.x-n.x,cy=c.y-n.y;   // angle a-n-c: PI=straight, 0=folded flat
   const la=Math.hypot(ax,ay)||1,lc=Math.hypot(cx,cy)||1;let d=(ax*cx+ay*cy)/(la*lc);
   return Math.acos(Math.max(-1,Math.min(1,d)));}
+function wouldBendBreak(a,b){   // would fusing free ends a & b form a joint that instantly bend-breaks? (prevents the merge -> break -> merge shatter loop)
+  const oa=G.objs[G.nodes[a].obj];if(!oa||!oa.breakable||!oa.brkAbs)return false;   // only absolute break can doom a fresh joint (relative uses the formed angle as its rest)
+  const na=(G.nbrs[a]&&G.nbrs[a].length)?G.nbrs[a][0]:-1,nc=(G.nbrs[b]&&G.nbrs[b].length)?G.nbrs[b][0]:-1;
+  if(na<0||nc<0)return false;
+  const M={x:(G.nodes[a].x+G.nodes[b].x)*0.5,y:(G.nodes[a].y+G.nodes[b].y)*0.5};
+  return jointAngle(G.nodes[na],M,G.nodes[nc])<(oa.bendAbsLim||90)*(Math.PI/180);}
 function computeRestBend(){ // store each degree-2 node's offset from its chord (tangent + normal) + rest angle in rest pose
   for(let i=0;i<G.nodes.length;i++){const nb=G.nbrs[i],n=G.nodes[i];
     if(nb.length!==2){n.bT=0;n.bN=0;n.bAng=Math.PI;continue;}
@@ -706,6 +712,7 @@ function endpointForces(){
       if(done.has(key)||existing.has(key))continue;done.add(key);
       if(usedNodes.has(a)||usedNodes.has(b))continue;                     // each endpoint bonds to at most ONE partner (no Y-junctions)
       if((G.nbrs[a]?G.nbrs[a].length:0)>1||(G.nbrs[b]?G.nbrs[b].length:0)>1)continue;   // only genuine free ends bond
+      if(wouldBendBreak(a,b)){usedNodes.add(a);usedNodes.add(b);continue;}   // don't fuse into a joint that would instantly bend-break -> that's the merge/break shatter loop
       if(nb.merge<=0){if(!(G.nbrs[a]&&G.nbrs[a].indexOf(b)>=0)){mergeEnds(a,b,nb.blend);usedNodes.add(a);usedNodes.add(b);}}   // instant fuse
       else{const oa=G.objs[G.nodes[a].obj],ob=G.objs[G.nodes[b].obj];
         const seed=(S.bondTimer==='cumulative'&&G.bondBank.get(a+'_'+b))||0;
