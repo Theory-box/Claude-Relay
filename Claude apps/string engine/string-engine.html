@@ -150,9 +150,9 @@
           <div class="ctrl"><label>Damping <input id="eDampN" class="numin" type="number" step="0.01"></label><input id="eDamp" type="range" min="0" max="0.9" value="0" step="0.01"></div>
           <div class="ctrl"><label>Pad · vs others <input id="ePadON" class="numin" type="number" step="0.5"></label><input id="ePadO" type="range" min="0" max="24" value="0" step="0.5"><div class="stat" style="margin-top:3px"><span>cushion against other objects</span></div></div>
           <div class="ctrl"><label>Pad · self <input id="ePadSN" class="numin" type="number" step="0.5"></label><input id="ePadS" type="range" min="0" max="24" value="0" step="0.5"><div class="stat" style="margin-top:3px"><span>cushion within its own body</span></div></div>
-          <div class="seg" style="margin-top:10px"><button id="eAutoSpace">auto-space by thickness</button></div>
-          <div class="stat" style="margin-top:3px"><span>space this object's nodes by radius so fat strands don't overlap (off = keep imported shape)</span></div>
-          <div class="ctrl" id="eSpaceRow" style="margin-top:6px"><label>Spacing <input id="eSpaceN" class="numin" type="number" step="0.05"></label><input id="eSpace" type="range" min="0.5" max="2.5" value="1" step="0.05"></div>
+          <div class="seg" style="margin-top:10px"><button id="eAutoSpace">expand to fit</button></div>
+          <div class="stat" style="margin-top:3px"><span>links grow until no two points sit closer than the thickness+padding — the mesh gently inflates so nothing overlaps (off = keep imported shape)</span></div>
+          <div class="ctrl" id="eSpaceRow" style="margin-top:6px"><label>Spacing ×<input id="eSpaceN" class="numin" type="number" step="0.05"></label><input id="eSpace" type="range" min="0.5" max="3" value="1" step="0.05"><div class="stat" style="margin-top:3px"><span>extra breathing room beyond bare contact</span></div></div>
         </div>
         <div class="etabpanel" data-epanel="affinity">
           <div id="interWrap"></div>
@@ -223,13 +223,20 @@ const S={temp:0.7,speed:1,running:true,W:0,H:0,dpr:1,pad:26,scene:'box',
 const OBJDEF={r:3,stiff:0.12,curl:0,grow:0,affinity:1,polarity:1,solid:false,fixed:false,color:null,autoSpace:false,spaceMult:1,breakable:false,brkStretch:true,brkAbs:false,bendAbsLim:90,brkRel:false,bendRelLim:60};
 // per-object attribute + global offset (0 = use imported value untouched)
 function effR(o){return Math.max(0.5,o.r+S.gThick);}
-function segAutoRest(s){const oa=G.objs[G.nodes[s.a].obj],ob=G.objs[G.nodes[s.b].obj];   // spacing that keeps fat/padded segments from overlapping
-  const ra=effR(oa),rb=effR(ob),pad=Math.max(oa.padSelf||0,ob.padSelf||0),m=((oa.spaceMult||1)+(ob.spaceMult||1))*0.5;
-  const sizeMin=(ra+rb+pad)*m,authored=(s.rest0!==undefined?s.rest0:s.rest);
-  return Math.max(authored,sizeMin);}   // only EXPANDS to prevent overlap; never compresses a strand that was already spaced wider
-function applyAutoSpace(o){for(const si of o.segIdx){const s=G.segs[si];if(s.rest0===undefined)s.rest0=s.rest;s.rest=segAutoRest(s);}}
-function clearAutoSpace(o){for(const si of o.segIdx){const s=G.segs[si];if(s.rest0!==undefined)s.rest=s.rest0;}}
+function objMinContact(o){return (2*effR(o)+(o.padSelf||0))*(o.spaceMult||1);}   // closest two points may sit this far apart before overlapping
+function objScaleNeeded(o){let minR=1e9;for(const si of o.segIdx){const s=G.segs[si];if(s.bond)continue;if(s.rest0===undefined)s.rest0=s.rest;if(s.rest0<minR)minR=s.rest0;}
+  if(minR>=1e9||minR<=0)return 1;return Math.min(8,Math.max(1,objMinContact(o)/minR));}   // uniform factor so the shortest link reaches contact (capped so one degenerate tiny edge can't explode the whole shape)
+function applyAutoSpace(o){if(!o.segIdx)return;const f=objScaleNeeded(o);o.spaceScale=f;   // instant (used on load)
+  for(const si of o.segIdx){const s=G.segs[si];if(s.bond)continue;s.rest=s.rest0*f;}}
+function clearAutoSpace(o){for(const si of o.segIdx){const s=G.segs[si];if(s.rest0!==undefined)s.rest=s.rest0;}o.spaceScale=1;}   // restore authored lengths
 function refreshAutoSpace(o){if(o.autoSpace)applyAutoSpace(o);else clearAutoSpace(o);}
+function relaxSpacing(){   // LIVE, gradual: scale the WHOLE object up (all links x one factor, proportions preserved) until its shortest link clears the padded thickness, so the mesh inflates uniformly to fit; collision steers the extra size outward. Reacts to thickness/padding/spacing changes; settles once big enough
+  let recompute=false;
+  for(const o of G.objs){if(!o.autoSpace||!o.segIdx||!o.segIdx.length)continue;
+    const needed=objScaleNeeded(o);o.spaceScale=(o.spaceScale!=null?o.spaceScale:1);o.spaceScale+=(needed-o.spaceScale)*0.08;   // ease the scale toward what's needed
+    for(const si of o.segIdx){const s=G.segs[si];if(s.bond)continue;if(s.rest0===undefined)s.rest0=s.rest;s.rest=s.rest0*o.spaceScale;}
+    recompute=true;}
+  if(recompute&&(S.frame%30===0))computeExclusions();}   // as the mesh grows, refresh exclusions so self-collision on folds keeps working
 function effStiff(o){return clamp(o.stiff+S.gStiff,0,1);}
 function effCurl(o){return o.curl+S.gCurl;}
 function effGrow(o){return o.grow+S.gGrow;}
@@ -905,7 +912,7 @@ cvs.addEventListener('wheel',e=>{e.preventDefault();const r=cvs.getBoundingClien
 },{passive:false});
 function resetView(){view.z=1;view.ox=0;view.oy=0;}
 
-function stepFrame(){S.frame=(S.frame||0)+1;attract();endpointForces();for(let k=0;k<S.speed;k++){integrate();flagBondBreaks();constraints();collide();wallCCD();dragApply();flagStrainBreaks();flagBendBreaks();}maintainBonds();removeDead();}
+function stepFrame(){S.frame=(S.frame||0)+1;attract();endpointForces();relaxSpacing();for(let k=0;k<S.speed;k++){integrate();flagBondBreaks();constraints();collide();wallCCD();dragApply();flagStrainBreaks();flagBendBreaks();}maintainBonds();removeDead();}
 window.addEventListener('keydown',e=>{const tag=(e.target.tagName||'').toLowerCase();if(tag==='input'||tag==='select'||tag==='textarea')return;
   const k=e.key.toLowerCase();
   if(k==='r'){resetSim();}
@@ -917,7 +924,7 @@ window.addEventListener('keydown',e=>{const tag=(e.target.tagName||'').toLowerCa
 
 let ema=60,lastT=performance.now();
 function frame(now){const dt=now-lastT;lastT=now;ema=ema*0.9+(1000/Math.max(1,dt))*0.1;
-  if(S.running){S.frame=(S.frame||0)+1;attract();endpointForces();for(let k=0;k<S.speed;k++){integrate();flagBondBreaks();constraints();collide();wallCCD();dragApply();flagStrainBreaks();flagBendBreaks();}maintainBonds();removeDead();}
+  if(S.running){S.frame=(S.frame||0)+1;attract();endpointForces();relaxSpacing();for(let k=0;k<S.speed;k++){integrate();flagBondBreaks();constraints();collide();wallCCD();dragApply();flagStrainBreaks();flagBendBreaks();}maintainBonds();removeDead();}
   else if(grab>=0){dragApply();constraints();collide();}
   render();document.getElementById('sFps').textContent=Math.round(ema)+' fps';
   requestAnimationFrame(frame);}
@@ -1060,18 +1067,18 @@ function profRow(label,getV,setV,min,max,step){
 function bindPair(rid,nid,fn){const r=document.getElementById(rid),n=document.getElementById(nid);
   const apply=(val,src)=>{const o=selObj();if(!o)return;let v=parseFloat(val);if(isNaN(v))return;if(src!=='r')r.value=v;if(src!=='n')n.value=v;fn(o,v);};
   r.addEventListener('input',()=>apply(r.value,'r'));n.addEventListener('input',()=>apply(n.value,'n'));}
-bindPair('eThick','eThickN',(o,v)=>{o.r=v;if(o.autoSpace)applyAutoSpace(o);computeExclusions();});
+bindPair('eThick','eThickN',(o,v)=>{o.r=v;computeExclusions();});
 bindPair('eStiff','eStiffN',(o,v)=>o.stiff=v);
 bindPair('eCurl','eCurlN',(o,v)=>o.curl=v);
 bindPair('eGrow','eGrowN',(o,v)=>o.grow=v);
 bindPair('eDamp','eDampN',(o,v)=>o.damp=v);
 bindPair('ePadO','ePadON',(o,v)=>o.padOther=v);
-bindPair('ePadS','ePadSN',(o,v)=>o.padSelf=v);
-bindPair('eSpace','eSpaceN',(o,v)=>{o.spaceMult=v;if(o.autoSpace){applyAutoSpace(o);computeExclusions();}});
+bindPair('ePadS','ePadSN',(o,v)=>{o.padSelf=v;computeExclusions();});
+bindPair('eSpace','eSpaceN',(o,v)=>{o.spaceMult=v;computeExclusions();});
 document.getElementById('eAutoSpace').addEventListener('click',()=>{const o=selObj();if(!o)return;o.autoSpace=!o.autoSpace;
   document.getElementById('eAutoSpace').classList.toggle('on',o.autoSpace);
   document.getElementById('eSpaceRow').style.display=o.autoSpace?'':'none';
-  refreshAutoSpace(o);computeExclusions();});
+  if(!o.autoSpace)clearAutoSpace(o);computeExclusions();});   // on = live force eases it open; off = restore authored length
 document.getElementById('eIds').addEventListener('input',e=>{const o=selObj();if(!o)return;
   const ids=e.target.value.split(',').map(x=>x.trim()).filter(x=>x.length);setObjIds(o,ids);
   o.inter=o.inter||{};
