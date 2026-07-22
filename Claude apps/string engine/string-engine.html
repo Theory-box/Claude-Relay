@@ -223,8 +223,10 @@ const S={temp:0.7,speed:1,running:true,W:0,H:0,dpr:1,pad:26,scene:'box',
 const OBJDEF={r:3,stiff:0.12,curl:0,grow:0,affinity:1,polarity:1,solid:false,fixed:false,color:null,autoSpace:false,spaceMult:1,breakable:false,brkStretch:true,brkAbs:false,bendAbsLim:90,brkRel:false,bendRelLim:60};
 // per-object attribute + global offset (0 = use imported value untouched)
 function effR(o){return Math.max(0.5,o.r+S.gThick);}
-function segAutoRest(s){const ra=effR(G.objs[G.nodes[s.a].obj]),rb=effR(G.objs[G.nodes[s.b].obj]);   // radius-derived spacing so fat segments don't overlap
-  const oa=G.objs[G.nodes[s.a].obj],ob=G.objs[G.nodes[s.b].obj];const m=((oa.spaceMult||1)+(ob.spaceMult||1))*0.5;return (ra+rb)*m;}
+function segAutoRest(s){const oa=G.objs[G.nodes[s.a].obj],ob=G.objs[G.nodes[s.b].obj];   // spacing that keeps fat/padded segments from overlapping
+  const ra=effR(oa),rb=effR(ob),pad=Math.max(oa.padSelf||0,ob.padSelf||0),m=((oa.spaceMult||1)+(ob.spaceMult||1))*0.5;
+  const sizeMin=(ra+rb+pad)*m,authored=(s.rest0!==undefined?s.rest0:s.rest);
+  return Math.max(authored,sizeMin);}   // only EXPANDS to prevent overlap; never compresses a strand that was already spaced wider
 function applyAutoSpace(o){for(const si of o.segIdx){const s=G.segs[si];if(s.rest0===undefined)s.rest0=s.rest;s.rest=segAutoRest(s);}}
 function clearAutoSpace(o){for(const si of o.segIdx){const s=G.segs[si];if(s.rest0!==undefined)s.rest=s.rest0;}}
 function refreshAutoSpace(o){if(o.autoSpace)applyAutoSpace(o);else clearAutoSpace(o);}
