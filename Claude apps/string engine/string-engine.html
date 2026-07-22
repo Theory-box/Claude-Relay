@@ -220,7 +220,7 @@ const PALETTE=['#37e0d4','#7b8cff','#ff5fa2','#ffb02e','#b06bff','#4ade80','#ff7
 const G={nodes:[],segs:[],objs:[],nbrs:[]};
 const S={temp:0.7,speed:1,running:true,W:0,H:0,dpr:1,pad:26,scene:'box',
   gCurl:0,gStiff:0,gThick:0,gGrow:0,weave:0.6,view:'default',iters:3,wallPad:5,attract:0.4,repel:0,tol:0.4,selected:-1,weld:0.003,damp:0,contactDamp:0.6,chunk:false,bonding:true,bondSnap:1.5,bondBrk:2.5,bondCure:0,bondBlend:1,bondTimer:'continuous'};
-const OBJDEF={r:3,stiff:0.12,curl:0,grow:0,affinity:1,polarity:1,solid:false,fixed:false,color:null,autoSpace:false,spaceMult:1,breakable:false,bendMode:'off',bendLimit:60};
+const OBJDEF={r:3,stiff:0.12,curl:0,grow:0,affinity:1,polarity:1,solid:false,fixed:false,color:null,autoSpace:false,spaceMult:1,breakable:false,brkStretch:true,brkAbs:false,bendAbsLim:90,brkRel:false,bendRelLim:60};
 // per-object attribute + global offset (0 = use imported value untouched)
 function effR(o){return Math.max(0.5,o.r+S.gThick);}
 function segAutoRest(s){const ra=effR(G.objs[G.nodes[s.a].obj]),rb=effR(G.objs[G.nodes[s.b].obj]);   // radius-derived spacing so fat segments don't overlap
@@ -353,7 +353,7 @@ function snapshotInit(){G.init=G.nodes.map(n=>[n.x,n.y,n.h]);}      // remember 
 function captureSettings(){const m={_g:{}};
   for(const o of G.objs)m[o.name]={inter:o.inter?Object.assign({},o.inter):null,interSelf:o.interSelf,selfSolid:o.selfSolid,
     damp:o.damp,padSelf:o.padSelf,padOther:o.padOther,ids:o.ids?o.ids.slice():null,r:o.r,stiff:o.stiff,curl:o.curl,grow:o.grow,
-    affinity:o.affinity,polarity:o.polarity,bondOn:o.bondOn,autoSpace:o.autoSpace,spaceMult:o.spaceMult,breakable:o.breakable,bendMode:o.bendMode,bendLimit:o.bendLimit,endType:o.endType?JSON.parse(JSON.stringify(o.endType)):null,
+    affinity:o.affinity,polarity:o.polarity,bondOn:o.bondOn,autoSpace:o.autoSpace,spaceMult:o.spaceMult,breakable:o.breakable,brkStretch:o.brkStretch,brkAbs:o.brkAbs,bendAbsLim:o.bendAbsLim,brkRel:o.brkRel,bendRelLim:o.bendRelLim,endType:o.endType?JSON.parse(JSON.stringify(o.endType)):null,
     solid:o.solid,fixed:o.fixed};
   for(const k of ['temp','damp','speed','weave','iters','wallPad','contactDamp','weld','gCurl','gStiff','gThick','gGrow','chunk','bonding','bondSnap','bondBrk','bondCure','bondBlend','bondTimer','view'])m._g[k]=S[k];
   return m;}
@@ -366,7 +366,9 @@ function restoreSettings(m){
     if(s.affinity!==undefined)o.affinity=s.affinity;if(s.polarity!==undefined)o.polarity=s.polarity;
     if(s.endType)o.endType=JSON.parse(JSON.stringify(s.endType));if(s.bondOn!==undefined)o.bondOn=s.bondOn;
     if(s.spaceMult!==undefined)o.spaceMult=s.spaceMult;if(s.autoSpace!==undefined){o.autoSpace=s.autoSpace;if(o.autoSpace)applyAutoSpace(o);}
-    if(s.breakable!==undefined)o.breakable=s.breakable;if(s.bendMode!==undefined)o.bendMode=s.bendMode;if(s.bendLimit!==undefined)o.bendLimit=s.bendLimit;
+    if(s.breakable!==undefined)o.breakable=s.breakable;if(s.brkStretch!==undefined)o.brkStretch=s.brkStretch;
+    if(s.brkAbs!==undefined)o.brkAbs=s.brkAbs;if(s.bendAbsLim!==undefined)o.bendAbsLim=s.bendAbsLim;
+    if(s.brkRel!==undefined)o.brkRel=s.brkRel;if(s.bendRelLim!==undefined)o.bendRelLim=s.bendRelLim;
     if(s.solid!==undefined)setObjSolid(o,s.solid);if(s.fixed!==undefined)setObjFixed(o,s.fixed);
     if(s.ids)setObjIds(o,s.ids);}}
 function sceneIds(){const s=new Set();for(const seg of G.segs)if(seg.ids)for(const id of seg.ids)s.add(id);return [...s].sort((a,b)=>a-b);}
@@ -690,21 +692,21 @@ function endpointForces(){
 }
 function flagBondBreaks(){if(!S.bonding)return;for(const s of G.segs){if(!s.bond||!s.brk)continue;   // holding bond releases past break-ratio x rest
   const a=G.nodes[s.a],b=G.nodes[s.b];if(s.rest>0&&Math.hypot(a.x-b.x,a.y-b.y)>s.brk*s.rest)s.dead=true;}}
-function flagStrainBreaks(){const toSever=[];for(let i=0;i<G.segs.length;i++){const s=G.segs[i];if(s.dead||s.bond)continue;const o=G.objs[s.obj];if(!o||!o.breakable)continue;
+function flagStrainBreaks(){const toSever=[];for(let i=0;i<G.segs.length;i++){const s=G.segs[i];if(s.dead||s.bond)continue;const o=G.objs[s.obj];if(!o||!o.breakable||!o.brkStretch)continue;
   const br=objBrk(o);const a=G.nodes[s.a],b=G.nodes[s.b];const len=Math.hypot(a.x-b.x,a.y-b.y);
   if(s.rest>0&&len/s.rest>br)toSever.push(i);}   // tears past break-ratio x rest
   if(!toSever.length)return;
   let any=false;for(const i of toSever){const s=G.segs[i];const held=(s.a===grab||s.b===grab);   // sever at a node; a lone edge returns false (indivisible)
     if(severEdgeAt(i,true)){any=true;if(held)grab=-1;}}
   if(any){buildNbrs();computeExclusions();}}
-function flagBendBreaks(){   // sever a joint bent too sharply (absolute) or too far from its rest angle (relative)
+function flagBendBreaks(){   // sever a joint bent too sharply (absolute) and/or too far from its rest angle (relative)
   const hits=[];const DEG=Math.PI/180;
   for(let i=0;i<G.nodes.length;i++){const nb=G.nbrs[i];if(!nb||nb.length!==2)continue;
-    const o=G.objs[G.nodes[i].obj];if(!o||!o.bendMode||o.bendMode==='off')continue;
+    const o=G.objs[G.nodes[i].obj];if(!o||!o.breakable||(!o.brkAbs&&!o.brkRel))continue;
     const n=G.nodes[i],a=G.nodes[nb[0]],c=G.nodes[nb[1]];const ang=jointAngle(a,n,c);
     let brk=false;
-    if(o.bendMode==='abs')brk=ang<(o.bendLimit||60)*DEG;                          // sharper than the limit
-    else brk=Math.abs(ang-(n.bAng!=null?n.bAng:Math.PI))>(o.bendLimit||60)*DEG;   // bent this far past its rest angle
+    if(o.brkAbs&&ang<(o.bendAbsLim||90)*DEG)brk=true;                                   // folds sharper than the absolute limit
+    if(o.brkRel&&Math.abs(ang-(n.bAng!=null?n.bAng:Math.PI))>(o.bendRelLim||60)*DEG)brk=true;   // bent past its own rest angle
     if(brk)hits.push(i);}
   if(!hits.length)return;
   let any=false;
@@ -736,6 +738,7 @@ function mergeEnds(n1,n2,blend){   // fuse two endpoints into one continuous str
     if(pcA.size<=1&&pcB.size<=1)blendAttrs(G.objs[objA],G.objs[objB],blend*0.5);
     rebuildTopology();}
   G.bondBank.delete(bondKey(n1,n2));
+  const nb=G.nbrs[n1];if(nb&&nb.length===2)a.bAng=jointAngle(G.nodes[nb[0]],a,G.nodes[nb[1]]);   // a merged joint's rest angle is where it formed (so relative bend-break doesn't instantly snap it)
 }
 function maintainBonds(){
   if(!S.bonding)return;const merges=[];
@@ -970,23 +973,20 @@ function buildInterUI(o){
     wrap.appendChild(interRow('→ '+id,()=>(o.inter&&o.inter[id])||0,x=>{o.inter=o.inter||{};o.inter[id]=x;}));}
   const ew=document.getElementById('endWrap');if(ew){ew.innerHTML='';
     const myType=objType(o);
-    const brkRow2=document.createElement('div');brkRow2.className='seg';brkRow2.style.marginBottom='4px';
-    const brkBtn=document.createElement('button');brkBtn.textContent='breakable';brkBtn.className=o.breakable?'on':'';
-    brkBtn.addEventListener('click',()=>{o.breakable=!o.breakable;selectObject(S.selected);});
-    brkRow2.appendChild(brkBtn);ew.appendChild(brkRow2);
-    if(o.breakable&&!o.bondOn){const rd=()=>endProf(o,myType)||ENDDEF,st=(k,x)=>{ensureProf(o,myType)[k]=x;};   // profile is hidden with bonding off, so surface break distance here
-      ew.appendChild(profRow('break distance',()=>rd().brk,x=>st('brk',Math.max(x,1.2)),0.5,8,0.1));}
-    {const n=document.createElement('p');n.className='note';n.style.margin='4px 0 10px';
-     n.textContent=o.breakable?'Edges tear when stretched past their break distance.':'Off = edges never tear.';ew.appendChild(n);}
-    const bendRow=document.createElement('div');bendRow.className='seg';bendRow.style.marginBottom='4px';
-    const bmodes=['off','abs','rel'],blab={off:'bend break: off',abs:'bend break: absolute',rel:'bend break: relative'};
-    const bendBtn=document.createElement('button');bendBtn.textContent=blab[o.bendMode||'off'];bendBtn.className=(o.bendMode&&o.bendMode!=='off')?'on':'';
-    bendBtn.addEventListener('click',()=>{const i=bmodes.indexOf(o.bendMode||'off');o.bendMode=bmodes[(i+1)%3];selectObject(S.selected);});
-    bendRow.appendChild(bendBtn);ew.appendChild(bendRow);
-    if(o.bendMode&&o.bendMode!=='off'){ew.appendChild(profRow('bend limit °',()=>o.bendLimit||60,x=>o.bendLimit=x,10,170,5));
-      const n=document.createElement('p');n.className='note';n.style.margin='4px 0 10px';
-      n.textContent=o.bendMode==='abs'?'A joint tears if it folds sharper than this angle (180°=straight).':'A joint tears if bent this many degrees past its own resting angle.';ew.appendChild(n);}
-    const togRow=document.createElement('div');togRow.className='seg';togRow.style.marginBottom='8px';
+    const mkTog=(label,on,click,mt)=>{const r=document.createElement('div');r.className='seg';r.style.margin=(mt||'6px')+' 0 2px';const btn=document.createElement('button');btn.textContent=label;btn.className=on?'on':'';btn.addEventListener('click',click);r.appendChild(btn);ew.appendChild(r);};
+    mkTog('breakable',o.breakable,()=>{o.breakable=!o.breakable;selectObject(S.selected);},'0px');
+    if(o.breakable){
+      mkTog(o.brkStretch?'stretch: on':'stretch: off',o.brkStretch,()=>{o.brkStretch=!o.brkStretch;selectObject(S.selected);});
+      if(o.brkStretch&&!o.bondOn){const rd=()=>endProf(o,myType)||ENDDEF,st=(k,x)=>{ensureProf(o,myType)[k]=x;};   // break distance also shows with snap when bonding is on
+        ew.appendChild(profRow('break distance',()=>rd().brk,x=>st('brk',Math.max(x,(rd().snap||0.3)*1.2)),0.5,16,0.1));}
+      mkTog(o.brkAbs?'bend · absolute: on':'bend · absolute: off',o.brkAbs,()=>{o.brkAbs=!o.brkAbs;selectObject(S.selected);});
+      if(o.brkAbs)ew.appendChild(profRow('abs limit °',()=>o.bendAbsLim||90,x=>o.bendAbsLim=x,10,175,5));
+      mkTog(o.brkRel?'bend · relative: on':'bend · relative: off',o.brkRel,()=>{o.brkRel=!o.brkRel;selectObject(S.selected);});
+      if(o.brkRel)ew.appendChild(profRow('rel limit °',()=>o.bendRelLim||60,x=>o.bendRelLim=x,5,170,5));
+      const n=document.createElement('p');n.className='note';n.style.margin='6px 0 10px';
+      n.textContent='stretch = tears when pulled long (break distance, below with snap) · absolute = tears past a fixed fold angle · relative = tears when bent past its own rest shape';ew.appendChild(n);
+    }else{const n=document.createElement('p');n.className='note';n.style.margin='4px 0 10px';n.textContent='Off = never breaks. Turn on to pick stretch and/or bend breaking.';ew.appendChild(n);}
+    const togRow=document.createElement('div');togRow.className='seg';togRow.style.margin='10px 0 8px';
     const togBtn=document.createElement('button');togBtn.textContent='endpoint bonding';togBtn.className=o.bondOn?'on':'';
     togBtn.addEventListener('click',()=>{o.bondOn=!o.bondOn;selectObject(S.selected);});
     togRow.appendChild(togBtn);ew.appendChild(togRow);
