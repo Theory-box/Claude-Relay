@@ -662,9 +662,9 @@ function endpointForces(){
           if(p2.wStr&&dist<p2.wRange)f+=p2.wStr*0.12*(1-dist/p2.wRange);
           if(p2.sStr&&dist<p2.sRange)f+=p2.sStr*0.42*(1-dist/p2.sRange);
           if(f){bn.x+=-ux*f*bn.inv;bn.y+=-uy*f*bn.inv;}}
-        const p1a=p1&&(p1.wStr>0||p1.sStr>0),p2a=p2&&(p2.wStr>0||p2.sStr>0);
-        const p1r=p1&&(p1.wStr<0||p1.sStr<0),p2r=p2&&(p2.wStr<0||p2.sStr<0);
-        if(S.bonding&&!adjacent&&(p1a||p2a)&&!p1r&&!p2r){         // one-way attraction is enough; a repel on either side blocks it
+        const wants=(p)=>p&&(p.sStr>0||(p.sStr===0&&p.wStr>0));   // strong attract snaps; weak attracts only when there's no strong band
+        const blocks=(p)=>p&&p.sStr<0;                            // only a STRONG (close-range) repel vetoes bonding — a weak repel just keeps things at bay until they're close
+        if(S.bonding&&!adjacent&&(wants(p1)||wants(p2))&&!blocks(p1)&&!blocks(p2)){
           const snap=Math.max(p1?p1.snap:0,p2?p2.snap:0);
           if(dist<snap){const mgs=[p1?p1.merge:null,p2?p2.merge:null].filter(v=>v!=null),bls=[p1?p1.blend:null,p2?p2.blend:null].filter(v=>v!=null);
             newBonds.push({a:n1,b:n2,merge:mgs.length?Math.min(...mgs):0,blend:bls.length?Math.min(...bls):1});}}}}}   // either side wanting separate (blend 0) keeps them separate

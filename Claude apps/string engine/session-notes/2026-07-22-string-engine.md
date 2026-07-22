@@ -159,3 +159,9 @@ When a shape was both breakable AND self-bonding, a break created two free ends 
 Old severSegment split the EDGE (added midpoint nodes + shrank rest lengths), so grow could re-stretch each fragment past threshold and subdivide forever → 300 verts became thousands (crash). New model severs AT A NODE: **dupNode** copies the shared node, **severEdgeAt(si,preferA)** reassigns the edge to the copy so it detaches from whatever else shared that node — NO new edges, NO shrinking rests. A lone edge (both ends degree 1) returns false = indivisible. So an N-edge strand breaks into at most N lone edges, then stops. Verified: 59-edge strand + heavy grow + break settles at exactly 59 lone edges / 119 nodes, edges never grew, stable over 400 frames, no NaN. Cut severs at the vertex nearer the crossing (0 new edges, +1 node/cut, splits into pieces).
 
 Also removed the 30-frame bonding cooldown (user prevents instant re-bond physically via own-connector repulsion; re-bond oscillation is now just lag, not a freeze, since no geometry is created). Kept grab-release-on-break (prevents the fountain bug). S.frame counter left in (harmless, unused now).
+
+---
+
+## Fix: weak-repel + strong-attract now bonds (strong band drives bonding)
+
+Old gate blocked bonding if EITHER band repelled (`!p1r&&!p2r` where repel = wStr<0||sStr<0), so a weak-repel killed bonding even with strong-attract — breaking the whole "repel at range, snap up close" model. New gate: **wants(p)** = sStr>0 (or weak-attract when no strong); **blocks(p)** = sStr<0 only. So a weak repel no longer vetoes bonding; only a STRONG (close-range) repel does. Verified: weak-repel+strong-attract bonds when close, strong-repel blocks, weak-repel pushes apart at range.
