@@ -458,7 +458,14 @@ function importJSON(data){
     for(let i=0;i<G.objs.length&&i<pending.length;i++){const st=pending[i],o=G.objs[i];if(!st)continue;
       if(st.ids)setObjIds(o,st.ids);
       if(st.inter)o.inter=st.inter;if(st.interSelf!==undefined)o.interSelf=st.interSelf;if(st.selfSolid!==undefined)o.selfSolid=st.selfSolid;
-      if(st.damp!==undefined)o.damp=st.damp;if(st.padSelf!==undefined)o.padSelf=st.padSelf;if(st.padOther!==undefined)o.padOther=st.padOther;}
+      if(st.damp!==undefined)o.damp=st.damp;if(st.padSelf!==undefined)o.padSelf=st.padSelf;if(st.padOther!==undefined)o.padOther=st.padOther;
+      if(st.affinity!==undefined)o.affinity=st.affinity;if(st.polarity!==undefined)o.polarity=st.polarity;
+      if(st.bondOn!==undefined)o.bondOn=st.bondOn;if(st.endType)o.endType=JSON.parse(JSON.stringify(st.endType));
+      if(st.breakable!==undefined)o.breakable=st.breakable;if(st.brkStretch!==undefined)o.brkStretch=st.brkStretch;
+      if(st.brkAbs!==undefined)o.brkAbs=st.brkAbs;if(st.bendAbsLim!==undefined)o.bendAbsLim=st.bendAbsLim;
+      if(st.brkRel!==undefined)o.brkRel=st.brkRel;if(st.bendRelLim!==undefined)o.bendRelLim=st.bendRelLim;
+      if(st.spaceMult!==undefined)o.spaceMult=st.spaceMult;if(st.autoSpace){o.autoSpace=true;applyAutoSpace(o);}}
+    computeExclusions();
     snapshotInit();S.selected=-1;refreshStats();
     if(typeof renderObjectList==='function'){renderObjectList();document.getElementById('objEditor').style.display='none';}
     document.getElementById('tagScene').textContent='import';
@@ -478,9 +485,14 @@ function saveScene(){
         ids:o.ids?o.ids.slice():[],solid:!!o.solid,fixed:!!o.fixed,color:o.color,
         thickness:o.r,stiffness:o.stiff,curl:o.curl,grow:o.grow,
         damp:o.damp||0,padSelf:o.padSelf||0,padOther:o.padOther||0,selfSolid:o.selfSolid!==false,
+        affinity:o.affinity,polarity:o.polarity,autoSpace:!!o.autoSpace,spaceMult:o.spaceMult||1,
+        bondOn:!!o.bondOn,endType:o.endType?JSON.parse(JSON.stringify(o.endType)):null,
+        breakable:!!o.breakable,brkStretch:o.brkStretch!==false,brkAbs:!!o.brkAbs,bendAbsLim:o.bendAbsLim||90,brkRel:!!o.brkRel,bendRelLim:o.bendRelLim||60,
         inter:o.inter||{},interSelf:o.interSelf||0}};});
     const out={meta:{generator:'string-engine-save',version:1},
-      globals:{weld:S.weld,weave:S.weave,iters:S.iters,wallPad:S.wallPad,damp:S.damp,contactDamp:S.contactDamp,temp:S.temp,speed:S.speed},objects:objs};
+      globals:{weld:S.weld,weave:S.weave,iters:S.iters,wallPad:S.wallPad,damp:S.damp,contactDamp:S.contactDamp,temp:S.temp,speed:S.speed,
+        gCurl:S.gCurl,gStiff:S.gStiff,gThick:S.gThick,gGrow:S.gGrow,chunk:S.chunk,attract:S.attract,repel:S.repel,tol:S.tol,view:S.view,
+        bonding:S.bonding,bondSnap:S.bondSnap,bondBrk:S.bondBrk,bondCure:S.bondCure,bondBlend:S.bondBlend,bondTimer:S.bondTimer},objects:objs};
     json=JSON.stringify(out);
   }catch(err){alert('Could not build scene JSON: '+err);return;}
   try{
