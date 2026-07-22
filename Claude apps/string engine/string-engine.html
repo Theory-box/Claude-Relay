@@ -654,7 +654,7 @@ function endpointForces(){
         if(S.bonding&&!adjacent&&(p1a||p2a)&&!p1r&&!p2r){         // one-way attraction is enough; a repel on either side blocks it
           const snap=Math.max(p1?p1.snap:0,p2?p2.snap:0);
           if(dist<snap){const mgs=[p1?p1.merge:null,p2?p2.merge:null].filter(v=>v!=null),bls=[p1?p1.blend:null,p2?p2.blend:null].filter(v=>v!=null);
-            newBonds.push({a:n1,b:n2,merge:mgs.length?Math.min(...mgs):0,blend:bls.length?bls.reduce((x,y)=>x+y,0)/bls.length:1});}}}}}
+            newBonds.push({a:n1,b:n2,merge:mgs.length?Math.min(...mgs):0,blend:bls.length?Math.min(...bls):1});}}}}}   // either side wanting separate (blend 0) keeps them separate
   if(newBonds.length){
     const existing=new Set();for(const s of G.segs)existing.add(Math.min(s.a,s.b)+'_'+Math.max(s.a,s.b));
     let added=false;const done=new Set();
