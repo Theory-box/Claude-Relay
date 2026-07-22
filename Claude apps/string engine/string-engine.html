@@ -685,7 +685,7 @@ function flagBondBreaks(){if(!S.bonding||S.bondBreak<=0)return;for(const s of G.
 function flagStrainBreaks(){const toSever=[];for(let i=0;i<G.segs.length;i++){const s=G.segs[i];if(s.dead||s.bond)continue;const o=G.objs[s.obj];if(!o||!o.breakable)continue;
   const a=G.nodes[s.a],b=G.nodes[s.b];const len=Math.hypot(a.x-b.x,a.y-b.y);
   if(s.rest>0&&len/s.rest>o.breakStrain)toSever.push(i);}   // over-strained
-  for(const i of toSever)severSegment(i,0.5);}               // split, don't delete
+  for(const i of toSever){const s=G.segs[i];const held=(s.a===grab||s.b===grab);severSegment(i,0.5);if(held)grab=-1;}}   // split, don't delete; releasing the grab on break stops a dragged end from shedding endlessly
 function removeDead(){let dirty=false;                    // runs every frame, independent of bonding
   for(let i=G.segs.length-1;i>=0;i--){const s=G.segs[i];if(!s.dead)continue;
     if(s.bond&&S.bondTimer==='cumulative')G.bondBank.set(bondKey(s.a,s.b),s.bondAge||0);   // bank holding-bond progress across a break
