@@ -255,3 +255,11 @@ User scene (scene-1784757143853) Circle.002: negative grow -0.16, self-bond (wSt
 ## Zero-pull proximity bonding
 
 With endpoint bonding on but weak+strong pull both 0, nothing bonded — two bugs: (1) endpointForces early-exited entirely unless some profile had non-zero wStr/sStr; (2) the bond gate required wants(p) (some attraction). Fixed: (1) the pass now runs whenever any object has bondOn + an endType profile (pull optional), and maxR/search radius now also covers the snap distance; (2) gate is now `(p1||p2) && !blocks(p1) && !blocks(p2)` — proximity within snap bonds regardless of pull; only a STRONG repel (sStr<0) vetoes. Pull now only shapes the approach (draw in / hold at bay), not whether contact bonds — matching "bonding on = bond on proximity; turn it off if you don't want bonding." Verified: zero-pull bonds when within snap, stays apart when far, strong-repel vetoes, weak-repel still bonds close.
+
+---
+
+## Defaults + collision-smoothing auto-ramp
+
+New defaults: weave 0 (flat/2D), iters(Quality) 4, damp 0.02, contactDamp 0 (state + slider HTML). Collision smoothing auto-ramp: startCDRamp() sets contactDamp=1 and cdRamp0=S.frame; advanceCDRamp() (called each running frame) eases contactDamp 1->0 over 180 frames (~3s at 60fps) then stops. Triggered on Play button, spacebar-play, Reset button, and 'r' key. Manual sCD slider change sets cdRamping=false (cancels). contactDamp max is 1 (values >1 reverse velocity/destabilize), so ramp starts at 1 not the user's remembered "2.5". Verified: defaults applied; ramp 1->0.5@90f->0@180f; reset re-ramps; manual cancels.
+
+Outstanding (user says minor): some connectable strings still render compressed/small ("every other" in a bonding stream) — user suspects the connecting force shrinking them. Not yet root-caused; deferred.

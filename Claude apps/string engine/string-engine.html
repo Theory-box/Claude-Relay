@@ -173,12 +173,12 @@
       <div class="card">
         <p class="eyebrow">Simulation</p>
         <div class="ctrl"><label>Motion <span class="val" id="vTemp">0.7</span></label><input id="sTemp" type="range" min="0" max="3" value="0.7" step="0.05"><div class="stat" style="margin-top:3px"><span>calm</span><span>violent</span></div></div>
-        <div class="ctrl"><label>Damping <span class="val" id="vDamp">0.00</span></label><input id="sDamp" type="range" min="0" max="0.7" value="0" step="0.01"><div class="stat" style="margin-top:3px"><span>lively</span><span>settled</span></div></div>
+        <div class="ctrl"><label>Damping <span class="val" id="vDamp">0.02</span></label><input id="sDamp" type="range" min="0" max="0.7" value="0.02" step="0.01"><div class="stat" style="margin-top:3px"><span>lively</span><span>settled</span></div></div>
         <div class="ctrl"><label>Speed <span class="val" id="vSpeed">1×</span></label><input id="sSpeed" type="range" min="1" max="8" value="1" step="1"></div>
-        <div class="ctrl"><label>Weave (over / under) <span class="val" id="vWeave">0.60</span></label><input id="sWeave" type="range" min="0" max="1.5" value="0.6" step="0.05"><div class="stat" style="margin-top:3px"><span>flat · 2D</span><span>slithery</span></div></div>
-        <div class="ctrl"><label>Quality <span class="val" id="vIters">3</span></label><input id="sIters" type="range" min="2" max="12" value="3" step="1"><div class="stat" style="margin-top:3px"><span>fast</span><span>firmer walls</span></div></div>
+        <div class="ctrl"><label>Weave (over / under) <span class="val" id="vWeave">0.00</span></label><input id="sWeave" type="range" min="0" max="1.5" value="0" step="0.05"><div class="stat" style="margin-top:3px"><span>flat · 2D</span><span>slithery</span></div></div>
+        <div class="ctrl"><label>Quality <span class="val" id="vIters">4</span></label><input id="sIters" type="range" min="2" max="12" value="4" step="1"><div class="stat" style="margin-top:3px"><span>fast</span><span>firmer walls</span></div></div>
         <div class="ctrl"><label>Wall padding <span class="val" id="vPad">5</span></label><input id="sPad" type="range" min="0" max="20" value="5" step="1"><div class="stat" style="margin-top:3px"><span>none</span><span>thick cushion</span></div></div>
-        <div class="ctrl"><label>Collision smoothing <span class="val" id="vCD">0.60</span></label><input id="sCD" type="range" min="0" max="1" value="0.6" step="0.05"><div class="stat" style="margin-top:3px"><span>bouncy</span><span>settled</span></div></div>
+        <div class="ctrl"><label>Collision smoothing <span class="val" id="vCD">0.00</span></label><input id="sCD" type="range" min="0" max="1" value="0" step="0.05"><div class="stat" style="margin-top:3px"><span>bouncy</span><span>settled</span></div></div>
         <div class="seg" style="margin-top:8px"><button id="sChunk">temporal spread · interactions</button></div>
         <div class="stat" style="margin-top:3px"><span>spreads attraction/repulsion over 3 frames — faster on dense scenes</span></div>
         <div class="seg" style="margin-top:10px"><button id="sBond" class="on">bonding master (kill-switch)</button></div>
@@ -219,7 +219,7 @@ const PALETTE=['#37e0d4','#7b8cff','#ff5fa2','#ffb02e','#b06bff','#4ade80','#ff7
 // G.objs:  {name,r,stiff,curl,affinity,polarity,solid,fixed,color, nodeIdx:[], segIdx:[]}
 const G={nodes:[],segs:[],objs:[],nbrs:[]};
 const S={temp:0.7,speed:1,running:true,W:0,H:0,dpr:1,pad:26,scene:'box',
-  gCurl:0,gStiff:0,gThick:0,gGrow:0,weave:0.6,view:'default',iters:3,wallPad:5,attract:0.4,repel:0,tol:0.4,selected:-1,weld:0.003,damp:0,contactDamp:0.6,chunk:false,bonding:true,bondSnap:1.5,bondBrk:2.5,bondCure:0,bondBlend:1,bondTimer:'continuous'};
+  gCurl:0,gStiff:0,gThick:0,gGrow:0,weave:0,view:'default',iters:4,wallPad:5,attract:0.4,repel:0,tol:0.4,selected:-1,weld:0.003,damp:0.02,contactDamp:0,chunk:false,bonding:true,bondSnap:1.5,bondBrk:2.5,bondCure:0,bondBlend:1,bondTimer:'continuous',cdRamping:false,cdRamp0:0};
 const OBJDEF={r:3,stiff:0.12,curl:0,grow:0,affinity:1,polarity:1,solid:false,fixed:false,color:null,autoSpace:false,spaceMult:1,breakable:false,brkStretch:true,brkAbs:false,bendAbsLim:90,brkRel:false,bendRelLim:60};
 // per-object attribute + global offset (0 = use imported value untouched)
 function effR(o){return Math.max(0.5,o.r+S.gThick);}
@@ -921,19 +921,23 @@ cvs.addEventListener('wheel',e=>{e.preventDefault();const r=cvs.getBoundingClien
 },{passive:false});
 function resetView(){view.z=1;view.ox=0;view.oy=0;}
 
-function stepFrame(){S.frame=(S.frame||0)+1;attract();endpointForces();relaxSpacing();for(let k=0;k<S.speed;k++){integrate();flagBondBreaks();constraints();collide();wallCCD();dragApply();flagStrainBreaks();flagBendBreaks();}maintainBonds();removeDead();}
+function startCDRamp(){S.contactDamp=1;S.cdRamping=true;S.cdRamp0=S.frame;const el=document.getElementById('sCD'),v=document.getElementById('vCD');if(el)el.value=1;if(v)v.textContent='1.00';}   // on play: full collision smoothing, eases to 0 over ~3s so the initial expansion can't explode
+function advanceCDRamp(){if(!S.cdRamping)return;const t=(S.frame-S.cdRamp0)/180;   // 180 frames ~= 3s at 60fps
+  if(t>=1){S.contactDamp=0;S.cdRamping=false;}else S.contactDamp=1-t;
+  const el=document.getElementById('sCD'),v=document.getElementById('vCD');if(el)el.value=S.contactDamp;if(v)v.textContent=S.contactDamp.toFixed(2);}
+function stepFrame(){S.frame=(S.frame||0)+1;advanceCDRamp();attract();endpointForces();relaxSpacing();for(let k=0;k<S.speed;k++){integrate();flagBondBreaks();constraints();collide();wallCCD();dragApply();flagStrainBreaks();flagBendBreaks();}maintainBonds();removeDead();}
 window.addEventListener('keydown',e=>{const tag=(e.target.tagName||'').toLowerCase();if(tag==='input'||tag==='select'||tag==='textarea')return;
   const k=e.key.toLowerCase();
-  if(k==='r'){resetSim();}
+  if(k==='r'){resetSim();startCDRamp();}
   else if(k==='g'){setTool('move');}
   else if(k==='k'){setTool('cut');}
   else if(k==='f'){resetView();}
-  else if(k===' '){e.preventDefault();S.running=!S.running;const bp=document.getElementById('bPlay');if(bp)bp.textContent=S.running?'Pause':'Play';}
+  else if(k===' '){e.preventDefault();S.running=!S.running;const bp=document.getElementById('bPlay');if(bp)bp.textContent=S.running?'Pause':'Play';if(S.running)startCDRamp();}
   else if((k==='arrowright'||k==='arrowleft')&&!S.running){e.preventDefault();stepFrame();}});
 
 let ema=60,lastT=performance.now();
 function frame(now){const dt=now-lastT;lastT=now;ema=ema*0.9+(1000/Math.max(1,dt))*0.1;
-  if(S.running){S.frame=(S.frame||0)+1;attract();endpointForces();relaxSpacing();for(let k=0;k<S.speed;k++){integrate();flagBondBreaks();constraints();collide();wallCCD();dragApply();flagStrainBreaks();flagBendBreaks();}maintainBonds();removeDead();}
+  if(S.running){S.frame=(S.frame||0)+1;advanceCDRamp();attract();endpointForces();relaxSpacing();for(let k=0;k<S.speed;k++){integrate();flagBondBreaks();constraints();collide();wallCCD();dragApply();flagStrainBreaks();flagBendBreaks();}maintainBonds();removeDead();}
   else if(grab>=0){dragApply();constraints();collide();}
   render();document.getElementById('sFps').textContent=Math.round(ema)+' fps';
   requestAnimationFrame(frame);}
@@ -1101,7 +1105,7 @@ document.getElementById('sSpeed').addEventListener('input',e=>{S.speed=parseInt(
 document.getElementById('sWeave').addEventListener('input',e=>{S.weave=parseFloat(e.target.value);document.getElementById('vWeave').textContent=S.weave.toFixed(2);});
 document.getElementById('sIters').addEventListener('input',e=>{S.iters=parseInt(e.target.value);document.getElementById('vIters').textContent=S.iters;});
 document.getElementById('sPad').addEventListener('input',e=>{S.wallPad=parseFloat(e.target.value);document.getElementById('vPad').textContent=S.wallPad;});
-document.getElementById('sCD').addEventListener('input',e=>{S.contactDamp=parseFloat(e.target.value);document.getElementById('vCD').textContent=S.contactDamp.toFixed(2);});
+document.getElementById('sCD').addEventListener('input',e=>{S.contactDamp=parseFloat(e.target.value);S.cdRamping=false;document.getElementById('vCD').textContent=S.contactDamp.toFixed(2);});
 document.getElementById('sChunk').addEventListener('click',()=>{S.chunk=!S.chunk;document.getElementById('sChunk').classList.toggle('on',S.chunk);});
 document.getElementById('sBond').addEventListener('click',()=>{S.bonding=!S.bonding;document.getElementById('sBond').classList.toggle('on',S.bonding);});
 document.getElementById('sBSnap').addEventListener('input',e=>{S.bondSnap=parseFloat(e.target.value);document.getElementById('vBSnap').textContent=S.bondSnap;});
@@ -1110,8 +1114,8 @@ document.getElementById('sBCure').addEventListener('input',e=>{S.bondCure=parseF
 document.getElementById('sBBlend').addEventListener('input',e=>{S.bondBlend=parseFloat(e.target.value);const v=S.bondBlend;document.getElementById('vBBlend').textContent=v<=0?'0 · separate':(v>=1?'1 · average':v.toFixed(1)+' · partial');});
 document.getElementById('sBTimerCont').addEventListener('click',()=>{S.bondTimer='continuous';document.getElementById('sBTimerCont').classList.add('on');document.getElementById('sBTimerCum').classList.remove('on');});
 document.getElementById('sBTimerCum').addEventListener('click',()=>{S.bondTimer='cumulative';document.getElementById('sBTimerCum').classList.add('on');document.getElementById('sBTimerCont').classList.remove('on');});
-document.getElementById('bPlay').addEventListener('click',e=>{S.running=!S.running;e.target.textContent=S.running?'Pause':'Play';});
-document.getElementById('bReset').addEventListener('click',resetSim);
+document.getElementById('bPlay').addEventListener('click',e=>{S.running=!S.running;e.target.textContent=S.running?'Pause':'Play';if(S.running)startCDRamp();});
+document.getElementById('bReset').addEventListener('click',()=>{resetSim();startCDRamp();});
 document.getElementById('bImport').addEventListener('click',()=>document.getElementById('file').click());
 document.getElementById('file').addEventListener('change',ev=>{const f=ev.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>importJSON(r.result);r.readAsText(f);});
 document.querySelectorAll('.tab').forEach(t=>t.addEventListener('click',()=>{
