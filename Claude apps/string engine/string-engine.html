@@ -323,7 +323,7 @@ function fitToView(pad){ // scale/center all nodes into the canvas
   const sc=Math.min((S.W-2*pad)/bw,(S.H-2*pad)/bh);
   const ox=(S.W-bw*sc)/2-minx*sc,oy=(S.H-bh*sc)/2-miny*sc;
   for(const n of G.nodes){n.x=n.x*sc+ox;n.y=n.y*sc+oy;n.h*=sc;n.px=n.x;n.py=n.y;n.ph=n.h;}
-  for(const s of G.segs)s.rest*=sc;
+  for(const s of G.segs){s.rest*=sc;if(s.rest0!==undefined)s.rest0*=sc;}   // scale the authored-length backup too, so expand-to-fit measures against the fitted size (not the raw import size)
 }
 function clearGraph(){G.nodes=[];G.segs=[];G.objs=[];G.nbrs=[];G.ends=[];G.piece=[];G.bondBank=new Map();}
 // live per-object edits: push down to the object's nodes/segments

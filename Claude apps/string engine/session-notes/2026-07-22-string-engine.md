@@ -237,3 +237,9 @@ Verified: a crammed strand inflates cleanly (56->164px, scale 2.75, 0 overlaps).
 ## Expand-to-fit redesigned: Size is a DIRECT scale (grow+shrink), overlap = floor
 
 Prior version only scaled UP to avoid overlap, so for normally-spaced objects (edges wider than contact) it sat at scale 1 no matter how high you pushed spacing/thickness -> "nothing expands", and felt like it shrank. Redesign: **spaceMult ("Size") is a direct size multiplier**; objTargetScale = min(12, max(spaceMult, objMinContact/shortestEdge)). objMinContact = 2*effR+padSelf (no mult). So Size directly grows/shrinks the whole object (proportions kept), floored at the no-overlap scale, which RISES with thickness/padding. Verified: Size 2 -> 2x span, Size 0.5 -> 0.5x (shrinks), thickness 20 forces 1.33x at Size 1 (floor), Size 1 thin -> authored. UI: slider relabeled "Size ×", range 0.25-5, default 1.
+
+---
+
+## THE shrink bug: rest0 not scaled by fitToView
+
+Root cause of "expand-to-fit shrinks the shape": addGraphObject sets s.rest0=rest (authored, pre-fit), then fitToView scales s.rest by sc but LEFT s.rest0 at the authored value. So after load, rest0=9 while rest=18.2 (fit sc=2.02). expand-to-fit sets rest = rest0*scale = authored*scale, discarding the 2x fit -> snaps every edge to ~83% of displayed size -> whole shape shrinks. Hidden on a small canvas (sc~1), dominant on a big one. Fix: fitToView now scales s.rest0 alongside s.rest. Verified: after load rest0==rest (18.2==18.2); Size 1 no longer shrinks (relaxes to natural size); Size 2 grows, Size 0.5 shrinks; strand with room scales 2x/0.5x correctly. (Wall/canvas still caps a shape that already fills the world — separate world-size feature TBD.)
