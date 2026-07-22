@@ -757,6 +757,11 @@ function render(){
     } else {
       ctx.strokeStyle=col;ctx.globalAlpha=dbg?1:0.96;ctx.lineWidth=s.solid?r*2:Math.max(2,r*1.7);
       ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();ctx.globalAlpha=1;}}
+  // seam beads: where segments of different thickness meet (e.g. a blend-0 merge of thin+thick), draw a dot at the larger radius so the join reads as a bead on a string
+  {const N=G.nodes.length,maxR=new Float32Array(N),minR=new Float32Array(N).fill(1e9),mObj=new Int32Array(N).fill(-1);
+   for(const s of G.segs){if(s.solid)continue;const rr=effR(G.objs[s.obj]);for(const nd of [s.a,s.b]){if(rr>maxR[nd]){maxR[nd]=rr;mObj[nd]=s.obj;}if(rr<minR[nd])minR[nd]=rr;}}
+   for(let i=0;i<N;i++){if(mObj[i]<0)continue;if(maxR[i]-minR[i]>1){const n=G.nodes[i];ctx.fillStyle=G.objs[mObj[i]].color;ctx.globalAlpha=dbg?1:0.96;
+     ctx.beginPath();ctx.arc(n.x,n.y,maxR[i]*0.85,0,6.2832);ctx.fill();ctx.globalAlpha=1;}}}
   // junction nodes (degree>2) get a dot so shared vertices read clearly
   for(let i=0;i<G.nodes.length;i++){if(G.nbrs[i]&&G.nbrs[i].length>2){const n=G.nodes[i],o=G.objs[n.obj];
     ctx.fillStyle=o.color;ctx.beginPath();ctx.arc(n.x,n.y,effR(o)*1.4,0,6.2832);ctx.fill();}}
