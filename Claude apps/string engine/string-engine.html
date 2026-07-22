@@ -153,6 +153,9 @@
           <div class="seg" style="margin-top:10px"><button id="eAutoSpace">auto-space by thickness</button></div>
           <div class="stat" style="margin-top:3px"><span>space this object's nodes by radius so fat strands don't overlap (off = keep imported shape)</span></div>
           <div class="ctrl" id="eSpaceRow" style="margin-top:6px"><label>Spacing <input id="eSpaceN" class="numin" type="number" step="0.05"></label><input id="eSpace" type="range" min="0.5" max="2.5" value="1" step="0.05"></div>
+          <div class="seg" style="margin-top:10px"><button id="eBreak">breakable</button></div>
+          <div class="stat" style="margin-top:3px"><span>segments snap when stretched too far (off = unbreakable)</span></div>
+          <div class="ctrl" id="eBreakRow" style="margin-top:6px"><label>Break at <input id="eBreakSN" class="numin" type="number" step="0.1"></label><input id="eBreakS" type="range" min="1.2" max="6" value="2.5" step="0.1"><div class="stat" style="margin-top:3px"><span>× rest length before it tears</span></div></div>
         </div>
         <div class="etabpanel" data-epanel="affinity">
           <div id="interWrap"></div>
@@ -220,7 +223,7 @@ const PALETTE=['#37e0d4','#7b8cff','#ff5fa2','#ffb02e','#b06bff','#4ade80','#ff7
 const G={nodes:[],segs:[],objs:[],nbrs:[]};
 const S={temp:0.7,speed:1,running:true,W:0,H:0,dpr:1,pad:26,scene:'box',
   gCurl:0,gStiff:0,gThick:0,gGrow:0,weave:0.6,view:'default',iters:3,wallPad:5,attract:0.4,repel:0,tol:0.4,selected:-1,weld:0.003,damp:0,contactDamp:0.6,chunk:false,bonding:true,bondSnap:9,bondBreak:0,bondCure:0,bondBlend:1,bondTimer:'continuous'};
-const OBJDEF={r:3,stiff:0.12,curl:0,grow:0,affinity:1,polarity:1,solid:false,fixed:false,color:null,autoSpace:false,spaceMult:1};
+const OBJDEF={r:3,stiff:0.12,curl:0,grow:0,affinity:1,polarity:1,solid:false,fixed:false,color:null,autoSpace:false,spaceMult:1,breakable:false,breakStrain:2.5};
 // per-object attribute + global offset (0 = use imported value untouched)
 function effR(o){return Math.max(0.5,o.r+S.gThick);}
 function segAutoRest(s){const ra=effR(G.objs[G.nodes[s.a].obj]),rb=effR(G.objs[G.nodes[s.b].obj]);   // radius-derived spacing so fat segments don't overlap
@@ -350,7 +353,7 @@ function snapshotInit(){G.init=G.nodes.map(n=>[n.x,n.y,n.h]);}      // remember 
 function captureSettings(){const m={_g:{}};
   for(const o of G.objs)m[o.name]={inter:o.inter?Object.assign({},o.inter):null,interSelf:o.interSelf,selfSolid:o.selfSolid,
     damp:o.damp,padSelf:o.padSelf,padOther:o.padOther,ids:o.ids?o.ids.slice():null,r:o.r,stiff:o.stiff,curl:o.curl,grow:o.grow,
-    affinity:o.affinity,polarity:o.polarity,bondOn:o.bondOn,autoSpace:o.autoSpace,spaceMult:o.spaceMult,endType:o.endType?JSON.parse(JSON.stringify(o.endType)):null,
+    affinity:o.affinity,polarity:o.polarity,bondOn:o.bondOn,autoSpace:o.autoSpace,spaceMult:o.spaceMult,breakable:o.breakable,breakStrain:o.breakStrain,endType:o.endType?JSON.parse(JSON.stringify(o.endType)):null,
     solid:o.solid,fixed:o.fixed};
   for(const k of ['temp','damp','speed','weave','iters','wallPad','contactDamp','weld','gCurl','gStiff','gThick','gGrow','chunk','bonding','bondSnap','bondBreak','bondCure','bondBlend','bondTimer','view'])m._g[k]=S[k];
   return m;}
@@ -363,6 +366,7 @@ function restoreSettings(m){
     if(s.affinity!==undefined)o.affinity=s.affinity;if(s.polarity!==undefined)o.polarity=s.polarity;
     if(s.endType)o.endType=JSON.parse(JSON.stringify(s.endType));if(s.bondOn!==undefined)o.bondOn=s.bondOn;
     if(s.spaceMult!==undefined)o.spaceMult=s.spaceMult;if(s.autoSpace!==undefined){o.autoSpace=s.autoSpace;if(o.autoSpace)applyAutoSpace(o);}
+    if(s.breakable!==undefined)o.breakable=s.breakable;if(s.breakStrain!==undefined)o.breakStrain=s.breakStrain;
     if(s.solid!==undefined)setObjSolid(o,s.solid);if(s.fixed!==undefined)setObjFixed(o,s.fixed);
     if(s.ids)setObjIds(o,s.ids);}}
 function sceneIds(){const s=new Set();for(const seg of G.segs)if(seg.ids)for(const id of seg.ids)s.add(id);return [...s].sort((a,b)=>a-b);}
@@ -678,6 +682,14 @@ function endpointForces(){
 }
 function flagBondBreaks(){if(!S.bonding||S.bondBreak<=0)return;for(const s of G.segs){if(!s.bond)continue;
   const a=G.nodes[s.a],b=G.nodes[s.b];if(Math.hypot(a.x-b.x,a.y-b.y)>S.bondBreak)s.dead=true;}}  // break<=0 => unbreakable
+function flagStrainBreaks(){for(const s of G.segs){if(s.dead||s.solid)continue;const o=G.objs[s.obj];if(!o||!o.breakable)continue;
+  const a=G.nodes[s.a],b=G.nodes[s.b];const len=Math.hypot(a.x-b.x,a.y-b.y);
+  if(s.rest>0&&len/s.rest>o.breakStrain)s.dead=true;}}   // snaps when stretched past breakStrain x rest length
+function removeDead(){let dirty=false;                    // runs every frame, independent of bonding
+  for(let i=G.segs.length-1;i>=0;i--){const s=G.segs[i];if(!s.dead)continue;
+    if(s.bond&&S.bondTimer==='cumulative')G.bondBank.set(bondKey(s.a,s.b),s.bondAge||0);   // bank holding-bond progress across a break
+    G.segs.splice(i,1);dirty=true;}
+  if(dirty)rebuildTopology();}
 function bondKey(a,b){return Math.min(a,b)+'_'+Math.max(a,b);}
 function blendAttrs(A,B,t){   // shift A's scalar attributes toward B by t (t=0.5 => 50/50 average)
   for(const k of ['r','stiff','curl','grow','affinity','polarity','damp','padSelf','padOther','interSelf']){
@@ -699,15 +711,11 @@ function mergeEnds(n1,n2,blend){   // fuse two endpoints into one continuous str
   G.bondBank.delete(bondKey(n1,n2));
 }
 function maintainBonds(){
-  if(!S.bonding)return;let dirty=false;const merges=[];
-  for(let i=G.segs.length-1;i>=0;i--){const s=G.segs[i];
-    if(s.dead){if(S.bondTimer==='cumulative')G.bondBank.set(bondKey(s.a,s.b),s.bondAge||0);   // bank progress across a break
-      G.segs.splice(i,1);dirty=true;continue;}
-    if(!s.bond)continue;
+  if(!S.bonding)return;const merges=[];
+  for(const s of G.segs){if(s.dead||!s.bond)continue;
     s.bondAge=(s.bondAge||0)+1;
     if((s.mergeTime||0)<900&&s.bondAge>=(s.mergeTime||0))merges.push([s.a,s.b,s.blend!==undefined?s.blend:1]);}   // held long enough -> merge with its blend
   for(const[a,b,bl]of merges)mergeEnds(a,b,bl);
-  if(dirty&&!merges.length)rebuildTopology();
 }
 
 // ---------- render ----------
@@ -836,7 +844,7 @@ cvs.addEventListener('wheel',e=>{e.preventDefault();const r=cvs.getBoundingClien
 },{passive:false});
 function resetView(){view.z=1;view.ox=0;view.oy=0;}
 
-function stepFrame(){attract();endpointForces();for(let k=0;k<S.speed;k++){integrate();flagBondBreaks();constraints();collide();wallCCD();dragApply();}maintainBonds();}
+function stepFrame(){attract();endpointForces();for(let k=0;k<S.speed;k++){integrate();flagBondBreaks();constraints();flagStrainBreaks();collide();wallCCD();dragApply();}maintainBonds();removeDead();}
 window.addEventListener('keydown',e=>{const tag=(e.target.tagName||'').toLowerCase();if(tag==='input'||tag==='select'||tag==='textarea')return;
   const k=e.key.toLowerCase();
   if(k==='r'){resetSim();}
@@ -848,7 +856,7 @@ window.addEventListener('keydown',e=>{const tag=(e.target.tagName||'').toLowerCa
 
 let ema=60,lastT=performance.now();
 function frame(now){const dt=now-lastT;lastT=now;ema=ema*0.9+(1000/Math.max(1,dt))*0.1;
-  if(S.running){attract();endpointForces();for(let k=0;k<S.speed;k++){integrate();flagBondBreaks();constraints();collide();wallCCD();dragApply();}maintainBonds();}
+  if(S.running){attract();endpointForces();for(let k=0;k<S.speed;k++){integrate();flagBondBreaks();constraints();flagStrainBreaks();collide();wallCCD();dragApply();}maintainBonds();removeDead();}
   else if(grab>=0){dragApply();constraints();collide();}
   render();document.getElementById('sFps').textContent=Math.round(ema)+' fps';
   requestAnimationFrame(frame);}
@@ -896,6 +904,9 @@ function selectObject(i){if(i!==S.selected)activeConnTarget=null;S.selected=i;re
   sv('eSpace','eSpaceN',o.spaceMult||1);
   document.getElementById('eAutoSpace').classList.toggle('on',!!o.autoSpace);
   document.getElementById('eSpaceRow').style.display=o.autoSpace?'':'none';
+  sv('eBreakS','eBreakSN',o.breakStrain||2.5);
+  document.getElementById('eBreak').classList.toggle('on',!!o.breakable);
+  document.getElementById('eBreakRow').style.display=o.breakable?'':'none';
   document.getElementById('eIds').value=(o.ids||[]).join(',');
   document.getElementById('eSolid').classList.toggle('on',!!o.solid);
   document.getElementById('eFixed').classList.toggle('on',!!o.fixed);
@@ -977,6 +988,10 @@ bindPair('eDamp','eDampN',(o,v)=>o.damp=v);
 bindPair('ePadO','ePadON',(o,v)=>o.padOther=v);
 bindPair('ePadS','ePadSN',(o,v)=>o.padSelf=v);
 bindPair('eSpace','eSpaceN',(o,v)=>{o.spaceMult=v;if(o.autoSpace){applyAutoSpace(o);computeExclusions();}});
+bindPair('eBreakS','eBreakSN',(o,v)=>o.breakStrain=v);
+document.getElementById('eBreak').addEventListener('click',()=>{const o=selObj();if(!o)return;o.breakable=!o.breakable;
+  document.getElementById('eBreak').classList.toggle('on',o.breakable);
+  document.getElementById('eBreakRow').style.display=o.breakable?'':'none';});
 document.getElementById('eAutoSpace').addEventListener('click',()=>{const o=selObj();if(!o)return;o.autoSpace=!o.autoSpace;
   document.getElementById('eAutoSpace').classList.toggle('on',o.autoSpace);
   document.getElementById('eSpaceRow').style.display=o.autoSpace?'':'none';

@@ -128,3 +128,14 @@ Radius-derived rest length so fat strands/chains space out instead of overlappin
 - **Authored segments**: untouched by default. Per-object **"auto-space by thickness"** toggle (Objects → General) re-derives that object's segment rest-lengths; toggling off restores the original authored rests (stored as seg.rest0).
 - **Spacing multiplier** (per-object, default 1, range 0.5–2.5) nudges looser/tighter; re-applies live when thickness or the multiplier changes.
 - Reset preserves autoSpace + spaceMult and re-applies after geometry restore.
+
+---
+
+## Breaking (instant strain-break, per-object)
+
+- **flagStrainBreaks**: a segment of a breakable object snaps when stretched past `breakStrain × rest` (marks s.dead). **removeDead** now runs every frame independent of bonding (was buried in maintainBonds, gated on S.bonding).
+- **Per-object "breakable" toggle** (Objects → General) + **"Break at" × rest-length** slider (default 2.5, range 1.2–6). Off (default) = unbreakable.
+- Works on **normal AND merged segments** — this is the case the old bondBreak never covered (bondBreak only checked s.bond=true holding-bonds, so pulling a merged/fused strand never broke; strain-break fixes that).
+- Broken strands split into free ends → reactive again, so with bonding on a tear can re-heal (no cooldown, by design).
+- Reset preserves breakable + breakStrain.
+- Deferred fast-follows discussed: fatigue/damage accumulation (wear), force-based (tension) mode, optional re-bond cooldown.
