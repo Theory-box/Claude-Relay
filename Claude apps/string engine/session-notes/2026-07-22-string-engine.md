@@ -187,3 +187,9 @@ Consolidated the two confusing break controls into one. snap and brk are now RAT
 - **UI:** Connect profile has **snap distance** + **break distance** (ratios). Moving snap scales break proportionally (preserves current ratio); break floored at snap*1.2 (setter + live coupling updates the break slider DOM). Global "Snap distance"/"Break distance" defaults in Physics now ratios (1.5 / 2.5).
 - **Removed:** General "Break at x rest length" slider and per-object breakStrain (OBJDEF/capture/restore); the General **breakable toggle stays** and now uses the object's own-type break ratio (note in UI points to Connect for the value). Removed sepDistFor.
 - Verified: strain tears at ratio, bond snaps at ratio, snap->break link scales, break floors at snap*1.2, load/run/cut/reset clean, no NaN.
+
+---
+
+## Fix: bonding could form Y-junctions (one endpoint bonding to two partners in one batch)
+
+The newBonds batch deduped only by pair key, so if endpoint n1 was near both n2 and n3, it pushed (n1,n2) and (n1,n3) and merged BOTH -> n1 became degree 3 (a Y). Endpoint bonding is meant endpoint-to-endpoint, one-to-one. Fix in the newBonds loop: record each candidate's distance (d), **sort by distance** (nearest pairs claim endpoints first), track a **usedNodes** set (skip a bond if either endpoint is already used this batch), and a **degree guard** (skip if either endpoint isn't a genuine free end, nbrs.length>1). So each free end accepts at most one bond and bonding never attaches to a non-endpoint. Verified: three ends clustered on one point -> max degree 2 (no Y); normal two-end bonding still fuses into a line; authored high-degree mesh nodes are untouched (bonding only ever touches degree-1 ends).

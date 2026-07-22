@@ -669,16 +669,19 @@ function endpointForces(){
           const bondRest=effR(o1)+effR(o2);                       // the length this bond would have; snap/break scale to it
           const snapR=Math.max(p1?p1.snap:0,p2?p2.snap:0);
           if(!gated&&dist<snapR*bondRest){const mgs=[p1?p1.merge:null,p2?p2.merge:null].filter(v=>v!=null),bls=[p1?p1.blend:null,p2?p2.blend:null].filter(v=>v!=null),bks=[p1?p1.brk:null,p2?p2.brk:null].filter(v=>v!=null);
-            newBonds.push({a:n1,b:n2,merge:mgs.length?Math.min(...mgs):0,blend:bls.length?Math.min(...bls):1,brk:bks.length?Math.max(...bks):2.5});}}}}}   // either side wanting separate (blend 0) keeps them separate
+            newBonds.push({a:n1,b:n2,d:dist,merge:mgs.length?Math.min(...mgs):0,blend:bls.length?Math.min(...bls):1,brk:bks.length?Math.max(...bks):2.5});}}}}}   // either side wanting separate (blend 0) keeps them separate
   if(newBonds.length){
     const existing=new Set();for(const s of G.segs)existing.add(Math.min(s.a,s.b)+'_'+Math.max(s.a,s.b));
-    let added=false;const done=new Set();
+    let added=false;const done=new Set(),usedNodes=new Set();
+    newBonds.sort((x,y)=>x.d-y.d);                                        // nearest pairs claim their endpoints first
     for(const nb of newBonds){let a=nb.a,b=nb.b;if(a>b){const t=a;a=b;b=t;}const key=a+'_'+b;
       if(done.has(key)||existing.has(key))continue;done.add(key);
-      if(nb.merge<=0){if(!(G.nbrs[a]&&G.nbrs[a].indexOf(b)>=0))mergeEnds(a,b,nb.blend);}   // instant fuse
+      if(usedNodes.has(a)||usedNodes.has(b))continue;                     // each endpoint bonds to at most ONE partner (no Y-junctions)
+      if((G.nbrs[a]?G.nbrs[a].length:0)>1||(G.nbrs[b]?G.nbrs[b].length:0)>1)continue;   // only genuine free ends bond
+      if(nb.merge<=0){if(!(G.nbrs[a]&&G.nbrs[a].indexOf(b)>=0)){mergeEnds(a,b,nb.blend);usedNodes.add(a);usedNodes.add(b);}}   // instant fuse
       else{const oa=G.objs[G.nodes[a].obj],ob=G.objs[G.nodes[b].obj];
         const seed=(S.bondTimer==='cumulative'&&G.bondBank.get(a+'_'+b))||0;
-        G.segs.push({a,b,obj:G.nodes[a].obj,rest:(effR(oa)+effR(ob))*(((oa.spaceMult||1)+(ob.spaceMult||1))*0.5),bond:true,bondAge:seed,mergeTime:nb.merge,blend:nb.blend,brk:nb.brk,solid:false,ids:[],aff:0,excl:new Set()});added=true;}}
+        G.segs.push({a,b,obj:G.nodes[a].obj,rest:(effR(oa)+effR(ob))*(((oa.spaceMult||1)+(ob.spaceMult||1))*0.5),bond:true,bondAge:seed,mergeTime:nb.merge,blend:nb.blend,brk:nb.brk,solid:false,ids:[],aff:0,excl:new Set()});added=true;usedNodes.add(a);usedNodes.add(b);}}
     if(added)rebuildTopology();
   }
 }
