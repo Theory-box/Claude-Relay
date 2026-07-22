@@ -117,3 +117,14 @@ Replaced the per-type "wall of every type in the scene" with a proper relationsh
 - **Auto-mirror + directional:** adding B to A's list also creates A's entry on B and enables B's bonding, but each side keeps its OWN values (so A can chase while B flees).
 - **Gate:** a bond needs BOTH objects' bonding on (consent) AND the master on.
 - **Master bonding** is now a kill-switch in Physics, defaults ON (so a forgotten master never silently blocks per-object bonding). Physics snap/break/merge/blend relabeled "defaults for new connections" (template new relationships inherit).
+
+---
+
+## Auto-space by thickness (per-object)
+
+Radius-derived rest length so fat strands/chains space out instead of overlapping.
+- **segAutoRest** = (effR(a)+effR(b)) × avg(spaceMult). Nodes sit ~1 diameter apart; as a bonus this drops the collision-exclusion depth to ~2, so self-collision on folds starts working automatically.
+- **Merge/holding-bond joints** always use the radius-derived rest (× the two objects' avg spaceMult).
+- **Authored segments**: untouched by default. Per-object **"auto-space by thickness"** toggle (Objects → General) re-derives that object's segment rest-lengths; toggling off restores the original authored rests (stored as seg.rest0).
+- **Spacing multiplier** (per-object, default 1, range 0.5–2.5) nudges looser/tighter; re-applies live when thickness or the multiplier changes.
+- Reset preserves autoSpace + spaceMult and re-applies after geometry restore.

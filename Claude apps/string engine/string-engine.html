@@ -150,6 +150,9 @@
           <div class="ctrl"><label>Damping <input id="eDampN" class="numin" type="number" step="0.01"></label><input id="eDamp" type="range" min="0" max="0.9" value="0" step="0.01"></div>
           <div class="ctrl"><label>Pad · vs others <input id="ePadON" class="numin" type="number" step="0.5"></label><input id="ePadO" type="range" min="0" max="24" value="0" step="0.5"><div class="stat" style="margin-top:3px"><span>cushion against other objects</span></div></div>
           <div class="ctrl"><label>Pad · self <input id="ePadSN" class="numin" type="number" step="0.5"></label><input id="ePadS" type="range" min="0" max="24" value="0" step="0.5"><div class="stat" style="margin-top:3px"><span>cushion within its own body</span></div></div>
+          <div class="seg" style="margin-top:10px"><button id="eAutoSpace">auto-space by thickness</button></div>
+          <div class="stat" style="margin-top:3px"><span>space this object's nodes by radius so fat strands don't overlap (off = keep imported shape)</span></div>
+          <div class="ctrl" id="eSpaceRow" style="margin-top:6px"><label>Spacing <input id="eSpaceN" class="numin" type="number" step="0.05"></label><input id="eSpace" type="range" min="0.5" max="2.5" value="1" step="0.05"></div>
         </div>
         <div class="etabpanel" data-epanel="affinity">
           <div id="interWrap"></div>
@@ -217,9 +220,14 @@ const PALETTE=['#37e0d4','#7b8cff','#ff5fa2','#ffb02e','#b06bff','#4ade80','#ff7
 const G={nodes:[],segs:[],objs:[],nbrs:[]};
 const S={temp:0.7,speed:1,running:true,W:0,H:0,dpr:1,pad:26,scene:'box',
   gCurl:0,gStiff:0,gThick:0,gGrow:0,weave:0.6,view:'default',iters:3,wallPad:5,attract:0.4,repel:0,tol:0.4,selected:-1,weld:0.003,damp:0,contactDamp:0.6,chunk:false,bonding:true,bondSnap:9,bondBreak:0,bondCure:0,bondBlend:1,bondTimer:'continuous'};
-const OBJDEF={r:3,stiff:0.12,curl:0,grow:0,affinity:1,polarity:1,solid:false,fixed:false,color:null};
+const OBJDEF={r:3,stiff:0.12,curl:0,grow:0,affinity:1,polarity:1,solid:false,fixed:false,color:null,autoSpace:false,spaceMult:1};
 // per-object attribute + global offset (0 = use imported value untouched)
 function effR(o){return Math.max(0.5,o.r+S.gThick);}
+function segAutoRest(s){const ra=effR(G.objs[G.nodes[s.a].obj]),rb=effR(G.objs[G.nodes[s.b].obj]);   // radius-derived spacing so fat segments don't overlap
+  const oa=G.objs[G.nodes[s.a].obj],ob=G.objs[G.nodes[s.b].obj];const m=((oa.spaceMult||1)+(ob.spaceMult||1))*0.5;return (ra+rb)*m;}
+function applyAutoSpace(o){for(const si of o.segIdx){const s=G.segs[si];if(s.rest0===undefined)s.rest0=s.rest;s.rest=segAutoRest(s);}}
+function clearAutoSpace(o){for(const si of o.segIdx){const s=G.segs[si];if(s.rest0!==undefined)s.rest=s.rest0;}}
+function refreshAutoSpace(o){if(o.autoSpace)applyAutoSpace(o);else clearAutoSpace(o);}
 function effStiff(o){return clamp(o.stiff+S.gStiff,0,1);}
 function effCurl(o){return o.curl+S.gCurl;}
 function effGrow(o){return o.grow+S.gGrow;}
@@ -265,7 +273,7 @@ function addGraphObject(verts,edges,attrs,vattrs){
     const rest=Math.hypot(G.nodes[b].x-G.nodes[a].x,G.nodes[b].y-G.nodes[a].y,G.nodes[b].h-G.nodes[a].h)||1;
     const solid=G.nodes[a].solid&&G.nodes[b].solid;
     const na=G.nodes[a],nb=G.nodes[b];const sids=na.ids.slice();for(const id of nb.ids)if(!sids.includes(id))sids.push(id);
-    G.segs.push({a,b,rest,obj:oi,solid,ids:sids,aff:(na.aff+nb.aff)*0.5});obj.segIdx.push(G.segs.length-1);}
+    G.segs.push({a,b,rest,rest0:rest,obj:oi,solid,ids:sids,aff:(na.aff+nb.aff)*0.5});obj.segIdx.push(G.segs.length-1);}
   G.objs.push(obj);return obj;
 }
 function polyVerts(pts){return pts.map(p=>[p.x,p.y,p.z||0]);}
@@ -342,7 +350,7 @@ function snapshotInit(){G.init=G.nodes.map(n=>[n.x,n.y,n.h]);}      // remember 
 function captureSettings(){const m={_g:{}};
   for(const o of G.objs)m[o.name]={inter:o.inter?Object.assign({},o.inter):null,interSelf:o.interSelf,selfSolid:o.selfSolid,
     damp:o.damp,padSelf:o.padSelf,padOther:o.padOther,ids:o.ids?o.ids.slice():null,r:o.r,stiff:o.stiff,curl:o.curl,grow:o.grow,
-    affinity:o.affinity,polarity:o.polarity,bondOn:o.bondOn,endType:o.endType?JSON.parse(JSON.stringify(o.endType)):null,
+    affinity:o.affinity,polarity:o.polarity,bondOn:o.bondOn,autoSpace:o.autoSpace,spaceMult:o.spaceMult,endType:o.endType?JSON.parse(JSON.stringify(o.endType)):null,
     solid:o.solid,fixed:o.fixed};
   for(const k of ['temp','damp','speed','weave','iters','wallPad','contactDamp','weld','gCurl','gStiff','gThick','gGrow','chunk','bonding','bondSnap','bondBreak','bondCure','bondBlend','bondTimer','view'])m._g[k]=S[k];
   return m;}
@@ -354,6 +362,7 @@ function restoreSettings(m){
     if(s.r!==undefined)o.r=s.r;if(s.stiff!==undefined)o.stiff=s.stiff;if(s.curl!==undefined)o.curl=s.curl;if(s.grow!==undefined)o.grow=s.grow;
     if(s.affinity!==undefined)o.affinity=s.affinity;if(s.polarity!==undefined)o.polarity=s.polarity;
     if(s.endType)o.endType=JSON.parse(JSON.stringify(s.endType));if(s.bondOn!==undefined)o.bondOn=s.bondOn;
+    if(s.spaceMult!==undefined)o.spaceMult=s.spaceMult;if(s.autoSpace!==undefined){o.autoSpace=s.autoSpace;if(o.autoSpace)applyAutoSpace(o);}
     if(s.solid!==undefined)setObjSolid(o,s.solid);if(s.fixed!==undefined)setObjFixed(o,s.fixed);
     if(s.ids)setObjIds(o,s.ids);}}
 function sceneIds(){const s=new Set();for(const seg of G.segs)if(seg.ids)for(const id of seg.ids)s.add(id);return [...s].sort((a,b)=>a-b);}
@@ -663,7 +672,7 @@ function endpointForces(){
       if(nb.merge<=0){if(!(G.nbrs[a]&&G.nbrs[a].indexOf(b)>=0))mergeEnds(a,b,nb.blend);}   // instant fuse
       else{const oa=G.objs[G.nodes[a].obj],ob=G.objs[G.nodes[b].obj];
         const seed=(S.bondTimer==='cumulative'&&G.bondBank.get(a+'_'+b))||0;
-        G.segs.push({a,b,obj:G.nodes[a].obj,rest:effR(oa)+effR(ob),bond:true,bondAge:seed,mergeTime:nb.merge,blend:nb.blend,solid:false,ids:[],aff:0,excl:new Set()});added=true;}}
+        G.segs.push({a,b,obj:G.nodes[a].obj,rest:(effR(oa)+effR(ob))*(((oa.spaceMult||1)+(ob.spaceMult||1))*0.5),bond:true,bondAge:seed,mergeTime:nb.merge,blend:nb.blend,solid:false,ids:[],aff:0,excl:new Set()});added=true;}}
     if(added)rebuildTopology();
   }
 }
@@ -884,6 +893,9 @@ function selectObject(i){if(i!==S.selected)activeConnTarget=null;S.selected=i;re
   const sv=(rid,nid,val)=>{const v=+val;document.getElementById(rid).value=v;document.getElementById(nid).value=Math.round(v*1000)/1000;};
   sv('eThick','eThickN',o.r);sv('eStiff','eStiffN',o.stiff);sv('eCurl','eCurlN',o.curl);sv('eGrow','eGrowN',o.grow);
   sv('eDamp','eDampN',o.damp||0);sv('ePadO','ePadON',o.padOther||0);sv('ePadS','ePadSN',o.padSelf||0);
+  sv('eSpace','eSpaceN',o.spaceMult||1);
+  document.getElementById('eAutoSpace').classList.toggle('on',!!o.autoSpace);
+  document.getElementById('eSpaceRow').style.display=o.autoSpace?'':'none';
   document.getElementById('eIds').value=(o.ids||[]).join(',');
   document.getElementById('eSolid').classList.toggle('on',!!o.solid);
   document.getElementById('eFixed').classList.toggle('on',!!o.fixed);
@@ -957,13 +969,18 @@ function profRow(label,getV,setV,min,max,step){
 function bindPair(rid,nid,fn){const r=document.getElementById(rid),n=document.getElementById(nid);
   const apply=(val,src)=>{const o=selObj();if(!o)return;let v=parseFloat(val);if(isNaN(v))return;if(src!=='r')r.value=v;if(src!=='n')n.value=v;fn(o,v);};
   r.addEventListener('input',()=>apply(r.value,'r'));n.addEventListener('input',()=>apply(n.value,'n'));}
-bindPair('eThick','eThickN',(o,v)=>o.r=v);
+bindPair('eThick','eThickN',(o,v)=>{o.r=v;if(o.autoSpace)applyAutoSpace(o);computeExclusions();});
 bindPair('eStiff','eStiffN',(o,v)=>o.stiff=v);
 bindPair('eCurl','eCurlN',(o,v)=>o.curl=v);
 bindPair('eGrow','eGrowN',(o,v)=>o.grow=v);
 bindPair('eDamp','eDampN',(o,v)=>o.damp=v);
 bindPair('ePadO','ePadON',(o,v)=>o.padOther=v);
 bindPair('ePadS','ePadSN',(o,v)=>o.padSelf=v);
+bindPair('eSpace','eSpaceN',(o,v)=>{o.spaceMult=v;if(o.autoSpace){applyAutoSpace(o);computeExclusions();}});
+document.getElementById('eAutoSpace').addEventListener('click',()=>{const o=selObj();if(!o)return;o.autoSpace=!o.autoSpace;
+  document.getElementById('eAutoSpace').classList.toggle('on',o.autoSpace);
+  document.getElementById('eSpaceRow').style.display=o.autoSpace?'':'none';
+  refreshAutoSpace(o);computeExclusions();});
 document.getElementById('eIds').addEventListener('input',e=>{const o=selObj();if(!o)return;
   const ids=e.target.value.split(',').map(x=>x.trim()).filter(x=>x.length);setObjIds(o,ids);
   o.inter=o.inter||{};
