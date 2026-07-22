@@ -153,8 +153,6 @@
           <div class="seg" style="margin-top:10px"><button id="eAutoSpace">auto-space by thickness</button></div>
           <div class="stat" style="margin-top:3px"><span>space this object's nodes by radius so fat strands don't overlap (off = keep imported shape)</span></div>
           <div class="ctrl" id="eSpaceRow" style="margin-top:6px"><label>Spacing <input id="eSpaceN" class="numin" type="number" step="0.05"></label><input id="eSpace" type="range" min="0.5" max="2.5" value="1" step="0.05"></div>
-          <div class="seg" style="margin-top:10px"><button id="eBreak">breakable</button></div>
-          <div class="stat" style="margin-top:3px"><span>edges tear when stretched past the break distance (set in Connect · off = unbreakable)</span></div>
         </div>
         <div class="etabpanel" data-epanel="affinity">
           <div id="interWrap"></div>
@@ -929,7 +927,6 @@ function selectObject(i){if(i!==S.selected)activeConnTarget=null;S.selected=i;re
   sv('eSpace','eSpaceN',o.spaceMult||1);
   document.getElementById('eAutoSpace').classList.toggle('on',!!o.autoSpace);
   document.getElementById('eSpaceRow').style.display=o.autoSpace?'':'none';
-  document.getElementById('eBreak').classList.toggle('on',!!o.breakable);
   document.getElementById('eIds').value=(o.ids||[]).join(',');
   document.getElementById('eSolid').classList.toggle('on',!!o.solid);
   document.getElementById('eFixed').classList.toggle('on',!!o.fixed);
@@ -952,6 +949,14 @@ function buildInterUI(o){
     wrap.appendChild(interRow('→ '+id,()=>(o.inter&&o.inter[id])||0,x=>{o.inter=o.inter||{};o.inter[id]=x;}));}
   const ew=document.getElementById('endWrap');if(ew){ew.innerHTML='';
     const myType=objType(o);
+    const brkRow2=document.createElement('div');brkRow2.className='seg';brkRow2.style.marginBottom='4px';
+    const brkBtn=document.createElement('button');brkBtn.textContent='breakable';brkBtn.className=o.breakable?'on':'';
+    brkBtn.addEventListener('click',()=>{o.breakable=!o.breakable;selectObject(S.selected);});
+    brkRow2.appendChild(brkBtn);ew.appendChild(brkRow2);
+    if(o.breakable&&!o.bondOn){const rd=()=>endProf(o,myType)||ENDDEF,st=(k,x)=>{ensureProf(o,myType)[k]=x;};   // profile is hidden with bonding off, so surface break distance here
+      ew.appendChild(profRow('break distance',()=>rd().brk,x=>st('brk',Math.max(x,1.2)),0.5,8,0.1));}
+    {const n=document.createElement('p');n.className='note';n.style.margin='4px 0 10px';
+     n.textContent=o.breakable?'Edges tear when stretched past their break distance.':'Off = edges never tear.';ew.appendChild(n);}
     const togRow=document.createElement('div');togRow.className='seg';togRow.style.marginBottom='8px';
     const togBtn=document.createElement('button');togBtn.textContent='endpoint bonding';togBtn.className=o.bondOn?'on':'';
     togBtn.addEventListener('click',()=>{o.bondOn=!o.bondOn;selectObject(S.selected);});
@@ -1014,8 +1019,6 @@ bindPair('eDamp','eDampN',(o,v)=>o.damp=v);
 bindPair('ePadO','ePadON',(o,v)=>o.padOther=v);
 bindPair('ePadS','ePadSN',(o,v)=>o.padSelf=v);
 bindPair('eSpace','eSpaceN',(o,v)=>{o.spaceMult=v;if(o.autoSpace){applyAutoSpace(o);computeExclusions();}});
-document.getElementById('eBreak').addEventListener('click',()=>{const o=selObj();if(!o)return;o.breakable=!o.breakable;
-  document.getElementById('eBreak').classList.toggle('on',o.breakable);});
 document.getElementById('eAutoSpace').addEventListener('click',()=>{const o=selObj();if(!o)return;o.autoSpace=!o.autoSpace;
   document.getElementById('eAutoSpace').classList.toggle('on',o.autoSpace);
   document.getElementById('eSpaceRow').style.display=o.autoSpace?'':'none';
