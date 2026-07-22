@@ -165,3 +165,14 @@ Also removed the 30-frame bonding cooldown (user prevents instant re-bond physic
 ## Fix: weak-repel + strong-attract now bonds (strong band drives bonding)
 
 Old gate blocked bonding if EITHER band repelled (`!p1r&&!p2r` where repel = wStr<0||sStr<0), so a weak-repel killed bonding even with strong-attract — breaking the whole "repel at range, snap up close" model. New gate: **wants(p)** = sStr>0 (or weak-attract when no strong); **blocks(p)** = sStr<0 only. So a weak repel no longer vetoes bonding; only a STRONG (close-range) repel does. Verified: weak-repel+strong-attract bonds when close, strong-repel blocks, weak-repel pushes apart at range.
+
+---
+
+## Hysteresis (break distance) — stops the bond/break buzz
+
+Bonding and breaking were triggered at the same threshold, so a pair at the boundary bonded and broke every frame (each event runs rebuildTopology -> 3fps). Fix = a dead zone between bond distance (snap) and break distance (brk>snap):
+- Added per-connection **brk** (break distance) to the profile; **ensureProf** defaults it to max(global bondBrk, snap+2).
+- **Holding bonds** now break when stretched past their brk (per-connection), replacing the old global S.bondBreak.
+- **Re-heal gate:** severEdgeAt tags the two fresh ends with mutual sepFrom + sepDist(=object's own-type brk); endpointForces won't re-bond that pair until they've pulled apart past sepDist (then clears the tag). So a fresh break can't instantly re-heal into a loop.
+- UI: removed the vestigial global "Break distance" slider; added a **Break dist** default in Physics ("Defaults for new connections") and a per-connection **break dist** row in the Connect profile, floored above snap (setter: max(x, snap+2)) so it can't invert into a buzz.
+- Verified: break then bonding-on (no grow) = 0 fresh severs (no buzz); ends settle 4->2. Strain-break (per-object "Break at x rest") kept separate. Note: grow + self-bonding still churns (grow continuously re-tears — a force fight, not the threshold buzz); bounded by atomic edges; safety cap next to smooth it.
