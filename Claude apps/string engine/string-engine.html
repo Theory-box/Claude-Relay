@@ -815,6 +815,9 @@ function severEdgeAt(si,preferA){   // detach edge si from whatever shares its c
   if(preferA){atA=(degA>1)?true:(degB>1?false:null);}else{atA=(degB>1)?false:(degA>1?true:null);}
   if(atA===null)return false;                 // lone edge (both ends are free) -> indivisible, can't break
   const nn=dupNode(atA?s.a:s.b,s.obj);
+  const other=atA?s.b:s.a,O=G.nodes[other],Nn=G.nodes[nn];   // nudge the duplicate off the original so the two fresh ends aren't coincident (coincident ends are skipped by the bonding pass -> can't reconnect)
+  const dx=Nn.x-O.x,dy=Nn.y-O.y,L=Math.hypot(dx,dy)||1,ox=-dy/L,oy=dx/L;
+  Nn.x+=ox*1.2;Nn.y+=oy*1.2;Nn.px=Nn.x;Nn.py=Nn.y;
   if(atA)s.a=nn;else s.b=nn;                   // this edge now hangs off the duplicate; the original node keeps the other edges
   return true;}
 function cutLine(x0,y0,x1,y1){
