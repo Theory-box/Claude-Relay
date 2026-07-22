@@ -652,7 +652,6 @@ function endpointForces(){
         const t1=objType(o1),t2=objType(o2);                     // connector-type = object id
         const p1=endProf(o1,t2),p2=endProf(o2,t1);
         if(!p1&&!p2)continue;
-        if((a.noBond||0)>(S.frame||0)||(bn.noBond||0)>(S.frame||0))continue;   // freshly-severed ends are inert until their cooldown expires
         const adjacent=G.nbrs[n1].indexOf(n2)>=0;
         const dist=Math.sqrt(d2),ux=dxp/dist,uy=dyp/dist;
         if(p1){let f=0;                                          // n1 pulled per its profile toward n2
@@ -686,7 +685,10 @@ function flagBondBreaks(){if(!S.bonding||S.bondBreak<=0)return;for(const s of G.
 function flagStrainBreaks(){const toSever=[];for(let i=0;i<G.segs.length;i++){const s=G.segs[i];if(s.dead||s.bond)continue;const o=G.objs[s.obj];if(!o||!o.breakable)continue;
   const a=G.nodes[s.a],b=G.nodes[s.b];const len=Math.hypot(a.x-b.x,a.y-b.y);
   if(s.rest>0&&len/s.rest>o.breakStrain)toSever.push(i);}   // over-strained
-  for(const i of toSever){const s=G.segs[i];const held=(s.a===grab||s.b===grab);severSegment(i,0.5);if(held)grab=-1;}}   // split, don't delete; releasing the grab on break stops a dragged end from shedding endlessly
+  if(!toSever.length)return;
+  let any=false;for(const i of toSever){const s=G.segs[i];const held=(s.a===grab||s.b===grab);   // sever at a node; a lone edge returns false (indivisible)
+    if(severEdgeAt(i,true)){any=true;if(held)grab=-1;}}
+  if(any){buildNbrs();computeExclusions();}}
 function removeDead(){let dirty=false;                    // runs every frame, independent of bonding
   for(let i=G.segs.length-1;i>=0;i--){const s=G.segs[i];if(!s.dead)continue;
     if(s.bond&&S.bondTimer==='cumulative')G.bondBank.set(bondKey(s.a,s.b),s.bondAge||0);   // bank holding-bond progress across a break
@@ -803,30 +805,27 @@ function setTool(t){tool=t;
   cvs.style.cursor=t==='cut'?'crosshair':'grab';}
 document.getElementById('toolMove').addEventListener('click',()=>setTool('move'));
 document.getElementById('toolCut').addEventListener('click',()=>setTool('cut'));
-function severSegment(i,t){   // split segment i at param t into two disconnected halves (no material lost)
-  const s=G.segs[i];if(s.dead)return;const A=G.nodes[s.a],B=G.nodes[s.b];
-  t=Math.min(0.9,Math.max(0.1,t));
-  const px=A.x+(B.x-A.x)*t,py=A.y+(B.y-A.y)*t,ph=A.h+(B.h-A.h)*t;
-  const dx=B.x-A.x,dy=B.y-A.y,L=Math.hypot(dx,dy)||1,nx=-dy/L,ny=dx/L;   // tiny perpendicular offset so the two ends aren't exactly coincident
-  const mk=(ox,oy,src)=>{G.nodes.push({x:px+ox,y:py+oy,h:ph,z0:ph,px:px+ox,py:py+oy,ph:ph,obj:s.obj,fixed:false,solid:src.solid,inv:src.solid?0.25:1,ids:src.ids?src.ids.slice():[],aff:src.aff,noBond:(S.frame||0)+30});const idx=G.nodes.length-1;const o=G.objs[s.obj];if(o&&o.nodeIdx)o.nodeIdx.push(idx);return idx;};   // cooldown: can't re-bond for 30 frames, so it doesn't instantly re-heal into a break/bond loop
-  const m1=mk(nx*0.6,ny*0.6,A),m2=mk(-nx*0.6,-ny*0.6,B);
-  const r0=s.rest0!==undefined?s.rest0:s.rest;
-  G.segs.push({a:s.a,b:m1,rest:Math.max(0.5,s.rest*t),rest0:Math.max(0.5,r0*t),obj:s.obj,solid:s.solid,ids:s.ids?s.ids.slice():[],aff:s.aff});
-  G.segs.push({a:m2,b:s.b,rest:Math.max(0.5,s.rest*(1-t)),rest0:Math.max(0.5,r0*(1-t)),obj:s.obj,solid:s.solid,ids:s.ids?s.ids.slice():[],aff:s.aff});
-  s.dead=true;   // original edge removed, but its material lives on as the two halves
-}
+function dupNode(n,obj){const src=G.nodes[n];   // duplicate a node so an edge can detach from others sharing it
+  G.nodes.push({x:src.x,y:src.y,h:src.h,z0:src.z0,px:src.px,py:src.py,ph:src.ph,obj:obj,fixed:false,solid:src.solid,inv:src.solid?0.25:1,ids:src.ids?src.ids.slice():[],aff:src.aff});
+  const idx=G.nodes.length-1;const o=G.objs[obj];if(o&&o.nodeIdx)o.nodeIdx.push(idx);return idx;}
+function severEdgeAt(si,preferA){   // detach edge si from whatever shares its chosen endpoint node; NO new edges, NO subdividing (an edge is the atomic unit)
+  const s=G.segs[si];if(s.dead)return false;
+  const degA=G.nbrs[s.a]?G.nbrs[s.a].length:0,degB=G.nbrs[s.b]?G.nbrs[s.b].length:0;
+  let atA;
+  if(preferA){atA=(degA>1)?true:(degB>1?false:null);}else{atA=(degB>1)?false:(degA>1?true:null);}
+  if(atA===null)return false;                 // lone edge (both ends are free) -> indivisible, can't break
+  const nn=dupNode(atA?s.a:s.b,s.obj);
+  if(atA)s.a=nn;else s.b=nn;                   // this edge now hangs off the duplicate; the original node keeps the other edges
+  return true;}
 function cutLine(x0,y0,x1,y1){
   const cross=[];
-  for(let i=0;i<G.segs.length;i++){const s=G.segs[i];if(s.dead)continue;const a=G.nodes[s.a],b=G.nodes[s.b];
+  for(let i=0;i<G.segs.length;i++){const s=G.segs[i],a=G.nodes[s.a],b=G.nodes[s.b];
     const p=segInt(x0,y0,x1,y1,a.x,a.y,b.x,b.y);
     if(p){const dx=b.x-a.x,dy=b.y-a.y,L2=dx*dx+dy*dy||1;const t=((p.x-a.x)*dx+(p.y-a.y)*dy)/L2;cross.push([i,t]);}}
   if(!cross.length)return 0;
-  for(const[i,t]of cross)severSegment(i,t);           // sever, don't delete
-  G.segs=G.segs.filter(s=>!s.dead);
-  for(const o of G.objs)o.segIdx=[];
-  for(let i=0;i<G.segs.length;i++)G.objs[G.segs[i].obj].segIdx.push(i);
-  buildNbrs();computeExclusions();refreshStats();      // keep rest-bend; the cut just separates the halves
-  return cross.length;}
+  let n=0;for(const[i,t]of cross)if(severEdgeAt(i,t<0.5))n++;   // sever at the vertex nearer the cut
+  buildNbrs();computeExclusions();refreshStats();
+  return n;}
 let view={z:1,ox:0,oy:0},panning=false,panSX=0,panSY=0,panOX=0,panOY=0;
 function canvasXY(e){const r=cvs.getBoundingClientRect();const sx=e.clientX-r.left,sy=e.clientY-r.top;return [(sx-view.ox)/view.z,(sy-view.oy)/view.z];}
 function dragApply(){if(grab<0||grab>=G.nodes.length)return;const n=G.nodes[grab];

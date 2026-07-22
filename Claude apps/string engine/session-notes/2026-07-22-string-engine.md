@@ -151,3 +151,11 @@ Previously cut (G.segs.filter) and break (removeDead splice) deleted the whole s
 ## Fix: break + self-bonding freeze (runaway break/rebond loop)
 
 When a shape was both breakable AND self-bonding, a break created two free ends ~1.2px apart → self-connectivity instantly re-bonded/merged them → the re-merged segment was still over-strained → broke again → forever, growing nodes and running rebuildTopology twice/frame until the program froze. Fix: a **bonding cooldown** — severSegment stamps the new ends with `noBond = S.frame + 30`; endpointForces skips force+bond for any end whose cooldown hasn't expired (added a global `S.frame` counter, incremented in frame()/stepFrame()). Freshly-severed ends stay inert for 30 frames so they separate instead of re-healing into a loop. Verified: breakable+self-bonding strand under a sustained yank stabilizes at a bounded node count (8→14→14…) instead of exploding; no NaN.
+
+---
+
+## Break/cut rewritten: node-based, edge is atomic (fixes fragmentation explosion)
+
+Old severSegment split the EDGE (added midpoint nodes + shrank rest lengths), so grow could re-stretch each fragment past threshold and subdivide forever → 300 verts became thousands (crash). New model severs AT A NODE: **dupNode** copies the shared node, **severEdgeAt(si,preferA)** reassigns the edge to the copy so it detaches from whatever else shared that node — NO new edges, NO shrinking rests. A lone edge (both ends degree 1) returns false = indivisible. So an N-edge strand breaks into at most N lone edges, then stops. Verified: 59-edge strand + heavy grow + break settles at exactly 59 lone edges / 119 nodes, edges never grew, stable over 400 frames, no NaN. Cut severs at the vertex nearer the crossing (0 new edges, +1 node/cut, splits into pieces).
+
+Also removed the 30-frame bonding cooldown (user prevents instant re-bond physically via own-connector repulsion; re-bond oscillation is now just lag, not a freeze, since no geometry is created). Kept grab-release-on-break (prevents the fountain bug). S.frame counter left in (harmless, unused now).
