@@ -844,7 +844,7 @@ cvs.addEventListener('wheel',e=>{e.preventDefault();const r=cvs.getBoundingClien
 },{passive:false});
 function resetView(){view.z=1;view.ox=0;view.oy=0;}
 
-function stepFrame(){attract();endpointForces();for(let k=0;k<S.speed;k++){integrate();flagBondBreaks();constraints();flagStrainBreaks();collide();wallCCD();dragApply();}maintainBonds();removeDead();}
+function stepFrame(){attract();endpointForces();for(let k=0;k<S.speed;k++){integrate();flagBondBreaks();constraints();collide();wallCCD();dragApply();flagStrainBreaks();}maintainBonds();removeDead();}
 window.addEventListener('keydown',e=>{const tag=(e.target.tagName||'').toLowerCase();if(tag==='input'||tag==='select'||tag==='textarea')return;
   const k=e.key.toLowerCase();
   if(k==='r'){resetSim();}
@@ -856,7 +856,7 @@ window.addEventListener('keydown',e=>{const tag=(e.target.tagName||'').toLowerCa
 
 let ema=60,lastT=performance.now();
 function frame(now){const dt=now-lastT;lastT=now;ema=ema*0.9+(1000/Math.max(1,dt))*0.1;
-  if(S.running){attract();endpointForces();for(let k=0;k<S.speed;k++){integrate();flagBondBreaks();constraints();flagStrainBreaks();collide();wallCCD();dragApply();}maintainBonds();removeDead();}
+  if(S.running){attract();endpointForces();for(let k=0;k<S.speed;k++){integrate();flagBondBreaks();constraints();collide();wallCCD();dragApply();flagStrainBreaks();}maintainBonds();removeDead();}
   else if(grab>=0){dragApply();constraints();collide();}
   render();document.getElementById('sFps').textContent=Math.round(ema)+' fps';
   requestAnimationFrame(frame);}
