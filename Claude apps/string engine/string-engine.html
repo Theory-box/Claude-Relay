@@ -669,9 +669,10 @@ function rebuildTopology(){for(const o of G.objs)o.segIdx=[];for(let i=0;i<G.seg
 function endpointForces(){
   const ends=G.ends;if(!ends||ends.length<2)return;
   const objs=G.objs;
-  let any=false;for(const o of objs){if(S.bonding&&o.bondOn&&o.endType){for(const k in o.endType){const p=o.endType[k];if(p&&(p.wStr||p.sStr)){any=true;break;}}}if(any)break;}
+  let any=false;for(const o of objs){if(S.bonding&&o.bondOn&&o.endType&&Object.keys(o.endType).length){any=true;break;}}   // opting into bonding is enough; pull is optional (proximity alone can bond)
   if(!any)return;
-  let maxR=30;for(const o of objs)if(o.endType)for(const k in o.endType){const p=o.endType[k];if(p.wRange>maxR)maxR=p.wRange;if(p.sRange>maxR)maxR=p.sRange;}
+  let maxR=30;for(const o of objs)if(o.endType)for(const k in o.endType){const p=o.endType[k];if(p.wRange>maxR)maxR=p.wRange;if(p.sRange>maxR)maxR=p.sRange;
+    const snapD=(p.snap||0)*4*effR(o);if(snapD>maxR)maxR=snapD;}   // make sure the search radius also covers the snap distance (so zero-pull proximity bonding is seen)
   const ER=maxR+10,ER2=ER*ER,cell=ER,bkt=new Map();
   for(const ni of ends){const n=G.nodes[ni];const key=Math.floor(n.x/cell)+'_'+Math.floor(n.y/cell);let arr=bkt.get(key);if(!arr){arr=[];bkt.set(key,arr);}arr.push(ni);}
   const newBonds=[];
@@ -694,9 +695,8 @@ function endpointForces(){
           if(p2.wStr&&dist<p2.wRange)f+=p2.wStr*0.12*(1-dist/p2.wRange);
           if(p2.sStr&&dist<p2.sRange)f+=p2.sStr*0.42*(1-dist/p2.sRange);
           if(f){bn.x+=-ux*f*bn.inv;bn.y+=-uy*f*bn.inv;}}
-        const wants=(p)=>p&&(p.sStr>0||(p.sStr===0&&p.wStr>0));   // strong attract snaps; weak attracts only when there's no strong band
-        const blocks=(p)=>p&&p.sStr<0;                            // only a STRONG (close-range) repel vetoes bonding — a weak repel just keeps things at bay until they're close
-        if(S.bonding&&!adjacent&&(wants(p1)||wants(p2))&&!blocks(p1)&&!blocks(p2)){
+        const blocks=(p)=>p&&p.sStr<0;                            // only a STRONG (close-range) repel vetoes bonding — no pull is fine, proximity within snap still bonds
+        if(S.bonding&&!adjacent&&(p1||p2)&&!blocks(p1)&&!blocks(p2)){
           let gated=false;                                        // hysteresis: a pair that just broke can't re-heal until pulled apart past its break distance
           if(a.sepFrom===n2||bn.sepFrom===n1){const sd=Math.max(a.sepFrom===n2?(a.sepDist||0):0,bn.sepFrom===n1?(bn.sepDist||0):0);
             if(dist<sd)gated=true;else{a.sepFrom=-1;bn.sepFrom=-1;}}   // separated enough -> clear the gate, allow re-bond
