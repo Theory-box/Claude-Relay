@@ -682,7 +682,7 @@ function endpointForces(){
 }
 function flagBondBreaks(){if(!S.bonding||S.bondBreak<=0)return;for(const s of G.segs){if(!s.bond)continue;
   const a=G.nodes[s.a],b=G.nodes[s.b];if(Math.hypot(a.x-b.x,a.y-b.y)>S.bondBreak)s.dead=true;}}  // break<=0 => unbreakable
-function flagStrainBreaks(){for(const s of G.segs){if(s.dead||s.solid)continue;const o=G.objs[s.obj];if(!o||!o.breakable)continue;
+function flagStrainBreaks(){for(const s of G.segs){if(s.dead)continue;const o=G.objs[s.obj];if(!o||!o.breakable)continue;
   const a=G.nodes[s.a],b=G.nodes[s.b];const len=Math.hypot(a.x-b.x,a.y-b.y);
   if(s.rest>0&&len/s.rest>o.breakStrain)s.dead=true;}}   // snaps when stretched past breakStrain x rest length
 function removeDead(){let dirty=false;                    // runs every frame, independent of bonding
