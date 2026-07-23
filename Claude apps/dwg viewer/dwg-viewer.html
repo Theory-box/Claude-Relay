@@ -1,0 +1,1094 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>DWG Viewer</title>
+<style>
+  :root{
+    --bg:#0d1117; --panel:#141a22; --panel-2:#1a222d; --line:#28323f;
+    --ink:#d9e1ec; --ink-dim:#8c99ab; --ink-faint:#5a6675;
+    --accent:#48cbb4; --warm:#f0a63f; --danger:#ef7a6d;
+    --mono:ui-monospace,"SF Mono","JetBrains Mono",Menlo,Consolas,monospace;
+    --sans:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0}
+  body{background:var(--bg);color:var(--ink);font-family:var(--sans);
+    display:flex;flex-direction:column;overflow:hidden;-webkit-font-smoothing:antialiased}
+  header{display:flex;align-items:center;gap:14px;padding:10px 14px;
+    background:var(--panel);border-bottom:1px solid var(--line);flex-shrink:0}
+  .brand{display:flex;align-items:baseline;gap:9px;user-select:none}
+  .brand .mark{font-family:var(--mono);font-size:12px;letter-spacing:.32em;color:var(--accent);
+    border:1px solid var(--line);padding:4px 8px 3px;border-radius:3px;text-transform:uppercase}
+  .brand .sub{font-family:var(--mono);font-size:11px;color:var(--ink-faint);letter-spacing:.14em}
+  .spacer{flex:1}
+  .grp{display:flex;align-items:center;gap:6px}
+  button{font-family:var(--sans);font-size:12.5px;color:var(--ink);background:var(--panel-2);
+    border:1px solid var(--line);padding:7px 12px;border-radius:5px;cursor:pointer;line-height:1;
+    transition:border-color .12s,background .12s,color .12s}
+  button:hover{border-color:var(--accent);color:#fff}
+  button:disabled{opacity:.4;cursor:not-allowed;border-color:var(--line);color:var(--ink-dim)}
+  button.icon{padding:7px 10px;font-family:var(--mono);min-width:34px}
+  button.primary{background:var(--warm);border-color:var(--warm);color:#20160a;font-weight:600}
+  button.primary:hover{background:#ffb955;border-color:#ffb955;color:#20160a}
+  button.primary:disabled{background:var(--panel-2);border-color:var(--line);color:var(--ink-dim)}
+  button.ghost{background:transparent}
+  .body{flex:1;display:flex;min-height:0}
+  .sidebar{width:246px;flex-shrink:0;background:var(--panel);border-right:1px solid var(--line);
+    display:flex;flex-direction:column;min-height:0}
+  .sb-head{display:flex;align-items:center;justify-content:space-between;padding:11px 12px 11px 14px;
+    border-bottom:1px solid var(--line)}
+  .sb-head h2{margin:0;font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-dim);
+    display:flex;align-items:center;gap:8px}
+  .sb-head .count{font-family:var(--mono);font-size:11px;color:var(--accent);
+    border:1px solid var(--line);border-radius:20px;padding:1px 7px}
+  .sb-list{flex:1;overflow-y:auto;padding:8px}
+  .sb-empty{padding:26px 16px;text-align:center;color:var(--ink-faint);font-size:12px;line-height:1.6}
+  .doc{border:1px solid var(--line);border-radius:8px;margin-bottom:8px;overflow:hidden;
+    cursor:pointer;background:var(--panel-2);transition:border-color .12s;content-visibility:auto;contain-intrinsic-size:140px}
+  .doc:hover{border-color:#3a4759}
+  .doc.active{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent) inset}
+  .doc.busy{cursor:default;opacity:.85}
+  .doc .thumb{height:94px;background:#0d1117;display:flex;align-items:center;justify-content:center;
+    overflow:hidden;border-bottom:1px solid var(--line);position:relative}
+  .doc .thumb img.thumb-img{width:100%;height:100%;object-fit:contain;pointer-events:none;display:block}
+  .doc .thumb.err{color:var(--danger);font-family:var(--mono);font-size:22px}
+  .doc .thumb .spin-s{width:20px;height:20px;border-radius:50%;border:2px solid var(--line);
+    border-top-color:var(--accent);animation:sp .8s linear infinite}
+  .doc .meta{padding:8px 9px;display:flex;align-items:center;gap:8px}
+  .doc .meta .txt{flex:1;min-width:0}
+  .doc .meta .nm{font-size:12px;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .doc .meta .sub{font-family:var(--mono);font-size:10px;color:var(--ink-faint);margin-top:2px;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .doc .rm{flex-shrink:0;width:24px;height:24px;min-width:0;padding:0;font-family:var(--mono);
+    font-size:15px;color:var(--ink-faint);background:transparent;border:1px solid transparent}
+  .doc .rm:hover{color:var(--danger);border-color:var(--danger)}
+  .sb-foot{padding:10px 12px;border-top:1px solid var(--line);display:flex;gap:8px}
+  .sb-foot button{flex:1;font-size:12px;padding:8px}
+  main{position:relative;flex:1;overflow:hidden;min-width:0;
+    background:radial-gradient(circle at 50% 40%,#131a23 0%,var(--bg) 70%)}
+  main.lightview{background:#f3f4f6}
+  #grid{position:absolute;inset:0;background-image:
+    linear-gradient(var(--line) 1px,transparent 1px),
+    linear-gradient(90deg,var(--line) 1px,transparent 1px);
+    background-size:52px 52px;opacity:.14;pointer-events:none}
+  main.lightview #grid{opacity:.5;background-image:
+    linear-gradient(#d3d7dd 1px,transparent 1px),
+    linear-gradient(90deg,#d3d7dd 1px,transparent 1px)}
+  #stage{position:absolute;inset:0;cursor:grab;touch-action:none}
+  #stage.dragging{cursor:grabbing}
+  #world{position:absolute;left:0;top:0;transform-origin:0 0;will-change:transform}
+  #world svg{display:block}
+  #empty{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;
+    justify-content:center;gap:18px;padding:24px;text-align:center}
+  #empty .ring{width:74px;height:74px;border-radius:50%;border:1.5px dashed var(--line);
+    display:flex;align-items:center;justify-content:center;color:var(--ink-faint);
+    font-family:var(--mono);font-size:22px}
+  #empty h1{font-size:19px;font-weight:600;margin:0;letter-spacing:-.01em}
+  #empty p{margin:0;color:var(--ink-dim);font-size:13.5px;max-width:360px;line-height:1.55}
+  #empty .hint{font-family:var(--mono);font-size:11px;color:var(--ink-faint);letter-spacing:.08em}
+  body.drop .body{outline:2px solid var(--accent);outline-offset:-6px;border-radius:4px}
+  body.drop #empty .ring{border-color:var(--accent);color:var(--accent)}
+  #loading{position:absolute;inset:0;display:none;flex-direction:column;align-items:center;
+    justify-content:center;gap:16px;background:rgba(13,17,23,.72);z-index:5;pointer-events:none}
+  #loading.show{display:flex}
+  .spin{width:34px;height:34px;border-radius:50%;border:2.5px solid var(--line);
+    border-top-color:var(--accent);animation:sp .8s linear infinite}
+  @keyframes sp{to{transform:rotate(360deg)}}
+  #loading .msg{font-family:var(--mono);font-size:12px;color:var(--ink-dim);letter-spacing:.05em}
+  #errcard{position:absolute;inset:0;display:none;align-items:center;justify-content:center;padding:24px;z-index:6}
+  #errcard.show{display:flex}
+  #errcard .box{max-width:440px;background:var(--panel);border:1px solid var(--line);
+    border-left:3px solid var(--danger);border-radius:8px;padding:20px 22px}
+  #errcard h2{margin:0 0 8px;font-size:15px;color:var(--danger)}
+  #errcard p{margin:0 0 10px;font-size:13px;color:var(--ink-dim);line-height:1.6}
+  #errcard code{font-family:var(--mono);font-size:11.5px;color:var(--ink);background:var(--panel-2);
+    padding:2px 6px;border-radius:3px;word-break:break-all}
+  #errcard button{margin-top:4px}
+  .drawer{position:absolute;top:0;right:0;bottom:0;width:300px;background:var(--panel);
+    border-left:1px solid var(--line);transform:translateX(100%);transition:transform .2s ease;
+    z-index:7;display:flex;flex-direction:column}
+  .drawer.open{transform:translateX(0)}
+  .drawer-head{display:flex;align-items:center;justify-content:space-between;
+    padding:14px 16px;border-bottom:1px solid var(--line)}
+  .drawer-head h3{margin:0;font-size:13px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-dim)}
+  .drawer-body{padding:16px;overflow-y:auto;flex:1}
+  .field{margin-bottom:20px}
+  .field > label{display:flex;justify-content:space-between;font-family:var(--mono);font-size:10.5px;
+    letter-spacing:.12em;text-transform:uppercase;color:var(--ink-faint);margin-bottom:9px}
+  .field > label .val{color:var(--accent)}
+  .chips{display:flex;flex-wrap:wrap;gap:6px}
+  .chip{font-family:var(--mono);font-size:12px;padding:6px 10px;border:1px solid var(--line);
+    border-radius:5px;background:var(--panel-2);color:var(--ink-dim);cursor:pointer}
+  .chip.on{border-color:var(--accent);color:var(--accent);background:rgba(72,203,180,.08)}
+  input[type=number]{width:100%;font-family:var(--mono);font-size:13px;color:var(--ink);
+    background:var(--panel-2);border:1px solid var(--line);border-radius:5px;padding:8px 10px}
+  input[type=number]:focus{outline:none;border-color:var(--accent)}
+  input[type=range]{width:100%;accent-color:var(--accent);margin:2px 0}
+  .swatch{font-family:var(--mono);font-size:11px;color:var(--ink-faint);line-height:1.5;margin-top:8px}
+  .readout{font-family:var(--mono);font-size:12px;color:var(--ink);background:var(--panel-2);
+    border:1px solid var(--line);border-radius:6px;padding:12px}
+  .readout .row{display:flex;justify-content:space-between;padding:3px 0}
+  .readout .row span:first-child{color:var(--ink-faint)}
+  .readout .big{color:var(--accent);font-size:14px}
+  .note{font-size:11px;color:var(--ink-faint);line-height:1.5;margin-top:8px}
+  .drawer-foot{padding:14px 16px;border-top:1px solid var(--line);display:flex;flex-direction:column;gap:8px}
+  .drawer-foot button{width:100%;padding:11px}
+  footer{display:flex;align-items:center;flex-shrink:0;background:var(--panel);
+    border-top:1px solid var(--line);font-family:var(--mono);font-size:11.5px;
+    color:var(--ink-dim);height:30px;overflow:hidden}
+  footer .cell{padding:0 12px;height:100%;display:flex;align-items:center;gap:7px;
+    border-right:1px solid var(--line);white-space:nowrap}
+  footer .cell b{color:var(--ink);font-weight:500}
+  footer .cell .k{color:var(--ink-faint)}
+  footer .grow{flex:1;border-right:none;justify-content:flex-end;color:var(--ink-faint)}
+  footer .tag{color:var(--accent)}
+  .zoombtns{position:absolute;left:14px;bottom:14px;display:flex;flex-direction:column;gap:6px;z-index:3}
+  .zoombtns button{padding:0;width:34px;height:34px;font-family:var(--mono);font-size:16px}
+  button.on{border-color:var(--accent);color:var(--accent);background:rgba(72,203,180,.10)}
+  #overlay{position:absolute;inset:0;pointer-events:none;z-index:2;overflow:hidden}
+  .region{position:absolute;border:1.5px solid var(--accent);background:rgba(72,203,180,.08);box-sizing:border-box}
+  .region.sel{border-color:var(--warm);background:rgba(240,166,63,.12)}
+  .rlabel{position:absolute;top:-17px;left:-1px;font-family:var(--mono);font-size:10px;color:var(--accent);
+    background:rgba(13,17,23,.85);padding:1px 4px;border-radius:3px;white-space:nowrap}
+  .region.sel .rlabel{color:var(--warm)}
+  .rhandle{position:absolute;width:11px;height:11px;background:var(--warm);border:1px solid #20160a;border-radius:2px}
+  .rhandle.nw{left:-6px;top:-6px} .rhandle.ne{right:-6px;top:-6px}
+  .rhandle.sw{left:-6px;bottom:-6px} .rhandle.se{right:-6px;bottom:-6px}
+  .rdel{position:absolute;top:-10px;right:-10px;width:19px;height:19px;border-radius:50%;
+    background:var(--danger);color:#fff;font-family:var(--mono);font-size:13px;line-height:18px;text-align:center;
+    cursor:pointer;pointer-events:auto}
+  #regionHint{position:absolute;top:12px;left:50%;transform:translateX(-50%);z-index:4;display:none;
+    font-family:var(--mono);font-size:11px;color:var(--ink-dim);background:var(--panel);
+    border:1px solid var(--line);border-radius:20px;padding:6px 14px;pointer-events:none;white-space:nowrap}
+  #stage.region-mode{cursor:crosshair}
+  @media (max-width:720px){
+    .brand .sub{display:none}
+    .body{flex-direction:column}
+    .sidebar{width:100%;max-height:190px;border-right:none;border-bottom:1px solid var(--line)}
+    .drawer{width:100%}
+    footer .cell.hide-s{display:none}
+  }
+</style>
+</head>
+<body>
+  <header>
+    <div class="brand"><span class="mark">DWG</span><span class="sub">MODEL&nbsp;SPACE&nbsp;VIEWER</span></div>
+    <div class="spacer"></div>
+    <div class="grp">
+      <button id="openBtn">Add files</button>
+      <button id="fitBtn" disabled>Fit</button>
+      <button id="regionsBtn" disabled>Regions</button>
+      <button id="settingsBtn">Settings</button>
+      <button id="exportBtn" class="primary" disabled>Export&hellip;</button>
+    </div>
+    <input type="file" id="fileInput" accept=".dwg" multiple hidden />
+  </header>
+
+  <div class="body">
+    <aside class="sidebar">
+      <div class="sb-head">
+        <h2>Drawings <span class="count" id="docCount">0</span></h2>
+        <button class="icon ghost" id="addBtn" title="Add files">+</button>
+      </div>
+      <div class="sb-list" id="docList">
+        <div class="sb-empty">No drawings yet.<br>Drop <b>.dwg</b> files anywhere, or use <b>Add files</b>.</div>
+      </div>
+      <div class="sb-foot"><button id="clearBtn" class="ghost" disabled>Clear all</button></div>
+    </aside>
+
+    <main id="main">
+      <div id="grid"></div>
+      <div id="stage"><div id="world"></div></div>
+      <div id="overlay"></div>
+      <div id="regionHint">Drag to draw a region &middot; drag a box to move &middot; corners to resize &middot; Space+drag to pan</div>
+      <div class="zoombtns" id="zoombtns" style="display:none">
+        <button id="zin" title="Zoom in">+</button>
+        <button id="zout" title="Zoom out">&minus;</button>
+      </div>
+
+      <div id="empty">
+        <div class="ring">&#8632;</div>
+        <div>
+          <h1>Drop your drawings</h1>
+          <p>Drag one or more <b>.dwg</b> files anywhere on this window, or use <b>Add files</b>. Previews load fast; full geometry loads when you open or export a drawing. Nothing is uploaded.</p>
+        </div>
+        <div class="hint">R14 &middot; 2000 &middot; 2004 &middot; 2007 &middot; 2010 &middot; 2013 &middot; 2018</div>
+      </div>
+
+      <div id="loading"><div class="spin"></div><div class="msg" id="loadMsg">Loading CAD engine&hellip;</div></div>
+
+      <div id="errcard"><div class="box">
+        <h2 id="errTitle">Something went wrong</h2>
+        <p id="errBody"></p>
+        <p id="errHint" class="note"></p>
+        <button id="errDismiss" class="ghost">Dismiss</button>
+      </div></div>
+
+      <aside id="settingsDrawer" class="drawer">
+        <div class="drawer-head"><h3>Settings</h3><button class="icon" id="closeSettings">&times;</button></div>
+        <div class="drawer-body">
+          <div class="field">
+            <label>Line weight <span class="val" id="lwVal">1.0 px</span></label>
+            <div class="chips" id="lwChips">
+              <span class="chip" data-lw="0.5">Hairline</span>
+              <span class="chip on" data-lw="1">Fine</span>
+              <span class="chip" data-lw="1.5">Normal</span>
+              <span class="chip" data-lw="2.5">Bold</span>
+            </div>
+            <div style="margin-top:10px"><input type="range" id="lwSlider" min="0.25" max="4" step="0.25" value="1" /></div>
+            <div class="note">Line thickness is fixed in <b>pixels</b>, independent of drawing scale &mdash; a higher export DPI renders finer detail instead of fatter lines. Applies to every drawing.</div>
+          </div>
+          <div class="field" style="margin-bottom:0">
+            <label>Viewer background</label>
+            <div class="chips" id="viewBgChips">
+              <span class="chip on" data-vbg="dark">Dark</span>
+              <span class="chip" data-vbg="light">Light</span>
+            </div>
+            <div class="swatch">Light view remaps white / color&nbsp;7 lines to dark so they stay visible.</div>
+          </div>
+        </div>
+      </aside>
+
+      <aside id="drawer" class="drawer">
+        <div class="drawer-head"><h3>Export to JPG</h3><button class="icon" id="closeDrawer">&times;</button></div>
+        <div class="drawer-body">
+          <div class="field">
+            <label>Resolution (DPI)</label>
+            <div class="chips" id="dpiChips">
+              <span class="chip" data-dpi="72">72</span>
+              <span class="chip on" data-dpi="150">150</span>
+              <span class="chip" data-dpi="300">300</span>
+              <span class="chip" data-dpi="600">600</span>
+            </div>
+            <div style="margin-top:8px"><input type="number" id="dpiCustom" min="24" max="1200" step="1" value="150" /></div>
+          </div>
+          <div class="field">
+            <label>Background</label>
+            <div class="chips" id="bgChips">
+              <span class="chip on" data-bg="dark">Dark</span>
+              <span class="chip" data-bg="white">White (print)</span>
+            </div>
+          </div>
+          <div class="field">
+            <label>JPEG quality <span class="val" id="qVal">92%</span></label>
+            <input type="range" id="quality" min="60" max="100" step="1" value="92" />
+          </div>
+          <div class="field" id="regionField" style="display:none">
+            <label>Regions <span class="val" id="regionCountLabel">0</span></label>
+            <div class="chips" id="regionModeChips">
+              <span class="chip on" data-rm="merged">Merged (1 image)</span>
+              <span class="chip" data-rm="separate">Separate (1 each)</span>
+            </div>
+            <div class="chips" id="mergedLayoutChips" style="margin-top:8px">
+              <span class="chip on" data-ml="row">Row</span>
+              <span class="chip" data-ml="column">Column</span>
+            </div>
+            <label style="margin-top:12px">Region resolution</label>
+            <div class="chips" id="regionResChips">
+              <span class="chip" data-rr="1">1&times;</span>
+              <span class="chip" data-rr="2">2&times;</span>
+              <span class="chip on" data-rr="4">4&times;</span>
+              <span class="chip" data-rr="8">8&times;</span>
+            </div>
+            <label class="ckrow" style="display:flex;align-items:center;gap:8px;margin-top:12px;cursor:pointer;text-transform:none;letter-spacing:0;font-size:12px;color:var(--ink-dim)">
+              <input type="checkbox" id="includeWhole"> Also export the full page alongside regions
+            </label>
+            <div class="note">Each region renders at its own higher pixel density (the multiplier &times; your DPI), so cropped content stays crisp instead of getting lost in empty space.</div>
+          </div>
+          <div class="field" style="margin-bottom:0">
+            <label>Active drawing output</label>
+            <div class="readout">
+              <div class="row"><span>Pixels</span><span class="big" id="outPx">&mdash;</span></div>
+              <div class="row"><span>Print size</span><span id="outIn">&mdash;</span></div>
+              <div class="row"><span>Line width</span><span id="outLw">&mdash;</span></div>
+            </div>
+            <div class="note" id="clampNote" style="display:none"></div>
+          </div>
+        </div>
+        <div class="drawer-foot">
+          <button class="primary" id="saveBtn">Save this drawing</button>
+          <button id="saveAllBtn">Export all as ZIP</button>
+        </div>
+      </aside>
+    </main>
+  </div>
+
+  <footer>
+    <div class="cell"><span class="k">FILE</span><b id="stFile">&mdash;</b></div>
+    <div class="cell hide-s"><span class="k">VER</span><b id="stVer" class="tag">&mdash;</b></div>
+    <div class="cell hide-s"><span class="k">ENT</span><b id="stEnt">&mdash;</b></div>
+    <div class="cell hide-s"><span class="k">CPU</span><b id="stCores">&hellip;</b></div>
+    <div class="cell"><span class="k">X</span><b id="stX">&mdash;</b><span class="k">Y</span><b id="stY">&mdash;</b></div>
+    <div class="cell grow"><span id="stZoom">100%</span></div>
+  </footer>
+
+<script type="module">
+const CDN="https://cdn.jsdelivr.net/npm/@mlightcad/libredwg-web@0.7.8";
+const ZIP_CDN="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js";
+const $=s=>document.querySelector(s);
+const els={
+  main:$("#main"),stage:$("#stage"),world:$("#world"),empty:$("#empty"),
+  loading:$("#loading"),loadMsg:$("#loadMsg"),
+  err:$("#errcard"),errTitle:$("#errTitle"),errBody:$("#errBody"),errHint:$("#errHint"),errDismiss:$("#errDismiss"),
+  fileInput:$("#fileInput"),openBtn:$("#openBtn"),addBtn:$("#addBtn"),clearBtn:$("#clearBtn"),
+  fitBtn:$("#fitBtn"),settingsBtn:$("#settingsBtn"),exportBtn:$("#exportBtn"),regionsBtn:$("#regionsBtn"),
+  overlay:$("#overlay"),regionHint:$("#regionHint"),
+  regionField:$("#regionField"),regionCountLabel:$("#regionCountLabel"),
+  regionModeChips:$("#regionModeChips"),mergedLayoutChips:$("#mergedLayoutChips"),
+  regionResChips:$("#regionResChips"),includeWhole:$("#includeWhole"),
+  zoombtns:$("#zoombtns"),zin:$("#zin"),zout:$("#zout"),
+  docList:$("#docList"),docCount:$("#docCount"),
+  settingsDrawer:$("#settingsDrawer"),closeSettings:$("#closeSettings"),
+  lwChips:$("#lwChips"),lwSlider:$("#lwSlider"),lwVal:$("#lwVal"),viewBgChips:$("#viewBgChips"),
+  drawer:$("#drawer"),closeDrawer:$("#closeDrawer"),saveBtn:$("#saveBtn"),saveAllBtn:$("#saveAllBtn"),
+  dpiChips:$("#dpiChips"),dpiCustom:$("#dpiCustom"),bgChips:$("#bgChips"),quality:$("#quality"),qVal:$("#qVal"),
+  outPx:$("#outPx"),outIn:$("#outIn"),outLw:$("#outLw"),clampNote:$("#clampNote"),
+  stFile:$("#stFile"),stVer:$("#stVer"),stEnt:$("#stEnt"),stCores:$("#stCores"),
+  stX:$("#stX"),stY:$("#stY"),stZoom:$("#stZoom"),
+};
+const MAX_PX=16000, THUMB_W=240, THUMB_H=150, SVG_CACHE_MAX=6;
+let LIB=null,libPromise=null,curSvg=null,idSeq=0,engineErrShown=false,viewToken=0,regionSeq=0;
+const state={ docs:[], activeId:null, dpi:150,exportBg:"dark",quality:0.92,lineWeight:1,viewerBg:"dark",
+  regionMode:false, selectedRegion:null, exportRegionMode:"merged", mergedLayout:"row", regionScale:4, includeWhole:false };
+const active=()=>state.docs.find(d=>d.id===state.activeId)||null;
+
+// small LRU of parsed SVGs so recently-viewed drawings reopen instantly; the rest are re-parsed on demand
+const svgCache=new Map();
+function getCachedSvg(id){ if(!svgCache.has(id))return null; const v=svgCache.get(id); svgCache.delete(id); svgCache.set(id,v); return v; }
+function cacheSvg(id,svg){
+  if(svgCache.has(id))svgCache.delete(id); svgCache.set(id,svg);
+  if(svgCache.size<=SVG_CACHE_MAX)return;
+  for(const k of [...svgCache.keys()]){        // evict oldest first, but never the active drawing
+    if(k===state.activeId)continue;
+    svgCache.delete(k);
+    if(svgCache.size<=SVG_CACHE_MAX)break;
+  }
+}
+
+// run async fn over items with bounded concurrency (keeps peak memory low)
+async function mapLimit(items,limit,fn){
+  const n=items.length, ret=new Array(n); let i=0;
+  const runners=Array.from({length:Math.min(Math.max(limit,1),n)},async()=>{
+    while(i<n){ const idx=i++; ret[idx]=await fn(items[idx],idx); }
+  });
+  await Promise.all(runners); return ret;
+}
+
+/* ===================== PARALLEL (Web Worker pool) ===================== */
+const HW=(navigator.hardwareConcurrency||4);
+const POOL_SIZE=Math.max(1,Math.min(HW,4));
+let pool=null, parallel=false, renderProbe=null, parallelReady=null;
+
+const WORKER_SRC=`
+const CDN=${JSON.stringify(CDN)};
+let libP=null;
+async function lib(){
+  if(!libP){ const m=await import(CDN+"/dist/libredwg-web.js");
+    libP=m.LibreDwg.create(CDN+"/wasm").then(L=>{L._FT=m.Dwg_File_Type;return L;}); }
+  return libP;
+}
+const stripTypesFromBlocks=(dwg,types)=>{
+  const set=new Set(types); let removed=0;
+  const recs=(dwg.tables&&dwg.tables.BLOCK_RECORD&&dwg.tables.BLOCK_RECORD.entries)||[];
+  for(const b of recs){ if(b&&Array.isArray(b.entities)){ const n=b.entities.length;
+    b.entities=b.entities.filter(en=>!set.has(en.type)); removed+=n-b.entities.length; } }
+  return removed;
+};
+const convertResilient=(L,dwg)=>{
+  try{ return {svg:L.dwg_to_svg(dwg),dropped:[]}; }catch(e){}
+  const recs=(dwg.tables&&dwg.tables.BLOCK_RECORD&&dwg.tables.BLOCK_RECORD.entries)||[];
+  const types=new Set();
+  for(const b of recs){ if(b&&Array.isArray(b.entities)) for(const en of b.entities) types.add(en.type); }
+  const order=["TABLE","ACAD_TABLE",...[...types].filter(t=>t!=="TABLE"&&t!=="ACAD_TABLE")];
+  const dropped=[];
+  for(const t of order){ const rem=stripTypesFromBlocks(dwg,[t]); if(!rem)continue; dropped.push(t);
+    try{ return {svg:L.dwg_to_svg(dwg),dropped}; }catch(e){} }
+  throw new Error("SVG_CONVERT_FAILED");
+};
+self.onmessage=async(e)=>{
+  const d=e.data;
+  if(d.kind==="ping"){ self.postMessage({id:d.id,ok:true}); return; }
+  try{
+    const L=await lib();
+    if(d.kind==="parse"){
+      const ptr=L.dwg_read_data(d.buf,L._FT.DWG);
+      if(ptr==null) throw new Error("PARSE_NULL");
+      try{
+        let ver="-"; try{const v=L.dwg_get_version_type(ptr); ver=(v&&v.description)||(v&&v.type)||"-";}catch(_){}
+        const dwg=L.convert(ptr); const ent=(dwg.entities&&dwg.entities.length)||0;
+        const R=convertResilient(L,dwg);
+        if(!R.svg||R.svg.indexOf("<svg")===-1) throw new Error("EMPTY_SVG");
+        self.postMessage({id:d.id,ok:true,svg:R.svg,ver,ent,dropped:R.dropped});
+      } finally { try{L.dwg_free(ptr);}catch(_){} }   // always free so failures don't leak across the batch
+    } else if(d.kind==="render"){
+      const bmp=await createImageBitmap(new Blob([d.svg],{type:"image/svg+xml"}));
+      const cv=new OffscreenCanvas(d.w,d.h); const ctx=cv.getContext("2d");
+      ctx.fillStyle=d.bg; ctx.fillRect(0,0,d.w,d.h); ctx.drawImage(bmp,0,0,d.w,d.h); if(bmp.close)bmp.close();
+      const blob=await cv.convertToBlob({type:"image/jpeg",quality:d.quality});
+      const bytes=new Uint8Array(await blob.arrayBuffer());
+      self.postMessage({id:d.id,ok:true,bytes},[bytes.buffer]);
+    }
+  }catch(err){ self.postMessage({id:d.id,ok:false,error:String((err&&err.message)||err)}); }
+};
+`;
+function makePool(){
+  let workers,url;
+  try{
+    url=URL.createObjectURL(new Blob([WORKER_SRC],{type:"text/javascript"}));
+    workers=Array.from({length:POOL_SIZE},()=>new Worker(url));
+  }catch(e){ return null; }
+  const idle=[...workers], q=[], pending=new Map(); let seq=0;
+  function pump(){ while(idle.length&&q.length){ const w=idle.shift(),job=q.shift();
+    pending.set(job.id,{job,w}); w.postMessage(job.msg,job.transfer||[]); } }
+  workers.forEach(w=>{
+    w.onmessage=e=>{ const rec=pending.get(e.data.id); if(!rec)return; pending.delete(e.data.id);
+      idle.push(w); pump(); e.data.ok?rec.job.res(e.data):rec.job.rej(new Error(e.data.error||"worker error")); };
+    w.onerror=ev=>{ for(const [id,rec] of pending){ if(rec.w===w){ pending.delete(id); rec.job.rej(new Error(ev.message||"worker crashed")); } }
+      if(!idle.includes(w)) idle.push(w); pump(); };
+  });
+  function run(msg,transfer){ return new Promise((res,rej)=>{ const id=++seq;
+    q.push({id,msg:{...msg,id},transfer,res,rej}); pump(); }); }
+  return {run,workers,terminate(){workers.forEach(w=>w.terminate());URL.revokeObjectURL(url);}};
+}
+async function initParallel(){
+  const p=makePool();
+  if(!p){ parallel=false; setCores(); return; }
+  try{ await Promise.race([ p.run({kind:"ping"}), new Promise((_,r)=>setTimeout(()=>r(new Error("timeout")),4000)) ]);
+    pool=p; parallel=true;
+  }catch(e){ parallel=false; try{p.terminate();}catch(_){}; }
+  setCores();
+}
+async function canRenderInWorker(){
+  if(!parallel||!pool) return false;
+  if(renderProbe!=null) return renderProbe;
+  try{
+    const svg='<svg xmlns="http://www.w3.org/2000/svg" width="4" height="4" viewBox="0 0 4 4"><rect width="4" height="4" fill="#000"/></svg>';
+    const r=await pool.run({kind:"render",svg,w:4,h:4,bg:"#000",quality:0.9});
+    renderProbe=!!(r&&r.bytes&&r.bytes.length>0);
+  }catch(e){ renderProbe=false; }
+  return renderProbe;
+}
+function setCores(){
+  els.stCores.textContent = parallel ? `${POOL_SIZE}\u00d7 \u26a1` : "1";
+  els.stCores.title = parallel ? `${POOL_SIZE} parallel workers` : "single-threaded (workers unavailable)";
+}
+
+/* ===================== engine (fallback) ===================== */
+function showLoading(on,msg){els.loading.classList.toggle("show",on);if(msg)els.loadMsg.textContent=msg;}
+function showError(t,b,h){els.errTitle.textContent=t;els.errBody.innerHTML=b;els.errHint.innerHTML=h||"";
+  els.err.classList.add("show");showLoading(false);}
+els.errDismiss.addEventListener("click",()=>els.err.classList.remove("show"));
+async function getLib(){
+  if(LIB)return LIB; if(libPromise)return libPromise;
+  libPromise=(async()=>{
+    showLoading(true,"Loading CAD engine (~10 MB)\u2026");
+    const mod=await import(/* @vite-ignore */ `${CDN}/dist/libredwg-web.js`);
+    showLoading(true,"Starting engine\u2026");
+    LIB=await mod.LibreDwg.create(`${CDN}/wasm`); LIB._FileType=mod.Dwg_File_Type; return LIB;
+  })();
+  return libPromise;
+}
+function engineBlocked(err){
+  const m=String(err&&err.message),n=String(err&&err.name);
+  return m.includes("import")||String(err).includes("Failed to fetch")||m.includes("wasm")||n==="TypeError";
+}
+function showEngineError(){
+  if(engineErrShown)return; engineErrShown=true;
+  showError("Couldn\u2019t load the CAD engine here",
+    "The DWG parser (a ~10&nbsp;MB WebAssembly module from <code>cdn.jsdelivr.net</code>) was blocked from loading in this sandbox.",
+    "This usually means the artifact\u2019s security policy is blocking the CDN. Open this page as a standalone <code>.html</code> in a browser tab and it\u2019ll work.");
+}
+
+/* ===================== svg helpers ===================== */
+const WHITE=/(#fff(?:fff)?\b|rgb\(\s*255\s*,\s*255\s*,\s*255\s*\)|^white$)/i;
+function swapWhites(svg){
+  svg.querySelectorAll("*").forEach(n=>{
+    if(!n.getAttribute)return;
+    const st=n.getAttribute("stroke"); if(st&&WHITE.test(st.trim()))n.setAttribute("stroke","#151515");
+    const fl=n.getAttribute("fill"); if(fl&&fl!=="none"&&WHITE.test(fl.trim()))n.setAttribute("fill","#151515");
+  });
+}
+const rootGroup=svg=>svg.querySelector(":scope > g")||svg.querySelector("g");
+function buildSvg(rawSvg,bg,strokeUserUnits){
+  const doc=new DOMParser().parseFromString(rawSvg,"image/svg+xml");
+  const svg=doc.documentElement;
+  if(bg==="light"||bg==="white")swapWhites(svg);
+  const g=rootGroup(svg); if(g&&strokeUserUnits!=null)g.setAttribute("stroke-width",strokeUserUnits);
+  return svg;
+}
+function metaFromSvg(svg){
+  const vb=(new DOMParser().parseFromString(svg,"image/svg+xml").documentElement
+            .getAttribute("viewBox")||"0 0 100 100").split(/\s+/).map(Number);
+  return {viewBox:vb,baseW:vb[2]||100,baseH:vb[3]||100};
+}
+// the converter doesn't escape text, so labels containing & < > (or stray control chars) produce
+// invalid XML that <img> rasterization AND DOMParser both reject. Repair it before any use.
+function sanitizeSvg(svg){
+  if(!svg) return svg;
+  return svg
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g,"")                        // strip XML-illegal control chars
+    .replace(/&(?!(?:amp|lt|gt|quot|apos|#[0-9]+|#x[0-9a-fA-F]+);)/g,"&amp;");        // escape bare ampersands
+}
+// rasterize an SVG to a small JPEG data URL (the durable preview)
+async function makeThumb(rawSvg,baseW,baseH){
+  const s=Math.min(THUMB_W/baseW,THUMB_H/baseH);
+  const w=Math.max(1,Math.round(baseW*s)),h=Math.max(1,Math.round(baseH*s));
+  const strokeUser=0.9*baseW/w;
+  const el=buildSvg(rawSvg,"dark",strokeUser);
+  el.setAttribute("width",w);el.setAttribute("height",h);el.removeAttribute("style");
+  const str=new XMLSerializer().serializeToString(el);
+  const url=URL.createObjectURL(new Blob([str],{type:"image/svg+xml;charset=utf-8"}));
+  try{
+    const img=new Image(); img.decoding="sync";
+    await new Promise((res,rej)=>{img.onload=res;img.onerror=()=>rej(new Error("thumb"));img.src=url;});
+    const cv=document.createElement("canvas");cv.width=w;cv.height=h;
+    const ctx=cv.getContext("2d");ctx.fillStyle="#0d1117";ctx.fillRect(0,0,w,h);ctx.drawImage(img,0,0,w,h);
+    return cv.toDataURL("image/jpeg",0.72);
+  }finally{ URL.revokeObjectURL(url); }
+}
+
+/* ===================== parse (worker or fallback) ===================== */
+// skip entity types that crash the renderer (e.g. certain tables) so one bad entity
+// yields a partial drawing instead of losing the whole file
+function stripTypesFromBlocks(dwg,types){
+  const set=new Set(types); let removed=0;
+  const recs=(dwg.tables&&dwg.tables.BLOCK_RECORD&&dwg.tables.BLOCK_RECORD.entries)||[];
+  for(const b of recs){ if(b&&Array.isArray(b.entities)){ const n=b.entities.length;
+    b.entities=b.entities.filter(en=>!set.has(en.type)); removed+=n-b.entities.length; } }
+  return removed;
+}
+function convertResilient(lib,dwg){
+  try{ return {svg:lib.dwg_to_svg(dwg),dropped:[]}; }catch(e){}
+  const recs=(dwg.tables&&dwg.tables.BLOCK_RECORD&&dwg.tables.BLOCK_RECORD.entries)||[];
+  const types=new Set();
+  for(const b of recs){ if(b&&Array.isArray(b.entities)) for(const en of b.entities) types.add(en.type); }
+  const order=["TABLE","ACAD_TABLE",...[...types].filter(t=>t!=="TABLE"&&t!=="ACAD_TABLE")];
+  const dropped=[];
+  for(const t of order){ const rem=stripTypesFromBlocks(dwg,[t]); if(!rem)continue; dropped.push(t);
+    try{ return {svg:lib.dwg_to_svg(dwg),dropped}; }catch(e){} }
+  throw new Error("SVG_CONVERT_FAILED");
+}
+async function parseSvg(file){
+  const buf=await file.arrayBuffer();
+  if(parallel&&pool){ const r=await pool.run({kind:"parse",buf},[buf]); return {svg:sanitizeSvg(r.svg),ver:r.ver,ent:r.ent,dropped:r.dropped||[]}; }
+  const lib=await getLib();
+  const ptr=lib.dwg_read_data(buf,lib._FileType.DWG);
+  if(ptr==null)throw new Error("PARSE_NULL");
+  try{
+    let ver="\u2014"; try{const v=lib.dwg_get_version_type(ptr);ver=(v&&v.description)||(v&&v.type)||"\u2014";}catch(e){}
+    const dwg=lib.convert(ptr); const ent=(dwg.entities&&dwg.entities.length)||0;
+    const R=convertResilient(lib,dwg);
+    if(!R.svg||R.svg.indexOf("<svg")===-1)throw new Error("EMPTY_SVG");
+    return {svg:sanitizeSvg(R.svg),ver,ent,dropped:R.dropped};
+  } finally { try{lib.dwg_free(ptr);}catch(e){} }
+}
+// return the full SVG for a doc, from cache or by re-reading + re-parsing its file
+async function ensureSvg(d){
+  const c=getCachedSvg(d.id); if(c)return c;
+  const {svg}=await parseSvg(d.file);
+  cacheSvg(d.id,svg); return svg;
+}
+function reason(err){
+  const m=String(err&&err.message);
+  if(m==="EMPTY_SVG")return "Parsed, but nothing to draw";
+  if(m==="PARSE_NULL")return "Couldn\u2019t parse (corrupt or unsupported)";
+  if(m==="SVG_CONVERT_FAILED")return "Couldn\u2019t render this drawing";
+  return m||"Unknown error";
+}
+
+/* ===================== add files (preview-first) ===================== */
+async function addFiles(fileList){
+  const files=[...fileList].filter(f=>/\.dwg$/i.test(f.name));
+  if(!files.length)return;
+  await parallelReady;
+  hideEmpty();
+  const docs=files.map(f=>{ const d={id:++idSeq,name:f.name,file:f,thumbUrl:null,ver:"\u2014",entCount:0,dropped:[],regions:[],
+    baseW:100,baseH:100,viewBox:[0,0,100,100],view:{scale:1,tx:0,ty:0,fitted:false},error:null,errorDetail:null,loading:true};
+    state.docs.push(d); appendCard(d); return d; });
+  updateCount(); updateChrome();
+  // bounded concurrency: only ~POOL_SIZE files are read + parsed at once
+  await mapLimit(docs,POOL_SIZE,async(d)=>{
+    try{
+      const {svg,ver,ent,dropped}=await parseSvg(d.file);
+      const m=metaFromSvg(svg);
+      d.ver=ver; d.entCount=ent; d.baseW=m.baseW; d.baseH=m.baseH; d.viewBox=m.viewBox; d.dropped=dropped||[];
+      d.loading=false;
+      cacheSvg(d.id,svg);   // keep briefly so the first opened drawing is instant; LRU evicts the rest
+      try{ d.thumbUrl=await makeThumb(svg,m.baseW,m.baseH); }catch(_){ d.thumbUrl=null; }  // preview is optional; never fatal
+    }catch(err){ d.loading=false; d.error=reason(err); d.errorDetail=String((err&&err.message)||err); if(engineBlocked(err))showEngineError(); }
+    patchCard(d); updateChrome();
+    if(!active()&&!d.error){ selectDoc(d.id); }
+  });
+}
+
+/* ===================== sidebar list (incremental) ===================== */
+const cardEls=new Map();
+function hideEmpty(){ const e=els.docList.querySelector(".sb-empty"); if(e)e.remove(); }
+function updateCount(){ els.docCount.textContent=state.docs.length; els.clearBtn.disabled=state.docs.length===0; }
+function appendCard(d){
+  const card=document.createElement("div"); card.className="doc busy"; card.dataset.id=d.id;
+  card.innerHTML='<div class="thumb"></div><div class="meta"><div class="txt"><div class="nm"></div><div class="sub"></div></div><button class="rm" title="Remove">\u00d7</button></div>';
+  card.querySelector(".rm").addEventListener("click",e=>{e.stopPropagation();removeDoc(d.id);});
+  card.addEventListener("click",()=>{ const doc=state.docs.find(x=>x.id===d.id); if(!doc||doc.loading)return;
+    if(doc.error){ showError("Couldn\u2019t load "+doc.name, doc.error, doc.errorDetail?("<code>"+doc.errorDetail+"</code>"):""); return; }
+    selectDoc(doc.id); });
+  cardEls.set(d.id,card); els.docList.appendChild(card); patchCard(d);
+}
+function patchCard(d){
+  const card=cardEls.get(d.id); if(!card)return;
+  card.className="doc"+(d.id===state.activeId?" active":"")+((d.loading||d.error)?" busy":"");
+  const thumb=card.querySelector(".thumb"); thumb.className="thumb"+(d.error?" err":"");
+  if(d.loading){ thumb.innerHTML='<div class="spin-s"></div>'; }
+  else if(d.error){ thumb.textContent="!"; }
+  else if(d.thumbUrl){ thumb.innerHTML=""; const im=document.createElement("img"); im.className="thumb-img"; im.src=d.thumbUrl; thumb.appendChild(im); }
+  else { thumb.innerHTML=''; thumb.textContent="\u25a4"; thumb.style.color="var(--ink-faint)"; thumb.style.fontSize="20px"; thumb.title="Loaded (no preview available)"; }
+  const nm=card.querySelector(".nm"); nm.textContent=d.name; nm.title=d.name;
+  const sub=card.querySelector(".sub"); const partial=d.dropped&&d.dropped.length;
+  sub.textContent=d.loading?"Parsing\u2026":(d.error?d.error:(`${d.ver} \u00b7 ${d.entCount} ent`+(partial?" \u00b7 partial":"")));
+  sub.title=partial?("Rendered without unsupported entities: "+d.dropped.join(", ")):(d.error?"Click for details":"");
+  sub.style.color = partial?"var(--warm)":"";
+}
+function setActiveClass(oldId,newId){
+  const o=cardEls.get(oldId); if(o)o.classList.remove("active");
+  const n=cardEls.get(newId); if(n)n.classList.add("active");
+}
+function removeDoc(id){
+  const idx=state.docs.findIndex(d=>d.id===id); if(idx<0)return;
+  state.docs.splice(idx,1); const c=cardEls.get(id); if(c)c.remove(); cardEls.delete(id); svgCache.delete(id);
+  if(state.activeId===id){ state.activeId=null; curSvg=null; els.world.replaceChildren();
+    const next=state.docs.find(d=>!d.error&&!d.loading); if(next)selectDoc(next.id); else showEmpty(); }
+  updateCount(); updateChrome();
+  if(!state.docs.length) showEmpty();
+}
+els.clearBtn.addEventListener("click",()=>{
+  state.docs=[]; state.activeId=null; curSvg=null; svgCache.clear(); cardEls.clear();
+  els.world.replaceChildren(); els.docList.innerHTML=""; showEmpty(); updateCount(); updateChrome();
+});
+function showEmpty(){
+  if(!state.docs.length && !els.docList.querySelector(".sb-empty"))
+    els.docList.innerHTML='<div class="sb-empty">No drawings yet.<br>Drop <b>.dwg</b> files anywhere, or use <b>Add files</b>.</div>';
+  els.empty.style.display="flex"; els.zoombtns.style.display="none";
+  els.stFile.textContent="\u2014"; els.stVer.textContent="\u2014"; els.stEnt.textContent="\u2014";
+  els.stX.textContent="\u2014"; els.stY.textContent="\u2014"; els.stZoom.textContent="100%";
+  state.selectedRegion=null; els.overlay.innerHTML=""; updateRegionUI();
+}
+function updateChrome(){
+  const has=state.docs.some(d=>!d.error&&!d.loading);
+  els.fitBtn.disabled=!active(); els.exportBtn.disabled=!has; els.regionsBtn.disabled=!active();
+}
+
+/* ===================== viewer ===================== */
+function selectDoc(id){
+  const prev=state.activeId; state.activeId=id; setActiveClass(prev,id);
+  state.selectedRegion=null;
+  updateChrome(); updateExportReadout(); updateRegionUI();
+  const d=active();
+  if(d){ els.stFile.textContent=d.name.length>26?d.name.slice(0,24)+"\u2026":d.name;
+    els.stVer.textContent=d.ver; els.stEnt.textContent=(d.entCount||0).toLocaleString(); }
+  renderViewer();
+}
+async function renderViewer(){
+  const d=active(); if(!d)return;
+  els.empty.style.display="none"; els.zoombtns.style.display="flex";
+  const tok=++viewToken;
+  let svg=getCachedSvg(d.id);
+  if(!svg){
+    showLoading(true,"Loading drawing\u2026");
+    try{ svg=await ensureSvg(d); }
+    catch(err){ showLoading(false); if(engineBlocked(err))showEngineError(); else showError("Couldn\u2019t open drawing",reason(err)); return; }
+    if(tok!==viewToken){ showLoading(false); return; }   // user switched away while parsing
+    showLoading(false);
+  }
+  const el=buildSvg(svg,state.viewerBg,state.lineWeight/(d.view.scale||1));
+  el.setAttribute("width",d.baseW); el.setAttribute("height",d.baseH);
+  el.style.width=d.baseW+"px"; el.style.height=d.baseH+"px";
+  els.world.replaceChildren(document.importNode(el,true));
+  curSvg=els.world.querySelector("svg");
+  els.main.classList.toggle("lightview",state.viewerBg==="light");
+  if(!d.view.fitted)fitView(); else applyTransform();
+}
+function updateViewerStroke(){
+  const d=active(); if(!curSvg||!d)return;
+  const g=rootGroup(curSvg); if(g)g.setAttribute("stroke-width",state.lineWeight/(d.view.scale||1));
+}
+function applyTransform(){
+  const d=active(); if(!d)return;
+  els.world.style.transform=`translate(${d.view.tx}px,${d.view.ty}px) scale(${d.view.scale})`;
+  els.stZoom.textContent=Math.round(d.view.scale*100)+"%"; updateViewerStroke(); renderOverlay();
+}
+function fitView(){
+  const d=active(); if(!d)return;
+  const r=els.stage.getBoundingClientRect();
+  const s=Math.min(r.width/d.baseW,r.height/d.baseH)*0.9;
+  d.view.scale=isFinite(s)&&s>0?s:1;
+  d.view.tx=(r.width-d.baseW*d.view.scale)/2; d.view.ty=(r.height-d.baseH*d.view.scale)/2;
+  d.view.fitted=true; applyTransform();
+}
+function zoomAt(cx,cy,f){
+  const d=active(); if(!d||!curSvg)return;
+  const r=els.stage.getBoundingClientRect(); const px=cx-r.left,py=cy-r.top;
+  const ns=Math.min(Math.max(d.view.scale*f,0.001),4000); const k=ns/d.view.scale;
+  d.view.tx=px-(px-d.view.tx)*k; d.view.ty=py-(py-d.view.ty)*k; d.view.scale=ns; applyTransform();
+}
+els.stage.addEventListener("wheel",e=>{if(!curSvg)return;e.preventDefault();
+  zoomAt(e.clientX,e.clientY,e.deltaY<0?1.12:1/1.12);},{passive:false});
+
+/* ---- region geometry + overlay ---- */
+const HANDLE=9;
+const regionById=(d,id)=>d.regions.find(b=>b.id===id);
+function screenToVB(sx,sy){ const d=active(); return {x:(sx-d.view.tx)/d.view.scale+d.viewBox[0], y:(sy-d.view.ty)/d.view.scale+d.viewBox[1]}; }
+function boxScreenRect(d,box){ const s=d.view.scale;
+  return { l:d.view.tx+(box.x-d.viewBox[0])*s, t:d.view.ty+(box.y-d.viewBox[1])*s, w:box.w*s, h:box.h*s }; }
+function hitTestRegions(d,sx,sy){
+  if(state.selectedRegion!=null){ const box=regionById(d,state.selectedRegion);
+    if(box){ const r=boxScreenRect(d,box);
+      const C={nw:[r.l,r.t],ne:[r.l+r.w,r.t],sw:[r.l,r.t+r.h],se:[r.l+r.w,r.t+r.h]};
+      for(const k in C){ if(Math.abs(sx-C[k][0])<=HANDLE&&Math.abs(sy-C[k][1])<=HANDLE) return {id:box.id,handle:k}; } } }
+  for(let i=d.regions.length-1;i>=0;i--){ const r=boxScreenRect(d,d.regions[i]);
+    if(sx>=r.l&&sx<=r.l+r.w&&sy>=r.t&&sy<=r.t+r.h) return {id:d.regions[i].id,body:true}; }
+  return null;
+}
+function resizeBox(box,orig,handle,p){
+  let x1=orig.x,y1=orig.y,x2=orig.x+orig.w,y2=orig.y+orig.h;
+  if(handle.includes("w"))x1=p.x; if(handle.includes("e"))x2=p.x;
+  if(handle.includes("n"))y1=p.y; if(handle.includes("s"))y2=p.y;
+  box.x=Math.min(x1,x2); box.y=Math.min(y1,y2); box.w=Math.abs(x2-x1); box.h=Math.abs(y2-y1);
+}
+function renderOverlay(){
+  const d=active();
+  els.overlay.innerHTML="";
+  if(!d||!curSvg)return;
+  for(const box of d.regions){
+    const r=boxScreenRect(d,box);
+    const el=document.createElement("div"); el.className="region"+(box.id===state.selectedRegion?" sel":"");
+    el.style.left=r.l+"px"; el.style.top=r.t+"px"; el.style.width=r.w+"px"; el.style.height=r.h+"px";
+    const lab=document.createElement("div"); lab.className="rlabel"; lab.textContent=`${Math.round(box.w)}\u00d7${Math.round(box.h)}`;
+    el.appendChild(lab);
+    if(box.id===state.selectedRegion){
+      ["nw","ne","sw","se"].forEach(k=>{const h=document.createElement("div");h.className="rhandle "+k;el.appendChild(h);});
+      const del=document.createElement("div"); del.className="rdel"; del.textContent="\u00d7";
+      del.addEventListener("pointerdown",ev=>ev.stopPropagation());
+      del.addEventListener("click",ev=>{ev.stopPropagation();deleteRegion(box.id);});
+      el.appendChild(del);
+    }
+    els.overlay.appendChild(el);
+  }
+}
+function deleteRegion(id){
+  const d=active(); if(!d)return;
+  d.regions=d.regions.filter(b=>b.id!==id);
+  if(state.selectedRegion===id)state.selectedRegion=null;
+  renderOverlay(); updateRegionUI(); updateExportReadout();
+}
+function updateRegionUI(){
+  const d=active(); const n=d?d.regions.length:0;
+  els.regionField.style.display=n?"block":"none";
+  els.regionCountLabel.textContent=n;
+  els.mergedLayoutChips.style.display=(state.exportRegionMode==="merged")?"flex":"none";
+}
+
+/* ---- pointer: pan (default) or draw/move/resize regions ---- */
+let panning=false,lastX=0,lastY=0,gesture=null,spaceDown=false;
+window.addEventListener("keydown",e=>{
+  if(e.code==="Space"){ spaceDown=true; if(state.regionMode&&curSvg)els.stage.style.cursor="grab"; }
+  else if((e.key==="Delete"||e.key==="Backspace")&&state.regionMode&&state.selectedRegion!=null){ deleteRegion(state.selectedRegion); e.preventDefault(); }
+});
+window.addEventListener("keyup",e=>{ if(e.code==="Space"){ spaceDown=false; if(state.regionMode)els.stage.style.cursor=""; } });
+els.stage.addEventListener("pointerdown",e=>{
+  const d=active(); if(!d||!curSvg)return;
+  els.stage.setPointerCapture(e.pointerId);
+  const r=els.stage.getBoundingClientRect(), sx=e.clientX-r.left, sy=e.clientY-r.top;
+  if(state.regionMode&&!spaceDown){
+    const hit=hitTestRegions(d,sx,sy);
+    if(hit&&hit.handle){ gesture={type:"resize",id:hit.id,handle:hit.handle,orig:{...regionById(d,hit.id)}}; state.selectedRegion=hit.id; }
+    else if(hit&&hit.body){ gesture={type:"move",id:hit.id,orig:{...regionById(d,hit.id)},start:screenToVB(sx,sy)}; state.selectedRegion=hit.id; }
+    else { const p=screenToVB(sx,sy); const id=++regionSeq; d.regions.push({id,x:p.x,y:p.y,w:0,h:0}); state.selectedRegion=id; gesture={type:"draw",id,start:p}; }
+    renderOverlay();
+  } else { panning=true; lastX=e.clientX; lastY=e.clientY; els.stage.classList.add("dragging"); }
+});
+els.stage.addEventListener("pointermove",e=>{
+  const d=active(); if(!d||!curSvg)return;
+  const r=els.stage.getBoundingClientRect(), sx=e.clientX-r.left, sy=e.clientY-r.top;
+  const vb=screenToVB(sx,sy); els.stX.textContent=vb.x.toFixed(2); els.stY.textContent=(-vb.y).toFixed(2);
+  if(gesture){
+    const box=regionById(d,gesture.id); if(!box)return;
+    if(gesture.type==="draw"){ box.x=Math.min(gesture.start.x,vb.x); box.y=Math.min(gesture.start.y,vb.y); box.w=Math.abs(vb.x-gesture.start.x); box.h=Math.abs(vb.y-gesture.start.y); }
+    else if(gesture.type==="move"){ box.x=gesture.orig.x+(vb.x-gesture.start.x); box.y=gesture.orig.y+(vb.y-gesture.start.y); }
+    else if(gesture.type==="resize"){ resizeBox(box,gesture.orig,gesture.handle,vb); }
+    renderOverlay(); updateExportReadout(); return;
+  }
+  if(panning){ d.view.tx+=e.clientX-lastX; d.view.ty+=e.clientY-lastY; lastX=e.clientX; lastY=e.clientY; applyTransform(); }
+});
+function endGesture(){
+  const d=active();
+  if(gesture&&d){
+    const box=regionById(d,gesture.id);
+    if(gesture.type==="draw"&&box&&(box.w*d.view.scale<4||box.h*d.view.scale<4)){
+      d.regions=d.regions.filter(b=>b.id!==gesture.id); state.selectedRegion=null;   // treat tiny drag as a click
+    }
+    gesture=null; renderOverlay(); updateRegionUI(); updateExportReadout();
+  }
+  panning=false; els.stage.classList.remove("dragging");
+}
+els.stage.addEventListener("pointerup",endGesture);
+els.stage.addEventListener("pointercancel",endGesture);
+els.regionsBtn.addEventListener("click",()=>{
+  if(!active())return;
+  state.regionMode=!state.regionMode;
+  els.regionsBtn.classList.toggle("on",state.regionMode);
+  els.stage.classList.toggle("region-mode",state.regionMode);
+  els.regionHint.style.display=state.regionMode?"block":"none";
+  if(!state.regionMode)state.selectedRegion=null;
+  renderOverlay();
+});
+els.zin.addEventListener("click",()=>{const r=els.stage.getBoundingClientRect();zoomAt(r.left+r.width/2,r.top+r.height/2,1.25);});
+els.zout.addEventListener("click",()=>{const r=els.stage.getBoundingClientRect();zoomAt(r.left+r.width/2,r.top+r.height/2,1/1.25);});
+els.fitBtn.addEventListener("click",()=>{const d=active();if(d&&curSvg){d.view.fitted=false;fitView();}});
+window.addEventListener("resize",()=>{if(active()&&curSvg)applyTransform();});
+
+/* ===================== inputs + drag/drop ===================== */
+els.openBtn.addEventListener("click",()=>els.fileInput.click());
+els.addBtn.addEventListener("click",()=>els.fileInput.click());
+els.fileInput.addEventListener("change",e=>{addFiles(e.target.files);e.target.value="";});
+let dragDepth=0;
+window.addEventListener("dragenter",e=>{e.preventDefault();dragDepth++;document.body.classList.add("drop");});
+window.addEventListener("dragover",e=>{e.preventDefault();});
+window.addEventListener("dragleave",e=>{e.preventDefault();if(--dragDepth<=0){dragDepth=0;document.body.classList.remove("drop");}});
+window.addEventListener("drop",e=>{e.preventDefault();dragDepth=0;document.body.classList.remove("drop");
+  if(e.dataTransfer&&e.dataTransfer.files&&e.dataTransfer.files.length)addFiles(e.dataTransfer.files);});
+
+/* ===================== drawers ===================== */
+function openDrawer(which){
+  els.settingsDrawer.classList.toggle("open",which==="settings");
+  els.drawer.classList.toggle("open",which==="export");
+}
+els.settingsBtn.addEventListener("click",()=>openDrawer(els.settingsDrawer.classList.contains("open")?null:"settings"));
+els.exportBtn.addEventListener("click",()=>{openDrawer("export");updateExportReadout();});
+els.closeSettings.addEventListener("click",()=>openDrawer(null));
+els.closeDrawer.addEventListener("click",()=>openDrawer(null));
+
+/* ===================== settings ===================== */
+function setLineWeight(v){
+  state.lineWeight=Math.min(Math.max(parseFloat(v)||1,0.25),4);
+  els.lwSlider.value=state.lineWeight; els.lwVal.textContent=state.lineWeight.toFixed(1)+" px";
+  els.lwChips.querySelectorAll(".chip").forEach(c=>c.classList.toggle("on",parseFloat(c.dataset.lw)===state.lineWeight));
+  updateViewerStroke(); updateExportReadout();
+}
+els.lwChips.addEventListener("click",e=>{if(e.target.dataset.lw)setLineWeight(e.target.dataset.lw);});
+els.lwSlider.addEventListener("input",e=>setLineWeight(e.target.value));
+els.viewBgChips.addEventListener("click",e=>{
+  if(!e.target.dataset.vbg)return; state.viewerBg=e.target.dataset.vbg;
+  els.viewBgChips.querySelectorAll(".chip").forEach(c=>c.classList.toggle("on",c.dataset.vbg===state.viewerBg));
+  if(active()&&curSvg)renderViewer();
+});
+
+/* ===================== export ===================== */
+const regionDpi=()=>state.dpi*state.regionScale;
+function computeOut(d,region){
+  const src=region||{w:d.baseW,h:d.baseH};
+  const dpi=region?regionDpi():state.dpi;
+  const scale=dpi/96;
+  let w=Math.round(src.w*scale),h=Math.round(src.h*scale),clamped=false;
+  const longest=Math.max(w,h);
+  if(longest>MAX_PX){const k=MAX_PX/longest;w=Math.round(w*k);h=Math.round(h*k);clamped=true;}
+  return {w:Math.max(w,1),h:Math.max(h,1),clamped};
+}
+function mergedDims(d){
+  const tiles=d.regions.map(box=>computeOut(d,box));
+  const GAP=Math.max(4,Math.round(state.dpi/96*8));
+  let W,H;
+  if(state.mergedLayout==="row"){ H=Math.max(...tiles.map(t=>t.h)); W=tiles.reduce((a,t)=>a+t.w,0)+GAP*(tiles.length-1); }
+  else { W=Math.max(...tiles.map(t=>t.w)); H=tiles.reduce((a,t)=>a+t.h,0)+GAP*(tiles.length-1); }
+  const s=Math.min(1,MAX_PX/Math.max(W,H,1));
+  return {W:Math.max(1,Math.round(W*s)),H:Math.max(1,Math.round(H*s)),GAP,tiles,s,clamped:s<1};
+}
+function updateSaveLabel(){
+  const d=active();
+  if(d&&d.regions.length){
+    const n=(state.exportRegionMode==="merged"?1:d.regions.length)+(state.includeWhole?1:0);
+    els.saveBtn.textContent = n>1 ? `Save ${n} images (ZIP)` : (state.exportRegionMode==="merged"?"Save merged image":"Save region");
+  } else els.saveBtn.textContent="Save this drawing";
+}
+function updateExportReadout(){
+  const d=active(); updateRegionUI();
+  if(!d){els.outPx.textContent="\u2014";els.outIn.textContent="\u2014";els.outLw.textContent="\u2014";els.clampNote.style.display="none";return;}
+  els.outLw.textContent=`${state.lineWeight.toFixed(2)} px`; els.clampNote.style.display="none";
+  const extra=state.includeWhole?" + full page":"";
+  if(d.regions.length){
+    const rd=regionDpi();
+    if(state.exportRegionMode==="separate"){
+      let mw=0,mh=0; for(const box of d.regions){ const o=computeOut(d,box); mw=Math.max(mw,o.w); mh=Math.max(mh,o.h); }
+      els.outPx.textContent=`${d.regions.length} images, up to ${mw}\u00d7${mh}`;
+      els.outIn.textContent=`each region @ ${rd} DPI (${state.regionScale}\u00d7)${extra}`;
+    } else {
+      const md=mergedDims(d);
+      els.outPx.textContent=`${md.W} \u00d7 ${md.H}`;
+      els.outIn.textContent=`merged \u00b7 ${d.regions.length} regions @ ${rd} DPI (${state.regionScale}\u00d7)${extra}`;
+      if(md.clamped){ els.clampNote.style.display="block"; els.clampNote.textContent=`Merged image capped at ${MAX_PX}px on the long edge.`; }
+    }
+  } else {
+    const {w,h,clamped}=computeOut(d,null);
+    els.outPx.textContent=`${w} \u00d7 ${h}`;
+    els.outIn.textContent=`${(w/state.dpi).toFixed(1)} \u00d7 ${(h/state.dpi).toFixed(1)} in`;
+    els.clampNote.style.display=clamped?"block":"none";
+    if(clamped)els.clampNote.textContent=`Capped at ${MAX_PX}px on the long edge to stay within browser limits.`;
+  }
+  updateSaveLabel();
+}
+function syncDpi(v){
+  state.dpi=Math.min(Math.max(parseInt(v)||150,24),1200); els.dpiCustom.value=state.dpi;
+  els.dpiChips.querySelectorAll(".chip").forEach(c=>c.classList.toggle("on",Number(c.dataset.dpi)===state.dpi));
+  updateExportReadout();
+}
+els.dpiChips.addEventListener("click",e=>{if(e.target.dataset.dpi)syncDpi(e.target.dataset.dpi);});
+els.dpiCustom.addEventListener("input",e=>syncDpi(e.target.value));
+els.bgChips.addEventListener("click",e=>{
+  if(!e.target.dataset.bg)return; state.exportBg=e.target.dataset.bg;
+  els.bgChips.querySelectorAll(".chip").forEach(c=>c.classList.toggle("on",c.dataset.bg===state.exportBg));
+});
+els.regionModeChips.addEventListener("click",e=>{ if(!e.target.dataset.rm)return; state.exportRegionMode=e.target.dataset.rm;
+  els.regionModeChips.querySelectorAll(".chip").forEach(c=>c.classList.toggle("on",c.dataset.rm===state.exportRegionMode));
+  updateExportReadout(); });
+els.mergedLayoutChips.addEventListener("click",e=>{ if(!e.target.dataset.ml)return; state.mergedLayout=e.target.dataset.ml;
+  els.mergedLayoutChips.querySelectorAll(".chip").forEach(c=>c.classList.toggle("on",c.dataset.ml===state.mergedLayout));
+  updateExportReadout(); });
+els.regionResChips.addEventListener("click",e=>{ if(!e.target.dataset.rr)return; state.regionScale=Number(e.target.dataset.rr);
+  els.regionResChips.querySelectorAll(".chip").forEach(c=>c.classList.toggle("on",Number(c.dataset.rr)===state.regionScale));
+  updateExportReadout(); });
+els.includeWhole.addEventListener("change",e=>{ state.includeWhole=e.target.checked; updateExportReadout(); });
+els.quality.addEventListener("input",e=>{state.quality=e.target.value/100;els.qVal.textContent=e.target.value+"%";});
+
+function setJpegDpi(bytes,dpi){
+  if(bytes[0]!==0xFF||bytes[1]!==0xD8)return bytes;
+  let o=2;
+  while(o+4<bytes.length){
+    if(bytes[o]!==0xFF)break;
+    const marker=bytes[o+1],len=(bytes[o+2]<<8)|bytes[o+3];
+    if(marker===0xE0&&bytes[o+4]===0x4A){
+      const b=o+4+5+2; bytes[b]=1;
+      bytes[b+1]=(dpi>>8)&0xFF;bytes[b+2]=dpi&0xFF;bytes[b+3]=(dpi>>8)&0xFF;bytes[b+4]=dpi&0xFF; return bytes;
+    }
+    o+=2+len;
+  }
+  return bytes;
+}
+// region: {x,y,w,h} in viewBox coords, or null for the whole drawing
+function exportSpec(d,svg,region){
+  const {w,h}=computeOut(d,region);
+  const srcW=region?region.w:d.baseW;
+  const strokeUser=state.lineWeight*srcW/w;
+  const el=buildSvg(svg,state.exportBg,strokeUser);
+  if(region) el.setAttribute("viewBox",`${region.x} ${region.y} ${region.w} ${region.h}`);
+  el.setAttribute("width",w);el.setAttribute("height",h);el.removeAttribute("style");
+  return {svgStr:new XMLSerializer().serializeToString(el),w,h,dpi:region?regionDpi():state.dpi,bg:state.exportBg==="white"?"#ffffff":"#0d1117"};
+}
+async function rasterToCanvas(spec){
+  const url=URL.createObjectURL(new Blob([spec.svgStr],{type:"image/svg+xml;charset=utf-8"}));
+  try{
+    const img=new Image(); img.decoding="sync";
+    await new Promise((res,rej)=>{img.onload=res;img.onerror=()=>rej(new Error("SVG raster failed"));img.src=url;});
+    const cv=document.createElement("canvas");cv.width=spec.w;cv.height=spec.h;
+    const ctx=cv.getContext("2d");ctx.fillStyle=spec.bg;ctx.fillRect(0,0,spec.w,spec.h);ctx.drawImage(img,0,0,spec.w,spec.h);
+    return cv;
+  }finally{ URL.revokeObjectURL(url); }
+}
+async function renderMain(spec){
+  const cv=await rasterToCanvas(spec);
+  const blob=await new Promise(r=>cv.toBlob(r,"image/jpeg",state.quality));
+  return new Uint8Array(await blob.arrayBuffer());
+}
+async function renderSpecBytes(spec,useWorker){
+  if(useWorker){ try{ const r=await pool.run({kind:"render",svg:spec.svgStr,w:spec.w,h:spec.h,bg:spec.bg,quality:state.quality});
+    return setJpegDpi(r.bytes,spec.dpi); }catch(e){ renderProbe=false; } }
+  return setJpegDpi(await renderMain(spec),spec.dpi);
+}
+// composite all regions into one packed image (empty space between them removed)
+async function renderMerged(d,svg){
+  const tiles=[]; for(const box of d.regions) tiles.push(await rasterToCanvas(exportSpec(d,svg,box)));
+  const GAP=Math.max(4,Math.round(state.dpi/96*8)); let W,H,pos=[];
+  if(state.mergedLayout==="row"){
+    H=Math.max(...tiles.map(t=>t.height)); W=tiles.reduce((a,t)=>a+t.width,0)+GAP*(tiles.length-1);
+    let x=0; for(const t of tiles){ pos.push({x,y:Math.round((H-t.height)/2)}); x+=t.width+GAP; }
+  } else {
+    W=Math.max(...tiles.map(t=>t.width)); H=tiles.reduce((a,t)=>a+t.height,0)+GAP*(tiles.length-1);
+    let y=0; for(const t of tiles){ pos.push({x:Math.round((W-t.width)/2),y}); y+=t.height+GAP; }
+  }
+  const s=Math.min(1,MAX_PX/Math.max(W,H,1));   // keep the composite within canvas limits
+  const out=document.createElement("canvas"); out.width=Math.max(1,Math.round(W*s)); out.height=Math.max(1,Math.round(H*s));
+  const ctx=out.getContext("2d"); ctx.fillStyle=state.exportBg==="white"?"#ffffff":"#0d1117"; ctx.fillRect(0,0,out.width,out.height);
+  tiles.forEach((t,i)=>ctx.drawImage(t,Math.round(pos[i].x*s),Math.round(pos[i].y*s),Math.round(t.width*s),Math.round(t.height*s)));
+  const blob=await new Promise(r=>out.toBlob(r,"image/jpeg",state.quality));
+  return setJpegDpi(new Uint8Array(await blob.arrayBuffer()),regionDpi());
+}
+// one drawing -> list of {name, bytes} honoring its regions + the current mode
+async function docExportEntries(d,useWorker){
+  const svg=await ensureSvg(d); const base=d.name.replace(/\.dwg$/i,"");
+  if(!d.regions.length) return [{name:`${base}_${state.dpi}dpi.jpg`,bytes:await renderSpecBytes(exportSpec(d,svg,null),useWorker)}];
+  const rd=regionDpi(); const out=[];
+  if(state.exportRegionMode==="merged") out.push({name:`${base}_regions_${rd}dpi.jpg`,bytes:await renderMerged(d,svg)});
+  else for(let i=0;i<d.regions.length;i++) out.push({name:`${base}_region${i+1}_${rd}dpi.jpg`,bytes:await renderSpecBytes(exportSpec(d,svg,d.regions[i]),useWorker)});
+  if(state.includeWhole) out.push({name:`${base}_full_${state.dpi}dpi.jpg`,bytes:await renderSpecBytes(exportSpec(d,svg,null),useWorker)});
+  return out;
+}
+function download(bytes,name){
+  const u=URL.createObjectURL(new Blob([bytes],{type:"image/jpeg"}));
+  const a=document.createElement("a");a.href=u;a.download=name;document.body.appendChild(a);a.click();a.remove();
+  setTimeout(()=>URL.revokeObjectURL(u),4000);
+}
+function downloadBlob(blob,name){
+  const u=URL.createObjectURL(blob);
+  const a=document.createElement("a");a.href=u;a.download=name;document.body.appendChild(a);a.click();a.remove();
+  setTimeout(()=>URL.revokeObjectURL(u),8000);
+}
+async function getZip(){
+  if(window.JSZip)return window.JSZip;
+  await new Promise((res,rej)=>{const s=document.createElement("script");s.src=ZIP_CDN;
+    s.onload=res;s.onerror=()=>rej(new Error("ZIP_BLOCKED"));document.head.appendChild(s);});
+  return window.JSZip;
+}
+function zipAdd(zip,used,entries){
+  for(const e of entries){ let nm=e.name; if(used[nm])nm=nm.replace(/\.jpg$/i,`_${used[nm]}.jpg`); used[e.name]=(used[e.name]||0)+1; zip.file(nm,e.bytes); }
+}
+els.saveBtn.addEventListener("click",async()=>{
+  const d=active(); if(!d)return;
+  els.saveBtn.disabled=true;els.saveBtn.textContent="Rendering\u2026";
+  try{
+    const entries=await docExportEntries(d,await canRenderInWorker());
+    if(entries.length===1){ download(entries[0].bytes,entries[0].name); }
+    else { const JSZip=await getZip(); const zip=new JSZip(); zipAdd(zip,{},entries);
+      downloadBlob(await zip.generateAsync({type:"blob"}), d.name.replace(/\.dwg$/i,"")+`_regions_${state.dpi}dpi.zip`); }
+  }catch(err){ console.error(err);
+    if(String(err.message)==="ZIP_BLOCKED") showError("Couldn\u2019t load the ZIP library","JSZip (from <code>cdnjs.cloudflare.com</code>) was blocked in this sandbox.","Run this page as a standalone <code>.html</code> for ZIP export.");
+    else showError("Export failed","The drawing couldn\u2019t be exported.","<code>"+String(err.message||err)+"</code>"); }
+  finally{els.saveBtn.disabled=false; updateSaveLabel();}
+});
+els.saveAllBtn.addEventListener("click",async()=>{
+  const docs=state.docs.filter(d=>!d.error&&!d.loading);
+  if(!docs.length)return;
+  els.saveAllBtn.disabled=true; els.saveBtn.disabled=true;
+  let done=0; const tick=()=>{els.saveAllBtn.textContent=`Rendering ${done} / ${docs.length}\u2026`;};
+  try{
+    const JSZip=await getZip(); const useWorker=await canRenderInWorker();
+    const zip=new JSZip(); const used={}; tick();
+    await mapLimit(docs,POOL_SIZE,async(d)=>{ zipAdd(zip,used,await docExportEntries(d,useWorker)); done++; tick(); });
+    els.saveAllBtn.textContent="Zipping\u2026";
+    downloadBlob(await zip.generateAsync({type:"blob"}),`dwg-export_${state.dpi}dpi_${docs.length}files.zip`);
+  }catch(err){
+    console.error(err);
+    if(String(err.message)==="ZIP_BLOCKED")
+      showError("Couldn\u2019t load the ZIP library","The bundler (JSZip, from <code>cdnjs.cloudflare.com</code>) was blocked in this sandbox.",
+        "Export drawings one at a time with <b>Save this drawing</b>, or run this page as a standalone <code>.html</code> for batch ZIP export.");
+    else showError("Batch export failed","Rendering the drawings to a ZIP didn\u2019t complete.","<code>"+String(err.message||err)+"</code>");
+  }finally{
+    els.saveAllBtn.disabled=false; els.saveBtn.disabled=false; els.saveAllBtn.textContent="Export all as ZIP";
+  }
+});
+
+/* ===================== boot ===================== */
+setLineWeight(1); syncDpi(150); setCores();
+parallelReady=initParallel();
+</script>
+</body>
+</html>
