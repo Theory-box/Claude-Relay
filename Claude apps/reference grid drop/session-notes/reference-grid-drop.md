@@ -50,8 +50,6 @@ and have them laid out as reference images in a grid.
 
 ## Open items
 
-- Not yet run inside Blender. Untested: whether the view-facing orientation looks
-  exactly right in practice, and the final-row centering.
 - Possible follow-ups if wanted: remembering the last-used per-row setting
   between drops, grouping each dropped batch under a parent empty or collection,
   an option to skip the popup and use defaults, sorting order control
@@ -59,5 +57,5 @@ and have them laid out as reference images in a grid.
 
 ## Status
 
-Delivered to the user as a downloadable file in chat. Pushed to this branch, not
-merged to main.
+Tested in Blender 4.4 by the user, confirmed working. Merged to main; the
+`feature/reference-grid` branch was deleted afterwards.

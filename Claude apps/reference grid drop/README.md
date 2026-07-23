@@ -62,6 +62,4 @@ how many failed.
 
 ## Status
 
-Written and reviewed, not yet run inside Blender. The two areas most likely to
-need adjustment are the exact view-facing orientation and the centering of a
-partially filled final row.
+Tested in Blender 4.4 and working.
