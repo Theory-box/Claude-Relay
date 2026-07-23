@@ -263,3 +263,13 @@ With endpoint bonding on but weak+strong pull both 0, nothing bonded — two bug
 New defaults: weave 0 (flat/2D), iters(Quality) 4, damp 0.02, contactDamp 0 (state + slider HTML). Collision smoothing auto-ramp: startCDRamp() sets contactDamp=1 and cdRamp0=S.frame; advanceCDRamp() (called each running frame) eases contactDamp 1->0 over 180 frames (~3s at 60fps) then stops. Triggered on Play button, spacebar-play, Reset button, and 'r' key. Manual sCD slider change sets cdRamping=false (cancels). contactDamp max is 1 (values >1 reverse velocity/destabilize), so ramp starts at 1 not the user's remembered "2.5". Verified: defaults applied; ramp 1->0.5@90f->0@180f; reset re-ramps; manual cancels.
 
 Outstanding (user says minor): some connectable strings still render compressed/small ("every other" in a bonding stream) — user suspects the connecting force shrinking them. Not yet root-caused; deferred.
+
+---
+
+## See also: philosophy-and-direction.md
+
+Added `Claude apps/string engine/philosophy-and-direction.md` — the design/philosophy context
+behind the project (replicator-cell goal, the "are physics-engine failures features?" thread and
+where it landed, the stationarity criterion and the engineering rules it implies, feature backlog,
+open tensions, and how the user likes to work). Read it alongside these notes; this file is the
+engine's technical history, that one is the *why*.
