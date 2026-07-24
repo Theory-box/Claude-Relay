@@ -72,6 +72,12 @@
     <button class="tool" id="toolCut" title="Cut — drag a line across strands to slice them">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="6" cy="6" r="2.4"/><circle cx="6" cy="18" r="2.4"/><line x1="8" y1="7.6" x2="20" y2="18"/><line x1="8" y1="16.4" x2="20" y2="6"/></svg>
     </button>
+    <button class="tool" id="toolDraw" title="Pencil — draw a strand onto the active material (Edit mode)" style="display:none">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20l3-1 10-10-2-2L5 17z"/><path d="M14 6l2 2"/></svg>
+    </button>
+    <button class="tool" id="toolErase" title="Eraser — drag over strands to delete (Edit mode)" style="display:none">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 18h12"/><path d="M8 16l-3-3a1.5 1.5 0 010-2l7-7a1.5 1.5 0 012 0l4 4a1.5 1.5 0 010 2l-6 6z"/></svg>
+    </button>
     <div class="toolsep"></div>
   </div>
   <div class="screen"><canvas id="c"></canvas><div class="tag">topology engine · <b id="tagScene" style="color:var(--muted)">demo</b></div></div>
@@ -130,7 +136,8 @@
 
     <div class="tabpanel" data-panel="objects">
       <div class="card">
-        <p class="eyebrow">Objects · click to select &amp; edit</p>
+        <p class="eyebrow">Materials · click to select &amp; edit · <span id="editHint" style="color:var(--dim)">Tab = draw mode</span></p>
+        <div class="row" style="margin-bottom:6px"><button class="btn" id="bNewMat">+ material</button><button class="btn" id="bNewScene">new scene</button></div>
         <div id="objList" style="max-height:220px;overflow-y:auto;display:flex;flex-direction:column;gap:3px"></div>
       </div>
       <div class="card" id="objEditor" style="display:none">
@@ -292,6 +299,38 @@ function addGraphObject(verts,edges,attrs,vattrs){
   G.objs.push(obj);return obj;
 }
 function polyVerts(pts){return pts.map(p=>[p.x,p.y,p.z||0]);}
+// ---------- in-app authoring: materials + draw/erase ----------
+function newMaterial(name){   // an empty material (object) you can draw onto; blank-ish defaults so a fresh strand holds its shape
+  const obj=Object.assign({},OBJDEF);obj.nodeIdx=[];obj.segIdx=[];
+  obj.color=PALETTE[G.objs.length%PALETTE.length];
+  obj.name=name||('Material '+(G.objs.length+1));obj.ids=[obj.name];obj.userMade=true;
+  G.objs.push(obj);const oi=G.objs.length-1;
+  if(typeof renderObjectList==='function')renderObjectList();
+  selectObject(oi);return oi;}
+function addStrokeToObject(oi,pts){   // append a chain of points as nodes+segments belonging to material oi
+  const obj=G.objs[oi];if(!obj||pts.length<2)return 0;
+  const base=G.nodes.length,ids=(obj.ids&&obj.ids.length)?obj.ids.slice():[obj.name];
+  for(const p of pts){let h=(Math.random()-0.5)*obj.r*1.5;
+    G.nodes.push({x:p.x,y:p.y,h,z0:0,px:p.x,py:p.y,ph:h,obj:oi,fixed:!!obj.fixed,solid:!!obj.solid,inv:obj.fixed?0:(obj.solid?0.25:1),ids:ids,aff:obj.affinity});
+    obj.nodeIdx.push(G.nodes.length-1);}
+  for(let i=0;i<pts.length-1;i++){const a=base+i,b=base+i+1;
+    const rest=Math.hypot(G.nodes[b].x-G.nodes[a].x,G.nodes[b].y-G.nodes[a].y)||1;
+    G.segs.push({a,b,rest,rest0:rest,obj:oi,solid:!!obj.solid,ids:ids.slice(),aff:obj.affinity,excl:new Set()});
+    obj.segIdx.push(G.segs.length-1);}
+  buildNbrs();computeRestBend();computeExclusions();snapshotInit();refreshStats();
+  return pts.length;}
+function eraseAt(mx,my,rad){   // remove segments near the cursor; drop nodes left with no edges
+  let removed=0;const r2=rad*rad;
+  for(const s of G.segs){if(s.dead)continue;const a=G.nodes[s.a],b=G.nodes[s.b];
+    const dx=b.x-a.x,dy=b.y-a.y,L2=dx*dx+dy*dy||1;let t=((mx-a.x)*dx+(my-a.y)*dy)/L2;t=t<0?0:t>1?1:t;
+    const px=a.x+dx*t,py=a.y+dy*t;if((mx-px)*(mx-px)+(my-py)*(my-py)<r2){s.dead=true;removed++;}}
+  if(removed){G.segs=G.segs.filter(s=>!s.dead);
+    for(const o of G.objs){o.segIdx=[];o.nodeIdx=[];}                       // rebuild index lists from surviving geometry
+    G.segs.forEach((s,i)=>{G.objs[s.obj].segIdx.push(i);});
+    const used=new Set();for(const s of G.segs){used.add(s.a);used.add(s.b);}
+    G.nodes.forEach((n,i)=>{if(used.has(i))G.objs[n.obj].nodeIdx.push(i);});   // orphan nodes drop out of nodeIdx (kept in array; indices must stay stable)
+    buildNbrs();computeRestBend();computeExclusions();snapshotInit();refreshStats();renderObjectList();}
+  return removed;}
 function chainEdges(n,closed){const e=[];for(let i=0;i<n-1;i++)e.push([i,i+1]);if(closed)e.push([n-1,0]);return e;}
 function buildNbrs(){G.nbrs=G.nodes.map(()=>[]);for(const s of G.segs){G.nbrs[s.a].push(s.b);G.nbrs[s.b].push(s.a);}
   G.ends=[];for(let i=0;i<G.nodes.length;i++)if(G.nbrs[i].length===1)G.ends.push(i);   // free endpoints = reactive sites
@@ -898,18 +937,40 @@ function render(){
   if(cutting){ctx.save();ctx.strokeStyle='#ff5f6d';ctx.lineWidth=1.6;ctx.setLineDash([7,5]);
     ctx.beginPath();ctx.moveTo(cx0,cy0);ctx.lineTo(cx1,cy1);ctx.stroke();ctx.setLineDash([]);
     ctx.fillStyle='#ff5f6d';ctx.beginPath();ctx.arc(cx1,cy1,3,0,6.2832);ctx.fill();ctx.restore();}
+  // pencil stroke preview
+  if(stroke&&stroke.length){ctx.save();const col=(G.objs[stroke.oi]&&G.objs[stroke.oi].color)||'#7dd3fc';
+    ctx.strokeStyle=col;ctx.lineWidth=Math.max(2,(G.objs[stroke.oi]?effR(G.objs[stroke.oi]):3)*1.7);ctx.lineCap='round';ctx.lineJoin='round';ctx.globalAlpha=0.85;
+    ctx.beginPath();ctx.moveTo(stroke[0].x,stroke[0].y);for(let i=1;i<stroke.length;i++)ctx.lineTo(stroke[i].x,stroke[i].y);ctx.stroke();ctx.restore();}
 }
 
 // ---------- loop ----------
 // ---------- drag to pull things around ----------
 let grab=-1,gx=0,gy=0;
 let tool='move',cutting=false,cx0=0,cy0=0,cx1=0,cy1=0,activeConnTarget=null;
+let editMode=false,stroke=null,erasing=false,ex=0,ey=0;
 function setTool(t){tool=t;
-  document.getElementById('toolMove').classList.toggle('on',t==='move');
-  document.getElementById('toolCut').classList.toggle('on',t==='cut');
-  cvs.style.cursor=t==='cut'?'crosshair':'grab';}
+  for(const[id,tt]of [['toolMove','move'],['toolCut','cut'],['toolDraw','draw'],['toolErase','erase']]){const el=document.getElementById(id);if(el)el.classList.toggle('on',t===tt);}
+  cvs.style.cursor=(t==='cut')?'crosshair':(t==='draw'||t==='erase')?'crosshair':'grab';}
+function setEditMode(on){editMode=on;
+  document.getElementById('toolMove').style.display=on?'none':'';
+  document.getElementById('toolCut').style.display=on?'none':'';
+  document.getElementById('toolDraw').style.display=on?'':'none';
+  document.getElementById('toolErase').style.display=on?'':'none';
+  const hint=document.getElementById('editHint');if(hint)hint.textContent=on?'Edit — draw / erase · Tab = done':'Tab = draw mode';
+  const tag=document.getElementById('tagScene');if(tag)tag.textContent=on?'edit':'scene';
+  if(on){S.running=false;const bp=document.getElementById('bPlay');if(bp)bp.textContent='Play';
+    if(!G.objs.length)newMaterial('Material 1');                 // must have paint to draw
+    if(S.selected<0||!G.objs[S.selected])selectObject(G.objs.length-1);
+    setTool('draw');}   // auto-pause so you're not drawing onto whipping strands
+  else setTool('move');}
 document.getElementById('toolMove').addEventListener('click',()=>setTool('move'));
 document.getElementById('toolCut').addEventListener('click',()=>setTool('cut'));
+document.getElementById('toolDraw').addEventListener('click',()=>setTool('draw'));
+document.getElementById('toolErase').addEventListener('click',()=>setTool('erase'));
+document.getElementById('bNewMat').addEventListener('click',()=>newMaterial());
+document.getElementById('bNewScene').addEventListener('click',()=>{if(!confirm('Clear the scene and start fresh?'))return;
+  clearGraph();resetView();newMaterial('Material 1');buildNbrs();computeExclusions();snapshotInit();refreshStats();
+  const tag=document.getElementById('tagScene');if(tag)tag.textContent=editMode?'edit':'scene';});
 function dupNode(n,obj){const src=G.nodes[n];   // duplicate a node so an edge can detach from others sharing it
   G.nodes.push({x:src.x,y:src.y,h:src.h,z0:src.z0,px:src.px,py:src.py,ph:src.ph,obj:obj,fixed:false,solid:src.solid,inv:src.solid?0.25:1,ids:src.ids?src.ids.slice():[],aff:src.aff});
   const idx=G.nodes.length-1;const o=G.objs[obj];if(o&&o.nodeIdx)o.nodeIdx.push(idx);return idx;}
@@ -979,6 +1040,9 @@ cvs.style.cursor='grab';
 cvs.addEventListener('pointerdown',e=>{
   if(e.button===1){const r=cvs.getBoundingClientRect();panning=true;panSX=e.clientX-r.left;panSY=e.clientY-r.top;panOX=view.ox;panOY=view.oy;cvs.setPointerCapture(e.pointerId);cvs.style.cursor='move';e.preventDefault();return;}   // middle-mouse pan
   const [mx,my]=canvasXY(e);
+  if(tool==='draw'){let oi=S.selected;if(oi<0||!G.objs[oi])oi=G.objs.length?G.objs.length-1:newMaterial('Material 1');
+    stroke=[{x:mx,y:my}];stroke.oi=oi;cvs.setPointerCapture(e.pointerId);return;}
+  if(tool==='erase'){erasing=true;eraseAt(mx,my,Math.max(10,14/view.z));cvs.setPointerCapture(e.pointerId);return;}
   if(tool==='cut'){cutting=true;cx0=cx1=mx;cy0=cy1=my;cvs.setPointerCapture(e.pointerId);return;}
   let best=-1,bd=28*28;
   for(let i=0;i<G.nodes.length;i++){const n=G.nodes[i];const d=(n.x-mx)*(n.x-mx)+(n.y-my)*(n.y-my);if(d<bd){bd=d;best=i;}}
@@ -990,14 +1054,19 @@ cvs.addEventListener('pointerdown',e=>{
 cvs.addEventListener('pointermove',e=>{
   if(panning){const r=cvs.getBoundingClientRect();view.ox=panOX+(e.clientX-r.left-panSX);view.oy=panOY+(e.clientY-r.top-panSY);return;}
   const [mx,my]=canvasXY(e);
+  if(stroke){const last=stroke[stroke.length-1],minD=Math.max(8,12/view.z);
+    if(Math.hypot(mx-last.x,my-last.y)>=minD)stroke.push({x:mx,y:my});return;}
+  if(erasing){eraseAt(mx,my,Math.max(10,14/view.z));return;}
   if(cutting){cx1=mx;cy1=my;return;}
   if(grab>=0){gx=mx;gy=my;return;}
   if(tool==='move')pickHover(mx,my);});   // idle hover highlight
 cvs.addEventListener('pointerup',()=>{
+  if(stroke){if(stroke.length>=2)addStrokeToObject(stroke.oi,stroke);stroke=null;return;}
+  if(erasing){erasing=false;return;}
   if(panning){panning=false;cvs.style.cursor=tool==='cut'?'crosshair':'grab';return;}
   if(cutting){cutting=false;if(Math.hypot(cx1-cx0,cy1-cy0)>4)cutLine(cx0,cy0,cx1,cy1);return;}
-  grab=-1;cvs.style.cursor='grab';});
-cvs.addEventListener('pointercancel',()=>{grab=-1;cutting=false;panning=false;cvs.style.cursor=tool==='cut'?'crosshair':'grab';});
+  grab=-1;cvs.style.cursor=(tool==='draw'||tool==='erase')?'crosshair':'grab';});
+cvs.addEventListener('pointercancel',()=>{grab=-1;cutting=false;panning=false;erasing=false;stroke=null;cvs.style.cursor=tool==='cut'?'crosshair':'grab';});
 cvs.addEventListener('wheel',e=>{e.preventDefault();const r=cvs.getBoundingClientRect();const sx=e.clientX-r.left,sy=e.clientY-r.top;
   const pinch=e.ctrlKey;                                                          // Mac pinch surfaces as wheel+ctrlKey
   const mouseWheel=!pinch&&e.deltaX===0&&Math.abs(e.deltaY)>=50&&Number.isInteger(e.deltaY);   // classic mouse notch
@@ -1016,6 +1085,7 @@ function stepFrame(){S.frame=(S.frame||0)+1;advanceCDRamp();attract();endpointFo
 window.addEventListener('keydown',e=>{const tag=(e.target.tagName||'').toLowerCase();if(tag==='input'||tag==='select'||tag==='textarea')return;
   const k=e.key.toLowerCase();
   if(k==='r'){resetSim();startCDRamp();}
+  else if(e.key==='Tab'){e.preventDefault();setEditMode(!editMode);}
   else if(k==='g'){setTool('move');}
   else if(k==='k'){setTool('cut');}
   else if(k==='f'){resetView();}
@@ -1051,17 +1121,31 @@ document.querySelectorAll('#view button,#view2 button').forEach(b=>b.addEventLis
 function renderObjectList(){
   const el=document.getElementById('objList');if(!el)return;el.innerHTML='';
   G.objs.forEach((o,i)=>{
-    if(o.segIdx&&o.segIdx.length===0)return;   // hide objects fully absorbed by a merge
-    const row=document.createElement('button');row.className='btn';
-    row.style.cssText='display:flex;align-items:center;gap:8px;justify-content:flex-start;text-align:left;padding:7px 9px;font-family:inherit;'+(i===S.selected?'border-color:var(--dim);background:#232848':'');
+    if(o.segIdx&&o.segIdx.length===0&&!o.userMade)return;   // hide objects fully absorbed by a merge, but keep empty user-made materials
+    const row=document.createElement('div');
+    row.style.cssText='display:flex;align-items:center;gap:6px;padding:6px 8px;border-radius:6px;cursor:pointer;'+(i===S.selected?'background:#232848;box-shadow:inset 0 0 0 1px var(--dim)':'');
     const extra=(o.ids||[]).filter(id=>id!==o.name);
-    const tag=(o.solid?'wall':'strand')+(o.fixed?' · fixed':'')+(extra.length?' · '+extra.join(','):'');
+    const empty=(!o.segIdx||o.segIdx.length===0);
+    const tag=empty?'empty':((o.solid?'wall':'strand')+(o.fixed?' · fixed':'')+(extra.length?' · '+extra.join(','):''));
     row.innerHTML='<span style="width:11px;height:11px;border-radius:3px;background:'+o.color+';flex:none"></span>'+
-      '<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px">'+(o.name||('object '+(i+1)))+'</span>'+
-      '<span style="color:var(--dim);font-family:\'IBM Plex Mono\',monospace;font-size:9.5px">'+tag+'</span>';
-    row.addEventListener('click',()=>selectObject(i));el.appendChild(row);
+      '<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px">'+(o.name||('material '+(i+1)))+'</span>'+
+      '<span style="color:var(--dim);font-family:\'IBM Plex Mono\',monospace;font-size:9.5px">'+tag+'</span>'+
+      '<span class="matDel" title="delete material" style="color:var(--dim);flex:none;padding:0 3px;font-size:14px;line-height:1">&times;</span>';
+    row.addEventListener('click',ev=>{if(ev.target.classList.contains('matDel')){ev.stopPropagation();removeMaterial(i);return;}selectObject(i);});
+    el.appendChild(row);
   });
 }
+function removeMaterial(i){const o=G.objs[i];if(!o)return;
+  if((o.segIdx&&o.segIdx.length)&&!confirm('Delete "'+(o.name||'material')+'" and all its strands?'))return;
+  for(const s of G.segs)if(s.obj===i)s.dead=true;G.segs=G.segs.filter(s=>!s.dead);
+  G.objs.splice(i,1);
+  for(const s of G.segs){if(s.obj>i)s.obj--;}for(const n of G.nodes){if(n.obj>i)n.obj--;}   // reindex objects after the removed one
+  for(const ob of G.objs){ob.segIdx=[];ob.nodeIdx=[];}
+  G.segs.forEach((s,si)=>{G.objs[s.obj].segIdx.push(si);});
+  const used=new Set();for(const s of G.segs){used.add(s.a);used.add(s.b);}
+  G.nodes.forEach((n,ni)=>{if(used.has(ni)&&G.objs[n.obj])G.objs[n.obj].nodeIdx.push(ni);});
+  S.selected=-1;buildNbrs();computeExclusions();snapshotInit();refreshStats();renderObjectList();
+  const ed=document.getElementById('objEditor');if(ed)ed.style.display='none';}
 function selObj(){return S.selected>=0?G.objs[S.selected]:null;}
 function selectObject(i){if(i!==S.selected)activeConnTarget=null;S.selected=i;renderObjectList();const o=G.objs[i],ed=document.getElementById('objEditor');
   if(!o){ed.style.display='none';return;}ed.style.display='';

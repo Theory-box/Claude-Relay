@@ -275,3 +275,41 @@ Removed the `dblclick` stretch/endpoint-select handler and the bright Sel.nodes/
 render (hover highlight stays as the pre-click cue; endpoint selection returns with the slot
 panel). Verified: click strand A -> AAA active, click B -> BBB, click empty -> stays BBB, hover
 still detects stretches.
+
+---
+
+# IN-APP AUTHORING: materials list + draw/erase (Tab = edit mode), UNTESTED by user
+
+Data model decision: **a material IS an object** (least invasive; the list already shows objects,
+editing writes to one, bonding uses it, scattered geometry already supported). Drawing appends
+strokes to the active object.
+
+**Materials list** (was "Objects"): `+ material` creates an empty user-made object
+(`o.userMade=true`, `OBJDEF` blank-ish so a drawn strand holds shape — stiff 0.12 not 0),
+auto-named "Material N", palette colour, auto-selected. Empty user-made materials now show in the
+list (merge-absorbed empties still hidden). Each row has a `×` delete (`removeMaterial` splices
+the object, decrements higher `obj` refs on nodes/segs, rebuilds index lists). `new scene` clears
+and drops in a fresh "Material 1".
+
+**Tab toggles Edit/Scene** (`setEditMode`): auto-pauses, swaps the toolbar (Move/Cut ⇄
+Pencil/Eraser), ensures a material exists, sets the Pencil tool, and flips the scene tag to
+"edit".
+
+**Pencil** (`tool==='draw'`): pointer path sampled at ~12px spacing into a point list, preview
+drawn live in the material's colour; on release `addStrokeToObject(activeObj, pts)` builds a node
+chain + segments belonging to that material and rebuilds nbrs/exclusions/init snapshot. Draws onto
+the active material; if none exists one is created.
+
+**Eraser** (`tool==='erase'`): drag → `eraseAt` marks segments within ~14px of the cursor dead,
+filters them out, rebuilds index lists (orphaned nodes drop from nodeIdx but stay in G.nodes so
+indices remain stable — critical, per the selection spec).
+
+**Verified:** material create (+ shows empty in list), stroke append, multi-stroke accumulation
+onto one material, erase, edit-mode toggle (pauses + swaps toolbar + draw tool), new scene;
+authored strands simulate stably, hold their drawn shape (don't collapse), and save/load
+round-trips them; regressions (atomic edges, no-Y, expand-to-fit, save/load chemistry fields)
+all pass; no NaN.
+
+**Deferred (as agreed):** convert-strings-to-material (eyedropper/painter), polyline-precision
+pencil (freehand only for now), curated per-demo UI. Next natural step remains endpoint slots
+(per-tip connector types) — now easy to author test rigs for with the pencil.
