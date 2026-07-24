@@ -313,3 +313,29 @@ all pass; no NaN.
 **Deferred (as agreed):** convert-strings-to-material (eyedropper/painter), polyline-precision
 pencil (freehand only for now), curated per-demo UI. Next natural step remains endpoint slots
 (per-tip connector types) — now easy to author test rigs for with the pencil.
+
+---
+
+## UI restructure: 2 tabs + collapsible panels, UNTESTED by user
+
+Tab bar cut from Scene/Objects/Physics to **Scene / Objects**. Physics cards moved into the Scene
+panel (Simulation + Globals now live under Scene); About moved to the bottom of Scene as a footer.
+So Scene reads: Scene, View, Simulation (with Defaults/Chemistry sub-headers + bonding master),
+Globals, About.
+
+**Collapsible cards:** each `.card`'s first eyebrow toggles `.collapsed`; CSS
+`.card.collapsed > *:not(:first-child){display:none}` folds everything but the header (so a card's
+own sub-headers like Defaults/Chemistry hide too). A rotating triangle marks state. Handler only
+wires each card's FIRST direct-child eyebrow, so sub-headers aren't accidental toggles and clicking
+a control inside a header doesn't collapse it.
+
+**Object editor:** the General/Affinity/Connect sub-tabs (`.etab`/`.etabpanel`, removed) are now
+stacked **`.subfold`** sections, each independently collapsible with its own small header. Editor
+still populates + edits normally.
+
+**New scene** button added to the Scene tab too (`bNewScene2`); both it and the Objects-tab button
+call `doNewScene()`.
+
+Verified: two tabs; physics/bonding-master present under Scene; cards + subfolds collapse/expand;
+collapsing hides sub-headers; sub-headers don't toggle; About nested correctly inside Scene;
+editor works; default scene runs (46fps, no NaN). Screenshotted both tabs — layout clean.

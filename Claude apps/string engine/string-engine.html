@@ -49,6 +49,14 @@
   .tab.on{background:var(--panel2);color:var(--accent);border-color:var(--accent)}
   .tabpanel{display:none;flex-direction:column;gap:14px}
   .tabpanel.on{display:flex}
+  .card > .eyebrow{cursor:pointer;user-select:none;display:flex;align-items:center;gap:6px}
+  .card > .eyebrow::before{content:'';width:0;height:0;border-left:5px solid var(--dim);border-top:4px solid transparent;border-bottom:4px solid transparent;transform:rotate(90deg);transition:transform .15s;flex:none}
+  .card.collapsed > .eyebrow::before{transform:rotate(0deg)}
+  .card.collapsed > *:not(:first-child){display:none!important}
+  .subfold > .eyebrow{cursor:pointer;user-select:none;display:flex;align-items:center;gap:6px}
+  .subfold > .eyebrow::before{content:'';width:0;height:0;border-left:5px solid var(--dim);border-top:4px solid transparent;border-bottom:4px solid transparent;transform:rotate(90deg);transition:transform .15s;flex:none}
+  .subfold.collapsed > .eyebrow::before{transform:rotate(0deg)}
+  .subfold.collapsed > *:not(:first-child){display:none!important}
   .etab{flex:1;font-family:"IBM Plex Mono",monospace;font-size:10px;letter-spacing:.1em;text-transform:uppercase;padding:7px 3px;border-radius:8px;border:1px solid var(--line);background:var(--ink2);color:var(--muted);cursor:pointer;transition:color .12s,border-color .12s,background .12s}
   .etab:hover{color:var(--text)}
   .etab.on{background:var(--panel2);color:var(--accent);border-color:var(--accent)}
@@ -91,7 +99,6 @@
       <div class="tabbar">
         <button class="tab on" data-tab="scene">Scene</button>
         <button class="tab" data-tab="objects">Objects</button>
-        <button class="tab" data-tab="physics">Physics</button>
       </div>
     </div>
 
@@ -107,6 +114,7 @@
         <div class="row">
           <button class="btn" id="bImport">Load JSON</button>
           <button class="btn" id="bSave">Save JSON</button>
+          <button class="btn" id="bNewScene2">New scene</button>
         </div>
         <input type="file" id="file" accept=".json,application/json">
         <div class="ctrl" style="margin-top:10px"><label>Weld coincident verts <input id="sWeldN" class="numin" type="number" step="0.001"></label><input id="sWeld" type="range" min="0" max="0.03" value="0.003" step="0.001"><div class="stat" style="margin-top:3px"><span>off</span><span>re-import to apply</span></div></div>
@@ -128,55 +136,6 @@
         </div>
         <p class="note" id="viewNote">Object colours. Switch modes to check what actually imported — brighter means a higher value.</p>
       </div>
-      <div class="card">
-        <p class="eyebrow">About</p>
-        <p class="sub" style="margin:0">Geometry is a graph: shared vertices stay joined, detached parts float free. Any strand can be a solid wall (nothing weaves past it) and fixed or movable. Built to import from Blender and grow.</p>
-      </div>
-    </div>
-
-    <div class="tabpanel" data-panel="objects">
-      <div class="card">
-        <p class="eyebrow">Materials · click to select &amp; edit · <span id="editHint" style="color:var(--dim)">Tab = draw mode</span></p>
-        <div class="row" style="margin-bottom:6px"><button class="btn" id="bNewMat">+ material</button><button class="btn" id="bNewScene">new scene</button></div>
-        <div id="objList" style="max-height:220px;overflow-y:auto;display:flex;flex-direction:column;gap:3px"></div>
-      </div>
-      <div class="card" id="objEditor" style="display:none">
-        <p class="eyebrow">Editing · <span id="objName" style="color:var(--text)">—</span></p>
-        <div class="tabbar" style="margin-bottom:12px">
-          <button class="etab on" data-etab="general">General</button>
-          <button class="etab" data-etab="affinity">Affinity</button>
-          <button class="etab" data-etab="connect">Connect</button>
-        </div>
-        <div class="etabpanel on" data-epanel="general">
-          <div class="seg" style="margin-bottom:6px;flex-wrap:wrap"><button id="eSolid">solid</button><button id="eFixed">fixed</button><button id="eSelfSolid">self-solid</button></div>
-          <div class="ctrl"><label>Group ids <span class="val" id="eIdsHint" style="color:var(--dim)">comma sep</span></label><input id="eIds" type="text" placeholder="e.g. 1,2" style="width:100%;background:var(--ink2);border:1px solid var(--line);color:var(--text);border-radius:7px;padding:7px;font-family:'IBM Plex Mono',monospace;font-size:12px"></div>
-          <div class="ctrl"><label>Thickness <input id="eThickN" class="numin" type="number" step="0.1"></label><input id="eThick" type="range" min="0.2" max="16" value="3" step="0.1"></div>
-          <div class="ctrl"><label>Stiffness <input id="eStiffN" class="numin" type="number" step="0.01"></label><input id="eStiff" type="range" min="0" max="1" value="0.1" step="0.01"></div>
-          <div class="ctrl"><label>Curl <input id="eCurlN" class="numin" type="number" step="0.01"></label><input id="eCurl" type="range" min="-2" max="2" value="0" step="0.01"></div>
-          <div class="ctrl"><label>Grow <input id="eGrowN" class="numin" type="number" step="0.01"></label><input id="eGrow" type="range" min="-1" max="5" value="0" step="0.01"></div>
-          <div class="ctrl"><label>Damping <input id="eDampN" class="numin" type="number" step="0.01"></label><input id="eDamp" type="range" min="0" max="0.9" value="0" step="0.01"></div>
-          <div class="ctrl"><label>Pad · vs others <input id="ePadON" class="numin" type="number" step="0.5"></label><input id="ePadO" type="range" min="0" max="24" value="0" step="0.5"><div class="stat" style="margin-top:3px"><span>cushion against other objects</span></div></div>
-          <div class="ctrl"><label>Pad · self <input id="ePadSN" class="numin" type="number" step="0.5"></label><input id="ePadS" type="range" min="0" max="24" value="0" step="0.5"><div class="stat" style="margin-top:3px"><span>cushion within its own body</span></div></div>
-          <div class="seg" style="margin-top:10px"><button id="eAutoSpace">expand to fit</button></div>
-          <div class="stat" style="margin-top:3px"><span>scales the whole object (proportions kept) — Size sets how big; it can't go below the point where its thickness+padding would overlap (off = keep imported shape)</span></div>
-          <div class="ctrl" id="eSpaceRow" style="margin-top:6px"><label>Size ×<input id="eSpaceN" class="numin" type="number" step="0.05"></label><input id="eSpace" type="range" min="0.25" max="5" value="1" step="0.05"><div class="stat" style="margin-top:3px"><span>1 = authored size · higher = bigger · floored so nothing overlaps</span></div></div>
-        </div>
-        <div class="etabpanel" data-epanel="affinity">
-          <div id="interWrap"></div>
-          <p class="note">+ attracts, − repels. Each object has its own row, so pulls can be one-way. "own body" folds the object onto itself; 0 means it ignores itself.</p>
-        </div>
-        <div class="etabpanel" data-epanel="connect">
-          <div id="endWrap"></div>
-          <p class="note">This object's free ends (loose strand tips) attract (+) / repel (−) other ends. Turn on <b>endpoint bonding</b> in Physics and attracting ends that touch snap into a link.</p>
-        </div>
-      </div>
-      <div class="card">
-        <p class="eyebrow">Affinity · groups</p>
-        <p class="note" style="margin-top:0">Every object's <b>name</b> is its group id. Select an object and use its <b>Interactions</b> rows to set how it attracts (+) / repels (−) each other object and its own body — per-object and directional. Tag a wall to make it a magnet. The <b>affinity</b> view colours by group; click-drag to pull things.</p>
-      </div>
-    </div>
-
-    <div class="tabpanel" data-panel="physics">
       <div class="card">
         <p class="eyebrow">Simulation</p>
         <div class="ctrl"><label>Motion <span class="val" id="vTemp">0.7</span></label><input id="sTemp" type="range" min="0" max="3" value="0.7" step="0.05"><div class="stat" style="margin-top:3px"><span>calm</span><span>violent</span></div></div>
@@ -211,7 +170,52 @@
         <div class="ctrl"><label>Grow / expand <span class="val" id="vgGrow">0.00</span></label><input id="sgGrow" type="range" min="-1" max="3" value="0" step="0.05"><div class="stat" style="margin-top:3px"><span>collapse</span><span>swell</span></div></div>
         <p class="note">Each global is an <b>offset added on top</b> of every object's own value — spread between objects is preserved. At 0 the sim runs purely on imported attributes. <b>Grow</b> also gives closed shapes outward pressure so they hold instead of caving in.</p>
       </div>
+      <div class="card">
+        <p class="eyebrow">About</p>
+        <p class="sub" style="margin:0">Geometry is a graph: shared vertices stay joined, detached parts float free. Any strand can be a solid wall (nothing weaves past it) and fixed or movable. Built to import from Blender and grow.</p>
+      </div>
     </div>
+
+    <div class="tabpanel" data-panel="objects">
+      <div class="card">
+        <p class="eyebrow">Materials · click to select &amp; edit · <span id="editHint" style="color:var(--dim)">Tab = draw mode</span></p>
+        <div class="row" style="margin-bottom:6px"><button class="btn" id="bNewMat">+ material</button><button class="btn" id="bNewScene">new scene</button></div>
+        <div id="objList" style="max-height:220px;overflow-y:auto;display:flex;flex-direction:column;gap:3px"></div>
+      </div>
+      <div class="card" id="objEditor" style="display:none">
+        <p class="eyebrow">Editing · <span id="objName" style="color:var(--text)">—</span></p>
+        <div id="epGeneral" class="subfold">
+          <p class="eyebrow" style="font-size:10px;margin:2px 0 8px;opacity:0.75">General</p>
+          <div class="seg" style="margin-bottom:6px;flex-wrap:wrap"><button id="eSolid">solid</button><button id="eFixed">fixed</button><button id="eSelfSolid">self-solid</button></div>
+          <div class="ctrl"><label>Group ids <span class="val" id="eIdsHint" style="color:var(--dim)">comma sep</span></label><input id="eIds" type="text" placeholder="e.g. 1,2" style="width:100%;background:var(--ink2);border:1px solid var(--line);color:var(--text);border-radius:7px;padding:7px;font-family:'IBM Plex Mono',monospace;font-size:12px"></div>
+          <div class="ctrl"><label>Thickness <input id="eThickN" class="numin" type="number" step="0.1"></label><input id="eThick" type="range" min="0.2" max="16" value="3" step="0.1"></div>
+          <div class="ctrl"><label>Stiffness <input id="eStiffN" class="numin" type="number" step="0.01"></label><input id="eStiff" type="range" min="0" max="1" value="0.1" step="0.01"></div>
+          <div class="ctrl"><label>Curl <input id="eCurlN" class="numin" type="number" step="0.01"></label><input id="eCurl" type="range" min="-2" max="2" value="0" step="0.01"></div>
+          <div class="ctrl"><label>Grow <input id="eGrowN" class="numin" type="number" step="0.01"></label><input id="eGrow" type="range" min="-1" max="5" value="0" step="0.01"></div>
+          <div class="ctrl"><label>Damping <input id="eDampN" class="numin" type="number" step="0.01"></label><input id="eDamp" type="range" min="0" max="0.9" value="0" step="0.01"></div>
+          <div class="ctrl"><label>Pad · vs others <input id="ePadON" class="numin" type="number" step="0.5"></label><input id="ePadO" type="range" min="0" max="24" value="0" step="0.5"><div class="stat" style="margin-top:3px"><span>cushion against other objects</span></div></div>
+          <div class="ctrl"><label>Pad · self <input id="ePadSN" class="numin" type="number" step="0.5"></label><input id="ePadS" type="range" min="0" max="24" value="0" step="0.5"><div class="stat" style="margin-top:3px"><span>cushion within its own body</span></div></div>
+          <div class="seg" style="margin-top:10px"><button id="eAutoSpace">expand to fit</button></div>
+          <div class="stat" style="margin-top:3px"><span>scales the whole object (proportions kept) — Size sets how big; it can't go below the point where its thickness+padding would overlap (off = keep imported shape)</span></div>
+          <div class="ctrl" id="eSpaceRow" style="margin-top:6px"><label>Size ×<input id="eSpaceN" class="numin" type="number" step="0.05"></label><input id="eSpace" type="range" min="0.25" max="5" value="1" step="0.05"><div class="stat" style="margin-top:3px"><span>1 = authored size · higher = bigger · floored so nothing overlaps</span></div></div>
+        </div>
+        <div id="epAffinity" class="subfold">
+          <p class="eyebrow" style="font-size:10px;margin:14px 0 8px;opacity:0.75">Affinity</p>
+          <div id="interWrap"></div>
+          <p class="note">+ attracts, − repels. Each object has its own row, so pulls can be one-way. "own body" folds the object onto itself; 0 means it ignores itself.</p>
+        </div>
+        <div id="epConnect" class="subfold">
+          <p class="eyebrow" style="font-size:10px;margin:14px 0 8px;opacity:0.75">Connect</p>
+          <div id="endWrap"></div>
+          <p class="note">This object's free ends (loose strand tips) attract (+) / repel (−) other ends. Turn on <b>endpoint bonding</b> in Physics and attracting ends that touch snap into a link.</p>
+        </div>
+      </div>
+      <div class="card">
+        <p class="eyebrow">Affinity · groups</p>
+        <p class="note" style="margin-top:0">Every object's <b>name</b> is its group id. Select an object and use its <b>Interactions</b> rows to set how it attracts (+) / repels (−) each other object and its own body — per-object and directional. Tag a wall to make it a magnet. The <b>affinity</b> view colours by group; click-drag to pull things.</p>
+      </div>
+    </div>
+
   </div>
 </div>
 
@@ -968,9 +972,11 @@ document.getElementById('toolCut').addEventListener('click',()=>setTool('cut'));
 document.getElementById('toolDraw').addEventListener('click',()=>setTool('draw'));
 document.getElementById('toolErase').addEventListener('click',()=>setTool('erase'));
 document.getElementById('bNewMat').addEventListener('click',()=>newMaterial());
-document.getElementById('bNewScene').addEventListener('click',()=>{if(!confirm('Clear the scene and start fresh?'))return;
+function doNewScene(){if(!confirm('Clear the scene and start fresh?'))return;
   clearGraph();resetView();newMaterial('Material 1');buildNbrs();computeExclusions();snapshotInit();refreshStats();
-  const tag=document.getElementById('tagScene');if(tag)tag.textContent=editMode?'edit':'scene';});
+  const tag=document.getElementById('tagScene');if(tag)tag.textContent=editMode?'edit':'scene';}
+document.getElementById('bNewScene').addEventListener('click',doNewScene);
+document.getElementById('bNewScene2').addEventListener('click',doNewScene);
 function dupNode(n,obj){const src=G.nodes[n];   // duplicate a node so an edge can detach from others sharing it
   G.nodes.push({x:src.x,y:src.y,h:src.h,z0:src.z0,px:src.px,py:src.py,ph:src.ph,obj:obj,fixed:false,solid:src.solid,inv:src.solid?0.25:1,ids:src.ids?src.ids.slice():[],aff:src.aff});
   const idx=G.nodes.length-1;const o=G.objs[obj];if(o&&o.nodeIdx)o.nodeIdx.push(idx);return idx;}
@@ -1299,9 +1305,11 @@ document.querySelectorAll('.tab').forEach(t=>t.addEventListener('click',()=>{
   document.querySelectorAll('.tab').forEach(x=>x.classList.remove('on'));t.classList.add('on');
   document.querySelectorAll('.tabpanel').forEach(pn=>pn.classList.toggle('on',pn.dataset.panel===t.dataset.tab));}));
 function showTab(name){const t=document.querySelector('.tab[data-tab="'+name+'"]');if(t)t.click();}
-document.querySelectorAll('.etab').forEach(t=>t.addEventListener('click',()=>{
-  document.querySelectorAll('.etab').forEach(x=>x.classList.remove('on'));t.classList.add('on');
-  document.querySelectorAll('.etabpanel').forEach(pn=>pn.classList.toggle('on',pn.dataset.epanel===t.dataset.etab));}));
+// collapsible cards: click a card's top eyebrow to fold it
+document.querySelectorAll('.card').forEach(c=>{const h=c.querySelector(':scope > .eyebrow');if(!h)return;
+  h.addEventListener('click',e=>{if(e.target.closest('button,input,select,a'))return;c.classList.toggle('collapsed');});});
+document.querySelectorAll('.subfold').forEach(c=>{const h=c.querySelector(':scope > .eyebrow');if(!h)return;
+  h.addEventListener('click',e=>{if(e.target.closest('button,input,select,a'))return;c.classList.toggle('collapsed');});});
 document.getElementById('bSave').addEventListener('click',saveScene);
 function bindG(id,val,key){const el=document.getElementById(id),v=document.getElementById(val);
   el.addEventListener('input',()=>{S[key]=parseFloat(el.value);v.textContent=S[key].toFixed(2);});}
