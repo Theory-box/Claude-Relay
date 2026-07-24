@@ -1,194 +1,175 @@
-# Spec — Selection model & the "objects are materials" reframe
+# Spec — Selection & the "objects are materials" reframe
 
-Branch `feature/chemistry`. Status: **design only, nothing built.** Written for review before
-touching UI code, because this conflicts with the existing object-centric editor in several
-places (§7).
+Branch `feature/chemistry`. Status: **design only, nothing built.**
+Supersedes the first draft (which proposed per-atom overrides — dropped, see §3).
 
-Background reasoning is in `philosophy-and-direction.md`; this is the concrete plan.
+Background reasoning: `philosophy-and-direction.md`.
 
 ---
 
 ## 1. Why the Blender model doesn't port
 
-Blender's modes exist to navigate a **stable authored hierarchy**: an object exists until you
-delete it, so "tab into this object and edit its parts" is well-defined.
-
-Here the hierarchy is **emergent and changes every few seconds**. Strands merge and split
-constantly. Concretely, three things break the metaphor:
+Blender's modes navigate a **stable authored hierarchy** — an object exists until you delete
+it, so "tab into this object and edit its parts" is well-defined. Here the hierarchy is
+**emergent and changes every few seconds**:
 
 - A "string" (connected piece) has **no persistent identity** — it's derived from connectivity
   and recomputed on every bond/break. You can't attach a setting to "string #3"; after one
   merge there is no string #3.
-- A single connected strand can **span several objects**. With merge blend 0 (the user's normal
-  setting) each half keeps its original object. So `string ⊂ object` is false in the common case.
-- Tab-into-edit assumes the container you entered still exists a second later. It might have
+- A connected strand can **span several materials**. With merge blend 0 (the normal setting)
+  each half keeps its original one.
+- Tab-into-edit assumes the container you entered still exists a second later. It may have
   merged with a neighbour or split in two.
 
-**Conclusion: drop modes.** Everything is directly selectable; granularity comes from *how* you
-select, not from which mode you're in.
+**Conclusion: no modes.** Everything is directly selectable; granularity comes from *how* you
+select.
 
-## 2. The reframe: objects are materials
+## 2. Objects are materials
 
-An "object" stops being a container and becomes a **settings set** — closer to a material.
-Atoms (nodes and segments) reference one.
+An object stops being a container and becomes a **settings set** — a material, describing a
+*part type*. Atoms (nodes, segments) reference one.
 
 - Many strands may share a material.
-- One strand may carry several materials (this is normal, not an edge case).
-- A material's geometry need not be contiguous or even nearby.
+- One strand may carry several (normal, not an edge case).
+- A material's geometry need not be contiguous or nearby.
 
 Everything that felt like a special case dissolves:
 
 | Situation | Under the material model |
 |---|---|
 | Strand spans two objects | A strand with two materials on it. Normal. |
-| Merge with blend 0 | Each half keeps its own material. Nothing to decide. |
+| Merge with blend 0 | Each half keeps its material. Nothing to decide. |
 | Break | Both halves keep their materials. Nothing to decide. |
 | Object with scattered pieces | Expected — a material isn't a container. |
 
-## 3. Where settings live
+## 3. Settings live ONLY on the material
 
-Two layers, one rule:
+**No per-atom overrides.** Editing anything while a strand is selected edits *that material*,
+and therefore every strand made of it — like editing a substance, not an instance.
 
-```
-value(atom, key) = atom.ov?.[key]  ??  material(atom)[key]
-```
+Selecting a red strand and changing stiffness changes **all red**. Selection is
+**pure navigation**: a way to find a material by pointing at it instead of hunting the list.
+The edit is identical either way.
 
-- **Material** provides the default (this is today's `G.objs[i]`, essentially unchanged).
-- **Per-atom override** (`ov`) wins where present, and is **sparse** — almost always absent, so
-  we're not storing 500 copies of every field.
+This is a large simplification. It removes: the override resolver, its hot-loop cost, sparse
+override storage, mixed-state fields, and the extra save/load + capture/restore plumbing.
+Nothing about how settings are stored changes from today.
 
-This answers the earlier "does object mode override or stack?" question: there is no
-mode-dependence, just override-beats-default.
+**Escape hatch:** an explicit **"make this its own material"** action, which forks a copy and
+reassigns the selected geometry. Divergence becomes deliberate and visible in the list, rather
+than an invisible override.
 
-**Hot-loop cost.** `constraints`, `collide`, `endpointForces` read these every frame, so the
-resolve must stay cheap. Because overrides are sparse it's a single truthiness test:
+## 4. Endpoint settings are part of the material
 
-```js
-function mval(a,k){const o=a.ov;return (o&&o[k]!==undefined)?o[k]:G.objs[a.obj][k];}
-```
+The one thing that genuinely can't be a single shared value is the connector type — a string
+whose two ends want different partners is the whole point of per-endpoint types.
 
-Worth benchmarking against the current direct `G.objs[s.obj].r` before rolling it through the
-hot paths; if it measures badly, denormalise (write resolved values onto the atom when an
-override is set) rather than resolving per frame.
+Resolution: **a material describes a part, including a separate rule set per endpoint slot.**
+Not "this node is overridden", but "this part has an end A and an end B, and here are A's rules
+and B's rules." Every strand of that material behaves identically, so it stays purely
+material-level with no per-atom storage.
 
-**Merge inheritance falls out for free.** Two strands fuse, each half's atoms keep what they
-carried → a chimera, which is correct. No inheritance rule needed. The existing `blend` slider
-stays as the *opt-in* averaging behaviour it already is.
+Slots are **vertex order** (first / last for a two-ended string), which is stable and authorable
+in Blender.
 
-## 4. Selection
+This is Winfree's tile with labeled edges: the part is the program, and the program lives in the
+material.
+
+**Y-junctions fall out.** A Y is three strings fused at a centre, each its own material — so each
+arm gets its own binding rules automatically, because each arm is a different part type. No
+special branched primitive, and consistent with designing one level below the target phenomenon.
+
+## 5. Selection
 
 ### Terms
-- **atom** — a node or segment.
-- **stretch** — a maximal contiguous run of same-material segments *within* one connected piece.
-  This is the thing you point at.
+- **stretch** — a maximal contiguous run of same-material segments within one connected piece.
+  The thing you point at.
 - **piece** — everything physically connected (already computed as `G.piece`).
-- **endpoint** — a degree-1 node. The unit per-endpoint types need.
+- **endpoint** — a degree-1 node; the unit endpoint slots attach to.
 
 ### Interaction
 | Action | Result |
 |---|---|
-| Hover | Highlight the **stretch** under the cursor; if the cursor is near a free end, highlight that **endpoint** instead. |
-| Click | Select the hovered stretch (or endpoint). |
+| Hover | Highlight the **stretch** under the cursor; near a free end, highlight that **endpoint**. |
+| Click | Select it → panel shows that material (and, for an endpoint, that slot's rules). |
 | Double-click | **Grow to linked** — the whole connected piece. |
-| Shift-click | Add / remove from selection. |
-| Drag on empty space (select tool) | Box select. |
-| Click a material in the list | Select all geometry of that material, scene-wide. |
+| Click a material in the list | Select all its geometry, scene-wide. |
 
-Endpoint-vs-stretch: prefer the endpoint when the cursor is within roughly the node's drawn
-radius of a degree-1 node; otherwise the stretch. Needs a visual tell so it's not a guess.
+Prefer the endpoint when the cursor is within roughly the node's drawn radius of a degree-1
+node; otherwise the stretch. Needs a visual tell so it isn't a guess.
 
-### Selection tools (the ones the user asked for)
-- **Select linked** — grow to the connected piece (double-click).
-- **Select similar → in linked geometry** — every stretch of this material within the piece.
-- **Select similar → scene-wide** — every stretch of this material anywhere (this is what
-  clicking the material list does).
-- **Select all endpoints** of the current selection — the bulk path for tip typing.
+### Tools
+- **Select linked** (double-click)
+- **Select similar → in linked geometry** — every stretch of this material within the piece
+- **Select similar → scene-wide** — same as clicking the material in the list
+- **Box select**
 
-### Multi-select is required, not a nicety
-Setting a tip type on fifty strand-ends one click at a time is unusable. Box-select and
-"select all endpoints of this material" should ship *with* per-endpoint types, not after.
+Multi-select still matters for *navigation* (and for a future "make its own material" on a
+batch), but it is no longer required for tip typing — slots are per material, so you set a tip
+rule once, not fifty times. **This removes multi-select from the critical path.**
 
-## 5. CRITICAL — how selections must be stored
+## 6. CRITICAL — how selections must be stored
 
 Checked against the code:
 
-- **Node indices are stable.** `G.nodes` is only ever appended (`addGraphObject`, `dupNode`).
-  Never spliced.
+- **Node indices are stable.** `G.nodes` is only ever appended (`addGraphObject`, `dupNode`);
+  never spliced.
 - **Segment indices are NOT stable.** `removeDead` does `G.segs.splice(i,1)`; `mergeEnds` and
   `cutLine` do `G.segs.filter(...)`. Both reindex everything after the removal point.
 
-**Therefore: store selections as node indices, never as segment indices.** A stored segment
-index silently becomes a *different segment* after any break or merge — a nasty, silent class
-of bug.
-
-A selected stretch is stored as its **node set**; the segments are re-derived on use
-(a segment is in the selection when both endpoints are). Cheap and always correct.
+**Store selections as node indices, never segment indices.** A stored segment index silently
+becomes a *different segment* after any break or merge — a silent, nasty bug class. A selected
+stretch is stored as its node set; segments are re-derived on use (a segment is in the selection
+when both endpoints are).
 
 ### Staleness
-Even node indices can go stale in meaning:
-- `mergeEnds` orphans one of the two fused nodes (it survives in `G.nodes` with no segments).
+- `mergeEnds` orphans one of the two fused nodes (survives in `G.nodes` with no segments).
 - A break can split a selected stretch in two.
 
-Rules:
-- Prune orphaned nodes (degree 0) from selections each frame — cheap.
-- If a selection empties, **fall back to the material** rather than clearing silently, so the
-  panel keeps showing something coherent.
-- If a selected stretch splits, keep both halves selected. No prompt, no surprise.
+Rules: prune degree-0 nodes from selections each frame; if a selection empties, fall back to the
+material so the panel still shows something coherent; if a stretch splits, keep both halves.
 
-## 6. Panel behaviour
+Because settings live on the material, **staleness is now cosmetic** — a stale selection can
+highlight the wrong geometry but can never mis-apply an edit. Much lower stakes than the
+override design.
 
-The panel shows whatever is selected:
+## 7. Conflicts with the existing UI
 
-- **Material selected** (from the list) → today's editor, unchanged.
-- **Stretch selected** → the same fields, but edits write **per-atom overrides** on that
-  stretch. Fields matching the material show normally; fields overridden show as modified
-  (and want a "revert to material" affordance).
-- **Mixed selection** (spans materials, or mixed override values) → show mixed state rather
-  than a lie. Blender's dashed/blank-field convention.
-- **Endpoint selected** → tip type + its affinity rules (the per-endpoint types feature).
+Most of the original list dissolved with overrides. What remains:
 
-## 7. Conflicts with the existing UI (surface these before building)
+1. **`S.selected` is a single object index**, used by `selectObject`, `selObj`,
+   `renderObjectList`, the Connect tab, and the render highlight (~line 885). Keep it as
+   "active material" and add a separate `S.sel` for geometry selection rather than overloading it.
+2. **Hover picking needs spatial acceleration.** Nearest-segment-to-cursor can't be a linear scan
+   over thousands of segments per mousemove. `collide()` already builds a bucket grid each frame —
+   reuse that structure.
+3. **Connector type is per-object** (`objType(o) = o.ids[0] || o.name`), profiles at
+   `o.endType[targetType]`. Endpoint slots change this to per-slot rule sets; sketch in
+   `2026-07-23-chemistry-design.md`.
+4. **Move tool vs a select tool.** Move already handles drag/pan; double-click selects, so no new
+   mode is needed for the common case.
 
-1. **`S.selected` is a single object index.** Used by `selectObject`, `selObj`, `renderObjectList`,
-   the whole Connect tab, and the render highlight (line ~885). A richer selection object has to
-   coexist with it — cleanest is to keep `S.selected` as "active material" and add a separate
-   `S.sel` for geometry selection, rather than overloading one variable.
-2. **The object editor assumes an object.** Every control does `selObj()` then writes to `o.*`.
-   Under overrides these need to route through a setter that knows whether it's editing a
-   material or a stretch.
-3. **`captureSettings`/`restoreSettings`** enumerate per-object fields explicitly and would need
-   to carry per-atom overrides too, or Reset silently discards them.
-4. **`saveScene`/`importJSON`** likewise — overrides must round-trip, otherwise saving loses
-   exactly the per-endpoint work this whole feature exists to enable.
-5. **Connector type is per-object** (`objType(o) = o.ids[0] || o.name`) and profiles live at
-   `o.endType[targetType]`. Per-endpoint types change the lookup to be tip-based; see the design
-   sketch in `2026-07-23-chemistry-design.md`.
-6. **Hover picking needs spatial acceleration.** Nearest-segment-to-cursor over thousands of
-   segments can't be a linear scan on every mousemove. `collide()` already builds a bucket grid
-   each frame — reuse that structure rather than adding a second one.
-7. **The Cut tool and a Select tool both want clicks.** Current toolbar is Move + Cut, and Move
-   already handles drag/pan. Suggested: keep Move as default and let double-click select (as
-   discussed), so no new mode is needed for the common case.
+Notably **not** conflicts any more: the object editor's `o.*` writes, `captureSettings`/
+`restoreSettings`, and `saveScene`/`importJSON` — all unchanged, because settings still live
+exactly where they live today.
 
-## 8. Suggested build order
+## 8. Build order
 
-1. **Picking + hover highlight** (stretch and endpoint), no editing yet. Purely additive, nothing
-   else changes — safe to land and immediately useful.
-2. **Click/double-click/shift-click selection** + render styling for selected vs hovered vs dimmed.
-3. **Per-atom overrides** — resolver, sparse storage, capture/restore and save/load round-trip.
-4. **Panel routing** — material vs stretch vs mixed.
-5. **Per-endpoint types** on top, now that endpoints are selectable and multi-select exists.
-6. **Select-similar / box-select** as the bulk tools.
+1. **Picking + hover highlight** (stretch and endpoint). Purely additive, disturbs nothing.
+2. **Click / double-click / shift-click selection** + render styling for selected vs hovered.
+3. **Panel routing** — clicking geometry focuses its material; clicking an endpoint focuses that
+   slot.
+4. **Endpoint slots** — per-slot rule sets in the material, replacing the single shared
+   connector type.
+5. **Select-similar / box-select**; **"make its own material"** action.
 
-Steps 1–2 are self-contained and testable without disturbing the current editor at all; the
-disruptive part starts at 3.
+Steps 1–2 are self-contained and testable without touching the current editor.
 
 ## 9. Open questions
 
-- **Does "material" become the user-facing word?** It's accurate and matches the mental model,
-  but every existing label and the docs say "object". Renaming is cheap now, expensive later.
-- **Overrides vs splitting materials.** Editing a stretch could instead *fork* a new material for
-  it. Overrides are lighter and keep the strand's identity; forking makes the settings visible in
-  the list. Probably overrides, with an explicit "make into its own material" action.
-- **Dimming while running.** The user wants unselected geometry dimmed. The genuinely useful half
-  is making it **unclickable**, so a stray click doesn't grab a passing strand mid-sim.
+- **Does "material" become the user-facing word?** Accurate and matches the mental model, but
+  every label and doc currently says "object". Cheap to rename now, expensive later.
+- **Slot naming.** Auto (end A / end B / arm 1-3) vs user-renamable. Auto is probably enough to
+  start.
+- **Dimming unselected geometry.** Deferred — the useful half is making it un-grabbable so a
+  stray click can't yank a passing strand mid-sim, but this is icing, not needed yet.
