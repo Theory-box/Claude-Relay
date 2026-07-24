@@ -65,13 +65,22 @@ All three came out of reading `editors/screen/screen_ops.cc`,
   hold-and-release by binding the trigger key's RELEASE to the native confirm
   (`APPLY`) on the "Standard Modal Map". Kept the v0.5 push logic as the Push
   fallback. User confirmed: "much smoother when it works."
-- **v0.7 (current, bl_info says 0.6):** the remaining failure was the poll
+- **v0.7 (current):** the remaining failure was the poll
   timing at the **grab moment** — a fast sweep crosses the divider zone between
   frames, so the handoff frame sees a stale active_region and the native invoke
   raised the poll RuntimeError (user saw the error). Fix: on poll failure while
   arming, warp the cursor onto the edge (updates `win->eventstate->xy`, which is
   what `active_region` is recomputed from) and **retry** the handoff for up to
   MAX_GRAB_TRIES frames instead of erroring. Converges in 1–2 frames.
+- **v0.7 bugfix:** user hit `UnicodeDecodeError: 'utf-8' codec can't decode byte
+  0xff` in `_clear_release_confirm`. Cause: the release→APPLY keymap items were
+  stored as `(km, kmi)` object references and reused across the operator's life,
+  but Blender reallocates the `keymap_items` list when it changes, leaving those
+  stored `kmi` pointers dangling — `remove()` then read a dead item and decoded
+  garbage. Fix: never cache keymap-item references. Track only the key string
+  (`_CONFIRM_KEY`) and, on clear, re-find matching items (propvalue APPLY, our
+  key, RELEASE) in the current maps and remove those. Stress-tested against
+  keymap churn; bl_info bumped to (0, 7, 0).
 
 ## How Grab mode works now
 
@@ -109,5 +118,3 @@ All three came out of reading `editors/screen/screen_ops.cc`,
   approach than either current mode.
 - **Grab reach / feel:** the one-off grab snap onto the edge is at most
   `grab_reach` px; tune if it feels jarring.
-- bl_info version still says (0, 6, 0) though the retry work is effectively 0.7;
-  bump on next edit.

@@ -4,7 +4,7 @@ bl_info = {
     "location": "Preferences > Add-ons > Push Panels (set your own key)",
     "description": "Shove area dividers out of the way with the cursor",
     "author": "",
-    "version": (0, 6, 0),
+    "version": (0, 7, 0),
     "category": "Interface",
 }
 
@@ -136,35 +136,62 @@ class PushPanelsPrefs(bpy.types.AddonPreferences):
 # native drag. Added just before handoff, removed when our operator ends.
 # ---------------------------------------------------------------------------
 
-def _set_release_confirm(context, key_type):
-    """Bind `key_type` RELEASE -> APPLY on the Standard Modal Map. Returns the
-    keymap item so it can be removed again, or None."""
-    _clear_release_confirm(context)
+def _confirm_maps(context):
+    """Every available 'Standard Modal Map', fetched fresh (never cached)."""
+    maps = []
+    wm = context.window_manager
     for kcname in ('user', 'active', 'default'):
-        kc = getattr(context.window_manager.keyconfigs, kcname, None)
+        kc = getattr(wm.keyconfigs, kcname, None)
         if not kc:
             continue
         km = kc.keymaps.get(MODAL_MAP)
-        if km is None:
-            continue
-        try:
-            kmi = km.keymap_items.new_modal('APPLY', key_type, 'RELEASE')
-            _RELEASE_KMI.append((km, kmi))
-        except (RuntimeError, TypeError):
-            pass
-    return bool(_RELEASE_KMI)
+        if km is not None and km not in maps:
+            maps.append(km)
+    return maps
 
 
 def _clear_release_confirm(context):
-    while _RELEASE_KMI:
-        km, kmi = _RELEASE_KMI.pop()
+    """Remove any release->APPLY item we added, by searching the current maps.
+
+    Never holds keymap-item references across calls: Blender reallocates the
+    keymap_items list when it changes, which turns stored kmi objects into
+    dangling pointers (reading a dead item raises UnicodeDecodeError). So we
+    re-find our items each time by their signature.
+    """
+    key = _CONFIRM_KEY[0]
+    _CONFIRM_KEY[0] = None
+    if key is None:
+        return
+    for km in _confirm_maps(context):
+        for kmi in list(km.keymap_items):
+            try:
+                match = (kmi.propvalue == 'APPLY'
+                         and kmi.type == key
+                         and kmi.value == 'RELEASE')
+            except (UnicodeDecodeError, ReferenceError, AttributeError):
+                continue
+            if match:
+                try:
+                    km.keymap_items.remove(kmi)
+                except (RuntimeError, ReferenceError, UnicodeDecodeError):
+                    pass
+
+
+def _set_release_confirm(context, key_type):
+    """Bind `key_type` RELEASE -> APPLY on the Standard Modal Map(s)."""
+    _clear_release_confirm(context)
+    added = False
+    for km in _confirm_maps(context):
         try:
-            km.keymap_items.remove(kmi)
-        except (RuntimeError, ReferenceError):
+            km.keymap_items.new_modal('APPLY', key_type, 'RELEASE')
+            added = True
+        except (RuntimeError, TypeError):
             pass
+    _CONFIRM_KEY[0] = key_type if added else None
+    return added
 
 
-_RELEASE_KMI = []
+_CONFIRM_KEY = [None]
 
 
 # ---------------------------------------------------------------------------
