@@ -190,6 +190,10 @@
         <div class="ctrl" style="margin-top:6px"><label>Merge blend <span class="val" id="vBBlend">1 · average</span></label><input id="sBBlend" type="range" min="0" max="1" value="1" step="0.1"><div class="stat" style="margin-top:3px"><span>0 = keep separate settings</span><span>1 = average into one</span></div></div>
         <div class="seg" style="margin-top:5px"><button id="sBTimerCont" class="on">continuous</button><button id="sBTimerCum">cumulative</button></div>
         <div class="stat" style="margin-top:3px"><span>continuous resets if they part · cumulative banks time</span></div>
+        <p class="eyebrow" style="margin:12px 0 4px">Chemistry</p>
+        <div class="ctrl"><label>Bond wobble <span class="val" id="vBWob">0.00</span></label><input id="sBWob" type="range" min="0" max="0.3" value="0" step="0.005"><div class="stat" style="margin-top:3px"><span>heat shakes young bonds apart — strained ones die first, comfortable ones survive and harden</span></div></div>
+        <div class="ctrl"><label>Bond energy <span class="val" id="vBEn">0.00</span></label><input id="sBEn" type="range" min="0" max="3" value="0" step="0.05"><div class="stat" style="margin-top:3px"><span>bonding releases heat · breaking costs it</span></div></div>
+        <p class="note">Wobble needs <b>merge time &gt; 0</b> to do anything — a bond can only be shaken apart while it's still holding. Merge time 0 fuses on contact and locks in every mistake.</p>
         <p class="note"><b>Solid</b> walls occupy the full depth — nothing passes over or under. <b>Fixed</b> walls are pinned; movable ones flex and collide like any strand. Attributes (thickness, stiffness, curl, grow, solid, fixed…) come per-object from the geometry.</p>
       </div>
       <div class="card">
@@ -219,7 +223,7 @@ const PALETTE=['#37e0d4','#7b8cff','#ff5fa2','#ffb02e','#b06bff','#4ade80','#ff7
 // G.objs:  {name,r,stiff,curl,affinity,polarity,solid,fixed,color, nodeIdx:[], segIdx:[]}
 const G={nodes:[],segs:[],objs:[],nbrs:[]};
 const S={temp:0.7,speed:1,running:true,W:0,H:0,dpr:1,pad:26,scene:'box',
-  gCurl:0,gStiff:0,gThick:0,gGrow:0,weave:0,view:'default',iters:4,wallPad:5,attract:0.4,repel:0,tol:0.4,selected:-1,weld:0.003,damp:0.02,contactDamp:0,chunk:false,bonding:true,bondSnap:1.5,bondBrk:2.5,bondCure:0,bondBlend:1,bondTimer:'continuous',cdRamping:false,cdRamp0:0};
+  gCurl:0,gStiff:0,gThick:0,gGrow:0,weave:0,view:'default',iters:4,wallPad:5,attract:0.4,repel:0,tol:0.4,selected:-1,weld:0.003,damp:0.02,contactDamp:0,chunk:false,bonding:true,bondSnap:1.5,bondBrk:2.5,bondCure:0,bondBlend:1,bondTimer:'continuous',cdRamping:false,cdRamp0:0,bondWobble:0,bondEnergy:0,maxBondEvents:40};
 const OBJDEF={r:3,stiff:0.12,curl:0,grow:0,affinity:1,polarity:1,solid:false,fixed:false,color:null,autoSpace:false,spaceMult:1,breakable:false,brkStretch:true,brkAbs:false,bendAbsLim:90,brkRel:false,bendRelLim:60};
 // per-object attribute + global offset (0 = use imported value untouched)
 function effR(o){return Math.max(0.5,o.r+S.gThick);}
@@ -372,7 +376,7 @@ function captureSettings(){const m={_g:{}};
     damp:o.damp,padSelf:o.padSelf,padOther:o.padOther,ids:o.ids?o.ids.slice():null,r:o.r,stiff:o.stiff,curl:o.curl,grow:o.grow,
     affinity:o.affinity,polarity:o.polarity,bondOn:o.bondOn,autoSpace:o.autoSpace,spaceMult:o.spaceMult,breakable:o.breakable,brkStretch:o.brkStretch,brkAbs:o.brkAbs,bendAbsLim:o.bendAbsLim,brkRel:o.brkRel,bendRelLim:o.bendRelLim,endType:o.endType?JSON.parse(JSON.stringify(o.endType)):null,
     solid:o.solid,fixed:o.fixed};
-  for(const k of ['temp','damp','speed','weave','iters','wallPad','contactDamp','weld','gCurl','gStiff','gThick','gGrow','chunk','bonding','bondSnap','bondBrk','bondCure','bondBlend','bondTimer','view'])m._g[k]=S[k];
+  for(const k of ['temp','damp','speed','weave','iters','wallPad','contactDamp','weld','gCurl','gStiff','gThick','gGrow','chunk','bonding','bondSnap','bondBrk','bondCure','bondBlend','bondTimer','bondWobble','bondEnergy','view'])m._g[k]=S[k];
   return m;}
 function restoreSettings(m){
   if(m._g)applyGlobals(m._g);                                   // keep the user's global settings + resync their sliders
@@ -399,9 +403,9 @@ function initInteractions(){for(const o of G.objs){
   if(o.interSelf===undefined)o.interSelf=0;
   if(o.selfSolid===undefined)o.selfSolid=true;
   if(o.endType===undefined)o.endType={};if(o.bondOn===undefined)o.bondOn=false;}}   // per-object bonding participation
-const ENDDEF={wStr:0,wRange:120,sStr:0,sRange:28,snap:1.5,brk:2.5,merge:0,blend:1};   // snap/brk are ratios x rest length
+const ENDDEF={wStr:0,wRange:120,sStr:0,sRange:28,snap:1.5,brk:2.5,merge:0,blend:1,bStr:0.4,hardenPow:2};   // snap/brk are ratios x rest length; bStr = stability at birth, hardenPow = shape of the hardening ramp
 function endProf(o,t){return (o.endType&&o.endType[t])||null;}                 // read-only; null = inert
-function ensureProf(o,t){o.endType=o.endType||{};if(!o.endType[t])o.endType[t]={wStr:0,wRange:120,sStr:0,sRange:28,snap:S.bondSnap,brk:Math.max(S.bondBrk||2.5,(S.bondSnap||1.5)*1.2),merge:S.bondCure,blend:S.bondBlend};return o.endType[t];}
+function ensureProf(o,t){o.endType=o.endType||{};if(!o.endType[t])o.endType[t]={wStr:0,wRange:120,sStr:0,sRange:28,snap:S.bondSnap,brk:Math.max(S.bondBrk||2.5,(S.bondSnap||1.5)*1.2),merge:S.bondCure,blend:S.bondBlend,bStr:0.4,hardenPow:2};return o.endType[t];}
 function objBrk(o){const p=o&&o.endType&&o.endType[objType(o)];return (p&&p.brk)?p.brk:2.5;}   // an object's break ratio = its own-type connection break, else default
 function objType(o){return (o.ids&&o.ids.length?o.ids[0]:o.name);}   // connector-type = object's base id
 function interVal(o,tids,same){if(same)return o.interSelf||0;if(!o.inter)return 0;
@@ -446,7 +450,7 @@ function seedWeavy(count,x0,x1,y0,y1){
 
 // ---------- import ----------
 function applyGlobals(g){
-  for(const k of ['weld','weave','iters','wallPad','damp','contactDamp','temp','speed','gCurl','gStiff','gThick','gGrow','chunk','bonding','bondSnap','bondBrk','bondCure','bondBlend','bondTimer','view'])if(g[k]!==undefined)S[k]=g[k];
+  for(const k of ['weld','weave','iters','wallPad','damp','contactDamp','temp','speed','gCurl','gStiff','gThick','gGrow','chunk','bonding','bondSnap','bondBrk','bondCure','bondBlend','bondTimer','bondWobble','bondEnergy','view'])if(g[k]!==undefined)S[k]=g[k];
   const sync=(id,val,vid,fmt)=>{const el=document.getElementById(id);if(el)el.value=val;if(vid){const v=document.getElementById(vid);if(v)v.textContent=fmt?fmt(val):val;}};
   sync('sWeld',S.weld);sync('sWeldN',S.weld);sync('sWeave',S.weave,'vWeave',x=>(+x).toFixed(2));
   sync('sIters',S.iters,'vIters');sync('sPad',S.wallPad,'vPad');sync('sDamp',S.damp,'vDamp',x=>(+x).toFixed(2));
@@ -454,7 +458,7 @@ function applyGlobals(g){
   sync('sTemp',S.temp,'vTemp',x=>(+x).toFixed(2));sync('sSpeed',S.speed,'vSpeed',x=>x+'\u00d7');
   sync('sgCurl',S.gCurl,'vgCurl',x=>(+x).toFixed(2));sync('sgStiff',S.gStiff,'vgStiff',x=>(+x).toFixed(2));
   sync('sgThick',S.gThick,'vgThick',x=>(+x).toFixed(2));sync('sgGrow',S.gGrow,'vgGrow',x=>(+x).toFixed(2));
-  sync('sBSnap',S.bondSnap,'vBSnap');sync('sBBrk',S.bondBrk,'vBBrk');
+  sync('sBSnap',S.bondSnap,'vBSnap');sync('sBBrk',S.bondBrk,'vBBrk');sync('sBWob',S.bondWobble,'vBWob',x=>x.toFixed(3));sync('sBEn',S.bondEnergy,'vBEn',x=>x.toFixed(2));
   sync('sBCure',S.bondCure,'vBCure',x=>x>=900?'\u221e \u00b7 elastic':(x==0?'0 \u00b7 instant':x+' frames'));
   sync('sBBlend',S.bondBlend,'vBBlend',x=>x<=0?'0 \u00b7 separate':(x>=1?'1 \u00b7 average':(+x).toFixed(1)+' \u00b7 partial'));
   const tog=(id,on)=>{const el=document.getElementById(id);if(el)el.classList.toggle('on',!!on);};
@@ -507,7 +511,7 @@ function saveScene(){
     const out={meta:{generator:'string-engine-save',version:1},
       globals:{weld:S.weld,weave:S.weave,iters:S.iters,wallPad:S.wallPad,damp:S.damp,contactDamp:S.contactDamp,temp:S.temp,speed:S.speed,
         gCurl:S.gCurl,gStiff:S.gStiff,gThick:S.gThick,gGrow:S.gGrow,chunk:S.chunk,attract:S.attract,repel:S.repel,tol:S.tol,view:S.view,
-        bonding:S.bonding,bondSnap:S.bondSnap,bondBrk:S.bondBrk,bondCure:S.bondCure,bondBlend:S.bondBlend,bondTimer:S.bondTimer},objects:objs};
+        bonding:S.bonding,bondSnap:S.bondSnap,bondBrk:S.bondBrk,bondCure:S.bondCure,bondBlend:S.bondBlend,bondTimer:S.bondTimer,bondWobble:S.bondWobble,bondEnergy:S.bondEnergy},objects:objs};
     json=JSON.stringify(out);
   }catch(err){alert('Could not build scene JSON: '+err);return;}
   try{
@@ -702,26 +706,58 @@ function endpointForces(){
             if(dist<sd)gated=true;else{a.sepFrom=-1;bn.sepFrom=-1;}}   // separated enough -> clear the gate, allow re-bond
           const bondRest=effR(o1)+effR(o2);                       // the length this bond would have; snap/break scale to it
           const snapR=Math.max(p1?p1.snap:0,p2?p2.snap:0);
-          if(!gated&&dist<snapR*bondRest){const mgs=[p1?p1.merge:null,p2?p2.merge:null].filter(v=>v!=null),bls=[p1?p1.blend:null,p2?p2.blend:null].filter(v=>v!=null),bks=[p1?p1.brk:null,p2?p2.brk:null].filter(v=>v!=null);
-            newBonds.push({a:n1,b:n2,d:dist,merge:mgs.length?Math.min(...mgs):0,blend:bls.length?Math.min(...bls):1,brk:bks.length?Math.max(...bks):2.5});}}}}}   // either side wanting separate (blend 0) keeps them separate
+          if(!gated&&dist<snapR*bondRest){const mgs=[p1?p1.merge:null,p2?p2.merge:null].filter(v=>v!=null),bls=[p1?p1.blend:null,p2?p2.blend:null].filter(v=>v!=null),bks=[p1?p1.brk:null,p2?p2.brk:null].filter(v=>v!=null),bss=[p1?p1.bStr:null,p2?p2.bStr:null].filter(v=>v!=null),hps=[p1?p1.hardenPow:null,p2?p2.hardenPow:null].filter(v=>v!=null);
+            newBonds.push({a:n1,b:n2,d:dist,merge:mgs.length?Math.min(...mgs):0,blend:bls.length?Math.min(...bls):1,brk:bks.length?Math.max(...bks):2.5,
+              bStr:bss.length?Math.min(...bss):0.4,hardenPow:hps.length?Math.max(...hps):1});}}}}}   // either side wanting separate (blend 0) keeps them separate; weaker side sets stability
   if(newBonds.length){
     const existing=new Set();for(const s of G.segs)existing.add(Math.min(s.a,s.b)+'_'+Math.max(s.a,s.b));
     let added=false;const done=new Set(),usedNodes=new Set();
     newBonds.sort((x,y)=>x.d-y.d);                                        // nearest pairs claim their endpoints first
+    let made=0;
     for(const nb of newBonds){let a=nb.a,b=nb.b;if(a>b){const t=a;a=b;b=t;}const key=a+'_'+b;
       if(done.has(key)||existing.has(key))continue;done.add(key);
+      if(made>=S.maxBondEvents)break;                                     // safety cap: bound topology churn per frame
       if(usedNodes.has(a)||usedNodes.has(b))continue;                     // each endpoint bonds to at most ONE partner (no Y-junctions)
       if((G.nbrs[a]?G.nbrs[a].length:0)>1||(G.nbrs[b]?G.nbrs[b].length:0)>1)continue;   // only genuine free ends bond
       if(wouldBendBreak(a,b)){usedNodes.add(a);usedNodes.add(b);continue;}   // don't fuse into a joint that would instantly bend-break -> that's the merge/break shatter loop
-      if(nb.merge<=0){if(!(G.nbrs[a]&&G.nbrs[a].indexOf(b)>=0)){mergeEnds(a,b,nb.blend);usedNodes.add(a);usedNodes.add(b);}}   // instant fuse
+      if(nb.merge<=0){if(!(G.nbrs[a]&&G.nbrs[a].indexOf(b)>=0)){mergeEnds(a,b,nb.blend);usedNodes.add(a);usedNodes.add(b);made++;}}   // instant fuse
       else{const oa=G.objs[G.nodes[a].obj],ob=G.objs[G.nodes[b].obj];
         const seed=(S.bondTimer==='cumulative'&&G.bondBank.get(a+'_'+b))||0;
-        G.segs.push({a,b,obj:G.nodes[a].obj,rest:(effR(oa)+effR(ob))*(((oa.spaceMult||1)+(ob.spaceMult||1))*0.5),bond:true,bondAge:seed,mergeTime:nb.merge,blend:nb.blend,brk:nb.brk,solid:false,ids:[],aff:0,excl:new Set()});added=true;usedNodes.add(a);usedNodes.add(b);}}
+        G.segs.push({a,b,obj:G.nodes[a].obj,rest:(effR(oa)+effR(ob))*(((oa.spaceMult||1)+(ob.spaceMult||1))*0.5),bond:true,bondAge:seed,mergeTime:nb.merge,blend:nb.blend,brk:nb.brk,bStr:nb.bStr,hardenPow:nb.hardenPow,solid:false,ids:[],aff:0,excl:new Set()});added=true;usedNodes.add(a);usedNodes.add(b);made++;}
+      if(S.bondEnergy>0)releaseHeat(a,b,S.bondEnergy*0.5);}   // forming a bond releases energy as heat (weaker than committing)
     if(added)rebuildTopology();
   }
 }
 function flagBondBreaks(){if(!S.bonding)return;for(const s of G.segs){if(!s.bond||!s.brk)continue;   // holding bond releases past break-ratio x rest
   const a=G.nodes[s.a],b=G.nodes[s.b];if(s.rest>0&&Math.hypot(a.x-b.x,a.y-b.y)>s.brk*s.rest)s.dead=true;}}
+// ---------- reversible bonding: weak while young, hardening with age, shaken apart by heat ----------
+function bondStability(s){   // 0 = falls apart instantly, 1 = thermal-proof (committed)
+  const mt=s.mergeTime||0;if(mt<=0)return 1;                       // instant-fuse bonds never had a weak phase
+  const base=(s.bStr!==undefined?s.bStr:0.4);
+  const prog=Math.min(1,(s.bondAge||0)/mt);
+  return base+(1-base)*Math.pow(prog,s.hardenPow||1);}             // hardens along its curve as it survives
+function kickNode(n,amt){if(!n||!amt)return;const a=Math.random()*6.2832;n.px-=Math.cos(a)*amt*(n.inv||1);n.py-=Math.sin(a)*amt*(n.inv||1);}   // release energy as heat (random direction)
+function releaseHeat(i,j,amt){   // bonding energy goes into the surrounding structure as vibration — kicking only the two bonded nodes just gets cancelled by their new constraint
+  for(const k of [i,j]){kickNode(G.nodes[k],amt*0.4);
+    for(const m of (G.nbrs[k]||[]))kickNode(G.nodes[m],amt*0.6);}}
+function coolNodes(i,j,amt){for(const k of [i,j]){const n=G.nodes[k];if(!n)continue;const vx=n.x-n.px,vy=n.y-n.py,v=Math.hypot(vx,vy);
+  if(v<1e-6)continue;const f=Math.max(0,1-amt/v);n.px=n.x-vx*f;n.py=n.y-vy*f;}}                                                                // breaking costs energy
+function thermalBreaks(){   // spontaneous dissociation: a bond's odds of surviving depend on how stable AND how strained it is
+  if(!S.bonding||S.bondWobble<=0||S.temp<=0)return;
+  const kT=Math.max(0.02,S.temp*0.5);let events=0;
+  for(const s of G.segs){if(s.dead||!s.bond)continue;if((s.mergeTime||0)<=0)continue;
+    if(events>=S.maxBondEvents)break;                               // safety cap: bound topology churn per frame
+    const a=G.nodes[s.a],b=G.nodes[s.b];if(!a||!b)continue;
+    const len=Math.hypot(a.x-b.x,a.y-b.y);
+    const span=Math.max(1e-6,((s.brk||2.5)-1)*s.rest);              // how far it can stretch before it snaps outright
+    const strain=Math.max(0,Math.min(1.5,(len-s.rest)/span));        // stress = how far along that span it currently sits
+    s.strainAvg=(s.strainAvg===undefined?strain:s.strainAvg*0.92+strain*0.08);   // dissociation is slow next to vibration: average the stress so jitter doesn't drown out the fit signal
+    const stab=Math.max(0,bondStability(s)-s.strainAvg);            // a bond fighting its neighbours sits stressed -> shallower barrier -> dies sooner
+    if(Math.random()<S.bondWobble*Math.exp(-stab*4/kT)){   // barrier is several kT deep — that's what makes small differences in fit produce large differences in lifetime
+      s.dead=true;events++;
+      if(S.bondEnergy>0)coolNodes(s.a,s.b,S.bondEnergy);            // breaking absorbs energy
+      const d=(s.rest||10)*1.15;                                    // must drift slightly apart before re-bonding (distance gate, not a timer)
+      a.sepFrom=s.b;a.sepDist=d;b.sepFrom=s.a;b.sepDist=d;}}}
 function flagStrainBreaks(){const toSever=[];for(let i=0;i<G.segs.length;i++){const s=G.segs[i];if(s.dead||s.bond)continue;const o=G.objs[s.obj];if(!o||!o.breakable||!o.brkStretch)continue;
   const br=objBrk(o);const a=G.nodes[s.a],b=G.nodes[s.b];const len=Math.hypot(a.x-b.x,a.y-b.y);
   if(s.rest>0&&len/s.rest>br)toSever.push(i);}   // tears past break-ratio x rest
@@ -774,8 +810,11 @@ function maintainBonds(){
   if(!S.bonding)return;const merges=[];
   for(const s of G.segs){if(s.dead||!s.bond)continue;
     s.bondAge=(s.bondAge||0)+1;
-    if((s.mergeTime||0)<900&&s.bondAge>=(s.mergeTime||0))merges.push([s.a,s.b,s.blend!==undefined?s.blend:1]);}   // held long enough -> merge with its blend
-  for(const[a,b,bl]of merges)mergeEnds(a,b,bl);
+    if((s.mergeTime||0)<900&&s.bondAge>=(s.mergeTime||0))merges.push([s.a,s.b,s.blend!==undefined?s.blend:1]);}   // survived long enough -> harden into a real strand
+  let n=0;
+  for(const[a,b,bl]of merges){if(n++>=S.maxBondEvents)break;
+    if(S.bondEnergy>0)releaseHeat(a,b,S.bondEnergy);   // committing a bond releases more energy than holding one
+    mergeEnds(a,b,bl);}
 }
 
 // ---------- render ----------
@@ -925,7 +964,7 @@ function startCDRamp(){S.contactDamp=1;S.cdRamping=true;S.cdRamp0=S.frame;const 
 function advanceCDRamp(){if(!S.cdRamping)return;const t=(S.frame-S.cdRamp0)/180;   // 180 frames ~= 3s at 60fps
   if(t>=1){S.contactDamp=0;S.cdRamping=false;}else S.contactDamp=1-t;
   const el=document.getElementById('sCD'),v=document.getElementById('vCD');if(el)el.value=S.contactDamp;if(v)v.textContent=S.contactDamp.toFixed(2);}
-function stepFrame(){S.frame=(S.frame||0)+1;advanceCDRamp();attract();endpointForces();relaxSpacing();for(let k=0;k<S.speed;k++){integrate();flagBondBreaks();constraints();collide();wallCCD();dragApply();flagStrainBreaks();flagBendBreaks();}maintainBonds();removeDead();}
+function stepFrame(){S.frame=(S.frame||0)+1;advanceCDRamp();attract();endpointForces();relaxSpacing();for(let k=0;k<S.speed;k++){integrate();flagBondBreaks();constraints();collide();wallCCD();dragApply();flagStrainBreaks();flagBendBreaks();}thermalBreaks();maintainBonds();removeDead();}
 window.addEventListener('keydown',e=>{const tag=(e.target.tagName||'').toLowerCase();if(tag==='input'||tag==='select'||tag==='textarea')return;
   const k=e.key.toLowerCase();
   if(k==='r'){resetSim();startCDRamp();}
@@ -937,7 +976,7 @@ window.addEventListener('keydown',e=>{const tag=(e.target.tagName||'').toLowerCa
 
 let ema=60,lastT=performance.now();
 function frame(now){const dt=now-lastT;lastT=now;ema=ema*0.9+(1000/Math.max(1,dt))*0.1;
-  if(S.running){S.frame=(S.frame||0)+1;advanceCDRamp();attract();endpointForces();relaxSpacing();for(let k=0;k<S.speed;k++){integrate();flagBondBreaks();constraints();collide();wallCCD();dragApply();flagStrainBreaks();flagBendBreaks();}maintainBonds();removeDead();}
+  if(S.running){S.frame=(S.frame||0)+1;advanceCDRamp();attract();endpointForces();relaxSpacing();for(let k=0;k<S.speed;k++){integrate();flagBondBreaks();constraints();collide();wallCCD();dragApply();flagStrainBreaks();flagBendBreaks();}thermalBreaks();maintainBonds();removeDead();}
   else if(grab>=0){dragApply();constraints();collide();}
   render();document.getElementById('sFps').textContent=Math.round(ema)+' fps';
   requestAnimationFrame(frame);}
@@ -1043,6 +1082,10 @@ function buildInterUI(o){
           const nb=Math.max(x*r,x*1.2);st('brk',nb);const bn=brkRow.querySelector('.numin'),br=brkRow.querySelector('input[type=range]');if(bn)bn.value=+nb.toFixed(2);if(br)br.value=nb;updReach();},0.3,8,0.1));
         ew.appendChild(brkRow);
         ew.appendChild(profRow('merge time',()=>rd().merge,x=>st('merge',x),0,900,15));
+        ew.appendChild(profRow('bond strength',()=>rd().bStr!==undefined?rd().bStr:0.4,x=>st('bStr',x),0,1,0.05));
+        ew.appendChild(profRow('harden curve',()=>rd().hardenPow||1,x=>st('hardenPow',x),0.3,4,0.1));
+        {const n=document.createElement('p');n.className='note';n.style.margin='2px 0 8px';
+         n.textContent='While a bond is still holding, heat can shake it apart (Physics · bond wobble). Low strength = very easy to shake off early. The harden curve shapes how fast it commits: above 1 stays weak longer, so mistakes have more time to fall away.';ew.appendChild(n);}
         ew.appendChild(profRow('blend',()=>rd().blend,x=>st('blend',x),0,1,0.1));};
       const sh=document.createElement('p');sh.className='eyebrow';sh.style.cssText='margin:12px 0 4px;color:var(--accent)';sh.textContent='self \u00b7 own ends';ew.appendChild(sh);
       controls(myType);
@@ -1110,6 +1153,8 @@ document.getElementById('sChunk').addEventListener('click',()=>{S.chunk=!S.chunk
 document.getElementById('sBond').addEventListener('click',()=>{S.bonding=!S.bonding;document.getElementById('sBond').classList.toggle('on',S.bonding);});
 document.getElementById('sBSnap').addEventListener('input',e=>{S.bondSnap=parseFloat(e.target.value);document.getElementById('vBSnap').textContent=S.bondSnap;});
 document.getElementById('sBBrk').addEventListener('input',e=>{S.bondBrk=parseFloat(e.target.value);document.getElementById('vBBrk').textContent=S.bondBrk;});
+document.getElementById('sBWob').addEventListener('input',e=>{S.bondWobble=parseFloat(e.target.value);document.getElementById('vBWob').textContent=S.bondWobble.toFixed(3);});
+document.getElementById('sBEn').addEventListener('input',e=>{S.bondEnergy=parseFloat(e.target.value);document.getElementById('vBEn').textContent=S.bondEnergy.toFixed(2);});
 document.getElementById('sBCure').addEventListener('input',e=>{S.bondCure=parseFloat(e.target.value);document.getElementById('vBCure').textContent=S.bondCure>=900?'∞ · elastic':(S.bondCure===0?'0 · instant':S.bondCure+' frames');});
 document.getElementById('sBBlend').addEventListener('input',e=>{S.bondBlend=parseFloat(e.target.value);const v=S.bondBlend;document.getElementById('vBBlend').textContent=v<=0?'0 · separate':(v>=1?'1 · average':v.toFixed(1)+' · partial');});
 document.getElementById('sBTimerCont').addEventListener('click',()=>{S.bondTimer='continuous';document.getElementById('sBTimerCont').classList.add('on');document.getElementById('sBTimerCum').classList.remove('on');});
