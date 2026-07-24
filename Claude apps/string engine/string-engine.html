@@ -881,9 +881,19 @@ function render(){
   // junction nodes (degree>2) get a dot so shared vertices read clearly
   for(let i=0;i<G.nodes.length;i++){if(G.nbrs[i]&&G.nbrs[i].length>2){const n=G.nodes[i],o=G.objs[n.obj];
     ctx.fillStyle=o.color;ctx.beginPath();ctx.arc(n.x,n.y,effR(o)*1.4,0,6.2832);ctx.fill();}}
-  // selected-object highlight
-  if(S.selected>=0&&G.objs[S.selected]){const o=G.objs[S.selected];ctx.strokeStyle='rgba(255,255,255,0.85)';ctx.lineWidth=1.5;
-    for(const si of o.segIdx){const s=G.segs[si],a=G.nodes[s.a],b=G.nodes[s.b];ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();}}
+  // ---------- hover + selection highlights ----------
+  pruneSel();
+  const nodeSetSegs=(set,style,w)=>{if(!set)return;ctx.strokeStyle=style;ctx.lineWidth=w;ctx.lineCap='round';
+    for(const s of G.segs){if(s.dead||s.bond)continue;if(set.has(s.a)&&set.has(s.b)){const a=G.nodes[s.a],b=G.nodes[s.b];ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();}}};
+  const endDot=(i,style,rad)=>{if(i<0||!G.nodes[i])return;const n=G.nodes[i];ctx.fillStyle=style;ctx.beginPath();ctx.arc(n.x,n.y,rad,0,6.2832);ctx.fill();};
+  // active material (kept from before, faint) so list-selection still reads
+  if(S.selected>=0&&G.objs[S.selected]&&!Sel.nodes&&Sel.end<0){const o=G.objs[S.selected];ctx.strokeStyle='rgba(255,255,255,0.7)';ctx.lineWidth=1.5;
+    for(const si of o.segIdx){const s=G.segs[si];if(s.dead)continue;const a=G.nodes[s.a],b=G.nodes[s.b];ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();}}
+  const hw=Math.max(2.5,7/view.z),sw=Math.max(3.5,10/view.z),er=Math.max(4,7/view.z);
+  if(Sel.hoverNodes&&Sel.hoverNodes!==Sel.nodes)nodeSetSegs(Sel.hoverNodes,'rgba(120,200,255,0.5)',hw);   // hover: soft blue
+  if(Sel.hoverEnd>=0)endDot(Sel.hoverEnd,'rgba(120,200,255,0.9)',er);
+  if(Sel.nodes)nodeSetSegs(Sel.nodes,'rgba(255,255,255,0.95)',sw);                                        // selected stretch: bright
+  if(Sel.end>=0)endDot(Sel.end,'#7dd3fc',er*1.3);
   // slice-line preview
   if(cutting){ctx.save();ctx.strokeStyle='#ff5f6d';ctx.lineWidth=1.6;ctx.setLineDash([7,5]);
     ctx.beginPath();ctx.moveTo(cx0,cy0);ctx.lineTo(cx1,cy1);ctx.stroke();ctx.setLineDash([]);
@@ -929,6 +939,40 @@ function cutLine(x0,y0,x1,y1){
   return n;}
 let view={z:1,ox:0,oy:0},panning=false,panSX=0,panSY=0,panOX=0,panOY=0;
 function canvasXY(e){const r=cvs.getBoundingClientRect();const sx=e.clientX-r.left,sy=e.clientY-r.top;return [(sx-view.ox)/view.z,(sy-view.oy)/view.z];}
+// ---------- selection (navigation only; edits still target the material) ----------
+// stored as NODE indices, never segment indices (segments reindex on break/merge)
+const Sel={hoverNodes:null,hoverEnd:-1,nodes:null,end:-1};
+function nearestSeg(mx,my,maxD){   // nearest segment to cursor, reusing nothing fancy — linear but only on pointermove
+  let best=-1,bd=maxD*maxD;
+  for(let i=0;i<G.segs.length;i++){const s=G.segs[i];if(s.dead||s.bond)continue;const a=G.nodes[s.a],b=G.nodes[s.b];
+    const dx=b.x-a.x,dy=b.y-a.y,L2=dx*dx+dy*dy||1;let t=((mx-a.x)*dx+(my-a.y)*dy)/L2;t=t<0?0:t>1?1:t;
+    const px=a.x+dx*t,py=a.y+dy*t,d=(mx-px)*(mx-px)+(my-py)*(my-py);
+    if(d<bd){bd=d;best=i;}}
+  return best;}
+function nearestEnd(mx,my,maxD){   // nearest FREE end (degree-1 node) within maxD
+  let best=-1,bd=maxD*maxD;
+  for(let i=0;i<G.nodes.length;i++){if(!G.nbrs[i]||G.nbrs[i].length!==1)continue;const n=G.nodes[i];
+    const d=(n.x-mx)*(n.x-mx)+(n.y-my)*(n.y-my);if(d<bd){bd=d;best=i;}}
+  return best;}
+function segAdj(){const m=new Map();for(let i=0;i<G.segs.length;i++){const s=G.segs[i];if(s.dead||s.bond)continue;
+    (m.get(s.a)||m.set(s.a,[]).get(s.a)).push(i);(m.get(s.b)||m.set(s.b,[]).get(s.b)).push(i);}return m;}
+function stretchAt(si,adj){   // maximal contiguous run of same-material segments within the piece, as a NODE set
+  if(si<0)return null;const obj=G.segs[si].obj;adj=adj||segAdj();
+  const nodes=new Set(),seen=new Set([si]),stack=[si];nodes.add(G.segs[si].a);nodes.add(G.segs[si].b);
+  while(stack.length){const cur=G.segs[stack.pop()];
+    for(const end of [cur.a,cur.b])for(const si2 of (adj.get(end)||[])){if(seen.has(si2))continue;const s=G.segs[si2];if(s.obj!==obj)continue;
+      seen.add(si2);nodes.add(s.a);nodes.add(s.b);stack.push(si2);}}
+  return nodes;}
+function pieceNodesOf(node){const seen=new Set([node]),st=[node];   // whole connected piece via non-bond segments
+  const adj=segAdj();while(st.length){const n=st.pop();for(const si of (adj.get(n)||[])){const s=G.segs[si];const m=s.a===n?s.b:s.a;if(!seen.has(m)){seen.add(m);st.push(m);}}}return seen;}
+function pickHover(mx,my){   // endpoint if cursor is near a free end, else the stretch under it
+  const endR=Math.max(10,16/view.z),segR=Math.max(6,10/view.z);
+  const e=nearestEnd(mx,my,endR);
+  if(e>=0){Sel.hoverEnd=e;Sel.hoverNodes=null;return;}
+  const si=nearestSeg(mx,my,segR);
+  Sel.hoverEnd=-1;Sel.hoverNodes=si>=0?stretchAt(si):null;}
+function pruneSel(){if(Sel.nodes){for(const n of [...Sel.nodes])if(!G.nbrs[n]||G.nbrs[n].length===0)Sel.nodes.delete(n);if(!Sel.nodes.size)Sel.nodes=null;}
+  if(Sel.end>=0&&(!G.nbrs[Sel.end]||G.nbrs[Sel.end].length!==1))Sel.end=-1;}
 function dragApply(){if(grab<0||grab>=G.nodes.length)return;const n=G.nodes[grab];
   n.x+=(gx-n.x)*0.5;n.y+=(gy-n.y)*0.5;n.px=n.x;n.py=n.y;}
 cvs.style.cursor='grab';
@@ -944,12 +988,19 @@ cvs.addEventListener('pointermove',e=>{
   if(panning){const r=cvs.getBoundingClientRect();view.ox=panOX+(e.clientX-r.left-panSX);view.oy=panOY+(e.clientY-r.top-panSY);return;}
   const [mx,my]=canvasXY(e);
   if(cutting){cx1=mx;cy1=my;return;}
-  if(grab>=0){gx=mx;gy=my;}});
+  if(grab>=0){gx=mx;gy=my;return;}
+  if(tool==='move')pickHover(mx,my);});   // idle hover highlight
 cvs.addEventListener('pointerup',()=>{
   if(panning){panning=false;cvs.style.cursor=tool==='cut'?'crosshair':'grab';return;}
   if(cutting){cutting=false;if(Math.hypot(cx1-cx0,cy1-cy0)>4)cutLine(cx0,cy0,cx1,cy1);return;}
   grab=-1;cvs.style.cursor='grab';});
 cvs.addEventListener('pointercancel',()=>{grab=-1;cutting=false;panning=false;cvs.style.cursor=tool==='cut'?'crosshair':'grab';});
+cvs.addEventListener('dblclick',e=>{if(tool!=='move')return;const [mx,my]=canvasXY(e);pickHover(mx,my);
+  if(Sel.hoverEnd>=0){Sel.end=Sel.hoverEnd;Sel.nodes=null;selectObject(G.nodes[Sel.end].obj);}
+  else if(Sel.hoverNodes){let ns=Sel.hoverNodes;
+    if(e.shiftKey){const any=ns.values().next().value;ns=pieceNodesOf(any);}   // shift = grow to whole connected piece
+    Sel.nodes=new Set(ns);Sel.end=-1;selectObject(G.nodes[ns.values().next().value].obj);}
+  else{Sel.nodes=null;Sel.end=-1;}});
 cvs.addEventListener('wheel',e=>{e.preventDefault();const r=cvs.getBoundingClientRect();const sx=e.clientX-r.left,sy=e.clientY-r.top;
   const pinch=e.ctrlKey;                                                          // Mac pinch surfaces as wheel+ctrlKey
   const mouseWheel=!pinch&&e.deltaX===0&&Math.abs(e.deltaY)>=50&&Number.isInteger(e.deltaY);   // classic mouse notch

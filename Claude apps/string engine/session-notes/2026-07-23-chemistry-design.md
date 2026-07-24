@@ -212,3 +212,39 @@ likely "it's broken" report).
 Design sketch is above and unchanged. Still needs a decision on **how tips get their types** —
 authored in Blender (vertex attribute), assigned in-app by clicking an endpoint, or
 auto-assigned by index with renaming. Auto-by-index is cheapest and probably enough to start.
+
+---
+
+# SELECTION — steps 1-2 built (hover + double-click select), UNTESTED by user
+
+Additive only; the existing object editor and workflow are untouched. Build order steps 1-2 of
+`selection-and-materials-spec.md`.
+
+**State:** `Sel = {hoverNodes, hoverEnd, nodes, end}`. Selections stored as **node index sets**
+(never segment indices — those reindex on break/merge, per the spec).
+
+**Picking:** `pickHover(mx,my)` — endpoint if cursor is within ~16/z px of a degree-1 node, else
+the **stretch** under the cursor. `stretchAt(si,adj)` flood-fills same-material (`s.obj`)
+non-bond segments from the hovered segment → node set; stops at material boundaries. `segAdj()`
+builds a node→segIdx map once per pick (O(E), on pointermove only). `nearestSeg`/`nearestEnd`
+are linear scans for now — fine at current scene sizes; reuse the collide bucket grid if it bites.
+
+**Interaction:** idle pointermove (move tool) → hover highlight. `dblclick` → select hovered
+stretch/endpoint and `selectObject()` its material so the panel focuses it. **shift+dblclick** →
+grow selection to the whole connected piece (`pieceNodesOf`). Single-click still grabs/drags
+exactly as before (no mode change).
+
+**Render:** hover = soft blue over the stretch (or a blue dot on the endpoint); selection =
+bright white over the stretch (or cyan dot on the endpoint). Replaced the old whole-object white
+outline; the list-selected material still faint-outlines when no geometry stretch is picked.
+`pruneSel()` drops degree-0 (orphaned/merged-away) nodes each frame and clears a stale endpoint.
+
+**Verified:** hover detects a 6-node stretch mid-body and an endpoint near a free end; double-
+click focuses the right material; grow-to-piece returns the whole piece; in a fused RED+BLUE
+strand (one 5-node piece) hovering the red half selects only the 3 red nodes (stops at the
+material boundary); live material editing still works; render doesn't throw; regressions
+(atomic edges, no-Y, expand-to-fit, save/load) all pass; default + user scenes NaN-free.
+
+**Next (step 3+):** panel routing (endpoint selected → show that slot's rules), then endpoint
+slots replacing the single shared connector type, then select-similar/box-select and
+"make its own material". Paused here for user testing per the plan.
