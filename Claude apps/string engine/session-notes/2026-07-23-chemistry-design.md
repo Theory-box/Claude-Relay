@@ -248,3 +248,16 @@ material boundary); live material editing still works; render doesn't throw; reg
 **Next (step 3+):** panel routing (endpoint selected → show that slot's rules), then endpoint
 slots replacing the single shared connector type, then select-similar/box-select and
 "make its own material". Paused here for user testing per the plan.
+
+---
+
+## Fix: default blend 1 -> 0 (chimera, not cascade)
+
+User reported merging a green string into a red one turned the WHOLE green string red — a
+material cascade. Cause: `mergeEnds` line ~803 (inside `if(blend>0)`) reassigns every segment of
+the fused piece to objA (`s.obj=objA`), so with blend>0 the whole joined string unifies to one
+material. The default blend was still **1**, despite our earlier agreement (philosophy doc / the
+materials discussion) that blend 0 = keep-your-own-material chimera should be the default. Flipped
+ENDDEF.blend and S.bondBlend to **0**. Verified: default-profile green+red merge now keeps 2
+materials (chimera); blend 1 still available and still unifies for anyone who wants attribute
+averaging. The blend>0 whole-string reassignment behaviour is left as-is (opt-in).

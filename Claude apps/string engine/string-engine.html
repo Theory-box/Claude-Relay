@@ -223,7 +223,7 @@ const PALETTE=['#37e0d4','#7b8cff','#ff5fa2','#ffb02e','#b06bff','#4ade80','#ff7
 // G.objs:  {name,r,stiff,curl,affinity,polarity,solid,fixed,color, nodeIdx:[], segIdx:[]}
 const G={nodes:[],segs:[],objs:[],nbrs:[]};
 const S={temp:0.7,speed:1,running:true,W:0,H:0,dpr:1,pad:26,scene:'box',
-  gCurl:0,gStiff:0,gThick:0,gGrow:0,weave:0,view:'default',iters:4,wallPad:5,attract:0.4,repel:0,tol:0.4,selected:-1,weld:0.003,damp:0.02,contactDamp:0,chunk:false,bonding:true,bondSnap:1.5,bondBrk:2.5,bondCure:0,bondBlend:1,bondTimer:'continuous',cdRamping:false,cdRamp0:0,bondWobble:0,bondEnergy:0,maxBondEvents:40};
+  gCurl:0,gStiff:0,gThick:0,gGrow:0,weave:0,view:'default',iters:4,wallPad:5,attract:0.4,repel:0,tol:0.4,selected:-1,weld:0.003,damp:0.02,contactDamp:0,chunk:false,bonding:true,bondSnap:1.5,bondBrk:2.5,bondCure:0,bondBlend:0,bondTimer:'continuous',cdRamping:false,cdRamp0:0,bondWobble:0,bondEnergy:0,maxBondEvents:40};
 const OBJDEF={r:3,stiff:0.12,curl:0,grow:0,affinity:1,polarity:1,solid:false,fixed:false,color:null,autoSpace:false,spaceMult:1,breakable:false,brkStretch:true,brkAbs:false,bendAbsLim:90,brkRel:false,bendRelLim:60};
 // per-object attribute + global offset (0 = use imported value untouched)
 function effR(o){return Math.max(0.5,o.r+S.gThick);}
@@ -403,7 +403,7 @@ function initInteractions(){for(const o of G.objs){
   if(o.interSelf===undefined)o.interSelf=0;
   if(o.selfSolid===undefined)o.selfSolid=true;
   if(o.endType===undefined)o.endType={};if(o.bondOn===undefined)o.bondOn=false;}}   // per-object bonding participation
-const ENDDEF={wStr:0,wRange:120,sStr:0,sRange:28,snap:1.5,brk:2.5,merge:0,blend:1,bStr:0.4,hardenPow:2};   // snap/brk are ratios x rest length; bStr = stability at birth, hardenPow = shape of the hardening ramp
+const ENDDEF={wStr:0,wRange:120,sStr:0,sRange:28,snap:1.5,brk:2.5,merge:0,blend:0,bStr:0.4,hardenPow:2};   // snap/brk are ratios x rest length; blend 0 = keep each material (chimera); bStr = stability at birth, hardenPow = shape of the hardening ramp
 function endProf(o,t){return (o.endType&&o.endType[t])||null;}                 // read-only; null = inert
 function ensureProf(o,t){o.endType=o.endType||{};if(!o.endType[t])o.endType[t]={wStr:0,wRange:120,sStr:0,sRange:28,snap:S.bondSnap,brk:Math.max(S.bondBrk||2.5,(S.bondSnap||1.5)*1.2),merge:S.bondCure,blend:S.bondBlend,bStr:0.4,hardenPow:2};return o.endType[t];}
 function objBrk(o){const p=o&&o.endType&&o.endType[objType(o)];return (p&&p.brk)?p.brk:2.5;}   // an object's break ratio = its own-type connection break, else default
