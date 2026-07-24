@@ -261,3 +261,17 @@ materials discussion) that blend 0 = keep-your-own-material chimera should be th
 ENDDEF.blend and S.bondBlend to **0**. Verified: default-profile green+red merge now keeps 2
 materials (chimera); blend 1 still available and still unifies for anyone who wants attribute
 averaging. The blend>0 whole-string reassignment behaviour is left as-is (opt-in).
+
+---
+
+## Click-to-activate-material (replaces double-click select)
+
+Per user: any click on geometry now makes that material active in the panel — including a click
+that starts a drag — so you tinker with settings without visiting the list. Implementation: in
+pointerdown, grabbing a node calls `selectObject(node.obj)`; a click that lands mid-strand (no
+node close enough to grab) does a `nearestSeg` pick and activates that segment's material without
+panning; only a click on truly empty space pans, and it leaves the active material untouched.
+Removed the `dblclick` stretch/endpoint-select handler and the bright Sel.nodes/end selection
+render (hover highlight stays as the pre-click cue; endpoint selection returns with the slot
+panel). Verified: click strand A -> AAA active, click B -> BBB, click empty -> stays BBB, hover
+still detects stretches.

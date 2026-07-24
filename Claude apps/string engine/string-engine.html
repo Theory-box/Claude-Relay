@@ -982,8 +982,11 @@ cvs.addEventListener('pointerdown',e=>{
   if(tool==='cut'){cutting=true;cx0=cx1=mx;cy0=cy1=my;cvs.setPointerCapture(e.pointerId);return;}
   let best=-1,bd=28*28;
   for(let i=0;i<G.nodes.length;i++){const n=G.nodes[i];const d=(n.x-mx)*(n.x-mx)+(n.y-my)*(n.y-my);if(d<bd){bd=d;best=i;}}
-  if(best>=0){grab=best;gx=mx;gy=my;cvs.setPointerCapture(e.pointerId);cvs.style.cursor='grabbing';}
-  else{const r=cvs.getBoundingClientRect();panning=true;panSX=e.clientX-r.left;panSY=e.clientY-r.top;panOX=view.ox;panOY=view.oy;cvs.setPointerCapture(e.pointerId);cvs.style.cursor='move';}});   // drag empty space = pan
+  if(best>=0){grab=best;gx=mx;gy=my;cvs.setPointerCapture(e.pointerId);cvs.style.cursor='grabbing';
+    if(G.nodes[best]&&G.nodes[best].obj!==S.selected)selectObject(G.nodes[best].obj);}   // clicking geometry makes its material active (even to just drag) — no list trip needed
+  else{const si=nearestSeg(mx,my,Math.max(8,12/view.z));                                  // clicked a strand mid-body (no node close enough to grab)?
+    if(si>=0){selectObject(G.segs[si].obj);}                                              // activate its material, don't pan
+    else{const r=cvs.getBoundingClientRect();panning=true;panSX=e.clientX-r.left;panSY=e.clientY-r.top;panOX=view.ox;panOY=view.oy;cvs.setPointerCapture(e.pointerId);cvs.style.cursor='move';}}});   // truly empty space = pan (active material left untouched)
 cvs.addEventListener('pointermove',e=>{
   if(panning){const r=cvs.getBoundingClientRect();view.ox=panOX+(e.clientX-r.left-panSX);view.oy=panOY+(e.clientY-r.top-panSY);return;}
   const [mx,my]=canvasXY(e);
@@ -995,12 +998,6 @@ cvs.addEventListener('pointerup',()=>{
   if(cutting){cutting=false;if(Math.hypot(cx1-cx0,cy1-cy0)>4)cutLine(cx0,cy0,cx1,cy1);return;}
   grab=-1;cvs.style.cursor='grab';});
 cvs.addEventListener('pointercancel',()=>{grab=-1;cutting=false;panning=false;cvs.style.cursor=tool==='cut'?'crosshair':'grab';});
-cvs.addEventListener('dblclick',e=>{if(tool!=='move')return;const [mx,my]=canvasXY(e);pickHover(mx,my);
-  if(Sel.hoverEnd>=0){Sel.end=Sel.hoverEnd;Sel.nodes=null;selectObject(G.nodes[Sel.end].obj);}
-  else if(Sel.hoverNodes){let ns=Sel.hoverNodes;
-    if(e.shiftKey){const any=ns.values().next().value;ns=pieceNodesOf(any);}   // shift = grow to whole connected piece
-    Sel.nodes=new Set(ns);Sel.end=-1;selectObject(G.nodes[ns.values().next().value].obj);}
-  else{Sel.nodes=null;Sel.end=-1;}});
 cvs.addEventListener('wheel',e=>{e.preventDefault();const r=cvs.getBoundingClientRect();const sx=e.clientX-r.left,sy=e.clientY-r.top;
   const pinch=e.ctrlKey;                                                          // Mac pinch surfaces as wheel+ctrlKey
   const mouseWheel=!pinch&&e.deltaX===0&&Math.abs(e.deltaY)>=50&&Number.isInteger(e.deltaY);   // classic mouse notch
