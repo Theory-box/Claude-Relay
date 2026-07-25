@@ -606,3 +606,34 @@ saving. Reverted all three — no dead complexity for zero gain.
 Standing conclusion (reinforced): the hot path is compute-bound (divisions, sqrt). CPU wins now come
 from cutting the actual float ops (hypot was the big one) — data layout, allocation, and skipping
 near-zero terms don't move it. Remaining CPU levers are thin; GPU (throughput) is the real next tier.
+
+---
+
+## Perf brainstorm round 3: microbench sweep + structural ideas
+
+Microbenched the remaining "slow stdlib call" candidates (the hypot-hunting method):
+- **Math.pow(x, hardenPow): NO win.** V8 optimizes pow even for variable exponents; a fastPow
+  integer special-case was 0.9x (branching cost > saving). Dead end.
+- **Math.min/Math.max vs ternary: 1.1x.** Marginal, not in the hottest loop (closest doesn't use
+  them). Skipped.
+- **division vs shared inverse: 1.2x on the op.** APPLIED to the contact push: share `1/dist` and
+  `1/Wt` instead of 3x `/dist` + 2x `/Wt`. ~1.1x on collision-dominated frames (~3-5% on full dense
+  frames). 1-ULP change (like hypot), quality-identical, regressions pass. Shipped.
+- clamp is already a ternary (no win).
+
+Structural ideas considered and rejected:
+- **"Single strings cheaper"** (user idea): a 2-point string still needs segment-segment distance;
+  closest() is already the minimal exact computation. Treating short segments as points would be an
+  approximation = behaviour change. No clean win.
+- **Existing libraries** (user idea): Box2D/Matter.js/Rapier are rigid-body; none model deformable
+  strings with dynamic bonding/breaking topology. Would be a rewrite AND wouldn't fit the model.
+- **Warm-starting contact points** (cache closest's s,t across the 4 iterations, recompute only
+  distance): a real physics-engine technique, but it's an approximation (s,t drift) -> behaviour
+  change. Opt-in only, not a free win.
+- **Cutting-edge (2023-24)**: VBD (Vertex Block Descent, SIGGRAPH'24), XPBD variants, IPC — all
+  either GPU-parallelism plays or higher-quality-but-slower. Nothing that speeds up single-threaded
+  compute-bound CPU work.
+
+CONCLUSION after 3 passes: hypot (20%) was the one big CPU win; div-inverse is a small bonus. The
+loop is compute-bound and now near its floor. Verdict stands: further real speed = GPU (throughput),
+which needs a testable env and is a dedicated project. CPU perf pass is DONE.
