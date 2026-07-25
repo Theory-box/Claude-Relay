@@ -792,3 +792,28 @@ per-material rendering panel, [6] membrane opacity gradients, [7 later] WebGL re
 Strand look now: Fill, Shade (diffuse), Gloss (specular), Background, Shadow/AO, Outline. Remaining
 visual roadmap: [2] soft additive glow, [5] per-material rendering panel, [6] membrane opacity
 gradients, [7 later] WebGL refraction.
+
+---
+
+## XPBD contacts toggle — shipped (targets collision energy injection)
+
+User pushback (correct!) established the self-propulsion is COLLISION energy injection, not thermal:
+crowded/piled thick strings started AT REST at temp 0 spontaneously gained KE 0->148 and drifted 26px.
+Single string doesn't do it -> it's inter-string overlap resolution. contactDamp (Collision smoothing)
+fixes it (~0.3 -> drift 2.7) BUT damps real motion + is non-monotonic (0.9 worse than 0) + auto-ramps
+to 0 on Play (overriding the slider). User avoids it for realism reasons.
+
+Root cause: the contact velocity bleed (kn) ran EVERY iteration pass -> over-correction. XPBD insight:
+separate positions every pass, but correct contact velocity ONCE per substep. Implemented as toggle
+S.xpbd: in collide, vcd = xpbd?(pass===iters-1?1:0):cd. UI: "XPBD contacts" checkbox in Scene tab.
+
+Verified (crowded/piled rest test): classic cd0 = KE148/drift26; classic cd0.3 = KE13/drift2.7;
+**XPBD (cd0) = KE10/drift3.3** — calms injection as well as smoothing, with smoothing OFF. And a free
+gliding string moves IDENTICALLY with xpbd on/off (58.8=58.8) -> it does NOT damp real motion, only the
+energy contacts invent. Churn scene stable (no NaN, bonds form, peakSpeed 91 < baseline). Regressions
+pass.
+
+SCOPE (honest): this is XPBD-style CONTACT velocity handling — the part that fixes the propulsion. It
+is NOT a full XPBD constraint-solver swap (distance constraints are still the existing rigid PBD; note
+distance is already fully rigid, stiff drives BENDING not distance). If we later want XPBD distance
+compliance (iteration-independent stiffness, firmer authorable structures), that's a further step.
