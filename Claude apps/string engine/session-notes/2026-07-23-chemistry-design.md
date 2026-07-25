@@ -660,3 +660,37 @@ Stage 1 shipped:
 Verified: strand -> {General:on, Affinity:on, Connect:off, "Editing"}; endpoint -> {General:off,
 Affinity:off, Connect:on, "Connector", Sel.end set}. No errors. The selected tip already draws a
 bright dot (existing render). NEXT: Stage 2 per-endpoint slot types.
+
+---
+
+## Endpoint connectors — course correction + quick UI wins
+
+**Reverted Stage 1's endpoint-gating.** User caught the flaw: a closed loop (circle) has no free
+tips, so gating connector settings behind endpoint-selection makes them unreachable without cutting.
+Better model (user's): connectors are RULES ON THE MATERIAL ("heads accept X, tails accept Y,
+self-connect y/n") applied to ends procedurally — NOT hand-assigned per tip. So connector settings
+live with the material again (Connect subfold always visible). refreshPanelMode now shows all
+sections; pointerdown selects the material for any geometry click (no endpoint branch). selectEndpoint
+removed. Stage 2 is re-scoped: material-level connector RULES + per-end ROLES (head/tail) rather than
+manual slot assignment.
+
+**Quick wins shipped (all verified):**
+- Leaving edit mode (Tab) now RESUMES the sim (was staying paused).
+- **H key = clean view**: hides ALL overlays (heat, snap/collision viz, padding envelope,
+  selection/hover highlights) so you see just the strings — for debugging behaviour, then toggle back.
+  State S.cleanView; render blocks gated with !S.cleanView.
+
+Regressions pass.
+
+**BACKLOG captured from user (this session):**
+- Dynamic TABS: click empty -> Scene tab, click object -> Objects tab (the right dynamic UI, works
+  for circles). [agreed, next]
+- Show selected MATERIAL NAME top-left / prominent so you know what you're editing without scrolling
+  to the list. [agreed, next]
+- Close-shape on draw: if the stroke ends near where it began (+margin), close the loop (draw
+  circles/squares). Snapping may already auto-close; matters for no-snap shapes. [agreed]
+- Resample-curve tool (fix too-few/too-many-point shapes); maybe a global "resample to smallest unit"
+  on load. [later]
+- Eyedropper to reassign a strand's material. [later]
+- Diegetic/in-canvas editing (drag a handle to set stiffness/angle) + attribute "paint" tools
+  (thickness/stiffness/curl brushes that edit the whole material). [far future, user unsure]

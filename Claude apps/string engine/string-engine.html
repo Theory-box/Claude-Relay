@@ -244,7 +244,7 @@ const PALETTE=['#37e0d4','#7b8cff','#ff5fa2','#ffb02e','#b06bff','#4ade80','#ff7
 // G.objs:  {name,r,stiff,curl,affinity,polarity,solid,fixed,color, nodeIdx:[], segIdx:[]}
 const G={nodes:[],segs:[],objs:[],nbrs:[]};
 const S={temp:0.7,speed:1,running:true,W:0,H:0,dpr:1,pad:26,scene:'box',
-  gCurl:0,gStiff:0,gThick:0,gGrow:0,weave:0,view:'default',iters:4,wallPad:5,attract:0.4,repel:0,tol:0.4,selected:-1,weld:0.003,damp:0.02,contactDamp:0,chunk:false,bonding:true,bondSnap:1.5,bondBrk:2.5,bondCure:0,bondBlend:0,bondTimer:'continuous',cdRamping:false,cdRamp0:0,bondEnergy:0,maxBondEvents:40,snapViz:null,showHeat:true,strandFill:0.95,outlineW:0,outlineA:0.85};
+  gCurl:0,gStiff:0,gThick:0,gGrow:0,weave:0,view:'default',iters:4,wallPad:5,attract:0.4,repel:0,tol:0.4,selected:-1,weld:0.003,damp:0.02,contactDamp:0,chunk:false,bonding:true,bondSnap:1.5,bondBrk:2.5,bondCure:0,bondBlend:0,bondTimer:'continuous',cdRamping:false,cdRamp0:0,bondEnergy:0,maxBondEvents:40,snapViz:null,showHeat:true,strandFill:0.95,outlineW:0,outlineA:0.85,cleanView:false};
 const OBJDEF={r:3,stiff:0.12,curl:0,grow:0,affinity:1,polarity:1,solid:false,fixed:false,color:null,autoSpace:false,spaceMult:1,breakable:false,brkStretch:true,brkAbs:false,bendAbsLim:90,brkRel:false,bendRelLim:60};
 // per-object attribute + global offset (0 = use imported value untouched)
 function effR(o){return Math.max(0.5,o.r+S.gThick);}
@@ -957,7 +957,7 @@ function render(){
   for(let i=0;i<G.nodes.length;i++){if(G.nbrs[i]&&G.nbrs[i].length>2){const n=G.nodes[i],o=G.objs[n.obj];
     ctx.fillStyle=o.color;ctx.beginPath();ctx.arc(n.x,n.y,effR(o)*1.4,0,6.2832);ctx.fill();}}
   // ---------- collision + snap visualization for the selected object ----------
-  if(S.selected>=0&&G.objs[S.selected]){const o=G.objs[S.selected],er=effR(o);
+  if(!S.cleanView&&S.selected>=0&&G.objs[S.selected]){const o=G.objs[S.selected],er=effR(o);
     const padMax=Math.max(o.padOther||0,o.padSelf||0);
     // amber keep-out envelope around the WHOLE object (thickness + padding) — nothing gets closer than this band
     if(padMax>0){ctx.save();ctx.lineCap='round';ctx.lineJoin='round';
@@ -976,13 +976,14 @@ function render(){
     for(const s of G.segs){if(s.dead||s.bond)continue;if(set.has(s.a)&&set.has(s.b)){const a=G.nodes[s.a],b=G.nodes[s.b];ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();}}};
   const endDot=(i,style,rad)=>{if(i<0||!G.nodes[i])return;const n=G.nodes[i];ctx.fillStyle=style;ctx.beginPath();ctx.arc(n.x,n.y,rad,0,6.2832);ctx.fill();};
   // active material (kept from before, faint) so list-selection still reads
-  if(S.selected>=0&&G.objs[S.selected]&&!Sel.nodes&&Sel.end<0){const o=G.objs[S.selected];ctx.strokeStyle='rgba(255,255,255,0.7)';ctx.lineWidth=1.5;
+  if(!S.cleanView&&S.selected>=0&&G.objs[S.selected]&&!Sel.nodes&&Sel.end<0){const o=G.objs[S.selected];ctx.strokeStyle='rgba(255,255,255,0.7)';ctx.lineWidth=1.5;
     for(const si of o.segIdx){const s=G.segs[si];if(s.dead)continue;const a=G.nodes[s.a],b=G.nodes[s.b];ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();}}
   const hw=Math.max(2.5,7/view.z),sw=Math.max(3.5,10/view.z),er=Math.max(4,7/view.z);
+  if(!S.cleanView){
   if(Sel.hoverNodes&&Sel.hoverNodes!==Sel.nodes)nodeSetSegs(Sel.hoverNodes,'rgba(120,200,255,0.5)',hw);   // hover: soft blue
   if(Sel.hoverEnd>=0)endDot(Sel.hoverEnd,'rgba(120,200,255,0.9)',er);
   if(Sel.nodes)nodeSetSegs(Sel.nodes,'rgba(255,255,255,0.95)',sw);                                        // selected stretch: bright
-  if(Sel.end>=0)endDot(Sel.end,'#7dd3fc',er*1.3);
+  if(Sel.end>=0)endDot(Sel.end,'#7dd3fc',er*1.3);}
   // slice-line preview
   if(cutting){ctx.save();ctx.strokeStyle='#ff5f6d';ctx.lineWidth=1.6;ctx.setLineDash([7,5]);
     ctx.beginPath();ctx.moveTo(cx0,cy0);ctx.lineTo(cx1,cy1);ctx.stroke();ctx.setLineDash([]);
@@ -992,7 +993,7 @@ function render(){
     ctx.strokeStyle=col;ctx.lineWidth=Math.max(2,(G.objs[stroke.oi]?effR(G.objs[stroke.oi]):3)*1.7);ctx.lineCap='round';ctx.lineJoin='round';ctx.globalAlpha=0.85;
     ctx.beginPath();ctx.moveTo(stroke[0].x,stroke[0].y);for(let i=1;i<stroke.length;i++)ctx.lineTo(stroke[i].x,stroke[i].y);ctx.stroke();ctx.restore();}
   // ---------- heat / energy overlay: warm glow where nodes are moving fast (bond energy, thermal wobble, collisions) ----------
-  if(S.showHeat){let totKE=0,liveN=0;ctx.save();ctx.globalCompositeOperation='lighter';
+  if(S.showHeat&&!S.cleanView){let totKE=0,liveN=0;ctx.save();ctx.globalCompositeOperation='lighter';
     for(let i=0;i<G.nodes.length;i++){if(!G.nbrs[i]||G.nbrs[i].length===0)continue;const n=G.nodes[i];   // only real (connected) matter carries heat — orphan leftovers don't glow (and won't blink out when compaction clears them)
       const sp=hyp2(n.x-n.px,n.y-n.py);totKE+=sp;liveN++;
       if(sp<0.6)continue;const t=sp>4.6?1:(sp-0.6)/4;                                  // 0 (warm) .. 1 (hot)
@@ -1022,7 +1023,7 @@ function setEditMode(on){editMode=on;
     if(!G.objs.length)newMaterial('Material 1');                 // must have paint to draw
     if(S.selected<0||!G.objs[S.selected])selectObject(G.objs.length-1);
     setTool('draw');}   // auto-pause so you're not drawing onto whipping strands
-  else setTool('move');}
+  else{setTool('move');S.running=true;const bp=document.getElementById('bPlay');if(bp)bp.textContent='Pause';startCDRamp();}}   // leaving edit mode resumes the sim
 document.getElementById('toolMove').addEventListener('click',()=>setTool('move'));
 document.getElementById('toolCut').addEventListener('click',()=>setTool('cut'));
 document.getElementById('toolDraw').addEventListener('click',()=>setTool('draw'));
@@ -1109,8 +1110,7 @@ cvs.addEventListener('pointerdown',e=>{
   let best=-1,bd=28*28;
   for(let i=0;i<G.nodes.length;i++){const n=G.nodes[i];const d=(n.x-mx)*(n.x-mx)+(n.y-my)*(n.y-my);if(d<bd){bd=d;best=i;}}
   if(best>=0){grab=best;gx=mx;gy=my;cvs.setPointerCapture(e.pointerId);cvs.style.cursor='grabbing';
-    if(G.nbrs[best]&&G.nbrs[best].length===1)selectEndpoint(best);                          // clicked a free tip -> select it as a connector (dynamic panel shows connector settings)
-    else{Sel.end=-1;selectObject(G.nodes[best].obj);}}                                       // mid-strand node -> the material
+    Sel.end=-1;if(G.nodes[best]&&G.nodes[best].obj!==S.selected)selectObject(G.nodes[best].obj);}   // clicking geometry makes its material active
   else{const si=nearestSeg(mx,my,Math.max(8,12/view.z));                                    // clicked a strand mid-body (no node close enough to grab)?
     if(si>=0){Sel.end=-1;selectObject(G.segs[si].obj);}                                     // activate its material, don't pan
     else{const r=cvs.getBoundingClientRect();panning=true;panSX=e.clientX-r.left;panSY=e.clientY-r.top;panOX=view.ox;panOY=view.oy;cvs.setPointerCapture(e.pointerId);cvs.style.cursor='move';}}});   // truly empty space = pan (selection left untouched)
@@ -1152,6 +1152,7 @@ window.addEventListener('keydown',e=>{const tag=(e.target.tagName||'').toLowerCa
   else if(k==='g'){setTool('move');}
   else if(k==='k'){setTool('cut');}
   else if(k==='f'){resetView();}
+  else if(k==='h'){S.cleanView=!S.cleanView;}   // clean view: hide heat + all viz overlays, show just the strings
   else if(k===' '){e.preventDefault();S.running=!S.running;const bp=document.getElementById('bPlay');if(bp)bp.textContent=S.running?'Pause':'Play';if(S.running)startCDRamp();}
   else if((k==='arrowright'||k==='arrowleft')&&!S.running){e.preventDefault();stepFrame();}});
 
@@ -1210,19 +1211,10 @@ function removeMaterial(i){const o=G.objs[i];if(!o)return;
   S.selected=-1;buildNbrs();computeExclusions();snapshotInit();refreshStats();renderObjectList();
   const ed=document.getElementById('objEditor');if(ed)ed.style.display='none';}
 function selObj(){return S.selected>=0?G.objs[S.selected]:null;}
-function refreshPanelMode(){   // dynamic panel: endpoint selected -> connector settings only; strand -> material settings only
+function refreshPanelMode(){   // connector rules live WITH the material (rule-based, works for closed loops too) — show all sections
   const epG=document.getElementById('epGeneral'),epA=document.getElementById('epAffinity'),epC=document.getElementById('epConnect');
-  const kind=document.getElementById('edKind');
-  const endMode=(Sel.end>=0&&G.nbrs[Sel.end]&&G.nbrs[Sel.end].length===1);
-  if(epG)epG.style.display=endMode?'none':'';
-  if(epA)epA.style.display=endMode?'none':'';
-  if(epC)epC.style.display=endMode?'':'none';
-  if(kind)kind.textContent=endMode?'Connector':'Editing';
-  if(endMode){const epCc=epC&&epC.classList;if(epCc&&epCc.contains('collapsed'))epCc.remove('collapsed');}   // auto-open connect when you click a tip
-}
-function selectEndpoint(nodeIdx){   // click a free tip -> select it as a connector and show its settings
-  if(nodeIdx<0||!G.nodes[nodeIdx])return;Sel.end=nodeIdx;const o=G.nodes[nodeIdx].obj;
-  selectObject(o);   // populates the material's panels; refreshPanelMode (called inside) switches to connector view
+  if(epG)epG.style.display='';if(epA)epA.style.display='';if(epC)epC.style.display='';
+  const kind=document.getElementById('edKind');if(kind)kind.textContent='Editing';
 }
 function selectObject(i){if(i!==S.selected)activeConnTarget=null;S.snapViz=null;S.selected=i;renderObjectList();const o=G.objs[i],ed=document.getElementById('objEditor');
   if(!o){ed.style.display='none';return;}ed.style.display='';
