@@ -580,3 +580,29 @@ flat strand-strand contacts. Reverted entirely — collide is now byte-identical
 
 collide (48-60%) remains the floor; it's inherent to dense contact resolution (closest() x pairs x
 iters). Broad-phase can't help a uniformly dense field. Left as-is. Regressions + health pass.
+
+---
+
+## Perf brainstorm round 2: hypot WIN, flat-2D + buffers DUDS
+
+**WIN — Math.hypot -> plain sqrt (~1.25x, shipped).** Microbench: Math.hypot(x,y,z) is 7.4x slower
+than Math.sqrt(x*x+y*y+z*z) in V8 (hypot does overflow-safe scaling, pointless at pixel scale);
+accuracy diff 4e-16 (last bit). Replaced all 19 hot-loop hypot calls with inlineable hyp2/hyp3.
+End-to-end 1.25x faster; emergent behaviour statistically identical (bonds 1014->953, KE 6.11->6.33,
+both within chaotic run-to-run variance; no NaN). NOT bit-identical (4e-16 amplifies chaotically) but
+quality-identical — the sim already uses Math.random so it isn't bit-reproducible across runs anyway.
+Regressions pass. This is the real gain.
+
+**DUD — flat-mode 2D (skip h when weave=0) + buffer reuse + render-sort skip.** User requested both.
+Implemented carefully: separated use3 (drives wallPad) from the 3D-math flag (use3 && weave>0);
+reused bucket Map / pooled bucket arrays / pairs array / seen Set across frames; skipped the render
+height-sort in flat mode. VERIFIED bit-identical in flat mode (deterministic hash matched exactly:
+1295176995/2420970263) and weave still runs clean. BUT measured 0.97x raw and 0.99x avg / 0.95x p99 —
+neutral-to-slightly-WORSE. Why: (a) the h terms in closest() are a couple of multiply-adds, negligible
+next to the divisions + sqrt, so skipping them saves nothing; (b) V8's generational GC handles the
+short-lived per-frame allocations cheaply, so pooling just adds pop/reset overhead that cancels any
+saving. Reverted all three — no dead complexity for zero gain.
+
+Standing conclusion (reinforced): the hot path is compute-bound (divisions, sqrt). CPU wins now come
+from cutting the actual float ops (hypot was the big one) — data layout, allocation, and skipping
+near-zero terms don't move it. Remaining CPU levers are thin; GPU (throughput) is the real next tier.
