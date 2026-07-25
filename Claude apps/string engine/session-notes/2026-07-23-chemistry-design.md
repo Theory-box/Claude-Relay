@@ -765,3 +765,16 @@ Visual roadmap (simple -> fancy, each its own step): [1] gloss DONE. [2] soft gl
 energy look). [3] drop shadow / depth layering. [4] background (gradient/vignette). [5] per-string
 "Rendering" panel to set these per material. [6 later] membrane opacity gradients (opaque outer ->
 clear inner so you see inside). [7 much later] WebGL for real refraction/diffraction/light-bending.
+
+## Visuals step 1b: diffuse capsule shading (Shade)
+
+Added Shade (diffuse) alongside Gloss (specular). Per segment, paints a linear gradient ACROSS the
+tube (perpendicular to the strand, oriented to the lit side via sign of perp·LIGHT): white a~0.42 at
+the lit edge -> transparent mid -> black a~0.5 at the shadow edge, stroked over the base at full width.
+Reads as a lit capsule (bright top, dark bottom). Zeroable slider in Scene->View->Strand look, default
+0. Gloss + Shade together = full capsule look. Perf note: Shade creates a gradient + extra stroke per
+segment, so it's the priciest look toggle; fine off-by-default / for the pretty look, not the churn.
+Verified renders, no errors, off by default.
+
+Visual roadmap remaining: [2] soft glow (additive halo), [3] drop shadow/depth, [4] background, [5]
+per-material rendering panel, [6] membrane opacity gradients, [7 later] WebGL refraction.

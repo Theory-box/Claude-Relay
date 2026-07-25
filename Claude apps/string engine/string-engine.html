@@ -142,6 +142,7 @@
         <p class="note" id="viewNote">Object colours. Switch modes to check what actually imported — brighter means a higher value.</p>
         <p class="eyebrow" style="margin:12px 0 4px">Strand look</p>
         <div class="ctrl"><label>Fill <span class="val" id="vFill">0.95</span></label><input id="sFill" type="range" min="0.5" max="1" value="0.95" step="0.01"><div class="stat" style="margin-top:3px"><span>how much of the strand's body is filled — near 1 closes the gaps so merged sub-strings read as one connected shape</span></div></div>
+        <div class="ctrl"><label>Shade <span class="val" id="vShade">0.0</span></label><input id="sShade" type="range" min="0" max="1" value="0" step="0.05"><div class="stat" style="margin-top:3px"><span>diffuse capsule shading — bright on the lit side, dark on the shadow side (light from upper-left) · 0 = off</span></div></div>
         <div class="ctrl"><label>Gloss <span class="val" id="vGloss">0.0</span></label><input id="sGloss" type="range" min="0" max="1" value="0" step="0.05"><div class="stat" style="margin-top:3px"><span>specular tube shading — a lit streak that makes strands read as rounded gel · 0 = off (flat)</span></div></div>
         <div class="ctrl"><label>Outline <span class="val" id="vOutW">0.0</span></label><input id="sOutW" type="range" min="0" max="1.2" value="0" step="0.05"><div class="stat" style="margin-top:3px"><span>dark casing around each strand (scales with thickness) · 0 = off</span></div></div>
         <div class="ctrl"><label>Outline opacity <span class="val" id="vOutA">0.85</span></label><input id="sOutA" type="range" min="0" max="1" value="0.85" step="0.05"></div>
@@ -245,7 +246,7 @@ const PALETTE=['#37e0d4','#7b8cff','#ff5fa2','#ffb02e','#b06bff','#4ade80','#ff7
 // G.objs:  {name,r,stiff,curl,affinity,polarity,solid,fixed,color, nodeIdx:[], segIdx:[]}
 const G={nodes:[],segs:[],objs:[],nbrs:[]};
 const S={temp:0.7,speed:1,running:true,W:0,H:0,dpr:1,pad:26,scene:'box',
-  gCurl:0,gStiff:0,gThick:0,gGrow:0,weave:0,view:'default',iters:4,wallPad:5,attract:0.4,repel:0,tol:0.4,selected:-1,weld:0.003,damp:0.02,contactDamp:0,chunk:false,bonding:true,bondSnap:1.5,bondBrk:2.5,bondCure:0,bondBlend:0,bondTimer:'continuous',cdRamping:false,cdRamp0:0,bondEnergy:0,maxBondEvents:40,snapViz:null,showHeat:true,strandFill:0.95,outlineW:0,outlineA:0.85,cleanView:false,gloss:0};
+  gCurl:0,gStiff:0,gThick:0,gGrow:0,weave:0,view:'default',iters:4,wallPad:5,attract:0.4,repel:0,tol:0.4,selected:-1,weld:0.003,damp:0.02,contactDamp:0,chunk:false,bonding:true,bondSnap:1.5,bondBrk:2.5,bondCure:0,bondBlend:0,bondTimer:'continuous',cdRamping:false,cdRamp0:0,bondEnergy:0,maxBondEvents:40,snapViz:null,showHeat:true,strandFill:0.95,outlineW:0,outlineA:0.85,cleanView:false,gloss:0,shade:0};
 const OBJDEF={r:3,stiff:0.12,curl:0,grow:0,affinity:1,polarity:1,solid:false,fixed:false,color:null,autoSpace:false,spaceMult:1,breakable:false,brkStretch:true,brkAbs:false,bendAbsLim:90,brkRel:false,bendRelLim:60};
 // per-object attribute + global offset (0 = use imported value untouched)
 function effR(o){return Math.max(0.5,o.r+S.gThick);}
@@ -953,6 +954,16 @@ function render(){
       ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();}
     ctx.strokeStyle=col;ctx.globalAlpha=dbg?1:0.96;ctx.lineWidth=fw;
     ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();ctx.globalAlpha=1;
+    if(S.shade>0&&!dbg){                                                              // diffuse capsule shading: a light->dark gradient ACROSS the tube (bright on the lit side, dark on the shadow side)
+      let dx=b.x-a.x,dy=b.y-a.y;const L=hyp2(dx,dy)||1;dx/=L;dy/=L;
+      let px=-dy,py=dx;if(px*LIGHT_X+py*LIGHT_Y<0){px=-px;py=-py;}                       // perpendicular pointing to the lit side
+      const mx=(a.x+b.x)*0.5,my=(a.y+b.y)*0.5,d=S.shade;
+      const g=ctx.createLinearGradient(mx+px*r,my+py*r,mx-px*r,my-py*r);                 // lit edge -> shadow edge
+      g.addColorStop(0,'rgba(255,255,255,'+(d*0.42).toFixed(3)+')');
+      g.addColorStop(0.45,'rgba(255,255,255,0)');
+      g.addColorStop(1,'rgba(0,0,0,'+(d*0.5).toFixed(3)+')');
+      ctx.strokeStyle=g;ctx.lineWidth=fw;
+      ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();}
     if(S.gloss>0&&!dbg){                                                              // faux tube shading: a specular streak on the light-facing side makes flat strands read as rounded, lit gel
       let dx=b.x-a.x,dy=b.y-a.y;const L=hyp2(dx,dy)||1;dx/=L;dy/=L;
       let px=-dy,py=dx;const dot=px*LIGHT_X+py*LIGHT_Y;if(dot<0){px=-px;py=-py;}          // perpendicular, flipped to the light-facing side
@@ -1371,6 +1382,7 @@ document.getElementById('sBEn').addEventListener('input',e=>{S.bondEnergy=parseF
 document.getElementById('sHeat').addEventListener('click',e=>{S.showHeat=!S.showHeat;e.target.classList.toggle('on',S.showHeat);});
 document.getElementById('sFill').addEventListener('input',e=>{S.strandFill=parseFloat(e.target.value);document.getElementById('vFill').textContent=S.strandFill.toFixed(2);});
 document.getElementById('sGloss').addEventListener('input',e=>{S.gloss=parseFloat(e.target.value);document.getElementById('vGloss').textContent=S.gloss.toFixed(2);});
+document.getElementById('sShade').addEventListener('input',e=>{S.shade=parseFloat(e.target.value);document.getElementById('vShade').textContent=S.shade.toFixed(2);});
 document.getElementById('sOutW').addEventListener('input',e=>{S.outlineW=parseFloat(e.target.value);document.getElementById('vOutW').textContent=S.outlineW.toFixed(1);});
 document.getElementById('sOutA').addEventListener('input',e=>{S.outlineA=parseFloat(e.target.value);document.getElementById('vOutA').textContent=S.outlineA.toFixed(2);});
 document.getElementById('sBCure').addEventListener('input',e=>{S.bondCure=parseFloat(e.target.value);document.getElementById('vBCure').textContent=S.bondCure>=900?'∞ · elastic':(S.bondCure===0?'0 · instant':S.bondCure+' frames');});
