@@ -817,3 +817,34 @@ SCOPE (honest): this is XPBD-style CONTACT velocity handling — the part that f
 is NOT a full XPBD constraint-solver swap (distance constraints are still the existing rigid PBD; note
 distance is already fully rigid, stiff drives BENDING not distance). If we later want XPBD distance
 compliance (iteration-independent stiffness, firmer authorable structures), that's a further step.
+
+---
+
+## Merge-time duplication FIX + batch (render defaults, reset scope, paused FPS)
+
+**Merge-time duplication bug — FIXED.** Reproduced: a self-closing C-curve with Merge Time 60 shattered
+(19 severs/dupNodes, nodes 11->30) vs Merge Time 0 calm (2). Root cause: a HOLDING bond is a real
+segment that COLLIDED with the loop it was closing, stressing body segments until they sever (each
+sever spawns a node via dupNode) -> cascade. Fix: skip collision for bond segments (`if(sa.bond||
+sb.bond)continue;` in the collide pair filter) — holding bonds are virtual links, not physical strands.
+Verified: with grow, severs 20->3, node growth 31->14; bonded ends still held apart (standoff 13.7,
+constraint not collision provides it); churn scene stable (no NaN, bounded); regressions pass.
+
+**Render defaults applied** (were all 0): Shade 1, Gloss 0.75, Fill 1, Outline 0.1, Outline-opacity 0.3,
+Shadow 0.25 — set in state AND html slider value=/display AND applyGlobals sync. Verified on load.
+
+**Reset scope fixed.** resetSim on an imported scene re-imports + restoreSettings; captureSettings'
+global list was MISSING the visual + xpbd + a few physics keys, so reset wiped them. Added
+repel,tol,maxBondEvents,showHeat,strandFill,outlineW,outlineA,gloss,shade,bg,shadow,xpbd to both
+captureSettings and applyGlobals (+ slider/toggle sync). Verified: capture->wipe->restore preserves
+gloss/shade/xpbd/shadow. Now reset only resets positions, keeps all settings. (Drawn-scene reset already
+only reset positions.)
+
+**Paused FPS fix.** render() ran every RAF even when paused -> heavy scenes kept "chugging". Added RD
+(render-dirty): frame renders only if running || grab || panning || RD; RD set by any pointer/wheel/
+key/input/change event. Verified: 0 renders when paused+idle, 1 on interaction. Paused heavy scenes now
+idle instead of re-rendering.
+
+STILL OPEN (noted, not changed): user observed "growing a string needs more snap to attach". Checked:
+snap trigger = snap*(effR1+effR2), effR = r+gThick — grow does NOT change it. Likely a dynamics effect
+(longer strings whip more, ends dwell less in snap range), not a snap-distance change. Left as-is.

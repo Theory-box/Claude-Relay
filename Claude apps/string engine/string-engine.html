@@ -141,13 +141,13 @@
         </div>
         <p class="note" id="viewNote">Object colours. Switch modes to check what actually imported — brighter means a higher value.</p>
         <p class="eyebrow" style="margin:12px 0 4px">Strand look</p>
-        <div class="ctrl"><label>Fill <span class="val" id="vFill">0.95</span></label><input id="sFill" type="range" min="0.5" max="1" value="0.95" step="0.01"><div class="stat" style="margin-top:3px"><span>how much of the strand's body is filled — near 1 closes the gaps so merged sub-strings read as one connected shape</span></div></div>
-        <div class="ctrl"><label>Shade <span class="val" id="vShade">0.0</span></label><input id="sShade" type="range" min="0" max="1" value="0" step="0.05"><div class="stat" style="margin-top:3px"><span>diffuse capsule shading — bright on the lit side, dark on the shadow side (light from upper-left) · 0 = off</span></div></div>
-        <div class="ctrl"><label>Gloss <span class="val" id="vGloss">0.0</span></label><input id="sGloss" type="range" min="0" max="1" value="0" step="0.05"><div class="stat" style="margin-top:3px"><span>specular tube shading — a lit streak that makes strands read as rounded gel · 0 = off (flat)</span></div></div>
+        <div class="ctrl"><label>Fill <span class="val" id="vFill">1.00</span></label><input id="sFill" type="range" min="0.5" max="1" value="1" step="0.01"><div class="stat" style="margin-top:3px"><span>how much of the strand's body is filled — near 1 closes the gaps so merged sub-strings read as one connected shape</span></div></div>
+        <div class="ctrl"><label>Shade <span class="val" id="vShade">1.00</span></label><input id="sShade" type="range" min="0" max="1" value="1" step="0.05"><div class="stat" style="margin-top:3px"><span>diffuse capsule shading — bright on the lit side, dark on the shadow side (light from upper-left) · 0 = off</span></div></div>
+        <div class="ctrl"><label>Gloss <span class="val" id="vGloss">0.75</span></label><input id="sGloss" type="range" min="0" max="1" value="0.75" step="0.05"><div class="stat" style="margin-top:3px"><span>specular tube shading — a lit streak that makes strands read as rounded gel · 0 = off (flat)</span></div></div>
         <div class="ctrl"><label>Background</label><div style="display:flex;gap:8px;align-items:center;margin-top:2px"><input id="sBg" type="color" value="#0b0c16" style="width:38px;height:26px;border:1px solid var(--line);border-radius:6px;background:none;cursor:pointer"><button id="sBgClear" class="mini" style="font-size:10px;padding:4px 8px;border-radius:6px;border:1px solid var(--line);background:var(--ink2);color:var(--muted);cursor:pointer">default</button></div></div>
-        <div class="ctrl"><label>Shadow / depth <span class="val" id="vShadow">0.0</span></label><input id="sShadow" type="range" min="0" max="1" value="0" step="0.05"><div class="stat" style="margin-top:3px"><span>soft contact shadow under strands — pools darker where they cluster (fake ambient occlusion) · 0 = off</span></div></div>
-        <div class="ctrl"><label>Outline <span class="val" id="vOutW">0.0</span></label><input id="sOutW" type="range" min="0" max="1.2" value="0" step="0.05"><div class="stat" style="margin-top:3px"><span>dark casing around each strand (scales with thickness) · 0 = off</span></div></div>
-        <div class="ctrl"><label>Outline opacity <span class="val" id="vOutA">0.85</span></label><input id="sOutA" type="range" min="0" max="1" value="0.85" step="0.05"></div>
+        <div class="ctrl"><label>Shadow / depth <span class="val" id="vShadow">0.25</span></label><input id="sShadow" type="range" min="0" max="1" value="0.25" step="0.05"><div class="stat" style="margin-top:3px"><span>soft contact shadow under strands — pools darker where they cluster (fake ambient occlusion) · 0 = off</span></div></div>
+        <div class="ctrl"><label>Outline <span class="val" id="vOutW">0.1</span></label><input id="sOutW" type="range" min="0" max="1.2" value="0.1" step="0.05"><div class="stat" style="margin-top:3px"><span>dark casing around each strand (scales with thickness) · 0 = off</span></div></div>
+        <div class="ctrl"><label>Outline opacity <span class="val" id="vOutA">0.30</span></label><input id="sOutA" type="range" min="0" max="1" value="0.3" step="0.05"></div>
       </div>
       <div class="card">
         <p class="eyebrow">Simulation</p>
@@ -249,7 +249,7 @@ const PALETTE=['#37e0d4','#7b8cff','#ff5fa2','#ffb02e','#b06bff','#4ade80','#ff7
 // G.objs:  {name,r,stiff,curl,affinity,polarity,solid,fixed,color, nodeIdx:[], segIdx:[]}
 const G={nodes:[],segs:[],objs:[],nbrs:[]};
 const S={temp:0.7,speed:1,running:true,W:0,H:0,dpr:1,pad:26,scene:'box',
-  gCurl:0,gStiff:0,gThick:0,gGrow:0,weave:0,view:'default',iters:4,wallPad:5,attract:0.4,repel:0,tol:0.4,selected:-1,weld:0.003,damp:0.02,contactDamp:0,chunk:false,bonding:true,bondSnap:1.5,bondBrk:2.5,bondCure:0,bondBlend:0,bondTimer:'continuous',cdRamping:false,cdRamp0:0,bondEnergy:0,maxBondEvents:40,snapViz:null,showHeat:true,strandFill:0.95,outlineW:0,outlineA:0.85,cleanView:false,gloss:0,shade:0,bg:null,shadow:0,xpbd:false};
+  gCurl:0,gStiff:0,gThick:0,gGrow:0,weave:0,view:'default',iters:4,wallPad:5,attract:0.4,repel:0,tol:0.4,selected:-1,weld:0.003,damp:0.02,contactDamp:0,chunk:false,bonding:true,bondSnap:1.5,bondBrk:2.5,bondCure:0,bondBlend:0,bondTimer:'continuous',cdRamping:false,cdRamp0:0,bondEnergy:0,maxBondEvents:40,snapViz:null,showHeat:true,strandFill:1,outlineW:0.1,outlineA:0.3,cleanView:false,gloss:0.75,shade:1,bg:null,shadow:0.25,xpbd:false};
 const OBJDEF={r:3,stiff:0.12,curl:0,grow:0,affinity:1,polarity:1,solid:false,fixed:false,color:null,autoSpace:false,spaceMult:1,breakable:false,brkStretch:true,brkAbs:false,bendAbsLim:90,brkRel:false,bendRelLim:60};
 // per-object attribute + global offset (0 = use imported value untouched)
 function effR(o){return Math.max(0.5,o.r+S.gThick);}
@@ -446,7 +446,7 @@ function captureSettings(){const m={_g:{}};
     damp:o.damp,padSelf:o.padSelf,padOther:o.padOther,ids:o.ids?o.ids.slice():null,r:o.r,stiff:o.stiff,curl:o.curl,grow:o.grow,
     affinity:o.affinity,polarity:o.polarity,bondOn:o.bondOn,autoSpace:o.autoSpace,spaceMult:o.spaceMult,breakable:o.breakable,brkStretch:o.brkStretch,brkAbs:o.brkAbs,bendAbsLim:o.bendAbsLim,brkRel:o.brkRel,bendRelLim:o.bendRelLim,endType:o.endType?JSON.parse(JSON.stringify(o.endType)):null,
     solid:o.solid,fixed:o.fixed};
-  for(const k of ['temp','damp','speed','weave','iters','wallPad','contactDamp','weld','gCurl','gStiff','gThick','gGrow','chunk','bonding','bondSnap','bondBrk','bondCure','bondBlend','bondTimer','bondEnergy','view'])m._g[k]=S[k];
+  for(const k of ['temp','damp','speed','weave','iters','wallPad','contactDamp','weld','gCurl','gStiff','gThick','gGrow','chunk','bonding','bondSnap','bondBrk','bondCure','bondBlend','bondTimer','bondEnergy','view','repel','tol','maxBondEvents','showHeat','strandFill','outlineW','outlineA','gloss','shade','bg','shadow','xpbd'])m._g[k]=S[k];
   return m;}
 function restoreSettings(m){
   if(m._g)applyGlobals(m._g);                                   // keep the user's global settings + resync their sliders
@@ -522,7 +522,7 @@ function seedWeavy(count,x0,x1,y0,y1){
 
 // ---------- import ----------
 function applyGlobals(g){
-  for(const k of ['weld','weave','iters','wallPad','damp','contactDamp','temp','speed','gCurl','gStiff','gThick','gGrow','chunk','bonding','bondSnap','bondBrk','bondCure','bondBlend','bondTimer','bondEnergy','view'])if(g[k]!==undefined)S[k]=g[k];
+  for(const k of ['weld','weave','iters','wallPad','damp','contactDamp','temp','speed','gCurl','gStiff','gThick','gGrow','chunk','bonding','bondSnap','bondBrk','bondCure','bondBlend','bondTimer','bondEnergy','view','repel','tol','maxBondEvents','showHeat','strandFill','outlineW','outlineA','gloss','shade','bg','shadow','xpbd'])if(g[k]!==undefined)S[k]=g[k];
   const sync=(id,val,vid,fmt)=>{const el=document.getElementById(id);if(el)el.value=val;if(vid){const v=document.getElementById(vid);if(v)v.textContent=fmt?fmt(val):val;}};
   sync('sWeld',S.weld);sync('sWeldN',S.weld);sync('sWeave',S.weave,'vWeave',x=>(+x).toFixed(2));
   sync('sIters',S.iters,'vIters');sync('sPad',S.wallPad,'vPad');sync('sDamp',S.damp,'vDamp',x=>(+x).toFixed(2));
@@ -534,7 +534,7 @@ function applyGlobals(g){
   sync('sBCure',S.bondCure,'vBCure',x=>x>=900?'\u221e \u00b7 elastic':(x==0?'0 \u00b7 instant':x+' frames'));
   sync('sBBlend',S.bondBlend,'vBBlend',x=>x<=0?'0 \u00b7 separate':(x>=1?'1 \u00b7 average':(+x).toFixed(1)+' \u00b7 partial'));
   const tog=(id,on)=>{const el=document.getElementById(id);if(el)el.classList.toggle('on',!!on);};
-  tog('sChunk',S.chunk);tog('sBond',S.bonding);tog('sBTimerCont',S.bondTimer==='continuous');tog('sBTimerCum',S.bondTimer==='cumulative');}
+  tog('sChunk',S.chunk);tog('sBond',S.bonding);tog('sBTimerCont',S.bondTimer==='continuous');tog('sBTimerCum',S.bondTimer==='cumulative');sync('sFill',S.strandFill,'vFill',x=>(+x).toFixed(2));sync('sOutW',S.outlineW,'vOutW',x=>(+x).toFixed(1));sync('sOutA',S.outlineA,'vOutA',x=>(+x).toFixed(2));sync('sGloss',S.gloss,'vGloss',x=>(+x).toFixed(2));sync('sShade',S.shade,'vShade',x=>(+x).toFixed(2));sync('sShadow',S.shadow,'vShadow',x=>(+x).toFixed(2));{const xb=document.getElementById('sXpbd');if(xb)xb.checked=!!S.xpbd;const bgp=document.getElementById('sBg');if(bgp&&S.bg)bgp.value=S.bg;}}
 function importJSON(data){
   try{const obj=JSON.parse(data);const objs=obj.objects||obj;if(!Array.isArray(objs))throw 0;
     resize();clearGraph();S.scene='import';G.lastImport=data;
@@ -674,6 +674,7 @@ function collide(){flushExcl();
     const sa=segs[A],sb=segs[B];
     if(sa.excl&&sa.excl.has(B))continue;                             // same strand, too close along its length
     if(sa.a===sb.a||sa.a===sb.b||sa.b===sb.a||sa.b===sb.b)continue;  // share a node
+    if(sa.bond||sb.bond)continue;                                    // holding bonds are virtual links, not physical strands — don't collide (was causing merge-time shatter cascades)
     if(sa.obj===sb.obj&&objs[sa.obj].selfSolid===false)continue;     // self pass-through
     pairs.push(A,B);}
   // resolve the same pair list each pass (positions change, so closest() is recomputed here)
@@ -1191,12 +1192,15 @@ window.addEventListener('keydown',e=>{const tag=(e.target.tagName||'').toLowerCa
   else if(k===' '){e.preventDefault();S.running=!S.running;const bp=document.getElementById('bPlay');if(bp)bp.textContent=S.running?'Pause':'Play';if(S.running)startCDRamp();}
   else if((k==='arrowright'||k==='arrowleft')&&!S.running){e.preventDefault();stepFrame();}});
 
-let ema=60,lastT=performance.now();
-function frame(now){const dt=now-lastT;lastT=now;ema=ema*0.9+(1000/Math.max(1,dt))*0.1;
-  if(S.running){S.frame=(S.frame||0)+1;advanceCDRamp();attract();endpointForces();relaxSpacing();for(let k=0;k<S.speed;k++){integrate();flagBondBreaks();constraints();collide();wallCCD();dragApply();flagStrainBreaks();flagBendBreaks();}maintainBonds();removeDead();}
-  else if(grab>=0){dragApply();constraints();collide();}
-  render();document.getElementById('sFps').textContent=Math.round(ema)+' fps';
+let ema=60,lastT=performance.now(),RD=true;   // RD = render-dirty; when paused & idle we stop re-rendering so a heavy scene doesn't keep chugging
+function frame(now){const dt=now-lastT;lastT=now;
+  let did=false;
+  if(S.running){S.frame=(S.frame||0)+1;advanceCDRamp();attract();endpointForces();relaxSpacing();for(let k=0;k<S.speed;k++){integrate();flagBondBreaks();constraints();collide();wallCCD();dragApply();flagStrainBreaks();flagBendBreaks();}maintainBonds();removeDead();did=true;}
+  else if(grab>=0){dragApply();constraints();collide();did=true;}
+  if(did||RD||panning){ema=ema*0.9+(1000/Math.max(1,dt))*0.1;render();RD=false;document.getElementById('sFps').textContent=Math.round(ema)+' fps';}
   requestAnimationFrame(frame);}
+['pointerdown','pointermove','pointerup','wheel','keydown'].forEach(ev=>window.addEventListener(ev,()=>{RD=true;},true));   // any interaction marks a redraw
+['input','change'].forEach(ev=>document.addEventListener(ev,()=>{RD=true;},true));                                        // any slider/toggle change too
 function refreshStats(){document.getElementById('sObjs').textContent=G.objs.length;
   document.getElementById('sNS').textContent=G.nodes.length+' · '+G.segs.length;
   document.getElementById('tagScene').textContent=S.scene;}
