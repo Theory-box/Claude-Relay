@@ -140,6 +140,10 @@
           <button data-v="affinity">affinity</button>
         </div>
         <p class="note" id="viewNote">Object colours. Switch modes to check what actually imported — brighter means a higher value.</p>
+        <p class="eyebrow" style="margin:12px 0 4px">Strand look</p>
+        <div class="ctrl"><label>Fill <span class="val" id="vFill">0.95</span></label><input id="sFill" type="range" min="0.5" max="1" value="0.95" step="0.01"><div class="stat" style="margin-top:3px"><span>how much of the strand's body is filled — near 1 closes the gaps so merged sub-strings read as one connected shape</span></div></div>
+        <div class="ctrl"><label>Outline <span class="val" id="vOutW">0.0</span></label><input id="sOutW" type="range" min="0" max="1.2" value="0" step="0.05"><div class="stat" style="margin-top:3px"><span>dark casing around each strand (scales with thickness) · 0 = off</span></div></div>
+        <div class="ctrl"><label>Outline opacity <span class="val" id="vOutA">0.85</span></label><input id="sOutA" type="range" min="0" max="1" value="0.85" step="0.05"></div>
       </div>
       <div class="card">
         <p class="eyebrow">Simulation</p>
@@ -240,7 +244,7 @@ const PALETTE=['#37e0d4','#7b8cff','#ff5fa2','#ffb02e','#b06bff','#4ade80','#ff7
 // G.objs:  {name,r,stiff,curl,affinity,polarity,solid,fixed,color, nodeIdx:[], segIdx:[]}
 const G={nodes:[],segs:[],objs:[],nbrs:[]};
 const S={temp:0.7,speed:1,running:true,W:0,H:0,dpr:1,pad:26,scene:'box',
-  gCurl:0,gStiff:0,gThick:0,gGrow:0,weave:0,view:'default',iters:4,wallPad:5,attract:0.4,repel:0,tol:0.4,selected:-1,weld:0.003,damp:0.02,contactDamp:0,chunk:false,bonding:true,bondSnap:1.5,bondBrk:2.5,bondCure:0,bondBlend:0,bondTimer:'continuous',cdRamping:false,cdRamp0:0,bondEnergy:0,maxBondEvents:40,snapViz:null,showHeat:true};
+  gCurl:0,gStiff:0,gThick:0,gGrow:0,weave:0,view:'default',iters:4,wallPad:5,attract:0.4,repel:0,tol:0.4,selected:-1,weld:0.003,damp:0.02,contactDamp:0,chunk:false,bonding:true,bondSnap:1.5,bondBrk:2.5,bondCure:0,bondBlend:0,bondTimer:'continuous',cdRamping:false,cdRamp0:0,bondEnergy:0,maxBondEvents:40,snapViz:null,showHeat:true,strandFill:0.95,outlineW:0,outlineA:0.85};
 const OBJDEF={r:3,stiff:0.12,curl:0,grow:0,affinity:1,polarity:1,solid:false,fixed:false,color:null,autoSpace:false,spaceMult:1,breakable:false,brkStretch:true,brkAbs:false,bendAbsLim:90,brkRel:false,bendRelLim:60};
 // per-object attribute + global offset (0 = use imported value untouched)
 function effR(o){return Math.max(0.5,o.r+S.gThick);}
@@ -941,7 +945,10 @@ function render(){
       ctx.strokeStyle='rgba(8,9,18,0.9)';ctx.lineWidth=r*2+5;ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();
       ctx.strokeStyle=o.color;ctx.lineWidth=r*2;ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();
     } else {
-      ctx.strokeStyle=col;ctx.globalAlpha=dbg?1:0.96;ctx.lineWidth=s.solid?r*2:Math.max(2,r*1.7);
+      const fw=Math.max(2,r*2*S.strandFill);                                          // fill width; near 1.0 closes the gaps so a merged bundle reads as one connected shape
+      if(S.outlineW>0){ctx.strokeStyle='rgba(8,9,18,'+S.outlineA.toFixed(2)+')';ctx.lineWidth=fw+r*S.outlineW*2;   // optional dark casing, scaled by thickness (bigger strands get bigger outlines)
+        ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();}
+      ctx.strokeStyle=col;ctx.globalAlpha=dbg?1:0.96;ctx.lineWidth=fw;
       ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();ctx.globalAlpha=1;}}
   // seam beads: where segments of different thickness meet (e.g. a blend-0 merge of thin+thick), draw a dot at the larger radius so the join reads as a bead on a string
   {const N=G.nodes.length,maxR=new Float32Array(N),minR=new Float32Array(N).fill(1e9),mObj=new Int32Array(N).fill(-1);
@@ -1346,6 +1353,9 @@ document.getElementById('sBSnap').addEventListener('input',e=>{S.bondSnap=parseF
 document.getElementById('sBBrk').addEventListener('input',e=>{S.bondBrk=parseFloat(e.target.value);document.getElementById('vBBrk').textContent=S.bondBrk;});
 document.getElementById('sBEn').addEventListener('input',e=>{S.bondEnergy=parseFloat(e.target.value);document.getElementById('vBEn').textContent=S.bondEnergy.toFixed(2);});
 document.getElementById('sHeat').addEventListener('click',e=>{S.showHeat=!S.showHeat;e.target.classList.toggle('on',S.showHeat);});
+document.getElementById('sFill').addEventListener('input',e=>{S.strandFill=parseFloat(e.target.value);document.getElementById('vFill').textContent=S.strandFill.toFixed(2);});
+document.getElementById('sOutW').addEventListener('input',e=>{S.outlineW=parseFloat(e.target.value);document.getElementById('vOutW').textContent=S.outlineW.toFixed(1);});
+document.getElementById('sOutA').addEventListener('input',e=>{S.outlineA=parseFloat(e.target.value);document.getElementById('vOutA').textContent=S.outlineA.toFixed(2);});
 document.getElementById('sBCure').addEventListener('input',e=>{S.bondCure=parseFloat(e.target.value);document.getElementById('vBCure').textContent=S.bondCure>=900?'∞ · elastic':(S.bondCure===0?'0 · instant':S.bondCure+' frames');});
 document.getElementById('sBBlend').addEventListener('input',e=>{S.bondBlend=parseFloat(e.target.value);const v=S.bondBlend;document.getElementById('vBBlend').textContent=v<=0?'0 · separate':(v>=1?'1 · average':v.toFixed(1)+' · partial');});
 document.getElementById('sBTimerCont').addEventListener('click',()=>{S.bondTimer='continuous';document.getElementById('sBTimerCont').classList.add('on');document.getElementById('sBTimerCum').classList.remove('on');});

@@ -536,3 +536,22 @@ DEFERRED (user's to-do): a coarse heat-field grid to act as "the millions of uni
 that carry/transfer heat — only worth it later if heat needs to cross empty space independent of the
 strings. Current microscopic model (moving nodes = heat) is the honest representation; the grid would
 fake the large-N reservoir. Revisit after assembly mechanics mature.
+
+---
+
+## Strand look: fill + outline controls
+
+User: merged sub-strings read as separate because of "black outlines" between them. Diagnosis:
+there is NO drawn outline on non-solid strands — the "borders" are background GAPS. The fill was
+drawn at r*1.7 (~0.85 of the collision diameter 2r), so touching strands leave a background sliver
+that reads as an outline, and a dense chimera bundle looks disconnected.
+
+Added (View card · Strand look):
+- **Fill** (0.5-1, default 0.95): fill width = 2r*fill. Near 1 closes the gaps so a merged bundle
+  reads as one connected shape. This is the default fix for the user's problem.
+- **Outline** (0-1.2, default 0 = off): optional dark casing (rgba(8,9,18)) of half-width
+  fill + r*outline, i.e. scaled by thickness (bigger strands get bigger outlines) as the user asked.
+- **Outline opacity** (0-1, default 0.85).
+State: strandFill/outlineW/outlineA (view prefs, not serialized — persist across reset naturally).
+Verified by pixel sampling: fill widens the strand (5px off-centre filled at 1.0, dark at 0.55);
+outline draws casing (8,9,18) distinct from bg. Regressions pass.
