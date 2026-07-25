@@ -339,3 +339,39 @@ call `doNewScene()`.
 Verified: two tabs; physics/bonding-master present under Scene; cards + subfolds collapse/expand;
 collapsing hides sub-headers; sub-headers don't toggle; About nested correctly inside Scene;
 editor works; default scene runs (46fps, no NaN). Screenshotted both tabs — layout clean.
+
+---
+
+## Performance audit — heavy bonding/breaking churn
+
+User reported large slowdowns during lots of bonding/breaking (wobble/energy off). Profiled the
+churn case (Circle.002, instant-fuse + bend-break, ~8 merges/frame):
+
+**Breakdown found:** collide 63-73%, endpointForces 18-27% (scales with pull wRange — small ranges
+~halve it), computeExclusions 14%, buildNbrs 5%. So the floor is dense collision, not the new
+chemistry (bonding added only ~3.6ms over a ~17ms baseline). But two real inefficiencies:
+
+1. **`mergeEnds` rebuilt topology ~8x/frame**, and `rebuildTopology` recomputed exclusions each
+   time (computeExclusions is O(segs x skip-depth x degree)). FIX: `rebuildTopology` now only does
+   segIdx + buildNbrs and sets `G.exclDirty`; `collide` calls `flushExcl()` at its top, so
+   exclusions recompute **lazily, at most once per frame**, coalescing all the frame's merges/breaks
+   into one pass. flagStrain/BendBreaks also just set exclDirty. Result: computeExclusions calls
+   dropped from ~9/frame to **1/frame**; clean churn timing ~63fps.
+
+2. **Node count grew unbounded** — sever adds a node (dupNode), merge orphans one, and with
+   instant-fuse there are no dead segments so `removeDead` never cleaned up. Over a long session
+   every O(nodes) pass (integrate, buildNbrs, computeExclusions map) slowly degrades. FIX:
+   `compactNodes()` (called every frame, self-gating: only fires when orphans >=128 and >=50% of
+   nodes) drops orphaned nodes and remaps every index that points at one — seg.a/b, obj.nodeIdx,
+   G.init, bondBank keys, `grab`, and Sel.* selections. Node count now oscillates in a bounded
+   sawtooth (~live..2x-live) instead of climbing (was 601 -> 1989+ over 400 frames; now caps
+   ~1200 and drops back to ~600).
+
+**Verified:** exclusions 1/frame; node count bounded; zero bad seg refs after compaction;
+selections survive compaction (valid indices); reset works post-compaction (no NaN); regressions
+(atomic edges, no-Y, expand-to-fit) pass; default + user scenes NaN-free; bond energy still works.
+
+**Honest note:** the residual cost is collide on a canvas-filling dense scene — inherent, not a
+bug. Biggest user-side lever is smaller endpoint pull ranges (wRange/sRange). The churn itself
+(instant-fuse + bend-break shatter/reform) is the earlier-diagnosed dynamic; wouldBendBreak reduced
+it but it still cycles. A future collision broad-phase optimisation would help the floor.

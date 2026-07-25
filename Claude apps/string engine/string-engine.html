@@ -627,7 +627,7 @@ function closest(p1,q1,p2,q2,use3){
   const c1x=p1.x+d1x*s,c1y=p1.y+d1y*s,c1h=(p1.h||0)+ (use3?d1h*s:0);
   const c2x=p2.x+d2x*t,c2y=p2.y+d2y*t,c2h=(p2.h||0)+(use3?d2h*t:0);
   const nx=c1x-c2x,ny=c1y-c2y,nh=use3?c1h-c2h:0,dist=Math.hypot(nx,ny,nh);return {s,t,nx,ny,nh,dist};}
-function collide(){
+function collide(){flushExcl();
   const segs=G.segs,T=segs.length;if(!T)return;
   const objR=G.objs.map(o=>effR(o)),objs=G.objs;
   let rMax=0,padMax=S.wallPad;for(let oi=0;oi<objs.length;oi++){const o=objs[oi];if(objR[oi]>rMax)rMax=objR[oi];const pd=Math.max(o.padSelf||0,o.padOther||0);if(pd>padMax)padMax=pd;}
@@ -712,7 +712,8 @@ function attract(){
   if(chunkOn)G.attractPhase=(phase+1)%CHUNKS;
 }
 function rebuildTopology(){for(const o of G.objs)o.segIdx=[];for(let i=0;i<G.segs.length;i++)G.objs[G.segs[i].obj].segIdx.push(i);
-  buildNbrs();computeExclusions();refreshStats();}   // light rebuild (keeps rest-bend) for frequent bond changes
+  buildNbrs();G.exclDirty=true;}   // light rebuild for frequent bond changes; exclusions recomputed lazily by collide (coalesces many merges/breaks in a frame into one exclusion pass)
+function flushExcl(){if(G.exclDirty){computeExclusions();G.exclDirty=false;refreshStats();}}
 function endpointForces(){
   const ends=G.ends;if(!ends||ends.length<2)return;
   const objs=G.objs;
@@ -807,7 +808,7 @@ function flagStrainBreaks(){const toSever=[];for(let i=0;i<G.segs.length;i++){co
   if(!toSever.length)return;
   let any=false;for(const i of toSever){const s=G.segs[i];const held=(s.a===grab||s.b===grab);   // sever at a node; a lone edge returns false (indivisible)
     if(severEdgeAt(i,true)){any=true;if(held)grab=-1;}}
-  if(any){buildNbrs();computeExclusions();}}
+  if(any){buildNbrs();G.exclDirty=true;}}
 function flagBendBreaks(){   // sever a joint bent too sharply (absolute) and/or too far from its rest angle (relative)
   const hits=[];const DEG=Math.PI/180;
   for(let i=0;i<G.nodes.length;i++){const nb=G.nbrs[i];if(!nb||nb.length!==2)continue;
@@ -822,12 +823,31 @@ function flagBendBreaks(){   // sever a joint bent too sharply (absolute) and/or
   for(const i of hits){let si=-1,atA=false;                                       // detach one edge at this joint -> splits here
     for(let k=0;k<G.segs.length;k++){const s=G.segs[k];if(s.dead||s.bond)continue;if(s.a===i){si=k;atA=true;break;}if(s.b===i){si=k;atA=false;break;}}
     if(si>=0&&severEdgeAt(si,atA))any=true;}
-  if(any){buildNbrs();computeExclusions();}}
+  if(any){buildNbrs();G.exclDirty=true;}}
 function removeDead(){let dirty=false;                    // runs every frame, independent of bonding
   for(let i=G.segs.length-1;i>=0;i--){const s=G.segs[i];if(!s.dead)continue;
     if(s.bond&&S.bondTimer==='cumulative')G.bondBank.set(bondKey(s.a,s.b),s.bondAge||0);   // bank holding-bond progress across a break
     G.segs.splice(i,1);dirty=true;}
-  if(dirty)rebuildTopology();}
+  if(dirty)rebuildTopology();
+  compactNodes();}   // always check — churn adds orphans via sever/merge without any dead segment, so this can't be gated on 'dirty'
+function compactNodes(){   // churn (merge orphans a node, sever adds one) grows G.nodes unbounded -> every O(nodes) pass slows down. Periodically drop orphaned nodes and remap every index that points at one
+  const N=G.nodes.length;const live=new Uint8Array(N);
+  for(const s of G.segs){if(s.dead)continue;live[s.a]=1;live[s.b]=1;}
+  if(typeof grab!=='undefined'&&grab>=0&&grab<N)live[grab]=1;
+  let orphans=0;for(let i=0;i<N;i++)if(!live[i])orphans++;
+  if(orphans<128||orphans<N*0.5)return;                   // only when orphans really dominate (self-throttles: after compaction there are none)
+  const map=new Int32Array(N).fill(-1);const newNodes=[],hasInit=G.init&&G.init.length===N,newInit=[];let ni=0;
+  for(let i=0;i<N;i++){if(!live[i])continue;map[i]=ni++;newNodes.push(G.nodes[i]);if(hasInit)newInit.push(G.init[i]);}
+  for(const s of G.segs){s.a=map[s.a];s.b=map[s.b];}
+  G.nodes=newNodes;if(hasInit)G.init=newInit;
+  for(const o of G.objs)o.nodeIdx=o.nodeIdx.map(i=>map[i]).filter(i=>i>=0);
+  if(G.bondBank&&G.bondBank.size){const nb=new Map();for(const[k,v]of G.bondBank){const p=k.split('_'),a=+p[0],b=+p[1];if(map[a]>=0&&map[b]>=0)nb.set(bondKey(map[a],map[b]),v);}G.bondBank=nb;}
+  if(typeof grab!=='undefined'&&grab>=0)grab=map[grab];
+  if(typeof Sel!=='undefined'&&Sel){
+    if(Sel.nodes){const s=new Set();for(const n of Sel.nodes)if(map[n]>=0)s.add(map[n]);Sel.nodes=s.size?s:null;}
+    if(Sel.hoverNodes){const s=new Set();for(const n of Sel.hoverNodes)if(map[n]>=0)s.add(map[n]);Sel.hoverNodes=s.size?s:null;}
+    if(Sel.end>=0)Sel.end=map[Sel.end];if(Sel.hoverEnd>=0)Sel.hoverEnd=map[Sel.hoverEnd];}
+  rebuildTopology();}
 function bondKey(a,b){return Math.min(a,b)+'_'+Math.max(a,b);}
 function blendAttrs(A,B,t){   // shift A's scalar attributes toward B by t (t=0.5 => 50/50 average)
   for(const k of ['r','stiff','curl','grow','affinity','polarity','damp','padSelf','padOther','interSelf']){
