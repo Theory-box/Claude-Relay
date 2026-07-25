@@ -1110,10 +1110,10 @@ cvs.addEventListener('pointerdown',e=>{
   let best=-1,bd=28*28;
   for(let i=0;i<G.nodes.length;i++){const n=G.nodes[i];const d=(n.x-mx)*(n.x-mx)+(n.y-my)*(n.y-my);if(d<bd){bd=d;best=i;}}
   if(best>=0){grab=best;gx=mx;gy=my;cvs.setPointerCapture(e.pointerId);cvs.style.cursor='grabbing';
-    Sel.end=-1;if(G.nodes[best]&&G.nodes[best].obj!==S.selected)selectObject(G.nodes[best].obj);}   // clicking geometry makes its material active
+    Sel.end=-1;if(G.nodes[best]&&G.nodes[best].obj!==S.selected)selectObject(G.nodes[best].obj);showTab('objects');}   // clicking geometry -> its material + Objects view
   else{const si=nearestSeg(mx,my,Math.max(8,12/view.z));                                    // clicked a strand mid-body (no node close enough to grab)?
-    if(si>=0){Sel.end=-1;selectObject(G.segs[si].obj);}                                     // activate its material, don't pan
-    else{const r=cvs.getBoundingClientRect();panning=true;panSX=e.clientX-r.left;panSY=e.clientY-r.top;panOX=view.ox;panOY=view.oy;cvs.setPointerCapture(e.pointerId);cvs.style.cursor='move';}}});   // truly empty space = pan (selection left untouched)
+    if(si>=0){Sel.end=-1;selectObject(G.segs[si].obj);showTab('objects');}                  // activate its material, don't pan
+    else{const r=cvs.getBoundingClientRect();panning=true;panSX=e.clientX-r.left;panSY=e.clientY-r.top;panOX=view.ox;panOY=view.oy;cvs.setPointerCapture(e.pointerId);cvs.style.cursor='move';showTab('scene');}}});   // empty space -> pan + Scene view
 cvs.addEventListener('pointermove',e=>{
   if(panning){const r=cvs.getBoundingClientRect();view.ox=panOX+(e.clientX-r.left-panSX);view.oy=panOY+(e.clientY-r.top-panSY);return;}
   const [mx,my]=canvasXY(e);

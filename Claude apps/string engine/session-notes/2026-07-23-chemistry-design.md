@@ -694,3 +694,27 @@ Regressions pass.
 - Eyedropper to reassign a strand's material. [later]
 - Diegetic/in-canvas editing (drag a handle to set stiffness/angle) + attribute "paint" tools
   (thickness/stiffness/curl brushes that edit the whole material). [far future, user unsure]
+
+---
+
+## Dynamic tabs + connector model locked
+
+**Auto-tabs shipped:** clicking geometry -> Objects tab (via showTab('objects') in pointerdown),
+clicking empty space -> Scene tab. The active tab now reflects what you're looking at. (Manual tab
+buttons still work; collapsing to a single contextual label is a later polish.) Verified.
+
+**Connector type model — DECIDED (clean, no redundancy):**
+User spotted the double-spec problem (connector says "connects to red" AND red says "accepts
+connector"). Resolved with a type-compatibility model (DNA sticky-end / Winfree tile):
+- Connector TYPES are a creatable list (like materials): "A","B","hook","loop",...
+- Compatibility lives in the TYPE SYSTEM as a pair table: "A binds B", strength/snap/angle stored on
+  the PAIR. One source of truth.
+- A string just ASSIGNS a type to each end (head=A, tail=B). No accept-lists on strings/objects.
+- Layering is one-directional: objects -> point at types; types -> point at each other. Objects never
+  reference objects; types never reference objects. => the type assignments + pair table ARE the genome.
+OPEN Q for user: symmetric compatibility (A~B implies B~A) vs directional (A-head seeks B-tail only,
+DNA 5'/3' polarity). Lean symmetric first, add direction later.
+
+Stage 2 build (pending user's symmetric/directional answer): a connector-type registry (create/name/
+color types) + a compatibility table UI + per-material end-type assignment (head/tail). Then bonding
+reads the endpoint's type (not objType) and the pair table. Stage 3: the angle constraint on the pair.
