@@ -93,7 +93,7 @@
     </button>
     <div class="toolsep"></div>
   </div>
-  <div class="screen"><canvas id="c"></canvas><div class="tag">topology engine · <b id="tagScene" style="color:var(--muted)">demo</b></div></div>
+  <div class="screen"><canvas id="c"></canvas><div class="tag">topology engine · <b id="tagScene" style="color:var(--muted)">demo</b> · <b id="tagSel" style="color:var(--accent)">Scene</b></div></div>
   <div class="rail">
     <div class="railtop">
       <div class="barrow">
@@ -1216,7 +1216,7 @@ function refreshPanelMode(){   // connector rules live WITH the material (rule-b
   if(epG)epG.style.display='';if(epA)epA.style.display='';if(epC)epC.style.display='';
   const kind=document.getElementById('edKind');if(kind)kind.textContent='Editing';
 }
-function selectObject(i){if(i!==S.selected)activeConnTarget=null;S.snapViz=null;S.selected=i;renderObjectList();const o=G.objs[i],ed=document.getElementById('objEditor');
+function selectObject(i){if(i!==S.selected)activeConnTarget=null;S.snapViz=null;S.selected=i;renderObjectList();const o=G.objs[i],ed=document.getElementById('objEditor');const ts=document.getElementById('tagSel');if(ts){ts.textContent=o?(o.name||('object '+(i+1))):'Scene';if(o&&o.color)ts.style.color=o.color;}
   if(!o){ed.style.display='none';return;}ed.style.display='';
   document.getElementById('objName').textContent=o.name||('object '+(i+1));
   const sv=(rid,nid,val)=>{const v=+val;document.getElementById(rid).value=v;document.getElementById(nid).value=Math.round(v*1000)/1000;};
@@ -1372,7 +1372,7 @@ document.getElementById('file').addEventListener('change',ev=>{const f=ev.target
 document.querySelectorAll('.tab').forEach(t=>t.addEventListener('click',()=>{
   document.querySelectorAll('.tab').forEach(x=>x.classList.remove('on'));t.classList.add('on');
   document.querySelectorAll('.tabpanel').forEach(pn=>pn.classList.toggle('on',pn.dataset.panel===t.dataset.tab));}));
-function showTab(name){const t=document.querySelector('.tab[data-tab="'+name+'"]');if(t)t.click();}
+function showTab(name){const t=document.querySelector('.tab[data-tab="'+name+'"]');if(t)t.click();const ts=document.getElementById('tagSel');if(ts&&name==='scene'){ts.textContent='Scene';ts.style.color='var(--accent)';}}
 // collapsible cards: click a card's top eyebrow to fold it
 document.querySelectorAll('.card').forEach(c=>{const h=c.querySelector(':scope > .eyebrow');if(!h)return;
   h.addEventListener('click',e=>{if(e.target.closest('button,input,select,a'))return;c.classList.toggle('collapsed');});});
