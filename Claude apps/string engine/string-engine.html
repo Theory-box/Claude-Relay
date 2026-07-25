@@ -456,7 +456,9 @@ function interVal(o,tids,same){if(same)return o.interSelf||0;if(!o.inter)return 
 function resetSim(){
   if(G.lastImport){const saved=captureSettings(),sel=S.selected;importJSON(G.lastImport);restoreSettings(saved);
     if(typeof renderObjectList==='function')renderObjectList();
-    if(sel>=0&&G.objs[sel])selectObject(sel);return;}
+    if(sel>=0&&G.objs[sel])selectObject(sel);
+    else{S.selected=-1;const ed=document.getElementById('objEditor');if(ed)ed.style.display='none';}   // drawn material is gone after reimport — drop the stale selection + editor panels
+    return;}
   if(!G.init||G.init.length!==G.nodes.length)return;
   for(let i=0;i<G.nodes.length;i++){const n=G.nodes[i],p=G.init[i];n.x=n.px=p[0];n.y=n.py=p[1];n.h=n.ph=p[2];}
   if(!S.running){S.running=true;const bp=document.getElementById('bPlay');if(bp)bp.textContent='Pause';}}

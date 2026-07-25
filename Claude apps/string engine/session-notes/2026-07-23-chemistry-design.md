@@ -375,3 +375,39 @@ selections survive compaction (valid indices); reset works post-compaction (no N
 bug. Biggest user-side lever is smaller endpoint pull ranges (wRange/sRange). The churn itself
 (instant-fuse + bend-break shatter/reform) is the earlier-diagnosed dynamic; wouldBendBreak reduced
 it but it still cycles. A future collision broad-phase optimisation would help the floor.
+
+---
+
+## Investigation: "draw a string -> framerate halves, reset doesn't fix it"
+
+Profiled the exact scenario (busy Circle.002 scene, draw ~20-pt string, play, reset). Findings:
+
+**1. Drawing adds real, expected collision cost.** A drawn string is a NEW object, so wherever it
+overlaps dense geometry it collides with everything there — its segments don't get the
+self-exclusion the scene's own object enjoys. Measured ~1.3-1.6x in a canvas-filling scene
+(more where the stroke crosses denser regions). Not a bug; it's the geometry doing work.
+
+**2. Why reset doesn't clear it (the real answer).** `build()` (demo scenes) sets
+`G.lastImport=null`; only `importJSON` sets it. `resetSim` reimports ONLY when `G.lastImport`
+exists. For a demo/drawn scene it falls to the `G.init` snapshot path — and `addStrokeToObject`
+calls `snapshotInit()`, so the snapshot now INCLUDES the drawn string. Reset restores it right
+back -> cost persists. (Imported JSON scenes DO drop the drawn string on reset.) Also:
+`resetSim` early-returns if `G.init.length !== G.nodes.length`, so after churn changes the node
+count, reset can silently no-op entirely.
+
+**3. No persistent algorithmic leak.** After reset, collision pair count (~4600-4900) and all
+collide params (r, padSelf, gThick) are identical with vs without a prior draw; `inter` maps are
+empty in both. The engine workload is genuinely restored. A ~1.3x timing wobble I measured
+post-reset does NOT correspond to more collision pairs -> attributable to GC/JIT + a little stale
+editor DOM, not the sim doing more work.
+
+**4. The perf fixes from the prior commit** (exclusion coalescing 9->1/frame, node compaction)
+still apply and help the general churn case the user is in.
+
+**Fix shipped:** on reset, if the selected material no longer exists after reimport, clear
+`S.selected` and hide the editor (removes stale editor DOM). Small hygiene fix.
+
+**Open design question for the user:** should Reset *discard* drawn/edited geometry (return to
+the authored/original scene) or *keep* it (re-run the sim from the current layout)? Right now
+imported scenes discard, demo/drawn scenes keep — inconsistent. Worth unifying once they say which
+they want. Also worth making resetSim robust to node-count mismatch so it never silently no-ops.
