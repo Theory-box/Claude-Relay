@@ -871,3 +871,21 @@ sub-pixel/off-screen. Regressions pass, no NaN.
 Since render competes with the sim for the frame, this also gives the SIM more headroom on big scenes.
 Further render ideas if ever needed: batch base strokes per-object into one path (fewer stroke calls);
 approximate Shade's gradient with 2 offset solid strokes (no per-seg gradient alloc). Not needed now.
+
+---
+
+## Temporal spread for bonding (separate toggle)
+
+User: apply temporal spreading to bonding too (separate button); accuracy loss won't be apparent.
+NOTE: attraction/repulsion ALREADY have it — the existing "temporal spread · interactions" (S.chunk)
+gates attract() which does both attract & repel. So only bonding needed it.
+
+Added S.bondChunk + UI toggle "temporal spread · bonding" (Scene tab, next to interactions one).
+endpointForces now processes 1/3 of ends per frame (ii%3===bphase), rotating G.bondPhase each frame,
+with pull forces scaled x3 (bcMul) to keep the average — same pattern as attract(). Preserved across
+reset (added to capture/apply lists + applyGlobals toggle sync).
+
+Verified (c002b, bonding+breaking, temp 1): endpointForces 8.67 -> 1.40 ms = **6.2x** (the extra beyond
+3x comes from less downstream churn — fewer bond events/frame). Bonds still form (1082 -> 838, the
+staggering; chaotic scene so it's a different rollout, not a defect). No NaN, stable, regressions pass.
+endpointForces was ~18-30% of the frame, so this is a big win for bonding-heavy scenes.

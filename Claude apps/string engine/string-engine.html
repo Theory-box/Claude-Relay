@@ -161,6 +161,8 @@
         <div class="ctrl" style="margin-top:8px"><label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input id="sXpbd" type="checkbox" style="width:15px;height:15px;cursor:pointer"> XPBD contacts</label><div class="stat" style="margin-top:3px"><span>corrects only the energy collisions <i>invent</i> (self-propulsion, jitter) once per step — calms clusters without damping real motion. Doesn't need collision smoothing.</span></div></div>
         <div class="seg" style="margin-top:8px"><button id="sChunk">temporal spread · interactions</button></div>
         <div class="stat" style="margin-top:3px"><span>spreads attraction/repulsion over 3 frames — faster on dense scenes</span></div>
+        <div class="seg" style="margin-top:6px"><button id="sBondChunk">temporal spread · bonding</button></div>
+        <div class="stat" style="margin-top:3px"><span>spreads bond checks over 3 frames — big help when lots is bonding &amp; breaking</span></div>
         <div class="seg" style="margin-top:10px"><button id="sBond" class="on">bonding master (kill-switch)</button></div>
         <div class="stat" style="margin-top:3px"><span>on by default \u00b7 turn bonding on per-object in its Connect tab</span></div>
         <p class="eyebrow" style="margin:12px 0 4px">Defaults for new connections</p>
@@ -249,7 +251,7 @@ const PALETTE=['#37e0d4','#7b8cff','#ff5fa2','#ffb02e','#b06bff','#4ade80','#ff7
 // G.objs:  {name,r,stiff,curl,affinity,polarity,solid,fixed,color, nodeIdx:[], segIdx:[]}
 const G={nodes:[],segs:[],objs:[],nbrs:[]};
 const S={temp:0.7,speed:1,running:true,W:0,H:0,dpr:1,pad:26,scene:'box',
-  gCurl:0,gStiff:0,gThick:0,gGrow:0,weave:0,view:'default',iters:4,wallPad:5,attract:0.4,repel:0,tol:0.4,selected:-1,weld:0.003,damp:0.02,contactDamp:0,chunk:false,bonding:true,bondSnap:1.5,bondBrk:2.5,bondCure:0,bondBlend:0,bondTimer:'continuous',cdRamping:false,cdRamp0:0,bondEnergy:0,maxBondEvents:40,snapViz:null,showHeat:true,strandFill:1,outlineW:0.1,outlineA:0.3,cleanView:false,gloss:0.75,shade:1,bg:null,shadow:0.25,xpbd:false};
+  gCurl:0,gStiff:0,gThick:0,gGrow:0,weave:0,view:'default',iters:4,wallPad:5,attract:0.4,repel:0,tol:0.4,selected:-1,weld:0.003,damp:0.02,contactDamp:0,chunk:false,bonding:true,bondSnap:1.5,bondBrk:2.5,bondCure:0,bondBlend:0,bondTimer:'continuous',cdRamping:false,cdRamp0:0,bondEnergy:0,maxBondEvents:40,snapViz:null,showHeat:true,strandFill:1,outlineW:0.1,outlineA:0.3,cleanView:false,gloss:0.75,shade:1,bg:null,shadow:0.25,xpbd:false,bondChunk:false};
 const OBJDEF={r:3,stiff:0.12,curl:0,grow:0,affinity:1,polarity:1,solid:false,fixed:false,color:null,autoSpace:false,spaceMult:1,breakable:false,brkStretch:true,brkAbs:false,bendAbsLim:90,brkRel:false,bendRelLim:60};
 // per-object attribute + global offset (0 = use imported value untouched)
 function effR(o){return Math.max(0.5,o.r+S.gThick);}
@@ -446,7 +448,7 @@ function captureSettings(){const m={_g:{}};
     damp:o.damp,padSelf:o.padSelf,padOther:o.padOther,ids:o.ids?o.ids.slice():null,r:o.r,stiff:o.stiff,curl:o.curl,grow:o.grow,
     affinity:o.affinity,polarity:o.polarity,bondOn:o.bondOn,autoSpace:o.autoSpace,spaceMult:o.spaceMult,breakable:o.breakable,brkStretch:o.brkStretch,brkAbs:o.brkAbs,bendAbsLim:o.bendAbsLim,brkRel:o.brkRel,bendRelLim:o.bendRelLim,endType:o.endType?JSON.parse(JSON.stringify(o.endType)):null,
     solid:o.solid,fixed:o.fixed};
-  for(const k of ['temp','damp','speed','weave','iters','wallPad','contactDamp','weld','gCurl','gStiff','gThick','gGrow','chunk','bonding','bondSnap','bondBrk','bondCure','bondBlend','bondTimer','bondEnergy','view','repel','tol','maxBondEvents','showHeat','strandFill','outlineW','outlineA','gloss','shade','bg','shadow','xpbd'])m._g[k]=S[k];
+  for(const k of ['temp','damp','speed','weave','iters','wallPad','contactDamp','weld','gCurl','gStiff','gThick','gGrow','chunk','bonding','bondSnap','bondBrk','bondCure','bondBlend','bondTimer','bondEnergy','view','repel','tol','maxBondEvents','showHeat','strandFill','outlineW','outlineA','gloss','shade','bg','shadow','xpbd','bondChunk'])m._g[k]=S[k];
   return m;}
 function restoreSettings(m){
   if(m._g)applyGlobals(m._g);                                   // keep the user's global settings + resync their sliders
@@ -522,7 +524,7 @@ function seedWeavy(count,x0,x1,y0,y1){
 
 // ---------- import ----------
 function applyGlobals(g){
-  for(const k of ['weld','weave','iters','wallPad','damp','contactDamp','temp','speed','gCurl','gStiff','gThick','gGrow','chunk','bonding','bondSnap','bondBrk','bondCure','bondBlend','bondTimer','bondEnergy','view','repel','tol','maxBondEvents','showHeat','strandFill','outlineW','outlineA','gloss','shade','bg','shadow','xpbd'])if(g[k]!==undefined)S[k]=g[k];
+  for(const k of ['weld','weave','iters','wallPad','damp','contactDamp','temp','speed','gCurl','gStiff','gThick','gGrow','chunk','bonding','bondSnap','bondBrk','bondCure','bondBlend','bondTimer','bondEnergy','view','repel','tol','maxBondEvents','showHeat','strandFill','outlineW','outlineA','gloss','shade','bg','shadow','xpbd','bondChunk'])if(g[k]!==undefined)S[k]=g[k];
   const sync=(id,val,vid,fmt)=>{const el=document.getElementById(id);if(el)el.value=val;if(vid){const v=document.getElementById(vid);if(v)v.textContent=fmt?fmt(val):val;}};
   sync('sWeld',S.weld);sync('sWeldN',S.weld);sync('sWeave',S.weave,'vWeave',x=>(+x).toFixed(2));
   sync('sIters',S.iters,'vIters');sync('sPad',S.wallPad,'vPad');sync('sDamp',S.damp,'vDamp',x=>(+x).toFixed(2));
@@ -534,7 +536,7 @@ function applyGlobals(g){
   sync('sBCure',S.bondCure,'vBCure',x=>x>=900?'\u221e \u00b7 elastic':(x==0?'0 \u00b7 instant':x+' frames'));
   sync('sBBlend',S.bondBlend,'vBBlend',x=>x<=0?'0 \u00b7 separate':(x>=1?'1 \u00b7 average':(+x).toFixed(1)+' \u00b7 partial'));
   const tog=(id,on)=>{const el=document.getElementById(id);if(el)el.classList.toggle('on',!!on);};
-  tog('sChunk',S.chunk);tog('sBond',S.bonding);tog('sBTimerCont',S.bondTimer==='continuous');tog('sBTimerCum',S.bondTimer==='cumulative');sync('sFill',S.strandFill,'vFill',x=>(+x).toFixed(2));sync('sOutW',S.outlineW,'vOutW',x=>(+x).toFixed(1));sync('sOutA',S.outlineA,'vOutA',x=>(+x).toFixed(2));sync('sGloss',S.gloss,'vGloss',x=>(+x).toFixed(2));sync('sShade',S.shade,'vShade',x=>(+x).toFixed(2));sync('sShadow',S.shadow,'vShadow',x=>(+x).toFixed(2));{const xb=document.getElementById('sXpbd');if(xb)xb.checked=!!S.xpbd;const bgp=document.getElementById('sBg');if(bgp&&S.bg)bgp.value=S.bg;}}
+  tog('sChunk',S.chunk);tog('sBondChunk',S.bondChunk);tog('sBond',S.bonding);tog('sBTimerCont',S.bondTimer==='continuous');tog('sBTimerCum',S.bondTimer==='cumulative');sync('sFill',S.strandFill,'vFill',x=>(+x).toFixed(2));sync('sOutW',S.outlineW,'vOutW',x=>(+x).toFixed(1));sync('sOutA',S.outlineA,'vOutA',x=>(+x).toFixed(2));sync('sGloss',S.gloss,'vGloss',x=>(+x).toFixed(2));sync('sShade',S.shade,'vShade',x=>(+x).toFixed(2));sync('sShadow',S.shadow,'vShadow',x=>(+x).toFixed(2));{const xb=document.getElementById('sXpbd');if(xb)xb.checked=!!S.xpbd;const bgp=document.getElementById('sBg');if(bgp&&S.bg)bgp.value=S.bg;}}
 function importJSON(data){
   try{const obj=JSON.parse(data);const objs=obj.objects||obj;if(!Array.isArray(objs))throw 0;
     resize();clearGraph();S.scene='import';G.lastImport=data;
@@ -758,7 +760,8 @@ function endpointForces(){
   const ER=maxR+10,ER2=ER*ER,cell=ER,bkt=new Map();
   for(const ni of ends){const n=G.nodes[ni];const key=(Math.floor(n.x/cell)+16384)*32768+(Math.floor(n.y/cell)+16384);let arr=bkt.get(key);if(!arr){arr=[];bkt.set(key,arr);}arr.push(ni);}
   const newBonds=[];
-  for(let ii=0;ii<ends.length;ii++){const n1=ends[ii],a=G.nodes[n1],cx=Math.floor(a.x/cell),cy=Math.floor(a.y/cell);
+  const bc=S.bondChunk,BC=3,bphase=bc?((G.bondPhase|0)%BC):0,bcMul=bc?BC:1;   // temporal spread for bonding: process 1/3 of ends per frame, pull scaled x3 to keep the average
+  for(let ii=0;ii<ends.length;ii++){if(bc&&(ii%BC)!==bphase)continue;const n1=ends[ii],a=G.nodes[n1],cx=Math.floor(a.x/cell),cy=Math.floor(a.y/cell);
     for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++){const arr=bkt.get(((cx+dx)+16384)*32768+((cy+dy)+16384));if(!arr)continue;
       for(const n2 of arr){if(n2<=n1)continue;const bn=G.nodes[n2];
         const dxp=bn.x-a.x,dyp=bn.y-a.y,d2=dxp*dxp+dyp*dyp;if(d2>ER2||d2<1e-6)continue;
@@ -772,11 +775,11 @@ function endpointForces(){
         if(p1){let f=0;                                          // n1 pulled per its profile toward n2
           if(p1.wStr&&dist<p1.wRange)f+=p1.wStr*0.12*(1-dist/p1.wRange);   // weak: long-range, gentle
           if(p1.sStr&&dist<p1.sRange)f+=p1.sStr*0.42*(1-dist/p1.sRange);   // strong: short-range, firm
-          if(f){a.x+=ux*f*a.inv;a.y+=uy*f*a.inv;}}
+          if(f){a.x+=ux*f*bcMul*a.inv;a.y+=uy*f*bcMul*a.inv;}}
         if(p2){let f=0;
           if(p2.wStr&&dist<p2.wRange)f+=p2.wStr*0.12*(1-dist/p2.wRange);
           if(p2.sStr&&dist<p2.sRange)f+=p2.sStr*0.42*(1-dist/p2.sRange);
-          if(f){bn.x+=-ux*f*bn.inv;bn.y+=-uy*f*bn.inv;}}
+          if(f){bn.x+=-ux*f*bcMul*bn.inv;bn.y+=-uy*f*bcMul*bn.inv;}}
         const blocks=(p)=>p&&p.sStr<0;                            // only a STRONG (close-range) repel vetoes bonding — no pull is fine, proximity within snap still bonds
         if(S.bonding&&!adjacent&&(p1||p2)&&!blocks(p1)&&!blocks(p2)){
           let gated=false;                                        // hysteresis: a pair that just broke can't re-heal until pulled apart past its break distance
@@ -787,6 +790,7 @@ function endpointForces(){
           if(!gated&&dist<snapR*bondRest){const mgs=[p1?p1.merge:null,p2?p2.merge:null].filter(v=>v!=null),bls=[p1?p1.blend:null,p2?p2.blend:null].filter(v=>v!=null),bks=[p1?p1.brk:null,p2?p2.brk:null].filter(v=>v!=null),bss=[p1?p1.bStr:null,p2?p2.bStr:null].filter(v=>v!=null),hps=[p1?p1.hardenPow:null,p2?p2.hardenPow:null].filter(v=>v!=null);
             newBonds.push({a:n1,b:n2,d:dist,merge:mgs.length?Math.min(...mgs):0,blend:bls.length?Math.min(...bls):1,brk:bks.length?Math.max(...bks):2.5,
               bStr:bss.length?Math.min(...bss):0.4,hardenPow:hps.length?Math.max(...hps):1});}}}}}   // either side wanting separate (blend 0) keeps them separate; weaker side sets stability
+  if(bc)G.bondPhase=(bphase+1)%BC;   // rotate which third of ends is processed next frame
   if(newBonds.length){
     const existing=new Set();for(const s of G.segs)existing.add(Math.min(s.a,s.b)+'_'+Math.max(s.a,s.b));
     let added=false;const done=new Set(),usedNodes=new Set();
@@ -1398,6 +1402,7 @@ document.getElementById('sPad').addEventListener('input',e=>{S.wallPad=parseFloa
 document.getElementById('sCD').addEventListener('input',e=>{S.contactDamp=parseFloat(e.target.value);S.cdRamping=false;document.getElementById('vCD').textContent=S.contactDamp.toFixed(2);});
 document.getElementById('sXpbd').addEventListener('change',e=>{S.xpbd=e.target.checked;});
 document.getElementById('sChunk').addEventListener('click',()=>{S.chunk=!S.chunk;document.getElementById('sChunk').classList.toggle('on',S.chunk);});
+document.getElementById('sBondChunk').addEventListener('click',()=>{S.bondChunk=!S.bondChunk;document.getElementById('sBondChunk').classList.toggle('on',S.bondChunk);});
 document.getElementById('sBond').addEventListener('click',()=>{S.bonding=!S.bonding;document.getElementById('sBond').classList.toggle('on',S.bonding);});
 document.getElementById('sBSnap').addEventListener('input',e=>{S.bondSnap=parseFloat(e.target.value);document.getElementById('vBSnap').textContent=S.bondSnap;});
 document.getElementById('sBBrk').addEventListener('input',e=>{S.bondBrk=parseFloat(e.target.value);document.getElementById('vBBrk').textContent=S.bondBrk;});
