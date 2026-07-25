@@ -411,3 +411,28 @@ still apply and help the general churn case the user is in.
 the authored/original scene) or *keep* it (re-run the sim from the current layout)? Right now
 imported scenes discard, demo/drawn scenes keep — inconsistent. Worth unifying once they say which
 they want. Also worth making resetSim robust to node-count mismatch so it never silently no-ops.
+
+---
+
+## Snap-distance legibility: fixed reach calc + live halo overlay
+
+User: snap slider felt wrong ("says 8px but 25px won't snap"). Verified the ENGINE trigger is
+exact — bonding fires precisely at snap x (effR_self + effR_target) (measured across 5 configs,
+matched to the pixel). The bug was in the READOUT I'd added earlier:
+- `bondRest = 2*effR(self)` — wrong for bonding to a different-thickness target; should be
+  `effR(self) + effR(target)`.
+- `reachC = 2*(effR+pad)` — **double-counted padding**; the real collision standoff is
+  `effR_self + effR_target + pad` (ONE gap between the two surfaces, not two).
+So it reported a larger "needed" snap than reality — exactly the user's symptom.
+
+Fixed `updReach`: looks up the real target object's effR, uses single padding (padSelf for self,
+max padOther for cross), and now reads "bonds within X px · collision holds Y px apart · breaks
+at Z" with a warning when snap can't reach past the standoff. Verified: THICK(8)+THIN(2) self
+padSelf 4 -> standoff 20 (was buggy 24), snapPx 24.
+
+**Live halo overlay:** `updReach` sets `S.snapViz={objIdx,snapPx,standoff}`; render draws at each
+free end of the selected bonding object a filled green disc at the snap-reach radius and an amber
+dashed ring at the collision standoff. Updates live as the snap/thickness/padding sliders move.
+When the amber ring sits OUTSIDE the green fill, you can see at a glance that collision holds ends
+too far apart to bond. Cleared on reselect (S.snapViz=null in selectObject). Shows for whichever
+profile is open (self by default, or the clicked external-target chip). Regressions + health pass.

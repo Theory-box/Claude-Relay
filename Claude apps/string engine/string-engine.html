@@ -234,7 +234,7 @@ const PALETTE=['#37e0d4','#7b8cff','#ff5fa2','#ffb02e','#b06bff','#4ade80','#ff7
 // G.objs:  {name,r,stiff,curl,affinity,polarity,solid,fixed,color, nodeIdx:[], segIdx:[]}
 const G={nodes:[],segs:[],objs:[],nbrs:[]};
 const S={temp:0.7,speed:1,running:true,W:0,H:0,dpr:1,pad:26,scene:'box',
-  gCurl:0,gStiff:0,gThick:0,gGrow:0,weave:0,view:'default',iters:4,wallPad:5,attract:0.4,repel:0,tol:0.4,selected:-1,weld:0.003,damp:0.02,contactDamp:0,chunk:false,bonding:true,bondSnap:1.5,bondBrk:2.5,bondCure:0,bondBlend:0,bondTimer:'continuous',cdRamping:false,cdRamp0:0,bondWobble:0,bondEnergy:0,maxBondEvents:40};
+  gCurl:0,gStiff:0,gThick:0,gGrow:0,weave:0,view:'default',iters:4,wallPad:5,attract:0.4,repel:0,tol:0.4,selected:-1,weld:0.003,damp:0.02,contactDamp:0,chunk:false,bonding:true,bondSnap:1.5,bondBrk:2.5,bondCure:0,bondBlend:0,bondTimer:'continuous',cdRamping:false,cdRamp0:0,bondWobble:0,bondEnergy:0,maxBondEvents:40,snapViz:null};
 const OBJDEF={r:3,stiff:0.12,curl:0,grow:0,affinity:1,polarity:1,solid:false,fixed:false,color:null,autoSpace:false,spaceMult:1,breakable:false,brkStretch:true,brkAbs:false,bendAbsLim:90,brkRel:false,bendRelLim:60};
 // per-object attribute + global offset (0 = use imported value untouched)
 function effR(o){return Math.max(0.5,o.r+S.gThick);}
@@ -946,6 +946,13 @@ function render(){
   // junction nodes (degree>2) get a dot so shared vertices read clearly
   for(let i=0;i<G.nodes.length;i++){if(G.nbrs[i]&&G.nbrs[i].length>2){const n=G.nodes[i],o=G.objs[n.obj];
     ctx.fillStyle=o.color;ctx.beginPath();ctx.arc(n.x,n.y,effR(o)*1.4,0,6.2832);ctx.fill();}}
+  // ---------- snap-distance halos (live while editing a bonding profile) ----------
+  if(S.snapViz&&S.snapViz.objIdx===S.selected&&G.objs[S.selected]){const o=G.objs[S.selected],sv=S.snapViz;
+    for(const i of o.nodeIdx){if(!G.nbrs[i]||G.nbrs[i].length!==1)continue;const n=G.nodes[i];   // only free ends are reactive sites
+      if(sv.snapPx>0){ctx.beginPath();ctx.arc(n.x,n.y,sv.snapPx,0,6.2832);ctx.fillStyle='rgba(110,231,183,0.12)';ctx.fill();
+        ctx.lineWidth=1.2;ctx.strokeStyle='rgba(110,231,183,0.9)';ctx.stroke();}                 // green: ends within here bond
+      if(sv.standoff>0){ctx.beginPath();ctx.arc(n.x,n.y,sv.standoff,0,6.2832);ctx.setLineDash([4,4]);
+        ctx.lineWidth=1.2;ctx.strokeStyle=sv.standoff>sv.snapPx?'rgba(232,170,140,0.95)':'rgba(232,170,140,0.5)';ctx.stroke();ctx.setLineDash([]);}}}   // amber dashed: collision standoff — outside the green = can't reach
   // ---------- hover + selection highlights ----------
   pruneSel();
   const nodeSetSegs=(set,style,w)=>{if(!set)return;ctx.strokeStyle=style;ctx.lineWidth=w;ctx.lineCap='round';
@@ -1175,7 +1182,7 @@ function removeMaterial(i){const o=G.objs[i];if(!o)return;
   S.selected=-1;buildNbrs();computeExclusions();snapshotInit();refreshStats();renderObjectList();
   const ed=document.getElementById('objEditor');if(ed)ed.style.display='none';}
 function selObj(){return S.selected>=0?G.objs[S.selected]:null;}
-function selectObject(i){if(i!==S.selected)activeConnTarget=null;S.selected=i;renderObjectList();const o=G.objs[i],ed=document.getElementById('objEditor');
+function selectObject(i){if(i!==S.selected)activeConnTarget=null;S.snapViz=null;S.selected=i;renderObjectList();const o=G.objs[i],ed=document.getElementById('objEditor');
   if(!o){ed.style.display='none';return;}ed.style.display='';
   document.getElementById('objName').textContent=o.name||('object '+(i+1));
   const sv=(rid,nid,val)=>{const v=+val;document.getElementById(rid).value=v;document.getElementById(nid).value=Math.round(v*1000)/1000;};
@@ -1229,9 +1236,13 @@ function buildInterUI(o){
       const controls=(type)=>{const rd=()=>endProf(o,type)||ENDDEF,st=(k,x)=>{ensureProf(o,type)[k]=x;};
         const reachEl=document.createElement('div');reachEl.className='stat';reachEl.style.cssText='display:block;margin:2px 0 6px;line-height:1.5';
         const pad=type===myType?(o.padSelf||0):(o.padOther||0);
-        const updReach=()=>{const er=effR(o),pr=rd(),bondRest=2*er,snapPx=(pr.snap||0)*bondRest,brkPx=(pr.brk||0)*bondRest,surf=er+pad,reachC=2*surf;
-          const warn=snapPx<reachC;
-          reachEl.innerHTML='surface ≈ '+surf.toFixed(0)+'px (reach '+reachC.toFixed(0)+'px) · snap → '+snapPx.toFixed(0)+'px'+(warn?' <span style="color:#e8a">⚠ too low to touch</span>':'')+' · break → '+brkPx.toFixed(0)+'px';};
+        const updReach=()=>{const er=effR(o),pr=rd();
+          const tObj=G.objs.find(t=>objType(t)===type);const erT=tObj?effR(tObj):er;   // real partner radius (not self doubled)
+          const bondRest=er+erT;const padE=type===myType?(o.padSelf||0):Math.max(o.padOther||0,tObj?(tObj.padOther||0):0);
+          const snapPx=(pr.snap||0)*bondRest,brkPx=(pr.brk||0)*bondRest,standoff=er+erT+padE;   // collision holds ends this far apart (ONE gap, not two)
+          const warn=snapPx<standoff;
+          reachEl.innerHTML='bonds within ≈ <b>'+snapPx.toFixed(0)+'px</b> · collision holds ≈ <b>'+standoff.toFixed(0)+'px</b> apart'+(warn?' <span style="color:#e8a">⚠ snap can\u2019t reach past collision — raise snap or lower padding</span>':'')+' · breaks at '+brkPx.toFixed(0)+'px';
+          S.snapViz={objIdx:S.selected,snapPx,standoff};};   // feed the live halo overlay
         updReach();ew.appendChild(reachEl);
         ew.appendChild(profRow('weak pull',()=>rd().wStr,x=>st('wStr',x),-1,1,0.05));
         ew.appendChild(profRow('weak range',()=>rd().wRange,x=>st('wRange',x),0,240,5));
