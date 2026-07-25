@@ -745,3 +745,23 @@ Note: the beady SOLID render is already gone (user confirmed — happened via an
 Remaining "solid" bundle pieces still to fully decouple later: make reliable-collision (CCD) the
 default for all so you don't need solid for accurate collision; then solid reduces to just "fixed
 wall". fixed=immovable and weave stay their own toggles. Not urgent now.
+
+---
+
+## Visuals — step 1: gloss / tube shading
+
+User wants a nicer look (eventual vision: opaque-fading-to-clear membranes, jiggle/diffraction,
+refraction, glow, drop shadows, per-string rendering tab, blurred bg). Established: canvas 2D can fake
+a lot (gradients, shadowBlur, additive glow, specular streaks); true refraction/light-bending needs a
+future WebGL pass. Doing it one cheap step at a time.
+
+Step 1 shipped — GLOSS (faux tube shading): in the strand draw loop, when S.gloss>0, draw a thin white
+specular streak offset toward a scene light (LIGHT_X/Y = up-left) on the light-facing side of each
+segment (perpendicular flipped by sign of perp·light). Makes flat strands read as rounded, lit gel.
+Zeroable slider in Scene->View->Strand look (default 0 = off, so no perf cost until enabled; when on
+it's ~1 extra stroke/segment, part of render's ~9%). Verified: renders, no errors, off by default.
+
+Visual roadmap (simple -> fancy, each its own step): [1] gloss DONE. [2] soft glow (additive halo,
+energy look). [3] drop shadow / depth layering. [4] background (gradient/vignette). [5] per-string
+"Rendering" panel to set these per material. [6 later] membrane opacity gradients (opaque outer ->
+clear inner so you see inside). [7 much later] WebGL for real refraction/diffraction/light-bending.
