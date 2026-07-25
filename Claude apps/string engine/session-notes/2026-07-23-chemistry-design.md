@@ -778,3 +778,17 @@ Verified renders, no errors, off by default.
 
 Visual roadmap remaining: [2] soft glow (additive halo), [3] drop shadow/depth, [4] background, [5]
 per-material rendering panel, [6] membrane opacity gradients, [7 later] WebGL refraction.
+
+## Visuals steps 3-4: background colour + soft contact shadow / fake AO
+
+- **Background colour** (Scene->View->Strand look): S.bg fills the canvas each frame; colour picker +
+  "default" button (S.bg=null -> transparent, shows the original CSS radial gradient). Default null.
+- **Shadow / depth** slider: before the strand loop, draw a blurred (ctx.filter blur) dark copy of each
+  object's strands, offset away from LIGHT (down-right), alpha+blur scale with the slider. Overlapping
+  objects' shadows stack -> darker where strands are dense (fake ambient occlusion). Verified via pixel
+  sample: background under a strand darkens (104->98) only with shadow on; off by default.
+  Perf note: uses ctx.filter blur per object -> heavier toggle (like Shade); off by default, for looks.
+
+Strand look now: Fill, Shade (diffuse), Gloss (specular), Background, Shadow/AO, Outline. Remaining
+visual roadmap: [2] soft additive glow, [5] per-material rendering panel, [6] membrane opacity
+gradients, [7 later] WebGL refraction.

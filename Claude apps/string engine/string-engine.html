@@ -144,6 +144,8 @@
         <div class="ctrl"><label>Fill <span class="val" id="vFill">0.95</span></label><input id="sFill" type="range" min="0.5" max="1" value="0.95" step="0.01"><div class="stat" style="margin-top:3px"><span>how much of the strand's body is filled — near 1 closes the gaps so merged sub-strings read as one connected shape</span></div></div>
         <div class="ctrl"><label>Shade <span class="val" id="vShade">0.0</span></label><input id="sShade" type="range" min="0" max="1" value="0" step="0.05"><div class="stat" style="margin-top:3px"><span>diffuse capsule shading — bright on the lit side, dark on the shadow side (light from upper-left) · 0 = off</span></div></div>
         <div class="ctrl"><label>Gloss <span class="val" id="vGloss">0.0</span></label><input id="sGloss" type="range" min="0" max="1" value="0" step="0.05"><div class="stat" style="margin-top:3px"><span>specular tube shading — a lit streak that makes strands read as rounded gel · 0 = off (flat)</span></div></div>
+        <div class="ctrl"><label>Background</label><div style="display:flex;gap:8px;align-items:center;margin-top:2px"><input id="sBg" type="color" value="#0b0c16" style="width:38px;height:26px;border:1px solid var(--line);border-radius:6px;background:none;cursor:pointer"><button id="sBgClear" class="mini" style="font-size:10px;padding:4px 8px;border-radius:6px;border:1px solid var(--line);background:var(--ink2);color:var(--muted);cursor:pointer">default</button></div></div>
+        <div class="ctrl"><label>Shadow / depth <span class="val" id="vShadow">0.0</span></label><input id="sShadow" type="range" min="0" max="1" value="0" step="0.05"><div class="stat" style="margin-top:3px"><span>soft contact shadow under strands — pools darker where they cluster (fake ambient occlusion) · 0 = off</span></div></div>
         <div class="ctrl"><label>Outline <span class="val" id="vOutW">0.0</span></label><input id="sOutW" type="range" min="0" max="1.2" value="0" step="0.05"><div class="stat" style="margin-top:3px"><span>dark casing around each strand (scales with thickness) · 0 = off</span></div></div>
         <div class="ctrl"><label>Outline opacity <span class="val" id="vOutA">0.85</span></label><input id="sOutA" type="range" min="0" max="1" value="0.85" step="0.05"></div>
       </div>
@@ -246,7 +248,7 @@ const PALETTE=['#37e0d4','#7b8cff','#ff5fa2','#ffb02e','#b06bff','#4ade80','#ff7
 // G.objs:  {name,r,stiff,curl,affinity,polarity,solid,fixed,color, nodeIdx:[], segIdx:[]}
 const G={nodes:[],segs:[],objs:[],nbrs:[]};
 const S={temp:0.7,speed:1,running:true,W:0,H:0,dpr:1,pad:26,scene:'box',
-  gCurl:0,gStiff:0,gThick:0,gGrow:0,weave:0,view:'default',iters:4,wallPad:5,attract:0.4,repel:0,tol:0.4,selected:-1,weld:0.003,damp:0.02,contactDamp:0,chunk:false,bonding:true,bondSnap:1.5,bondBrk:2.5,bondCure:0,bondBlend:0,bondTimer:'continuous',cdRamping:false,cdRamp0:0,bondEnergy:0,maxBondEvents:40,snapViz:null,showHeat:true,strandFill:0.95,outlineW:0,outlineA:0.85,cleanView:false,gloss:0,shade:0};
+  gCurl:0,gStiff:0,gThick:0,gGrow:0,weave:0,view:'default',iters:4,wallPad:5,attract:0.4,repel:0,tol:0.4,selected:-1,weld:0.003,damp:0.02,contactDamp:0,chunk:false,bonding:true,bondSnap:1.5,bondBrk:2.5,bondCure:0,bondBlend:0,bondTimer:'continuous',cdRamping:false,cdRamp0:0,bondEnergy:0,maxBondEvents:40,snapViz:null,showHeat:true,strandFill:0.95,outlineW:0,outlineA:0.85,cleanView:false,gloss:0,shade:0,bg:null,shadow:0};
 const OBJDEF={r:3,stiff:0.12,curl:0,grow:0,affinity:1,polarity:1,solid:false,fixed:false,color:null,autoSpace:false,spaceMult:1,breakable:false,brkStretch:true,brkAbs:false,bendAbsLim:90,brkRel:false,bendRelLim:60};
 // per-object attribute + global offset (0 = use imported value untouched)
 function effR(o){return Math.max(0.5,o.r+S.gThick);}
@@ -939,6 +941,7 @@ function segColor(s){
 function render(){
   ctx.setTransform(1,0,0,1,0,0);
   ctx.clearRect(0,0,cvs.width,cvs.height);                                        // clear the FULL device-pixel canvas
+  if(S.bg){ctx.fillStyle=S.bg;ctx.fillRect(0,0,cvs.width,cvs.height);}            // customizable background
   ctx.setTransform(S.dpr*view.z,0,0,S.dpr*view.z,S.dpr*view.ox,S.dpr*view.oy);    // DPR * zoom/pan (world -> device pixels)
   ctx.strokeStyle='rgba(90,95,136,0.10)';ctx.lineWidth=1;ctx.strokeRect(S.pad-6,S.pad-6,S.W-2*(S.pad-6),S.H-2*(S.pad-6));
   // draw non-solid segments sorted by height (low first) for a weave cue; solid walls on top, opaque
@@ -948,6 +951,14 @@ function render(){
     const hi=(G.nodes[G.segs[i].a].h+G.nodes[G.segs[i].b].h),hj=(G.nodes[G.segs[j].a].h+G.nodes[G.segs[j].b].h);
     return hi-hj;});
   ctx.lineCap='round';ctx.lineJoin='round';const dbg=S.view!=='default';
+  if(S.shadow>0&&!dbg){                                                             // soft contact shadow / fake AO: a blurred dark copy under the strands, offset away from the light; stacks darker where strands are dense
+    ctx.save();ctx.filter='blur('+(2.5+S.shadow*7).toFixed(1)+'px)';
+    ctx.strokeStyle='rgba(0,0,0,'+(0.16+S.shadow*0.34).toFixed(3)+')';ctx.lineCap='round';ctx.lineJoin='round';
+    const d=3+S.shadow*5,ox=-LIGHT_X*d,oy=-LIGHT_Y*d;                                 // cast away from the light (down-right)
+    for(const o of G.objs){const r=effR(o);ctx.lineWidth=Math.max(2,r*2*S.strandFill*1.05);ctx.beginPath();
+      for(const si of o.segIdx){const s=G.segs[si];if(!s||s.dead||s.bond)continue;const a=G.nodes[s.a],b=G.nodes[s.b];if(!a||!b)continue;ctx.moveTo(a.x+ox,a.y+oy);ctx.lineTo(b.x+ox,b.y+oy);}
+      ctx.stroke();}
+    ctx.restore();}
   for(const idx of order){const s=G.segs[idx],o=G.objs[s.obj],a=G.nodes[s.a],b=G.nodes[s.b];const r=effR(o);const col=segColor(s);
     const fw=Math.max(2,r*2*S.strandFill);                                            // every strand renders as a smooth string — 'solid' is a physics property (impassable), not a look
     if(S.outlineW>0){ctx.strokeStyle='rgba(8,9,18,'+S.outlineA.toFixed(2)+')';ctx.lineWidth=fw+r*S.outlineW*2;
@@ -1383,6 +1394,9 @@ document.getElementById('sHeat').addEventListener('click',e=>{S.showHeat=!S.show
 document.getElementById('sFill').addEventListener('input',e=>{S.strandFill=parseFloat(e.target.value);document.getElementById('vFill').textContent=S.strandFill.toFixed(2);});
 document.getElementById('sGloss').addEventListener('input',e=>{S.gloss=parseFloat(e.target.value);document.getElementById('vGloss').textContent=S.gloss.toFixed(2);});
 document.getElementById('sShade').addEventListener('input',e=>{S.shade=parseFloat(e.target.value);document.getElementById('vShade').textContent=S.shade.toFixed(2);});
+document.getElementById('sBg').addEventListener('input',e=>{S.bg=e.target.value;});
+document.getElementById('sBgClear').addEventListener('click',()=>{S.bg=null;});
+document.getElementById('sShadow').addEventListener('input',e=>{S.shadow=parseFloat(e.target.value);document.getElementById('vShadow').textContent=S.shadow.toFixed(2);});
 document.getElementById('sOutW').addEventListener('input',e=>{S.outlineW=parseFloat(e.target.value);document.getElementById('vOutW').textContent=S.outlineW.toFixed(1);});
 document.getElementById('sOutA').addEventListener('input',e=>{S.outlineA=parseFloat(e.target.value);document.getElementById('vOutA').textContent=S.outlineA.toFixed(2);});
 document.getElementById('sBCure').addEventListener('input',e=>{S.bondCure=parseFloat(e.target.value);document.getElementById('vBCure').textContent=S.bondCure>=900?'∞ · elastic':(S.bondCure===0?'0 · instant':S.bondCure+' frames');});
