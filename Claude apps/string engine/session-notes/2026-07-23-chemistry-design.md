@@ -555,3 +555,28 @@ Added (View card · Strand look):
 State: strandFill/outlineW/outlineA (view prefs, not serialized — persist across reset naturally).
 Verified by pixel sampling: fill widens the strand (5px off-centre filled at 1.0, dark at 0.55);
 outline draws casing (8,9,18) distinct from bg. Regressions pass.
+
+---
+
+## Performance pass (no quality loss): numeric bucket keys + tighter endpoint search
+
+Profiled the churn scene (temp 1, bonding+breaking, ~3000 nodes/1666 segs): collide 48% +
+endpointForces 30% = 78%. Two clean wins landed (~47.7ms -> ~40ms/frame, ~15-18% faster):
+
+1. **Numeric bucket keys** in collide AND endpointForces — replaced string `x+'_'+y` Map keys with
+   `(x+16384)*32768+(y+16384)`. Pure hashing speedup, identical pair sets, zero behavior change.
+2. **Exact endpoint search radius** — endpointForces search was `snap*4*effR` (a 4x fudge). Replaced
+   with `snap*(effR+maxER)` where maxER = global max effR = the true max bond distance. Tighter grid
+   -> far fewer candidate pairs. endpointForces dropped 30% -> ~18-20%. Verified bonding still fires
+   at EXACT distances (9=9, 20=20 both asymmetric directions).
+
+REJECTED (quality would change): (a) an AABB-reject before closest() — no help in dense scenes (most
+bucket pairs are real contacts), adds per-pair overhead. (b) a 2D-flat collide path (use3 only in 3D
+when weave>0) — LOOKED equivalent since h=0 at weave 0, but an A/B showed flat-scene overshoot
+diverging (74.7 -> 131+ over 80 frames). The overshoot is chaotic, so even sub-epsilon differences
+between the 2D and 3D-with-h=0 code paths amplify. Also caught a real bug it introduced: `use3` does
+double duty (3D math AND the `use3?0:S.wallPad` rule), so tying it to weave wrongly added wallPad to
+flat strand-strand contacts. Reverted entirely — collide is now byte-identical to the original.
+
+collide (48-60%) remains the floor; it's inherent to dense contact resolution (closest() x pairs x
+iters). Broad-phase can't help a uniformly dense field. Left as-is. Regressions + health pass.

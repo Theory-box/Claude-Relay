@@ -655,7 +655,7 @@ function collide(){flushExcl();
   const reach=rMax+Math.max(0,padMax),cell=Math.max(10,2*reach),bkt=new Map();  // cell covers padded contact distance
   for(let k=0;k<T;k++){const a=G.nodes[segs[k].a],b=G.nodes[segs[k].b];
     const x0=Math.floor((Math.min(a.x,b.x)-reach)/cell),x1=Math.floor((Math.max(a.x,b.x)+reach)/cell),y0=Math.floor((Math.min(a.y,b.y)-reach)/cell),y1=Math.floor((Math.max(a.y,b.y)+reach)/cell);
-    for(let y=y0;y<=y1;y++)for(let x=x0;x<=x1;x++){const key=x+'_'+y;let arr=bkt.get(key);if(!arr){arr=[];bkt.set(key,arr);}arr.push(k);}}
+    for(let y=y0;y<=y1;y++)for(let x=x0;x<=x1;x++){const key=(x+16384)*32768+(y+16384);let arr=bkt.get(key);if(!arr){arr=[];bkt.set(key,arr);}arr.push(k);}}   // numeric bucket key (no string alloc/hash)
   // build the de-duplicated, pre-filtered pair list ONCE (filters are position-independent)
   const pairs=[],seen=new Set();
   for(const arr of bkt.values())for(let i=0;i<arr.length;i++)for(let j=i+1;j<arr.length;j++){
@@ -740,13 +740,14 @@ function endpointForces(){
   const objs=G.objs;
   let any=false;for(const o of objs){if(S.bonding&&o.bondOn&&o.endType&&Object.keys(o.endType).length){any=true;break;}}   // opting into bonding is enough; pull is optional (proximity alone can bond)
   if(!any)return;
-  let maxR=30;for(const o of objs)if(o.endType)for(const k in o.endType){const p=o.endType[k];if(p.wRange>maxR)maxR=p.wRange;if(p.sRange>maxR)maxR=p.sRange;
-    const snapD=(p.snap||0)*4*effR(o);if(snapD>maxR)maxR=snapD;}   // make sure the search radius also covers the snap distance (so zero-pull proximity bonding is seen)
+  let maxR=30,maxER=0;for(const o of objs){const er=effR(o);if(er>maxER)maxER=er;}   // global max radius, for the exact snap reach below
+  for(const o of objs)if(o.endType)for(const k in o.endType){const p=o.endType[k];if(p.wRange>maxR)maxR=p.wRange;if(p.sRange>maxR)maxR=p.sRange;
+    const snapD=(p.snap||0)*(effR(o)+maxER);if(snapD>maxR)maxR=snapD;}   // exact max bond distance (this end's radius + the fattest partner) — no ×4 fudge
   const ER=maxR+10,ER2=ER*ER,cell=ER,bkt=new Map();
-  for(const ni of ends){const n=G.nodes[ni];const key=Math.floor(n.x/cell)+'_'+Math.floor(n.y/cell);let arr=bkt.get(key);if(!arr){arr=[];bkt.set(key,arr);}arr.push(ni);}
+  for(const ni of ends){const n=G.nodes[ni];const key=(Math.floor(n.x/cell)+16384)*32768+(Math.floor(n.y/cell)+16384);let arr=bkt.get(key);if(!arr){arr=[];bkt.set(key,arr);}arr.push(ni);}
   const newBonds=[];
   for(let ii=0;ii<ends.length;ii++){const n1=ends[ii],a=G.nodes[n1],cx=Math.floor(a.x/cell),cy=Math.floor(a.y/cell);
-    for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++){const arr=bkt.get((cx+dx)+'_'+(cy+dy));if(!arr)continue;
+    for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++){const arr=bkt.get(((cx+dx)+16384)*32768+((cy+dy)+16384));if(!arr)continue;
       for(const n2 of arr){if(n2<=n1)continue;const bn=G.nodes[n2];
         const dxp=bn.x-a.x,dyp=bn.y-a.y,d2=dxp*dxp+dyp*dyp;if(d2>ER2||d2<1e-6)continue;
         const o1=objs[a.obj],o2=objs[bn.obj];
@@ -939,17 +940,13 @@ function render(){
     if(si!==sj)return si?1:-1; // solids last
     const hi=(G.nodes[G.segs[i].a].h+G.nodes[G.segs[i].b].h),hj=(G.nodes[G.segs[j].a].h+G.nodes[G.segs[j].b].h);
     return hi-hj;});
-  ctx.lineCap='round';const dbg=S.view!=='default';
+  ctx.lineCap='round';ctx.lineJoin='round';const dbg=S.view!=='default';
   for(const idx of order){const s=G.segs[idx],o=G.objs[s.obj],a=G.nodes[s.a],b=G.nodes[s.b];const r=effR(o);const col=segColor(s);
-    if(s.solid&&!dbg){ // wall: dark casing + bright core, reads as impassable
-      ctx.strokeStyle='rgba(8,9,18,0.9)';ctx.lineWidth=r*2+5;ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();
-      ctx.strokeStyle=o.color;ctx.lineWidth=r*2;ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();
-    } else {
-      const fw=Math.max(2,r*2*S.strandFill);                                          // fill width; near 1.0 closes the gaps so a merged bundle reads as one connected shape
-      if(S.outlineW>0){ctx.strokeStyle='rgba(8,9,18,'+S.outlineA.toFixed(2)+')';ctx.lineWidth=fw+r*S.outlineW*2;   // optional dark casing, scaled by thickness (bigger strands get bigger outlines)
-        ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();}
-      ctx.strokeStyle=col;ctx.globalAlpha=dbg?1:0.96;ctx.lineWidth=fw;
-      ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();ctx.globalAlpha=1;}}
+    const fw=Math.max(2,r*2*S.strandFill);                                            // every strand renders as a smooth string — 'solid' is a physics property (impassable), not a look
+    if(S.outlineW>0){ctx.strokeStyle='rgba(8,9,18,'+S.outlineA.toFixed(2)+')';ctx.lineWidth=fw+r*S.outlineW*2;
+      ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();}
+    ctx.strokeStyle=col;ctx.globalAlpha=dbg?1:0.96;ctx.lineWidth=fw;
+    ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();ctx.globalAlpha=1;}
   // seam beads: where segments of different thickness meet (e.g. a blend-0 merge of thin+thick), draw a dot at the larger radius so the join reads as a bead on a string
   {const N=G.nodes.length,maxR=new Float32Array(N),minR=new Float32Array(N).fill(1e9),mObj=new Int32Array(N).fill(-1);
    for(const s of G.segs){if(s.solid)continue;const rr=effR(G.objs[s.obj]);for(const nd of [s.a,s.b]){if(rr>maxR[nd]){maxR[nd]=rr;mObj[nd]=s.obj;}if(rr<minR[nd])minR[nd]=rr;}}
