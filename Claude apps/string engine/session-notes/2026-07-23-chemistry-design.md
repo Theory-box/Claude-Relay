@@ -848,3 +848,26 @@ idle instead of re-rendering.
 STILL OPEN (noted, not changed): user observed "growing a string needs more snap to attach". Checked:
 snap trigger = snap*(effR1+effR2), effR = r+gThick — grow does NOT change it. Likely a dynamics effect
 (longer strings whip more, ends dwell less in snap range), not a snap-distance change. Left as-is.
+
+---
+
+## Render optimization: zoom-based LOD + viewport culling (no quality loss)
+
+User: fancy rendering (shade/gloss/shadow) makes zoomed-OUT scenes slow (many tiny strands, each doing
+a per-segment createLinearGradient + extra strokes), stealing frame budget from the sim. Two
+quality-neutral wins:
+
+1. **Zoom LOD**: compute on-screen radius zr = effR*view.z per strand. Skip the effects when they're
+   sub-pixel: outline gated zr>0.8, shade+gloss gated zr>1.5, shadow pass skips objects with
+   effR*view.z<1.5. Below those sizes the effects are invisible anyway, so zero perceptible change.
+2. **Viewport culling**: precompute visible world rect (+60 margin); skip any segment with both ends
+   off the same side. Skips off-screen strands entirely (helps zoomed-IN, where most are off-screen).
+
+Measured (c002b, ~1200 segs, all effects on): zoomed-OUT render 12.06 -> 3.16 ms (**3.6x**); zoomed-IN
+(most off-screen) 6.47 -> 4.12 ms (~1.6x from culling). Quality preserved: at normal zoom the lit side
+is brighter than the shadow side (636 vs 407) — capsule shading renders fully; effects only drop when
+sub-pixel/off-screen. Regressions pass, no NaN.
+
+Since render competes with the sim for the frame, this also gives the SIM more headroom on big scenes.
+Further render ideas if ever needed: batch base strokes per-object into one path (fewer stroke calls);
+approximate Shade's gradient with 2 offset solid strokes (no per-seg gradient alloc). Not needed now.

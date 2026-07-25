@@ -958,17 +958,22 @@ function render(){
     ctx.save();ctx.filter='blur('+(2.5+S.shadow*7).toFixed(1)+'px)';
     ctx.strokeStyle='rgba(0,0,0,'+(0.16+S.shadow*0.34).toFixed(3)+')';ctx.lineCap='round';ctx.lineJoin='round';
     const d=3+S.shadow*5,ox=-LIGHT_X*d,oy=-LIGHT_Y*d;                                 // cast away from the light (down-right)
-    for(const o of G.objs){const r=effR(o);ctx.lineWidth=Math.max(2,r*2*S.strandFill*1.05);ctx.beginPath();
+    for(const o of G.objs){const r=effR(o);if(r*view.z<1.5)continue;ctx.lineWidth=Math.max(2,r*2*S.strandFill*1.05);ctx.beginPath();
       for(const si of o.segIdx){const s=G.segs[si];if(!s||s.dead||s.bond)continue;const a=G.nodes[s.a],b=G.nodes[s.b];if(!a||!b)continue;ctx.moveTo(a.x+ox,a.y+oy);ctx.lineTo(b.x+ox,b.y+oy);}
       ctx.stroke();}
     ctx.restore();}
-  for(const idx of order){const s=G.segs[idx],o=G.objs[s.obj],a=G.nodes[s.a],b=G.nodes[s.b];const r=effR(o);const col=segColor(s);
+  const _vw=cvs.width/(S.dpr||1),_vh=cvs.height/(S.dpr||1),_cm=60;   // visible world rect (+margin) for off-screen culling
+  const _wx0=(-view.ox)/view.z-_cm,_wx1=(_vw-view.ox)/view.z+_cm,_wy0=(-view.oy)/view.z-_cm,_wy1=(_vh-view.oy)/view.z+_cm;
+  for(const idx of order){const s=G.segs[idx],o=G.objs[s.obj],a=G.nodes[s.a],b=G.nodes[s.b];
+    if((a.x<_wx0&&b.x<_wx0)||(a.x>_wx1&&b.x>_wx1)||(a.y<_wy0&&b.y<_wy0)||(a.y>_wy1&&b.y>_wy1))continue;   // both ends off the same side -> not visible
+    const r=effR(o);const col=segColor(s);
     const fw=Math.max(2,r*2*S.strandFill);                                            // every strand renders as a smooth string — 'solid' is a physics property (impassable), not a look
-    if(S.outlineW>0){ctx.strokeStyle='rgba(8,9,18,'+S.outlineA.toFixed(2)+')';ctx.lineWidth=fw+r*S.outlineW*2;
+    const zr=r*view.z;                                                                 // on-screen radius: below a few px the shading/gloss are sub-pixel, so skip them (huge win when zoomed out, zero visible change)
+    if(S.outlineW>0&&zr>0.8){ctx.strokeStyle='rgba(8,9,18,'+S.outlineA.toFixed(2)+')';ctx.lineWidth=fw+r*S.outlineW*2;
       ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();}
     ctx.strokeStyle=col;ctx.globalAlpha=dbg?1:0.96;ctx.lineWidth=fw;
     ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();ctx.globalAlpha=1;
-    if(S.shade>0&&!dbg){                                                              // diffuse capsule shading: a light->dark gradient ACROSS the tube (bright on the lit side, dark on the shadow side)
+    if(S.shade>0&&zr>1.5&&!dbg){                                                      // diffuse capsule shading: a light->dark gradient ACROSS the tube (bright on the lit side, dark on the shadow side)
       let dx=b.x-a.x,dy=b.y-a.y;const L=hyp2(dx,dy)||1;dx/=L;dy/=L;
       let px=-dy,py=dx;if(px*LIGHT_X+py*LIGHT_Y<0){px=-px;py=-py;}                       // perpendicular pointing to the lit side
       const mx=(a.x+b.x)*0.5,my=(a.y+b.y)*0.5,d=S.shade;
@@ -978,7 +983,7 @@ function render(){
       g.addColorStop(1,'rgba(0,0,0,'+(d*0.5).toFixed(3)+')');
       ctx.strokeStyle=g;ctx.lineWidth=fw;
       ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();}
-    if(S.gloss>0&&!dbg){                                                              // faux tube shading: a specular streak on the light-facing side makes flat strands read as rounded, lit gel
+    if(S.gloss>0&&zr>1.5&&!dbg){                                                      // faux tube shading: a specular streak on the light-facing side makes flat strands read as rounded, lit gel
       let dx=b.x-a.x,dy=b.y-a.y;const L=hyp2(dx,dy)||1;dx/=L;dy/=L;
       let px=-dy,py=dx;const dot=px*LIGHT_X+py*LIGHT_Y;if(dot<0){px=-px;py=-py;}          // perpendicular, flipped to the light-facing side
       const off=r*0.32,hw=Math.max(1,fw*0.34);
