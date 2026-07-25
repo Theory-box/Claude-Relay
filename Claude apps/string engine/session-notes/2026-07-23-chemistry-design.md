@@ -484,3 +484,19 @@ Redesigned the overlay per user's idea:
 Frees the endpoints for future weak/strong range rings. Connect note updated to explain the colors.
 Green radius still equals the true bond distance; envelope tracks thickness+padding live.
 Regressions pass, render clean.
+
+---
+
+## Heat / energy visualization (overlay)
+
+User wanted to SEE bond energy / heat accumulation (recalling an old background-red cue). Added a
+`show heat` toggle (Physics·Chemistry, `S.showHeat`, default off). When on, render overlays:
+- additive warm glow at each node whose per-frame speed (|x-px|) exceeds ~0.6px, colour/size
+  ramping cool-warm to hot (yellow->orange->red) up to ~4.6px/frame — shows WHERE energy is
+  (bond-energy release, thermal wobble, collisions);
+- a faint whole-field red tint scaled by average kinetic energy (the old background-red cue).
+Works as an overlay on top of normal colours (visible alongside the wiggling), not a replacement
+view mode. Guarded by `if(S.showHeat)` so zero cost when off. Verified: bond-energy release raised
+KE 0->1.65 and the glow warmed a hot node's pixel (r 55->130); toggle wires; regressions pass.
+Frees us to later tie glow intensity explicitly to releaseHeat events if the ambient-speed proxy
+isn't punchy enough.
