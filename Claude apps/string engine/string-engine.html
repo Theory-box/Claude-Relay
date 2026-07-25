@@ -243,6 +243,13 @@ const S={temp:0.7,speed:1,running:true,W:0,H:0,dpr:1,pad:26,scene:'box',
 const OBJDEF={r:3,stiff:0.12,curl:0,grow:0,affinity:1,polarity:1,solid:false,fixed:false,color:null,autoSpace:false,spaceMult:1,breakable:false,brkStretch:true,brkAbs:false,bendAbsLim:90,brkRel:false,bendRelLim:60};
 // per-object attribute + global offset (0 = use imported value untouched)
 function effR(o){return Math.max(0.5,o.r+S.gThick);}
+function snapDistances(o,type){   // live bond-reach + collision-standoff for a profile — recomputed from CURRENT thickness/padding so the halo tracks every slider
+  const pr=o&&o.endType&&o.endType[type];if(!pr)return null;
+  const er=effR(o),myType=objType(o);
+  const tObj=G.objs.find(t=>objType(t)===type),erT=tObj?effR(tObj):er;   // real partner radius
+  const bondRest=er+erT;
+  const padE=(type===myType)?(o.padSelf||0):Math.max(o.padOther||0,tObj?(tObj.padOther||0):0);   // self uses padSelf; cross uses the larger padOther
+  return {snapPx:(pr.snap||0)*bondRest,brkPx:(pr.brk||0)*bondRest,standoff:er+erT+padE};}
 function objMinContact(o){return 2*effR(o)+(o.padSelf||0);}   // closest two points may sit this far apart before their padded thickness overlaps
 function objTargetScale(o){   // spacing (spaceMult) is a DIRECT size multiplier; floored so the shortest link never sits closer than contact
   let minR=1e9;for(const si of o.segIdx){const s=G.segs[si];if(s.bond)continue;if(s.rest0===undefined)s.rest0=s.rest;if(s.rest0<minR)minR=s.rest0;}
@@ -952,8 +959,8 @@ function render(){
   for(let i=0;i<G.nodes.length;i++){if(G.nbrs[i]&&G.nbrs[i].length>2){const n=G.nodes[i],o=G.objs[n.obj];
     ctx.fillStyle=o.color;ctx.beginPath();ctx.arc(n.x,n.y,effR(o)*1.4,0,6.2832);ctx.fill();}}
   // ---------- snap-distance halos (live while editing a bonding profile) ----------
-  if(S.snapViz&&S.snapViz.objIdx===S.selected&&G.objs[S.selected]){const o=G.objs[S.selected],sv=S.snapViz;
-    for(const i of o.nodeIdx){if(!G.nbrs[i]||G.nbrs[i].length!==1)continue;const n=G.nodes[i];   // only free ends are reactive sites
+  if(S.snapViz&&S.snapViz.objIdx===S.selected&&G.objs[S.selected]){const o=G.objs[S.selected],sv=snapDistances(o,S.snapViz.type);
+    if(sv)for(const i of o.nodeIdx){if(!G.nbrs[i]||G.nbrs[i].length!==1)continue;const n=G.nodes[i];   // only free ends are reactive sites
       if(sv.snapPx>0){ctx.beginPath();ctx.arc(n.x,n.y,sv.snapPx,0,6.2832);ctx.fillStyle='rgba(110,231,183,0.12)';ctx.fill();
         ctx.lineWidth=1.2;ctx.strokeStyle='rgba(110,231,183,0.9)';ctx.stroke();}                 // green: ends within here bond
       if(sv.standoff>0){ctx.beginPath();ctx.arc(n.x,n.y,sv.standoff,0,6.2832);ctx.setLineDash([4,4]);
@@ -984,7 +991,7 @@ function render(){
 // ---------- loop ----------
 // ---------- drag to pull things around ----------
 let grab=-1,gx=0,gy=0;
-let tool='move',cutting=false,cx0=0,cy0=0,cx1=0,cy1=0,activeConnTarget=null;
+let tool='move',cutting=false,cx0=0,cy0=0,cx1=0,cy1=0,activeConnTarget=null,curReachUpd=null;
 let editMode=false,stroke=null,erasing=false,ex=0,ey=0;
 function setTool(t){tool=t;
   for(const[id,tt]of [['toolMove','move'],['toolCut','cut'],['toolDraw','draw'],['toolErase','erase']]){const el=document.getElementById(id);if(el)el.classList.toggle('on',t===tt);}
@@ -1241,13 +1248,11 @@ function buildInterUI(o){
       const controls=(type)=>{const rd=()=>endProf(o,type)||ENDDEF,st=(k,x)=>{ensureProf(o,type)[k]=x;};
         const reachEl=document.createElement('div');reachEl.className='stat';reachEl.style.cssText='display:block;margin:2px 0 6px;line-height:1.5';
         const pad=type===myType?(o.padSelf||0):(o.padOther||0);
-        const updReach=()=>{const er=effR(o),pr=rd();
-          const tObj=G.objs.find(t=>objType(t)===type);const erT=tObj?effR(tObj):er;   // real partner radius (not self doubled)
-          const bondRest=er+erT;const padE=type===myType?(o.padSelf||0):Math.max(o.padOther||0,tObj?(tObj.padOther||0):0);
-          const snapPx=(pr.snap||0)*bondRest,brkPx=(pr.brk||0)*bondRest,standoff=er+erT+padE;   // collision holds ends this far apart (ONE gap, not two)
-          const warn=snapPx<standoff;
-          reachEl.innerHTML='bonds within ≈ <b>'+snapPx.toFixed(0)+'px</b> · collision holds ≈ <b>'+standoff.toFixed(0)+'px</b> apart'+(warn?' <span style="color:#e8a">⚠ snap can\u2019t reach past collision — raise snap or lower padding</span>':'')+' · breaks at '+brkPx.toFixed(0)+'px';
-          S.snapViz={objIdx:S.selected,snapPx,standoff};};   // feed the live halo overlay
+        const updReach=()=>{const d=snapDistances(o,type);if(!d)return;
+          const warn=d.snapPx<d.standoff;
+          reachEl.innerHTML='bonds within ≈ <b>'+d.snapPx.toFixed(0)+'px</b> · collision holds ≈ <b>'+d.standoff.toFixed(0)+'px</b> apart'+(warn?' <span style="color:#e8a">⚠ snap can\u2019t reach past collision — raise snap or lower padding</span>':'')+' · breaks at '+d.brkPx.toFixed(0)+'px';
+          S.snapViz={objIdx:S.selected,type};};   // store which profile to visualize; render recomputes distances live
+        curReachUpd=updReach;
         updReach();ew.appendChild(reachEl);
         ew.appendChild(profRow('weak pull',()=>rd().wStr,x=>st('wStr',x),-1,1,0.05));
         ew.appendChild(profRow('weak range',()=>rd().wRange,x=>st('wRange',x),0,240,5));
@@ -1299,13 +1304,13 @@ function profRow(label,getV,setV,min,max,step){
 function bindPair(rid,nid,fn){const r=document.getElementById(rid),n=document.getElementById(nid);
   const apply=(val,src)=>{const o=selObj();if(!o)return;let v=parseFloat(val);if(isNaN(v))return;if(src!=='r')r.value=v;if(src!=='n')n.value=v;fn(o,v);};
   r.addEventListener('input',()=>apply(r.value,'r'));n.addEventListener('input',()=>apply(n.value,'n'));}
-bindPair('eThick','eThickN',(o,v)=>{o.r=v;computeExclusions();});
+bindPair('eThick','eThickN',(o,v)=>{o.r=v;computeExclusions();if(curReachUpd)curReachUpd();});
 bindPair('eStiff','eStiffN',(o,v)=>o.stiff=v);
 bindPair('eCurl','eCurlN',(o,v)=>o.curl=v);
 bindPair('eGrow','eGrowN',(o,v)=>o.grow=v);
 bindPair('eDamp','eDampN',(o,v)=>o.damp=v);
-bindPair('ePadO','ePadON',(o,v)=>o.padOther=v);
-bindPair('ePadS','ePadSN',(o,v)=>{o.padSelf=v;computeExclusions();});
+bindPair('ePadO','ePadON',(o,v)=>{o.padOther=v;if(curReachUpd)curReachUpd();});
+bindPair('ePadS','ePadSN',(o,v)=>{o.padSelf=v;computeExclusions();if(curReachUpd)curReachUpd();});
 bindPair('eSpace','eSpaceN',(o,v)=>{o.spaceMult=v;computeExclusions();});
 document.getElementById('eAutoSpace').addEventListener('click',()=>{const o=selObj();if(!o)return;o.autoSpace=!o.autoSpace;
   document.getElementById('eAutoSpace').classList.toggle('on',o.autoSpace);

@@ -448,3 +448,18 @@ bottom-border separator and an accent-coloured collapse triangle (clearly foldab
 `#objEditor` borderless/padding-0 so the three inner panels are the visible boxes, with a light
 "Editing · name" label above. Removed the inline label styles. Collapse still works; editor still
 renders. CSS/markup only, no logic change.
+
+---
+
+## Fix: snap halo now tracks padding (and everything) live
+
+User: increasing self-padding didn't move the collision-standoff (amber) ring. Cause: the halo
+drew CACHED snapPx/standoff written only inside `updReach` (runs on Connect-slider move / re-render),
+so the General-tab thickness/padding sliders didn't update it — thickness only appeared to work when
+a re-render happened to fire. Fix: added `snapDistances(o,type)` helper (er+erT bond rest, single
+padding: padSelf for self / max padOther for cross) and made render call it EVERY FRAME, so the
+halo recomputes from current thickness, gThick, padSelf/padOther live. `S.snapViz` now stores
+`{objIdx,type}` (which profile), not cached numbers. `updReach` uses the same helper for the text
+and stores the active updater in `curReachUpd`; the thickness/padOther/padSelf sliders call it so
+the text readout stays in sync too. Verified: padSelf 6 moves standoff 8->14, thickness 8 moves
+snap 12->24 and standoff ->16, live. Regressions pass, render clean.
