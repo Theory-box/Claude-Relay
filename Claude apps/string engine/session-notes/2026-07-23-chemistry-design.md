@@ -580,3 +580,29 @@ flat strand-strand contacts. Reverted entirely — collide is now byte-identical
 
 collide (48-60%) remains the floor; it's inherent to dense contact resolution (closest() x pairs x
 iters). Broad-phase can't help a uniformly dense field. Left as-is. Regressions + health pass.
+
+---
+
+## Typed-array (SoA) refactor: TESTED AND ABANDONED — hot path is compute-bound
+
+Hypothesis: converting node data from array-of-objects to struct-of-arrays (Float64) would give
+2-4x from cache locality (the standard C/C++ result). Built a contained slice on branch
+feature/soa-refactor: Float64 position arrays (PX,PY,PH,PPX,PPY,PPH,PINV) + syncPosIn/Out + an
+index-based closestI mirroring closest exactly, with collide converted to work on the arrays.
+
+Results:
+- **Bit-identical**: position hash after 120 deterministic frames matched the object build EXACTLY
+  (1295176995 / 2430740824 both). So the conversion was correct.
+- **0.9x (slightly SLOWER)** end-to-end — the per-frame sync (obj<->array) ate any gain.
+- **Microbenchmark, the decisive test**: closest(objects) 275ms vs closestI(arrays) 280ms over 2M
+  calls on identical data = **0.98x. No speedup at all.**
+
+Conclusion: the 2-4x SoA number is a C/C++ result where field access is a pointer chase. **V8 already
+stores small objects' numeric fields inline (hidden classes), so `n.x` ~ `PX[i]`.** And closest() is
+COMPUTE-bound (mults, divides, hypot's sqrt), not memory-bound, so data layout is irrelevant. The
+collide BUILD phase (52%) is Map/Set/alloc-bound, which typed arrays also don't help.
+
+**Abandoned the refactor** (would be ~400 risky edits for ~0 gain). Reverted branch to match main.
+Value retained: we now KNOW the hot path is compute-bound. Future perf must REDUCE WORK (fewer
+pairs / iterations) or use GPU (throughput/parallelism, not cache locality) — NOT relayout data.
+The earlier landed wins (numeric bucket keys, exact endpoint search) stand.
