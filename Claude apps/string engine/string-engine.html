@@ -248,6 +248,9 @@ const S={temp:0.7,speed:1,running:true,W:0,H:0,dpr:1,pad:26,scene:'box',
 const OBJDEF={r:3,stiff:0.12,curl:0,grow:0,affinity:1,polarity:1,solid:false,fixed:false,color:null,autoSpace:false,spaceMult:1,breakable:false,brkStretch:true,brkAbs:false,bendAbsLim:90,brkRel:false,bendRelLim:60};
 // per-object attribute + global offset (0 = use imported value untouched)
 function effR(o){return Math.max(0.5,o.r+S.gThick);}
+function invFromEffR(er){return clamp(9/(er*er),0.08,3);}   // inverse mass: mass proportional to AREA (r^2); 9 = R0^2 (R0=3) so a default-thickness strand keeps inv 1. Thicker -> heavier (plows through), thinner -> lighter (flung around). Clamped so extremes stay stable.
+function objInv(o){return o.fixed?0:invFromEffR(effR(o));}
+function refreshObjMass(o){if(!o)return;for(const i of o.nodeIdx){const n=G.nodes[i];n.inv=n.fixed?0:invFromEffR(effR(o));}}
 function hyp2(x,y){return Math.sqrt(x*x+y*y);}function hyp3(x,y,z){return Math.sqrt(x*x+y*y+z*z);}   // Math.hypot does overflow-safe scaling we never need at pixel scale; plain sqrt is ~7x faster, diff is 4e-16 (last bit)
 function snapDistances(o,type){   // live bond-reach + collision-standoff for a profile — recomputed from CURRENT thickness/padding so the halo tracks every slider
   const pr=o&&o.endType&&o.endType[type];if(!pr)return null;
@@ -308,7 +311,7 @@ function addGraphObject(verts,edges,attrs,vattrs){
     const sol=vsolid?vv(vsolid,i)>0.5:!!obj.solid;
     const fix=vfixed?vv(vfixed,i)>0.5:!!obj.fixed;
     if(!sol&&Math.abs(h)<1e-6)h=(Math.random()-0.5)*obj.r*1.5;   // flat strands get depth to weave
-    const inv=fix?0:(sol?0.25:1);                                 // walls are heavy, strands light
+    const inv=fix?0:invFromEffR(effR(obj));                       // mass from thickness (area)
     let nids=[];for(const k of idKeys){const n=Math.round(+vv(vattrs[k],i));if(n>=1){const str=String(n);if(!nids.includes(str))nids.push(str);}}
     if(!nids.length)nids=obj.ids;                                 // fall back to per-object ids
     const naff=vaff?+vv(vaff,i):obj.affinity;
@@ -333,7 +336,7 @@ function addStrokeToObject(oi,pts){   // append a chain of points as nodes+segme
   const obj=G.objs[oi];if(!obj||pts.length<2)return 0;
   const base=G.nodes.length,ids=(obj.ids&&obj.ids.length)?obj.ids.slice():[obj.name];
   for(const p of pts){let h=(Math.random()-0.5)*obj.r*1.5;
-    G.nodes.push({x:p.x,y:p.y,h,z0:0,px:p.x,py:p.y,ph:h,obj:oi,fixed:!!obj.fixed,solid:!!obj.solid,inv:obj.fixed?0:(obj.solid?0.25:1),ids:ids,aff:obj.affinity});
+    G.nodes.push({x:p.x,y:p.y,h,z0:0,px:p.x,py:p.y,ph:h,obj:oi,fixed:!!obj.fixed,solid:!!obj.solid,inv:obj.fixed?0:invFromEffR(effR(obj)),ids:ids,aff:obj.affinity});
     obj.nodeIdx.push(G.nodes.length-1);}
   for(let i=0;i<pts.length-1;i++){const a=base+i,b=base+i+1;
     const rest=hyp2(G.nodes[b].x-G.nodes[a].x,G.nodes[b].y-G.nodes[a].y)||1;
@@ -399,10 +402,10 @@ function fitToView(pad){ // scale/center all nodes into the canvas
 function clearGraph(){G.nodes=[];G.segs=[];G.objs=[];G.nbrs=[];G.ends=[];G.piece=[];G.bondBank=new Map();}
 // live per-object edits: push down to the object's nodes/segments
 function setObjSolid(o,v){o.solid=v;
-  for(const i of o.nodeIdx){const n=G.nodes[i];n.solid=v;n.inv=n.fixed?0:(v?0.25:1);}
+  for(const i of o.nodeIdx){const n=G.nodes[i];n.solid=v;}   // solid no longer changes mass (mass = thickness)
   for(const si of o.segIdx){const s=G.segs[si];s.solid=G.nodes[s.a].solid&&G.nodes[s.b].solid;}}
 function setObjFixed(o,v){o.fixed=v;
-  for(const i of o.nodeIdx){const n=G.nodes[i];n.fixed=v;n.inv=v?0:(n.solid?0.25:1);}}
+  for(const i of o.nodeIdx){const n=G.nodes[i];n.fixed=v;n.inv=v?0:invFromEffR(effR(o));}}
 function setObjIds(o,ids){o.ids=ids.slice();
   for(const i of o.nodeIdx)G.nodes[i].ids=ids.slice();
   for(const si of o.segIdx)G.segs[si].ids=ids.slice();}
@@ -423,7 +426,7 @@ function weldNodes(){ // merge coincident vertices (even across objects) so touc
     if(found<0){canon[i]=i;const k=cx+'_'+cy+'_'+ch;let arr=buckets.get(k);if(!arr){arr=[];buckets.set(k,arr);}arr.push(i);}
     else{canon[i]=found;const c=G.nodes[found];
       for(const id of n.ids)if(!c.ids.includes(id))c.ids.push(id);
-      if(n.solid)c.solid=true;if(n.fixed)c.fixed=true;c.inv=c.fixed?0:(c.solid?0.25:1);}}
+      if(n.solid)c.solid=true;if(n.fixed)c.fixed=true;c.inv=c.fixed?0:invFromEffR(effR(G.objs[c.obj]));}}
   for(const s of G.segs){s.a=canon[s.a];s.b=canon[s.b];}
   G.segs=G.segs.filter(s=>s.a!==s.b);
   for(const o of G.objs)o.segIdx=[];
@@ -1035,7 +1038,7 @@ function doNewScene(){if(!confirm('Clear the scene and start fresh?'))return;
 document.getElementById('bNewScene').addEventListener('click',doNewScene);
 document.getElementById('bNewScene2').addEventListener('click',doNewScene);
 function dupNode(n,obj){const src=G.nodes[n];   // duplicate a node so an edge can detach from others sharing it
-  G.nodes.push({x:src.x,y:src.y,h:src.h,z0:src.z0,px:src.px,py:src.py,ph:src.ph,obj:obj,fixed:false,solid:src.solid,inv:src.solid?0.25:1,ids:src.ids?src.ids.slice():[],aff:src.aff});
+  G.nodes.push({x:src.x,y:src.y,h:src.h,z0:src.z0,px:src.px,py:src.py,ph:src.ph,obj:obj,fixed:false,solid:src.solid,inv:invFromEffR(effR(G.objs[obj])),ids:src.ids?src.ids.slice():[],aff:src.aff});
   const idx=G.nodes.length-1;const o=G.objs[obj];if(o&&o.nodeIdx)o.nodeIdx.push(idx);return idx;}
 function severEdgeAt(si,preferA){   // detach edge si from whatever shares its chosen endpoint node; NO new edges, NO subdividing (an edge is the atomic unit)
   const s=G.segs[si];if(s.dead)return false;
@@ -1326,7 +1329,7 @@ function profRow(label,getV,setV,min,max,step){
 function bindPair(rid,nid,fn){const r=document.getElementById(rid),n=document.getElementById(nid);
   const apply=(val,src)=>{const o=selObj();if(!o)return;let v=parseFloat(val);if(isNaN(v))return;if(src!=='r')r.value=v;if(src!=='n')n.value=v;fn(o,v);};
   r.addEventListener('input',()=>apply(r.value,'r'));n.addEventListener('input',()=>apply(n.value,'n'));}
-bindPair('eThick','eThickN',(o,v)=>{o.r=v;computeExclusions();if(curReachUpd)curReachUpd();});
+bindPair('eThick','eThickN',(o,v)=>{o.r=v;computeExclusions();refreshObjMass(o);if(curReachUpd)curReachUpd();});
 bindPair('eStiff','eStiffN',(o,v)=>o.stiff=v);
 bindPair('eCurl','eCurlN',(o,v)=>o.curl=v);
 bindPair('eGrow','eGrowN',(o,v)=>o.grow=v);

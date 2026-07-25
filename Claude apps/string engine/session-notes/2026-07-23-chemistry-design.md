@@ -718,3 +718,30 @@ DNA 5'/3' polarity). Lean symmetric first, add direction later.
 Stage 2 build (pending user's symmetric/directional answer): a connector-type registry (create/name/
 color types) + a compatibility table UI + per-material end-type assignment (head/tail). Then bonding
 reads the endpoint's type (not objType) and the pair table. Stage 3: the angle constraint on the pair.
+
+---
+
+## Mass from thickness (area scaling) — shipped
+
+Decoupling "solid": mass now comes from THICKNESS, not a flag. Established with user that solid was
+bundling five things (heavy mass, anti-tunnel CCD, wall-pad, beady render, no-weave) and the "forces
+weaker in solid" they noticed was just the inv=0.25 heavier mass reducing response to ALL forces
+(force is applied as pos += force*inv). Fix: make mass a real physical property of thickness.
+
+Implemented: inv = clamp(9/effR^2, 0.08, 3), i.e. mass proportional to AREA (r^2). 9 = R0^2 (R0=3) so
+a default-thickness strand keeps inv=1 EXACTLY -> existing scenes behave identically. Thicker = heavier
+(plows through), thinner = lighter (flung around). Helpers: invFromEffR(er), objInv(o),
+refreshObjMass(o). Replaced all six inv-assignment sites (import, addGraphObject, addStrokeToObject,
+setObjFixed, two merge/dup paths). setObjSolid NO LONGER touches mass (solid decoupled from mass).
+eThick slider now calls refreshObjMass so mass updates live as you drag thickness.
+
+Verified: inv by thickness r1->3, r2->2.25, r3->1 (default unchanged), r5->0.36, r8->0.14, r14->0.08
+(clean r^2). Plow-through: thick r10 moves 36 vs thin r2 moves 138 (thin shoved ~4x). Live slider
+update works. STABILITY: mixed-thickness (1.5/3/7) hot bonding scene has the SAME speed distribution
+as uniform r3 (p50 2.4~2.5, p99 32.8~33) and a LOWER max transient (127 vs 216) — no destabilisation,
+no NaN. Regressions pass.
+
+Note: the beady SOLID render is already gone (user confirmed — happened via an earlier fill change).
+Remaining "solid" bundle pieces still to fully decouple later: make reliable-collision (CCD) the
+default for all so you don't need solid for accurate collision; then solid reduces to just "fixed
+wall". fixed=immovable and weave stay their own toggles. Not urgent now.
