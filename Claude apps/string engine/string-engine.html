@@ -248,6 +248,7 @@ const S={temp:0.7,speed:1,running:true,W:0,H:0,dpr:1,pad:26,scene:'box',
 const OBJDEF={r:3,stiff:0.12,curl:0,grow:0,affinity:1,polarity:1,solid:false,fixed:false,color:null,autoSpace:false,spaceMult:1,breakable:false,brkStretch:true,brkAbs:false,bendAbsLim:90,brkRel:false,bendRelLim:60};
 // per-object attribute + global offset (0 = use imported value untouched)
 function effR(o){return Math.max(0.5,o.r+S.gThick);}
+function hyp2(x,y){return Math.sqrt(x*x+y*y);}function hyp3(x,y,z){return Math.sqrt(x*x+y*y+z*z);}   // Math.hypot does overflow-safe scaling we never need at pixel scale; plain sqrt is ~7x faster, diff is 4e-16 (last bit)
 function snapDistances(o,type){   // live bond-reach + collision-standoff for a profile — recomputed from CURRENT thickness/padding so the halo tracks every slider
   const pr=o&&o.endType&&o.endType[type];if(!pr)return null;
   const er=effR(o),myType=objType(o);
@@ -313,7 +314,7 @@ function addGraphObject(verts,edges,attrs,vattrs){
     const naff=vaff?+vv(vaff,i):obj.affinity;
     G.nodes.push({x,y,h,z0,px:x,py:y,ph:h,obj:oi,fixed:fix,solid:sol,inv,ids:nids,aff:naff});obj.nodeIdx.push(G.nodes.length-1);}
   for(const e of edges){const a=base+e[0],b=base+e[1];
-    const rest=Math.hypot(G.nodes[b].x-G.nodes[a].x,G.nodes[b].y-G.nodes[a].y,G.nodes[b].h-G.nodes[a].h)||1;
+    const rest=hyp3(G.nodes[b].x-G.nodes[a].x,G.nodes[b].y-G.nodes[a].y,G.nodes[b].h-G.nodes[a].h)||1;
     const solid=G.nodes[a].solid&&G.nodes[b].solid;
     const na=G.nodes[a],nb=G.nodes[b];const sids=na.ids.slice();for(const id of nb.ids)if(!sids.includes(id))sids.push(id);
     G.segs.push({a,b,rest,rest0:rest,obj:oi,solid,ids:sids,aff:(na.aff+nb.aff)*0.5});obj.segIdx.push(G.segs.length-1);}
@@ -335,7 +336,7 @@ function addStrokeToObject(oi,pts){   // append a chain of points as nodes+segme
     G.nodes.push({x:p.x,y:p.y,h,z0:0,px:p.x,py:p.y,ph:h,obj:oi,fixed:!!obj.fixed,solid:!!obj.solid,inv:obj.fixed?0:(obj.solid?0.25:1),ids:ids,aff:obj.affinity});
     obj.nodeIdx.push(G.nodes.length-1);}
   for(let i=0;i<pts.length-1;i++){const a=base+i,b=base+i+1;
-    const rest=Math.hypot(G.nodes[b].x-G.nodes[a].x,G.nodes[b].y-G.nodes[a].y)||1;
+    const rest=hyp2(G.nodes[b].x-G.nodes[a].x,G.nodes[b].y-G.nodes[a].y)||1;
     G.segs.push({a,b,rest,rest0:rest,obj:oi,solid:!!obj.solid,ids:ids.slice(),aff:obj.affinity,excl:new Set()});
     obj.segIdx.push(G.segs.length-1);}
   buildNbrs();computeRestBend();computeExclusions();snapshotInit();refreshStats();
@@ -372,7 +373,7 @@ function computeExclusions(){ // skip collisions between a strand's own topologi
     excl.delete(i);s.excl=excl;}
 }
 function jointAngle(a,n,c){let ax=a.x-n.x,ay=a.y-n.y,cx=c.x-n.x,cy=c.y-n.y;   // angle a-n-c: PI=straight, 0=folded flat
-  const la=Math.hypot(ax,ay)||1,lc=Math.hypot(cx,cy)||1;let d=(ax*cx+ay*cy)/(la*lc);
+  const la=hyp2(ax,ay)||1,lc=hyp2(cx,cy)||1;let d=(ax*cx+ay*cy)/(la*lc);
   return Math.acos(Math.max(-1,Math.min(1,d)));}
 function wouldBendBreak(a,b){   // would fusing free ends a & b form a joint that instantly bend-breaks? (prevents the merge -> break -> merge shatter loop)
   const oa=G.objs[G.nodes[a].obj];if(!oa||!oa.breakable||!oa.brkAbs)return false;   // only absolute break can doom a fresh joint (relative uses the formed angle as its rest)
@@ -383,7 +384,7 @@ function wouldBendBreak(a,b){   // would fusing free ends a & b form a joint tha
 function computeRestBend(){ // store each degree-2 node's offset from its chord (tangent + normal) + rest angle in rest pose
   for(let i=0;i<G.nodes.length;i++){const nb=G.nbrs[i],n=G.nodes[i];
     if(nb.length!==2){n.bT=0;n.bN=0;n.bAng=Math.PI;continue;}
-    const a=G.nodes[nb[0]],c=G.nodes[nb[1]];let tx=c.x-a.x,ty=c.y-a.y,tl=Math.hypot(tx,ty)||1;tx/=tl;ty/=tl;
+    const a=G.nodes[nb[0]],c=G.nodes[nb[1]];let tx=c.x-a.x,ty=c.y-a.y,tl=hyp2(tx,ty)||1;tx/=tl;ty/=tl;
     const nx=-ty,ny=tx,mx=(a.x+c.x)*0.5,my=(a.y+c.y)*0.5,dx=n.x-mx,dy=n.y-my;
     n.bT=dx*tx+dy*ty;n.bN=dx*nx+dy*ny;n.bAng=jointAngle(a,n,c);}}   // bAng = this joint's natural angle
 function fitToView(pad){ // scale/center all nodes into the canvas
@@ -412,13 +413,13 @@ function weldNodes(){ // merge coincident vertices (even across objects) so touc
   if(S.weld<=0||G.nodes.length<2)return;
   let minx=1e9,miny=1e9,minh=1e9,maxx=-1e9,maxy=-1e9,maxh=-1e9;
   for(const n of G.nodes){if(n.x<minx)minx=n.x;if(n.x>maxx)maxx=n.x;if(n.y<miny)miny=n.y;if(n.y>maxy)maxy=n.y;if(n.z0<minh)minh=n.z0;if(n.z0>maxh)maxh=n.z0;}
-  const diag=Math.hypot(maxx-minx,maxy-miny,maxh-minh)||1,eps=diag*S.weld;
+  const diag=hyp3(maxx-minx,maxy-miny,maxh-minh)||1,eps=diag*S.weld;
   const cell=Math.max(eps,1e-9),buckets=new Map(),canon=new Array(G.nodes.length);
   for(let i=0;i<G.nodes.length;i++){const n=G.nodes[i];
     const cx=Math.floor(n.x/cell),cy=Math.floor(n.y/cell),ch=Math.floor(n.z0/cell);let found=-1;
     for(let dx=-1;dx<=1&&found<0;dx++)for(let dy=-1;dy<=1&&found<0;dy++)for(let dh=-1;dh<=1&&found<0;dh++){
       const arr=buckets.get((cx+dx)+'_'+(cy+dy)+'_'+(ch+dh));
-      if(arr)for(const j of arr){const m=G.nodes[j];if(Math.hypot(m.x-n.x,m.y-n.y,m.z0-n.z0)<=eps){found=j;break;}}}
+      if(arr)for(const j of arr){const m=G.nodes[j];if(hyp3(m.x-n.x,m.y-n.y,m.z0-n.z0)<=eps){found=j;break;}}}
     if(found<0){canon[i]=i;const k=cx+'_'+cy+'_'+ch;let arr=buckets.get(k);if(!arr){arr=[];buckets.set(k,arr);}arr.push(i);}
     else{canon[i]=found;const c=G.nodes[found];
       for(const id of n.ids)if(!c.ids.includes(id))c.ids.push(id);
@@ -603,7 +604,7 @@ function sampleJSON(){
 function integrate(){const kick=S.temp*0.8;
   for(const n of G.nodes){if(n.fixed)continue;
     let fr=Math.min(0.95,0.05+S.damp+(G.objs[n.obj].damp||0));
-    const sp=Math.hypot(n.x-n.px,n.y-n.py);
+    const sp=hyp2(n.x-n.px,n.y-n.py);
     if(sp>1.5)fr*=Math.max(0.35,1-0.65*Math.min(1,(sp-1.5)/4.5));   // energy-aware: hot bursts (bond release, collisions) shed damping so heat lingers & spreads; ambient jitter damps normally
     const vx=(n.x-n.px)*(1-fr),vy=(n.y-n.py)*(1-fr);
     n.px=n.x;n.py=n.y;
@@ -618,7 +619,7 @@ function constraints(){const pad=S.pad;
     for(const s of G.segs){const a=G.nodes[s.a],b=G.nodes[s.b];
       if(a.fixed&&b.fixed)continue;
       const rest=s.rest*Math.max(0,1+effGrow(G.objs[s.obj]));
-      let dx=b.x-a.x,dy=b.y-a.y,dh=b.h-a.h,d=Math.hypot(dx,dy,dh)||1e-6,k=(d-rest)/d;
+      let dx=b.x-a.x,dy=b.y-a.y,dh=b.h-a.h,d=hyp3(dx,dy,dh)||1e-6,k=(d-rest)/d;
       if(a.fixed){b.x-=dx*k;b.y-=dy*k;b.h-=dh*k;}
       else if(b.fixed){a.x+=dx*k;a.y+=dy*k;a.h+=dh*k;}
       else{k*=0.5;a.x+=dx*k;a.y+=dy*k;a.h+=dh*k;b.x-=dx*k;b.y-=dy*k;b.h-=dh*k;}}
@@ -626,7 +627,7 @@ function constraints(){const pad=S.pad;
     for(let i=0;i<G.nodes.length;i++){const nb=G.nbrs[i];if(nb.length!==2)continue;
       const b=G.nodes[i];if(b.fixed)continue;const o=G.objs[b.obj],bend=effStiff(o)*0.5;if(bend<=0)continue;
       const a=G.nodes[nb[0]],c=G.nodes[nb[1]];
-      let tx=c.x-a.x,ty=c.y-a.y,tl=Math.hypot(tx,ty)||1;tx/=tl;ty/=tl;const nx=-ty,ny=tx;
+      let tx=c.x-a.x,ty=c.y-a.y,tl=hyp2(tx,ty)||1;tx/=tl;ty/=tl;const nx=-ty,ny=tx;
       const mx=(a.x+c.x)*0.5,my=(a.y+c.y)*0.5,nOff=(b.bN||0)+effCurl(o)*o.r*3;
       const gx=mx+tx*(b.bT||0)+nx*nOff,gy=my+ty*(b.bT||0)+ny*nOff;
       b.x+=(gx-b.x)*bend;b.y+=(gy-b.y)*bend;}
@@ -647,7 +648,7 @@ function closest(p1,q1,p2,q2,use3){
       if(t<0){t=0;s=clamp(-c/a,0,1);}else if(t>1){t=1;s=clamp((b-c)/a,0,1);}}}
   const c1x=p1.x+d1x*s,c1y=p1.y+d1y*s,c1h=(p1.h||0)+ (use3?d1h*s:0);
   const c2x=p2.x+d2x*t,c2y=p2.y+d2y*t,c2h=(p2.h||0)+(use3?d2h*t:0);
-  const nx=c1x-c2x,ny=c1y-c2y,nh=use3?c1h-c2h:0,dist=Math.hypot(nx,ny,nh);return {s,t,nx,ny,nh,dist};}
+  const nx=c1x-c2x,ny=c1y-c2y,nh=use3?c1h-c2h:0,dist=hyp3(nx,ny,nh);return {s,t,nx,ny,nh,dist};}
 function collide(){flushExcl();
   const segs=G.segs,T=segs.length;if(!T)return;
   const objR=G.objs.map(o=>effR(o)),objs=G.objs;
@@ -796,7 +797,7 @@ function endpointForces(){
 }
 function flagBondBreaks(){if(!S.bonding)return;   // real strain breaks bonds; young ones give way easily, hardened ones hold to full brk
   for(const s of G.segs){if(!s.bond||s.dead||!s.brk||s.rest<=0)continue;
-    const a=G.nodes[s.a],b=G.nodes[s.b];const len=Math.hypot(a.x-b.x,a.y-b.y);
+    const a=G.nodes[s.a],b=G.nodes[s.b];const len=hyp2(a.x-b.x,a.y-b.y);
     const brkRatio=1+((s.brk)-1)*bondStability(s);                   // stability 0 -> breaks at rest length; hardened -> full brk x rest
     if(len>brkRatio*s.rest){s.dead=true;
       if(S.bondEnergy>0)coolNodes(s.a,s.b,S.bondEnergy);            // breaking a bond absorbs energy (endothermic)
@@ -811,11 +812,11 @@ function kickNode(n,amt){if(!n||!amt)return;const a=Math.random()*6.2832;n.px-=M
 function releaseHeat(i,j,amt){   // bonding energy goes into the surrounding structure as vibration — kicking only the two bonded nodes just gets cancelled by their new constraint
   for(const k of [i,j]){kickNode(G.nodes[k],amt*0.4);
     for(const m of (G.nbrs[k]||[]))kickNode(G.nodes[m],amt*0.6);}}
-function coolNodes(i,j,amt){for(const k of [i,j]){const n=G.nodes[k];if(!n)continue;const vx=n.x-n.px,vy=n.y-n.py,v=Math.hypot(vx,vy);
+function coolNodes(i,j,amt){for(const k of [i,j]){const n=G.nodes[k];if(!n)continue;const vx=n.x-n.px,vy=n.y-n.py,v=hyp2(vx,vy);
   if(v<1e-6)continue;const f=Math.max(0,1-amt/v);n.px=n.x-vx*f;n.py=n.y-vy*f;}}                                                                // breaking costs energy
 function thermalBreaks(){}   // RETIRED: heat no longer breaks bonds via a separate probability. Real motion (temp jitter, collisions, bond-energy release) strains bonds, and flagBondBreaks tears them when the strain exceeds their (stability-scaled) strength. One physical mechanism instead of two knobs.
 function flagStrainBreaks(){const toSever=[];for(let i=0;i<G.segs.length;i++){const s=G.segs[i];if(s.dead||s.bond)continue;const o=G.objs[s.obj];if(!o||!o.breakable||!o.brkStretch)continue;
-  const br=objBrk(o);const a=G.nodes[s.a],b=G.nodes[s.b];const len=Math.hypot(a.x-b.x,a.y-b.y);
+  const br=objBrk(o);const a=G.nodes[s.a],b=G.nodes[s.b];const len=hyp2(a.x-b.x,a.y-b.y);
   if(s.rest>0&&len/s.rest>br)toSever.push(i);}   // tears past break-ratio x rest
   if(!toSever.length)return;
   let any=false;for(const i of toSever){const s=G.segs[i];const held=(s.a===grab||s.b===grab);   // sever at a node; a lone edge returns false (indivisible)
@@ -912,7 +913,7 @@ function wallCCD(){
     for(let y=y0;y<=y1&&!done;y++)for(let x=x0;x<=x1&&!done;x++){const arr=bkt.get(x+'_'+y);if(!arr)continue;
       for(const w of arr){const a=G.nodes[w.a],b=G.nodes[w.b];
         const hit=segInt(n.px,n.py,n.x,n.y,a.x,a.y,b.x,b.y);
-        if(hit){let wx=b.x-a.x,wy=b.y-a.y,wl=Math.hypot(wx,wy)||1;const nx=-wy/wl,ny=wx/wl;
+        if(hit){let wx=b.x-a.x,wy=b.y-a.y,wl=hyp2(wx,wy)||1;const nx=-wy/wl,ny=wx/wl;
           const side=Math.sign((n.px-a.x)*nx+(n.py-a.y)*ny)||1;
           const rr=effR(G.objs[n.obj])+effR(G.objs[w.obj])+S.wallPad+(G.objs[w.obj].padOther||0);
           n.x=hit.x+nx*side*rr;n.y=hit.y+ny*side*rr;n.px=n.x;n.py=n.y;done=true;break;}}}}
@@ -993,7 +994,7 @@ function render(){
   // ---------- heat / energy overlay: warm glow where nodes are moving fast (bond energy, thermal wobble, collisions) ----------
   if(S.showHeat){let totKE=0,liveN=0;ctx.save();ctx.globalCompositeOperation='lighter';
     for(let i=0;i<G.nodes.length;i++){if(!G.nbrs[i]||G.nbrs[i].length===0)continue;const n=G.nodes[i];   // only real (connected) matter carries heat — orphan leftovers don't glow (and won't blink out when compaction clears them)
-      const sp=Math.hypot(n.x-n.px,n.y-n.py);totKE+=sp;liveN++;
+      const sp=hyp2(n.x-n.px,n.y-n.py);totKE+=sp;liveN++;
       if(sp<0.6)continue;const t=sp>4.6?1:(sp-0.6)/4;                                  // 0 (warm) .. 1 (hot)
       const rad=(5+t*13);ctx.fillStyle='rgba(255,'+((190-t*160)|0)+','+((70-t*50)|0)+','+(0.09+t*0.22).toFixed(3)+')';
       ctx.beginPath();ctx.arc(n.x,n.y,rad,0,6.2832);ctx.fill();}
@@ -1044,7 +1045,7 @@ function severEdgeAt(si,preferA){   // detach edge si from whatever shares its c
   const orig=atA?s.a:s.b;
   const nn=dupNode(orig,s.obj);
   const other=atA?s.b:s.a,O=G.nodes[other],Nn=G.nodes[nn];   // nudge the duplicate off the original so the two fresh ends aren't coincident
-  const dx=Nn.x-O.x,dy=Nn.y-O.y,L=Math.hypot(dx,dy)||1,ox=-dy/L,oy=dx/L;
+  const dx=Nn.x-O.x,dy=Nn.y-O.y,L=hyp2(dx,dy)||1,ox=-dy/L,oy=dx/L;
   Nn.x+=ox*1.2;Nn.y+=oy*1.2;Nn.px=Nn.x;Nn.py=Nn.y;
   const D=objBrk(G.objs[s.obj])*(s.rest||10);  // hysteresis: this pair can't re-bond to each other until pulled apart past break distance
   Nn.sepFrom=orig;Nn.sepDist=D;G.nodes[orig].sepFrom=nn;G.nodes[orig].sepDist=D;
@@ -1116,7 +1117,7 @@ cvs.addEventListener('pointermove',e=>{
   if(panning){const r=cvs.getBoundingClientRect();view.ox=panOX+(e.clientX-r.left-panSX);view.oy=panOY+(e.clientY-r.top-panSY);return;}
   const [mx,my]=canvasXY(e);
   if(stroke){const last=stroke[stroke.length-1],minD=Math.max(8,12/view.z);
-    if(Math.hypot(mx-last.x,my-last.y)>=minD)stroke.push({x:mx,y:my});return;}
+    if(hyp2(mx-last.x,my-last.y)>=minD)stroke.push({x:mx,y:my});return;}
   if(erasing){eraseAt(mx,my,Math.max(10,14/view.z));return;}
   if(cutting){cx1=mx;cy1=my;return;}
   if(grab>=0){gx=mx;gy=my;return;}
@@ -1125,7 +1126,7 @@ cvs.addEventListener('pointerup',()=>{
   if(stroke){if(stroke.length>=2)addStrokeToObject(stroke.oi,stroke);stroke=null;return;}
   if(erasing){erasing=false;return;}
   if(panning){panning=false;cvs.style.cursor=tool==='cut'?'crosshair':'grab';return;}
-  if(cutting){cutting=false;if(Math.hypot(cx1-cx0,cy1-cy0)>4)cutLine(cx0,cy0,cx1,cy1);return;}
+  if(cutting){cutting=false;if(hyp2(cx1-cx0,cy1-cy0)>4)cutLine(cx0,cy0,cx1,cy1);return;}
   grab=-1;cvs.style.cursor=(tool==='draw'||tool==='erase')?'crosshair':'grab';});
 cvs.addEventListener('pointercancel',()=>{grab=-1;cutting=false;panning=false;erasing=false;stroke=null;cvs.style.cursor=tool==='cut'?'crosshair':'grab';});
 cvs.addEventListener('wheel',e=>{e.preventDefault();const r=cvs.getBoundingClientRect();const sx=e.clientX-r.left,sy=e.clientY-r.top;
