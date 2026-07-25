@@ -463,3 +463,24 @@ halo recomputes from current thickness, gThick, padSelf/padOther live. `S.snapVi
 and stores the active updater in `curReachUpd`; the thickness/padOther/padSelf sliders call it so
 the text readout stays in sync too. Verified: padSelf 6 moves standoff 8->14, thickness 8 moves
 snap 12->24 and standoff ->16, live. Regressions pass, render clean.
+
+---
+
+## Snap viz audit + generalized padding envelope
+
+Audited the "green circle too big at high thickness" report: measured actual max bond gap vs drawn
+green radius across thickness 3/6/12 -> EXACT match (9=9, 18=18, 36=36). No calc bug. The green
+radius IS the true bond distance. User's confusion was geometric: two full-radius circles visually
+overlap at 2x the bond distance, but bonding fires at 1x — so "circles overlap" is not the bond
+test; "the other endpoint's dot inside the circle" is.
+
+Redesigned the overlay per user's idea:
+- **Padding = whole-object envelope**: amber translucent band (lineWidth 2*(effR+max(padSelf,padOther)),
+  round caps) stroked along every segment of the selected object — shows the collision keep-out
+  everywhere, not just at ends. Only when padding>0. Recomputed live (uses effR + pads).
+- **Green snap-reach circles stay at free ends** (only while a bonding profile is open via S.snapViz),
+  now each with a solid green **dot** at the endpoint so it reads as reach-from-the-dot (a partner
+  end's dot entering the circle bonds) rather than misleading circle-overlap.
+Frees the endpoints for future weak/strong range rings. Connect note updated to explain the colors.
+Green radius still equals the true bond distance; envelope tracks thickness+padding live.
+Regressions pass, render clean.
