@@ -500,3 +500,39 @@ view mode. Guarded by `if(S.showHeat)` so zero cost when off. Verified: bond-ene
 KE 0->1.65 and the glow warmed a hot node's pixel (r 55->130); toggle wires; regressions pass.
 Frees us to later tie glow intensity explicitly to releaseHeat events if the ambient-speed proxy
 isn't punchy enough.
+
+---
+
+## Energy consolidation: heat-drop bug + retire wobble + energy-aware damping
+
+Three changes, all verified:
+
+**1. Heat-drop bug (fixed).** The "heat instantly cuts in half after a while" was the heat overlay
+glowing EVERY node — including thousands of invisible orphan leftovers from merges. When
+`compactNodes` fired (halving node count), half the glow blinked out at once. Fix: the heat overlay
+(and its background-tint average) now only counts CONNECTED nodes (`G.nbrs[i].length>0`). Orphans
+don't glow; compaction no longer causes a phantom heat drop. Verified: across a compaction event
+(nodes 3970->2476) live-node heat stayed 5.77->4.76 (smooth), vs the old instant halving.
+
+**2. Retired the wobble knob; real motion drives breaking.** `thermalBreaks` (stochastic
+temp-probability dissociation) is retired to a no-op. `flagBondBreaks` now tears a holding bond when
+its ACTUAL stretch exceeds a **stability-scaled** threshold: `brkRatio = 1 + (brk-1)*bondStability`.
+A young bond (low stability) breaks near rest length — fragile; a hardened bond holds to full
+brk x rest. So heat/collisions/bond-energy create real strain, and strain breaks bonds — one physical
+mechanism, not a separate probability. Energy cost (coolNodes) + re-heal gate (sepFrom/sepDist)
+moved into flagBondBreaks. Removed `bondWobble` state, UI slider, sync, and save/capture refs.
+Selection pressure preserved: strained young bonds exceed their low threshold and die; comfortable
+ones survive to harden. Verified: bonds still form, and a pinned/strained bond breaks with no wobble.
+
+**3. Energy-aware damping (heat lingers).** In `integrate`, a node moving faster than ~1.5px/frame
+sheds up to 65% of its damping (floored). Ambient thermal jitter damps normally; hot bursts
+(bond-energy release, collisions) persist and spread instead of draining in ~3 frames — so heat
+accumulates locally the way the user expected, using the existing nodes (no heat grid). Verified
+stable (no NaN) under temp 1.6 + bond energy 3; live heat sustained ~4-7 through the churn phase.
+
+Regressions (atomic edges, no-Y, expand-to-fit, save/load) pass; default+user scenes NaN-free.
+
+DEFERRED (user's to-do): a coarse heat-field grid to act as "the millions of unimportant particles"
+that carry/transfer heat — only worth it later if heat needs to cross empty space independent of the
+strings. Current microscopic model (moving nodes = heat) is the honest representation; the grid would
+fake the large-N reservoir. Revisit after assembly mechanics mature.
