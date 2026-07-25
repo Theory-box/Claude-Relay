@@ -53,10 +53,15 @@
   .card > .eyebrow::before{content:'';width:0;height:0;border-left:5px solid var(--dim);border-top:4px solid transparent;border-bottom:4px solid transparent;transform:rotate(90deg);transition:transform .15s;flex:none}
   .card.collapsed > .eyebrow::before{transform:rotate(0deg)}
   .card.collapsed > *:not(:first-child){display:none!important}
-  .subfold > .eyebrow{cursor:pointer;user-select:none;display:flex;align-items:center;gap:6px}
-  .subfold > .eyebrow::before{content:'';width:0;height:0;border-left:5px solid var(--dim);border-top:4px solid transparent;border-bottom:4px solid transparent;transform:rotate(90deg);transition:transform .15s;flex:none}
+  .subfold{background:var(--ink2);border:1px solid var(--line);border-radius:11px;padding:13px 14px;margin-top:11px}
+  .subfold:first-of-type{margin-top:12px}
+  .subfold > .eyebrow{cursor:pointer;user-select:none;display:flex;align-items:center;gap:8px;font-size:11.5px;letter-spacing:.16em;color:var(--text);opacity:0.92;margin:0 0 11px;padding-bottom:9px;border-bottom:1px solid var(--line)}
+  .subfold.collapsed > .eyebrow{margin:0;padding-bottom:0;border-bottom:none}
+  .subfold > .eyebrow::before{content:'';width:0;height:0;border-left:6px solid var(--accent);border-top:5px solid transparent;border-bottom:5px solid transparent;transform:rotate(90deg);transition:transform .15s;flex:none;opacity:0.8}
   .subfold.collapsed > .eyebrow::before{transform:rotate(0deg)}
   .subfold.collapsed > *:not(:first-child){display:none!important}
+  #objEditor{background:none;border:none;padding:0}
+  #objEditor > .eyebrow{color:var(--dim);font-size:10.5px;margin-bottom:2px}
   .etab{flex:1;font-family:"IBM Plex Mono",monospace;font-size:10px;letter-spacing:.1em;text-transform:uppercase;padding:7px 3px;border-radius:8px;border:1px solid var(--line);background:var(--ink2);color:var(--muted);cursor:pointer;transition:color .12s,border-color .12s,background .12s}
   .etab:hover{color:var(--text)}
   .etab.on{background:var(--panel2);color:var(--accent);border-color:var(--accent)}
@@ -185,7 +190,7 @@
       <div class="card" id="objEditor" style="display:none">
         <p class="eyebrow">Editing · <span id="objName" style="color:var(--text)">—</span></p>
         <div id="epGeneral" class="subfold">
-          <p class="eyebrow" style="font-size:10px;margin:2px 0 8px;opacity:0.75">General</p>
+          <p class="eyebrow">General</p>
           <div class="seg" style="margin-bottom:6px;flex-wrap:wrap"><button id="eSolid">solid</button><button id="eFixed">fixed</button><button id="eSelfSolid">self-solid</button></div>
           <div class="ctrl"><label>Group ids <span class="val" id="eIdsHint" style="color:var(--dim)">comma sep</span></label><input id="eIds" type="text" placeholder="e.g. 1,2" style="width:100%;background:var(--ink2);border:1px solid var(--line);color:var(--text);border-radius:7px;padding:7px;font-family:'IBM Plex Mono',monospace;font-size:12px"></div>
           <div class="ctrl"><label>Thickness <input id="eThickN" class="numin" type="number" step="0.1"></label><input id="eThick" type="range" min="0.2" max="16" value="3" step="0.1"></div>
@@ -200,12 +205,12 @@
           <div class="ctrl" id="eSpaceRow" style="margin-top:6px"><label>Size ×<input id="eSpaceN" class="numin" type="number" step="0.05"></label><input id="eSpace" type="range" min="0.25" max="5" value="1" step="0.05"><div class="stat" style="margin-top:3px"><span>1 = authored size · higher = bigger · floored so nothing overlaps</span></div></div>
         </div>
         <div id="epAffinity" class="subfold">
-          <p class="eyebrow" style="font-size:10px;margin:14px 0 8px;opacity:0.75">Affinity</p>
+          <p class="eyebrow">Affinity</p>
           <div id="interWrap"></div>
           <p class="note">+ attracts, − repels. Each object has its own row, so pulls can be one-way. "own body" folds the object onto itself; 0 means it ignores itself.</p>
         </div>
         <div id="epConnect" class="subfold">
-          <p class="eyebrow" style="font-size:10px;margin:14px 0 8px;opacity:0.75">Connect</p>
+          <p class="eyebrow">Connect</p>
           <div id="endWrap"></div>
           <p class="note">This object's free ends (loose strand tips) attract (+) / repel (−) other ends. Turn on <b>endpoint bonding</b> in Physics and attracting ends that touch snap into a link.</p>
         </div>

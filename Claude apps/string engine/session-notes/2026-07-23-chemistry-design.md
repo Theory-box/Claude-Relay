@@ -436,3 +436,15 @@ dashed ring at the collision standoff. Updates live as the snap/thickness/paddin
 When the amber ring sits OUTSIDE the green fill, you can see at a glance that collision holds ends
 too far apart to bond. Cleared on reselect (S.snapViz=null in selectObject). Shows for whichever
 profile is open (self by default, or the clicked external-target chip). Regressions + health pass.
+
+---
+
+## UI: General/Affinity/Connect as distinct panels
+
+User found the editor sub-sections hard to read as separate collapsible panels (small labels in
+one shared box). Restyled `.subfold` as distinct inset panels: dark fill (--ink2), border, 11px
+radius, 13-14px padding, 11-12px margin between. Headers bumped to 11.5px bright text with a
+bottom-border separator and an accent-coloured collapse triangle (clearly foldable). Made
+`#objEditor` borderless/padding-0 so the three inner panels are the visible boxes, with a light
+"Editing · name" label above. Removed the inline label styles. Collapse still works; editor still
+renders. CSS/markup only, no logic change.
