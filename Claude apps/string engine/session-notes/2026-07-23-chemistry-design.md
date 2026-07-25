@@ -637,3 +637,26 @@ Structural ideas considered and rejected:
 CONCLUSION after 3 passes: hypot (20%) was the one big CPU win; div-inverse is a small bonus. The
 loop is compute-bound and now near its floor. Verdict stands: further real speed = GPU (throughput),
 which needs a testable env and is a dedicated project. CPU perf pass is DONE.
+
+---
+
+## Endpoint connectors — Stage 1: click-select + dynamic panel (built)
+
+Building toward per-tip connector types (the replicator unlock). Design agreed with user:
+- Connector types = a creatable/assignable LIST (like materials); assign in-app by clicking a tip.
+- A connector has: a type/slot, what it bonds to, and (later) a preferred CONNECTING ANGLE (60deg
+  builds triangles, 90 grids, 180 straight chains — turns "sticks together" into "assembles").
+- Dynamic settings panel: the editor shows only what's relevant to the selection.
+Build order: (1) click-select + dynamic panel [THIS], (2) per-endpoint slot types, (3) angle constraint.
+Sibling feature logged: eyedropper to reassign a strand's material.
+
+Stage 1 shipped:
+- `selectEndpoint(node)` — clicking a free tip (degree-1 node) selects it as a connector (Sel.end).
+  pointerdown now routes: free tip -> selectEndpoint; mid-strand node/body -> selectObject (material);
+  empty -> pan (selection untouched). Material-list click clears Sel.end.
+- `refreshPanelMode()` — dynamic panel: endpoint selected -> shows ONLY the Connect subfold + header
+  reads "Connector"; strand selected -> shows General + Affinity, hides Connect, header "Editing".
+  Called at the end of selectObject. Header span #edKind toggles the label.
+Verified: strand -> {General:on, Affinity:on, Connect:off, "Editing"}; endpoint -> {General:off,
+Affinity:off, Connect:on, "Connector", Sel.end set}. No errors. The selected tip already draws a
+bright dot (existing render). NEXT: Stage 2 per-endpoint slot types.

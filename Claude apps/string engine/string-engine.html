@@ -193,7 +193,7 @@
         <div id="objList" style="max-height:220px;overflow-y:auto;display:flex;flex-direction:column;gap:3px"></div>
       </div>
       <div class="card" id="objEditor" style="display:none">
-        <p class="eyebrow">Editing · <span id="objName" style="color:var(--text)">—</span></p>
+        <p class="eyebrow"><span id="edKind">Editing</span> · <span id="objName" style="color:var(--text)">—</span></p>
         <div id="epGeneral" class="subfold">
           <p class="eyebrow">General</p>
           <div class="seg" style="margin-bottom:6px;flex-wrap:wrap"><button id="eSolid">solid</button><button id="eFixed">fixed</button><button id="eSelfSolid">self-solid</button></div>
@@ -1109,10 +1109,11 @@ cvs.addEventListener('pointerdown',e=>{
   let best=-1,bd=28*28;
   for(let i=0;i<G.nodes.length;i++){const n=G.nodes[i];const d=(n.x-mx)*(n.x-mx)+(n.y-my)*(n.y-my);if(d<bd){bd=d;best=i;}}
   if(best>=0){grab=best;gx=mx;gy=my;cvs.setPointerCapture(e.pointerId);cvs.style.cursor='grabbing';
-    if(G.nodes[best]&&G.nodes[best].obj!==S.selected)selectObject(G.nodes[best].obj);}   // clicking geometry makes its material active (even to just drag) — no list trip needed
-  else{const si=nearestSeg(mx,my,Math.max(8,12/view.z));                                  // clicked a strand mid-body (no node close enough to grab)?
-    if(si>=0){selectObject(G.segs[si].obj);}                                              // activate its material, don't pan
-    else{const r=cvs.getBoundingClientRect();panning=true;panSX=e.clientX-r.left;panSY=e.clientY-r.top;panOX=view.ox;panOY=view.oy;cvs.setPointerCapture(e.pointerId);cvs.style.cursor='move';}}});   // truly empty space = pan (active material left untouched)
+    if(G.nbrs[best]&&G.nbrs[best].length===1)selectEndpoint(best);                          // clicked a free tip -> select it as a connector (dynamic panel shows connector settings)
+    else{Sel.end=-1;selectObject(G.nodes[best].obj);}}                                       // mid-strand node -> the material
+  else{const si=nearestSeg(mx,my,Math.max(8,12/view.z));                                    // clicked a strand mid-body (no node close enough to grab)?
+    if(si>=0){Sel.end=-1;selectObject(G.segs[si].obj);}                                     // activate its material, don't pan
+    else{const r=cvs.getBoundingClientRect();panning=true;panSX=e.clientX-r.left;panSY=e.clientY-r.top;panOX=view.ox;panOY=view.oy;cvs.setPointerCapture(e.pointerId);cvs.style.cursor='move';}}});   // truly empty space = pan (selection left untouched)
 cvs.addEventListener('pointermove',e=>{
   if(panning){const r=cvs.getBoundingClientRect();view.ox=panOX+(e.clientX-r.left-panSX);view.oy=panOY+(e.clientY-r.top-panSY);return;}
   const [mx,my]=canvasXY(e);
@@ -1193,7 +1194,7 @@ function renderObjectList(){
       '<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px">'+(o.name||('material '+(i+1)))+'</span>'+
       '<span style="color:var(--dim);font-family:\'IBM Plex Mono\',monospace;font-size:9.5px">'+tag+'</span>'+
       '<span class="matDel" title="delete material" style="color:var(--dim);flex:none;padding:0 3px;font-size:14px;line-height:1">&times;</span>';
-    row.addEventListener('click',ev=>{if(ev.target.classList.contains('matDel')){ev.stopPropagation();removeMaterial(i);return;}selectObject(i);});
+    row.addEventListener('click',ev=>{if(ev.target.classList.contains('matDel')){ev.stopPropagation();removeMaterial(i);return;}Sel.end=-1;selectObject(i);});
     el.appendChild(row);
   });
 }
@@ -1209,6 +1210,20 @@ function removeMaterial(i){const o=G.objs[i];if(!o)return;
   S.selected=-1;buildNbrs();computeExclusions();snapshotInit();refreshStats();renderObjectList();
   const ed=document.getElementById('objEditor');if(ed)ed.style.display='none';}
 function selObj(){return S.selected>=0?G.objs[S.selected]:null;}
+function refreshPanelMode(){   // dynamic panel: endpoint selected -> connector settings only; strand -> material settings only
+  const epG=document.getElementById('epGeneral'),epA=document.getElementById('epAffinity'),epC=document.getElementById('epConnect');
+  const kind=document.getElementById('edKind');
+  const endMode=(Sel.end>=0&&G.nbrs[Sel.end]&&G.nbrs[Sel.end].length===1);
+  if(epG)epG.style.display=endMode?'none':'';
+  if(epA)epA.style.display=endMode?'none':'';
+  if(epC)epC.style.display=endMode?'':'none';
+  if(kind)kind.textContent=endMode?'Connector':'Editing';
+  if(endMode){const epCc=epC&&epC.classList;if(epCc&&epCc.contains('collapsed'))epCc.remove('collapsed');}   // auto-open connect when you click a tip
+}
+function selectEndpoint(nodeIdx){   // click a free tip -> select it as a connector and show its settings
+  if(nodeIdx<0||!G.nodes[nodeIdx])return;Sel.end=nodeIdx;const o=G.nodes[nodeIdx].obj;
+  selectObject(o);   // populates the material's panels; refreshPanelMode (called inside) switches to connector view
+}
 function selectObject(i){if(i!==S.selected)activeConnTarget=null;S.snapViz=null;S.selected=i;renderObjectList();const o=G.objs[i],ed=document.getElementById('objEditor');
   if(!o){ed.style.display='none';return;}ed.style.display='';
   document.getElementById('objName').textContent=o.name||('object '+(i+1));
@@ -1222,7 +1237,7 @@ function selectObject(i){if(i!==S.selected)activeConnTarget=null;S.snapViz=null;
   document.getElementById('eSolid').classList.toggle('on',!!o.solid);
   document.getElementById('eFixed').classList.toggle('on',!!o.fixed);
   document.getElementById('eSelfSolid').classList.toggle('on',o.selfSolid!==false);
-  buildInterUI(o);
+  buildInterUI(o);refreshPanelMode();
 }
 function interRow(label,getV,setV){
   const row=document.createElement('div');row.className='ctrl';const v=getV();
