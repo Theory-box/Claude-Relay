@@ -985,3 +985,17 @@ everywhere, max speed) in View->Strand look; persisted.
 Measured (c002b, all effects): zoomed-in gradient 3.85ms (bounded by culling+few strands); mid-zoom
 3.84ms (mostly 2-stroke; thick strands still gradient); fast mode 2.66ms. vs original all-gradient
 5.8ms. Regressions pass. Threshold zr>4 tunable if user wants the gradient at more/fewer zoom levels.
+
+## Fix: New Scene / delete-material not visibly updating (idle-render-skip regression)
+
+The paused idle-render-skip (RD flag) only redrew on pointer/input events. Button-triggered scene
+mutations that call a function directly — especially through a confirm() dialog — cleared/changed the
+scene internally but never marked the canvas dirty, so nothing visibly happened. New Scene and delete
+material both "did nothing" for this reason (verified: rendersAfterClick was 0).
+
+Fix: moved RD to window.RD (no load-order TDZ) and set window.RD=true in the shared endpoints every
+scene mutation already calls — refreshStats(), renderObjectList(), selectObject(). Now any mutation
+(New Scene, add/delete material, import, reset, selection) forces a redraw. Verified: New Scene &
+material-delete clicks now fire renders (0 -> 2); regressions pass. removeMaterial already had the
+confirm ("Delete X and all its strands?") + removes all that material's segments — that part was fine,
+it just wasn't repainting.

@@ -1217,16 +1217,16 @@ window.addEventListener('keydown',e=>{const tag=(e.target.tagName||'').toLowerCa
   else if(k===' '){e.preventDefault();S.running=!S.running;const bp=document.getElementById('bPlay');if(bp)bp.textContent=S.running?'Pause':'Play';if(S.running)startCDRamp();}
   else if((k==='arrowright'||k==='arrowleft')&&!S.running){e.preventDefault();stepFrame();}});
 
-let ema=60,lastT=performance.now(),RD=true;   // RD = render-dirty; when paused & idle we stop re-rendering so a heavy scene doesn't keep chugging
+let ema=60,lastT=performance.now();window.RD=true;   // RD = render-dirty; paused & idle -> stop re-rendering. window.* avoids any load-order TDZ so scene mutations can mark it dirty
 function frame(now){const dt=now-lastT;lastT=now;
   let did=false;
   if(S.running){S.frame=(S.frame||0)+1;advanceCDRamp();attract();endpointForces();relaxSpacing();for(let k=0;k<S.speed;k++){integrate();flagBondBreaks();constraints();collide();wallCCD();dragApply();flagStrainBreaks();flagBendBreaks();}maintainBonds();removeDead();did=true;}
   else if(grab>=0){dragApply();constraints();collide();did=true;}
-  if(did||RD||panning){ema=ema*0.9+(1000/Math.max(1,dt))*0.1;render();RD=false;document.getElementById('sFps').textContent=Math.round(ema)+' fps';}
+  if(did||window.RD||panning){ema=ema*0.9+(1000/Math.max(1,dt))*0.1;render();window.RD=false;document.getElementById('sFps').textContent=Math.round(ema)+' fps';}
   requestAnimationFrame(frame);}
-['pointerdown','pointermove','pointerup','wheel','keydown'].forEach(ev=>window.addEventListener(ev,()=>{RD=true;},true));   // any interaction marks a redraw
-['input','change'].forEach(ev=>document.addEventListener(ev,()=>{RD=true;},true));                                        // any slider/toggle change too
-function refreshStats(){document.getElementById('sObjs').textContent=G.objs.length;
+['pointerdown','pointermove','pointerup','wheel','keydown'].forEach(ev=>window.addEventListener(ev,()=>{window.RD=true;},true));   // any interaction marks a redraw
+['input','change'].forEach(ev=>document.addEventListener(ev,()=>{window.RD=true;},true));                                        // any slider/toggle change too
+function refreshStats(){window.RD=true;document.getElementById('sObjs').textContent=G.objs.length;
   document.getElementById('sNS').textContent=G.nodes.length+' · '+G.segs.length;
   document.getElementById('tagScene').textContent=S.scene;}
 
@@ -1246,7 +1246,7 @@ function setView(v,btn){document.querySelectorAll('#view button,#view2 button').
 document.querySelectorAll('#view button,#view2 button').forEach(b=>b.addEventListener('click',()=>setView(b.dataset.v,b)));
 
 // ---------- object list + per-object editor ----------
-function renderObjectList(){
+function renderObjectList(){window.RD=true;
   const el=document.getElementById('objList');if(!el)return;el.innerHTML='';
   G.objs.forEach((o,i)=>{
     if(o.segIdx&&o.segIdx.length===0&&!o.userMade)return;   // hide objects fully absorbed by a merge, but keep empty user-made materials
@@ -1280,7 +1280,7 @@ function refreshPanelMode(){   // connector rules live WITH the material (rule-b
   if(epG)epG.style.display='';if(epA)epA.style.display='';if(epC)epC.style.display='';
   const kind=document.getElementById('edKind');if(kind)kind.textContent='Editing';
 }
-function selectObject(i){if(i!==S.selected)activeConnTarget=null;S.snapViz=null;S.selected=i;renderObjectList();const o=G.objs[i],ed=document.getElementById('objEditor');const ts=document.getElementById('tagSel');if(ts){ts.textContent=o?(o.name||('object '+(i+1))):'Scene';if(o&&o.color)ts.style.color=o.color;}
+function selectObject(i){window.RD=true;if(i!==S.selected)activeConnTarget=null;S.snapViz=null;S.selected=i;renderObjectList();const o=G.objs[i],ed=document.getElementById('objEditor');const ts=document.getElementById('tagSel');if(ts){ts.textContent=o?(o.name||('object '+(i+1))):'Scene';if(o&&o.color)ts.style.color=o.color;}
   if(!o){ed.style.display='none';return;}ed.style.display='';
   document.getElementById('objName').textContent=o.name||('object '+(i+1));
   const sv=(rid,nid,val)=>{const v=+val;document.getElementById(rid).value=v;document.getElementById(nid).value=Math.round(v*1000)/1000;};
