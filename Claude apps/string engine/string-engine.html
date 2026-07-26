@@ -159,7 +159,7 @@
         <div class="ctrl"><label>Quality <span class="val" id="vIters">4</span></label><input id="sIters" type="range" min="2" max="12" value="4" step="1"><div class="stat" style="margin-top:3px"><span>fast</span><span>firmer walls</span></div></div>
         <div class="ctrl"><label>Wall padding <span class="val" id="vPad">5</span></label><input id="sPad" type="range" min="0" max="20" value="5" step="1"><div class="stat" style="margin-top:3px"><span>none</span><span>thick cushion</span></div></div>
         <div class="ctrl"><label>Collision smoothing <span class="val" id="vCD">0.00</span></label><input id="sCD" type="range" min="0" max="1" value="0" step="0.05"><div class="stat" style="margin-top:3px"><span>bouncy</span><span>settled</span></div></div>
-        <div class="ctrl" style="margin-top:8px"><label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input id="sXpbd" type="checkbox" style="width:15px;height:15px;cursor:pointer"> XPBD contacts</label><div class="stat" style="margin-top:3px"><span>corrects only the energy collisions <i>invent</i> (self-propulsion, jitter) once per step — calms clusters without damping real motion. Doesn't need collision smoothing.</span></div></div>
+        <div class="ctrl" style="margin-top:8px"><label>XPBD contacts <span class="val" id="vXpbd">0.00</span></label><input id="sXpbd" type="range" min="0" max="1" value="0" step="0.05"><div class="stat" style="margin-top:3px"><span>lively</span><span>settled</span></div><div class="stat" style="margin-top:2px"><span>corrects collision-invented energy (self-propulsion) once per step. 0 = off · partway = middle ground · 1 = fully inelastic</span></div></div>
         <div class="seg" style="margin-top:8px"><button id="sChunk">temporal spread · interactions</button></div>
         <div class="stat" style="margin-top:3px"><span>spreads attraction/repulsion over 3 frames — faster on dense scenes</span></div>
         <div class="seg" style="margin-top:6px"><button id="sBondChunk">temporal spread · bonding</button></div>
@@ -254,7 +254,7 @@ const PALETTE=['#37e0d4','#7b8cff','#ff5fa2','#ffb02e','#b06bff','#4ade80','#ff7
 // G.objs:  {name,r,stiff,curl,affinity,polarity,solid,fixed,color, nodeIdx:[], segIdx:[]}
 const G={nodes:[],segs:[],objs:[],nbrs:[]};
 const S={temp:0.7,speed:1,running:true,W:0,H:0,dpr:1,pad:26,scene:'box',
-  gCurl:0,gStiff:0,gThick:0,gGrow:0,weave:0,view:'default',iters:4,wallPad:5,attract:0.4,repel:0,tol:0.4,selected:-1,weld:0.003,damp:0.02,contactDamp:0,chunk:false,bonding:true,bondSnap:1.5,bondBrk:2.5,bondCure:0,bondBlend:0,bondTimer:'continuous',cdRamping:false,cdRamp0:0,bondEnergy:0,maxBondEvents:40,snapViz:null,showHeat:true,strandFill:1,outlineW:0.1,outlineA:0.3,cleanView:false,gloss:0.75,shade:1,bg:null,shadow:0.25,xpbd:false,bondChunk:false,shadeSmooth:true};
+  gCurl:0,gStiff:0,gThick:0,gGrow:0,weave:0,view:'default',iters:4,wallPad:5,attract:0.4,repel:0,tol:0.4,selected:-1,weld:0.003,damp:0.02,contactDamp:0,chunk:false,bonding:true,bondSnap:1.5,bondBrk:2.5,bondCure:0,bondBlend:0,bondTimer:'continuous',cdRamping:false,cdRamp0:0,bondEnergy:0,maxBondEvents:40,snapViz:null,showHeat:true,strandFill:1,outlineW:0.1,outlineA:0.3,cleanView:false,gloss:0.75,shade:1,bg:null,shadow:0.25,xpbd:0,bondChunk:false,shadeSmooth:true};
 const OBJDEF={r:3,stiff:0.12,curl:0,grow:0,affinity:1,polarity:1,solid:false,fixed:false,color:null,autoSpace:false,spaceMult:1,breakable:false,brkStretch:true,brkAbs:false,bendAbsLim:90,brkRel:false,bendRelLim:60};
 // per-object attribute + global offset (0 = use imported value untouched)
 function effR(o){return Math.max(0.5,o.r+S.gThick);}
@@ -539,7 +539,7 @@ function applyGlobals(g){
   sync('sBCure',S.bondCure,'vBCure',x=>x>=900?'\u221e \u00b7 elastic':(x==0?'0 \u00b7 instant':x+' frames'));
   sync('sBBlend',S.bondBlend,'vBBlend',x=>x<=0?'0 \u00b7 separate':(x>=1?'1 \u00b7 average':(+x).toFixed(1)+' \u00b7 partial'));
   const tog=(id,on)=>{const el=document.getElementById(id);if(el)el.classList.toggle('on',!!on);};
-  tog('sChunk',S.chunk);tog('sBondChunk',S.bondChunk);tog('sBond',S.bonding);tog('sBTimerCont',S.bondTimer==='continuous');tog('sBTimerCum',S.bondTimer==='cumulative');sync('sFill',S.strandFill,'vFill',x=>(+x).toFixed(2));sync('sOutW',S.outlineW,'vOutW',x=>(+x).toFixed(1));sync('sOutA',S.outlineA,'vOutA',x=>(+x).toFixed(2));sync('sGloss',S.gloss,'vGloss',x=>(+x).toFixed(2));sync('sShade',S.shade,'vShade',x=>(+x).toFixed(2));sync('sShadow',S.shadow,'vShadow',x=>(+x).toFixed(2));{const xb=document.getElementById('sXpbd');if(xb)xb.checked=!!S.xpbd;const ss=document.getElementById('sShadeSmooth');if(ss)ss.checked=S.shadeSmooth!==false;const bgp=document.getElementById('sBg');if(bgp&&S.bg)bgp.value=S.bg;}}
+  tog('sChunk',S.chunk);tog('sBondChunk',S.bondChunk);tog('sBond',S.bonding);tog('sBTimerCont',S.bondTimer==='continuous');tog('sBTimerCum',S.bondTimer==='cumulative');sync('sFill',S.strandFill,'vFill',x=>(+x).toFixed(2));sync('sOutW',S.outlineW,'vOutW',x=>(+x).toFixed(1));sync('sOutA',S.outlineA,'vOutA',x=>(+x).toFixed(2));sync('sGloss',S.gloss,'vGloss',x=>(+x).toFixed(2));sync('sShade',S.shade,'vShade',x=>(+x).toFixed(2));sync('sShadow',S.shadow,'vShadow',x=>(+x).toFixed(2));{const xb=document.getElementById('sXpbd');if(xb)xb.value=S.xpbd||0;const xv=document.getElementById('vXpbd');if(xv)xv.textContent=(S.xpbd||0).toFixed(2);const ss=document.getElementById('sShadeSmooth');if(ss)ss.checked=S.shadeSmooth!==false;const bgp=document.getElementById('sBg');if(bgp&&S.bg)bgp.value=S.bg;}}
 function importJSON(data){
   try{const obj=JSON.parse(data);const objs=obj.objects||obj;if(!Array.isArray(objs))throw 0;
     resize();clearGraph();S.scene='import';G.lastImport=data;
@@ -697,7 +697,7 @@ function collide(){flushExcl();
       a1.x+=ux*cA*s;a1.y+=uy*cA*s;a1.h+=uh*cA*s;
       b0.x-=ux*cB*(1-t);b0.y-=uy*cB*(1-t);b0.h-=uh*cB*(1-t);
       b1.x-=ux*cB*t;b1.y-=uy*cB*t;b1.h-=uh*cB*t;
-      const vcd=S.xpbd?(pass===S.iters-1?1:0):cd;   // XPBD: separate positions every pass, but correct contact velocity ONCE at the end (stable, no injection). Classic: bleed cd every pass.
+      const vcd=S.xpbd>0?(pass===S.iters-1?S.xpbd:0):cd;   // XPBD: correct contact velocity ONCE at the end, by S.xpbd fraction. 0=off(lively), 1=full(settled), between=middle ground. Classic path (xpbd 0) bleeds cd every pass.
       if(vcd>0){  // remove the NORMAL velocity the position push manufactured, so contacts don't inject energy (anti-tunnel + no self-propulsion)
         const kn=(n)=>{const vn=(n.x-n.px)*ux+(n.y-n.py)*uy+(n.h-n.ph)*uh;n.px+=vn*ux*vcd;n.py+=vn*uy*vcd;n.ph+=vn*uh*vcd;};
         kn(a0);kn(a1);kn(b0);kn(b1);}}}
@@ -1417,7 +1417,7 @@ document.getElementById('sWeave').addEventListener('input',e=>{S.weave=parseFloa
 document.getElementById('sIters').addEventListener('input',e=>{S.iters=parseInt(e.target.value);document.getElementById('vIters').textContent=S.iters;});
 document.getElementById('sPad').addEventListener('input',e=>{S.wallPad=parseFloat(e.target.value);document.getElementById('vPad').textContent=S.wallPad;});
 document.getElementById('sCD').addEventListener('input',e=>{S.contactDamp=parseFloat(e.target.value);S.cdRamping=false;document.getElementById('vCD').textContent=S.contactDamp.toFixed(2);});
-document.getElementById('sXpbd').addEventListener('change',e=>{S.xpbd=e.target.checked;});
+document.getElementById('sXpbd').addEventListener('input',e=>{S.xpbd=parseFloat(e.target.value);document.getElementById('vXpbd').textContent=S.xpbd.toFixed(2);});
 document.getElementById('sChunk').addEventListener('click',()=>{S.chunk=!S.chunk;document.getElementById('sChunk').classList.toggle('on',S.chunk);});
 document.getElementById('sBondChunk').addEventListener('click',()=>{S.bondChunk=!S.bondChunk;document.getElementById('sBondChunk').classList.toggle('on',S.bondChunk);});
 document.getElementById('sBond').addEventListener('click',()=>{S.bonding=!S.bonding;document.getElementById('sBond').classList.toggle('on',S.bonding);});

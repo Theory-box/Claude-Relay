@@ -999,3 +999,11 @@ scene mutation already calls — refreshStats(), renderObjectList(), selectObjec
 material-delete clicks now fire renders (0 -> 2); regressions pass. removeMaterial already had the
 confirm ("Delete X and all its strands?") + removes all that material's segments — that part was fine,
 it just wasn't repainting.
+
+## XPBD: toggle -> 0-1 slider (middle ground)
+
+User: XPBD (full) kills too much contact dynamics; wants a middle ground. Rejected every-other-frame
+(alternating full/none beats ~30Hz). Deferred per-object. Chosen: partial-strength dial. S.xpbd now a
+0-1 fraction; collide vcd = S.xpbd>0 ? (last pass ? S.xpbd : 0) : cd. 0=off(lively), 1=full(inelastic),
+between=middle. Checkbox->slider (lively<->settled). Verified: drift scales 25.9(0)->13.8(.3)->5.2(.5)
+->3.3(1); free glide identical 58.8 at all levels (contact-only). Regressions pass. Sweet spot ~0.2-0.4.
