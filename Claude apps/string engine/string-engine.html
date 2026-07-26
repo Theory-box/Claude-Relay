@@ -983,16 +983,15 @@ function render(){
       ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();}
     ctx.strokeStyle=col;ctx.globalAlpha=dbg?1:0.96;ctx.lineWidth=fw;
     ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();ctx.globalAlpha=1;
-    if(S.shade>0&&zr>1.5&&!dbg){                                                      // diffuse capsule shading: a light->dark gradient ACROSS the tube (bright on the lit side, dark on the shadow side)
+    if(S.shade>0&&zr>1.5&&!dbg){                                                      // diffuse capsule shading — approximated with two offset solid strokes (no per-segment gradient alloc, ~10x cheaper than createLinearGradient)
       let dx=b.x-a.x,dy=b.y-a.y;const L=hyp2(dx,dy)||1;dx/=L;dy/=L;
       let px=-dy,py=dx;if(px*LIGHT_X+py*LIGHT_Y<0){px=-px;py=-py;}                       // perpendicular pointing to the lit side
-      const mx=(a.x+b.x)*0.5,my=(a.y+b.y)*0.5,d=S.shade;
-      const g=ctx.createLinearGradient(mx+px*r,my+py*r,mx-px*r,my-py*r);                 // lit edge -> shadow edge
-      g.addColorStop(0,'rgba(255,255,255,'+(d*0.42).toFixed(3)+')');
-      g.addColorStop(0.45,'rgba(255,255,255,0)');
-      g.addColorStop(1,'rgba(0,0,0,'+(d*0.5).toFixed(3)+')');
-      ctx.strokeStyle=g;ctx.lineWidth=fw;
-      ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();}
+      const d=S.shade,off=r*0.5,hw=Math.max(1.5,fw*0.6);
+      ctx.lineWidth=hw;
+      ctx.strokeStyle='rgba(0,0,0,'+(d*0.5).toFixed(3)+')';                             // shadow side (away from light)
+      ctx.beginPath();ctx.moveTo(a.x-px*off,a.y-py*off);ctx.lineTo(b.x-px*off,b.y-py*off);ctx.stroke();
+      ctx.strokeStyle='rgba(255,255,255,'+(d*0.32).toFixed(3)+')';                       // lit side (toward light)
+      ctx.beginPath();ctx.moveTo(a.x+px*off,a.y+py*off);ctx.lineTo(b.x+px*off,b.y+py*off);ctx.stroke();}
     if(S.gloss>0&&zr>1.5&&!dbg){                                                      // faux tube shading: a specular streak on the light-facing side makes flat strands read as rounded, lit gel
       let dx=b.x-a.x,dy=b.y-a.y;const L=hyp2(dx,dy)||1;dx/=L;dy/=L;
       let px=-dy,py=dx;const dot=px*LIGHT_X+py*LIGHT_Y;if(dot<0){px=-px;py=-py;}          // perpendicular, flipped to the light-facing side

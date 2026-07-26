@@ -952,3 +952,19 @@ over speed. affinity still acts; regressions pass.
 NOTE for future: falloff is linear (reaches exactly 0 at reach = clean cutoff). If we ever want the
 exponential FEEL (stronger near contact), reshape the curve but keep the reach-to-0 property so the
 cutoff stays invisible. Linear-to-0 is actually ideal for "no visible cutoff" (exponential never hits 0).
+
+## Render: cheap Shade (2-stroke) — kills the mid-zoom slowdown
+
+User noticed a mid-zoom slow band: lots of strands above the LOD threshold (zr>1.5) all paying full
+effects. Profiled per-effect cost at z=1.2 (~1142 segs): base 2.02ms, +outline +0.95, +gloss +0.33,
++shadow ~0, **+shade(gradient) +4.77ms** — the createLinearGradient per segment per frame was 90% of
+the effect cost.
+
+Fix: replaced the per-segment gradient with TWO offset solid strokes (dark stroke offset to shadow
+side, light stroke offset to lit side) — no gradient allocation. Shade cost 4.77 -> 0.51ms (~9x); ALL
+effects together 5.8 -> 2.96ms (~2x faster render, full quality). Quality preserved/better: lit vs
+shadow contrast 576 vs 237 (gradient was 636 vs 407). Regressions pass.
+
+The binary LOD (drop effects below zr 1.5) still exists for extreme zoom-out, but the mid-zoom cliff is
+gone since effects are now cheap. Could lower the LOD threshold now if desired. Future render levers if
+ever needed: batch base+outline strokes per-object into one path (fewer stroke calls). Not needed now.
