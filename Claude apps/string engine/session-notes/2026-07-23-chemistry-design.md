@@ -889,3 +889,28 @@ Verified (c002b, bonding+breaking, temp 1): endpointForces 8.67 -> 1.40 ms = **6
 3x comes from less downstream churn — fewer bond events/frame). Bonds still form (1082 -> 838, the
 staggering; chaotic scene so it's a different rollout, not a defect). No NaN, stable, regressions pass.
 endpointForces was ~18-30% of the frame, so this is a big win for bonding-heavy scenes.
+
+---
+
+## Connectors "in reach but won't connect" — root cause + fix; snap-viz confirmed accurate
+
+User: on one string, when it breaks, some connectors sit overlapping/in-reach but never connect while
+others snap fine; some hover & collide but never bond. Predates the temporal change. Also asked to test
+whether the visualized snap distance matches the actual.
+
+**Snap-viz is ACCURATE** (tested): fresh ends bond at 23px vs the green circle's snapPx 24 across
+snap/r/pad combos (1px = march step). Viz formula snapPx = snap*(er+erT) matches actual
+dist < snapR*(effR1+effR2) for same-string. So the felt mismatch is NOT the formula — it's the gates
+the circle doesn't show.
+
+**Root cause = the re-bond hysteresis gate.** On break, flagBondBreaks (and severEdgeAt) set
+sepDist = rest*1.15 and block re-bond while dist < sepDist. But collision holds broken ends at
+standoff = 2*effR + padSelf. With low/no padding, standoff (=rest) < sepDist (=rest*1.15), so collision
+physically pins the pair INSIDE the gate -> they can never drift far enough to clear it -> stuck
+forever, hovering in contact. Ends that never broke have no gate -> bond fine (hence "some do, some
+don't" on the same string).
+
+**Fix:** gate now clears on distance OR a short time cooldown. Break/sever stamp sepUntil = frame+30;
+gate = (dist<sepDist && frame<sepUntil). Anti-buzz preserved (gated during the ~0.5s cooldown),
+permanent-stuck eliminated. Verified: pair at 12px (inside sepDist) gated during cooldown, re-bonds
+after it lapses. Regressions pass.

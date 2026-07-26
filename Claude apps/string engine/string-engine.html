@@ -784,7 +784,8 @@ function endpointForces(){
         if(S.bonding&&!adjacent&&(p1||p2)&&!blocks(p1)&&!blocks(p2)){
           let gated=false;                                        // hysteresis: a pair that just broke can't re-heal until pulled apart past its break distance
           if(a.sepFrom===n2||bn.sepFrom===n1){const sd=Math.max(a.sepFrom===n2?(a.sepDist||0):0,bn.sepFrom===n1?(bn.sepDist||0):0);
-            if(dist<sd)gated=true;else{a.sepFrom=-1;bn.sepFrom=-1;}}   // separated enough -> clear the gate, allow re-bond
+            const cool=Math.max(a.sepFrom===n2?(a.sepUntil||0):0,bn.sepFrom===n1?(bn.sepUntil||0):0);
+            if(dist<sd&&S.frame<cool)gated=true;else{a.sepFrom=-1;bn.sepFrom=-1;}}   // clear once they drift apart OR the brief cooldown lapses (contact-held pairs were stuck forever when standoff < sepDist)
           const bondRest=effR(o1)+effR(o2);                       // the length this bond would have; snap/break scale to it
           const snapR=Math.max(p1?p1.snap:0,p2?p2.snap:0);
           if(!gated&&dist<snapR*bondRest){const mgs=[p1?p1.merge:null,p2?p2.merge:null].filter(v=>v!=null),bls=[p1?p1.blend:null,p2?p2.blend:null].filter(v=>v!=null),bks=[p1?p1.brk:null,p2?p2.brk:null].filter(v=>v!=null),bss=[p1?p1.bStr:null,p2?p2.bStr:null].filter(v=>v!=null),hps=[p1?p1.hardenPow:null,p2?p2.hardenPow:null].filter(v=>v!=null);
@@ -816,7 +817,7 @@ function flagBondBreaks(){if(!S.bonding)return;   // real strain breaks bonds; y
     const brkRatio=1+((s.brk)-1)*bondStability(s);                   // stability 0 -> breaks at rest length; hardened -> full brk x rest
     if(len>brkRatio*s.rest){s.dead=true;
       if(S.bondEnergy>0)coolNodes(s.a,s.b,S.bondEnergy);            // breaking a bond absorbs energy (endothermic)
-      const d=s.rest*1.15;a.sepFrom=s.b;a.sepDist=d;b.sepFrom=s.a;b.sepDist=d;}}}   // must drift apart before re-bonding (no instant buzz)
+      const d=s.rest*1.15,cu=(S.frame||0)+30;a.sepFrom=s.b;a.sepDist=d;a.sepUntil=cu;b.sepFrom=s.a;b.sepDist=d;b.sepUntil=cu;}}}   // must drift apart OR wait out a short cooldown before re-bonding (no instant buzz, but never permanently stuck)
 // ---------- reversible bonding: weak while young, hardening with age, shaken apart by heat ----------
 function bondStability(s){   // 0 = falls apart instantly, 1 = thermal-proof (committed)
   const mt=s.mergeTime||0;if(mt<=0)return 1;                       // instant-fuse bonds never had a weak phase
@@ -1094,7 +1095,7 @@ function severEdgeAt(si,preferA){   // detach edge si from whatever shares its c
   const dx=Nn.x-O.x,dy=Nn.y-O.y,L=hyp2(dx,dy)||1,ox=-dy/L,oy=dx/L;
   Nn.x+=ox*1.2;Nn.y+=oy*1.2;Nn.px=Nn.x;Nn.py=Nn.y;
   const D=objBrk(G.objs[s.obj])*(s.rest||10);  // hysteresis: this pair can't re-bond to each other until pulled apart past break distance
-  Nn.sepFrom=orig;Nn.sepDist=D;G.nodes[orig].sepFrom=nn;G.nodes[orig].sepDist=D;
+  Nn.sepFrom=orig;Nn.sepDist=D;Nn.sepUntil=(S.frame||0)+30;G.nodes[orig].sepFrom=nn;G.nodes[orig].sepDist=D;G.nodes[orig].sepUntil=(S.frame||0)+30;
   if(atA)s.a=nn;else s.b=nn;                   // this edge now hangs off the duplicate; the original node keeps the other edges
   return true;}
 function cutLine(x0,y0,x1,y1){
