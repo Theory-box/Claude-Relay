@@ -933,3 +933,22 @@ UI: "Reach" slider (20-200px, default 140) in the Affinity editor; sv on select,
 captured/restored (added affRange to capture block + restoreSettings). Verified: hub-with-40-neighbors
 attract() 0.52ms @140 -> 0.18ms @50 (**2.8x**) -> 0.16ms @25 (3.3x); affinity still acts; slider
 reflects/sets; persists through reset; regressions pass.
+
+## Affinity falloff: no-visible-cutoff fix (grid sizing)
+
+User: never want a VISIBLE hard cutoff — only stop computing once the effect has faded to ~0.
+Measured the force vs distance: falloff is LINEAR and reaches exactly 0 at the reach (good, no
+discontinuity from the curve). BUT the per-object Reach exposed a grid bug: cell was sized to IR, so at
+SHORT reach the 3x3 query dropped segments whose midpoint sat a cell away while their nearest point was
+still well in range -> force slammed to 0 at ~40% strength (visible pop). E.g. reach 60: force went
+0.052, 0.039, then 0,0.
+
+Fix: cell = IR + maxSegLen (max tagged-segment length); per-pair reject margin also uses maxSeg instead
+of fixed 40. A segment's midpoint can sit up to ~its length from its nearest point, so the grid must
+cover reach + segment extent. After: reach-60 force eases 0.052 ->0.039 ->0.026 ->0.013 ->0 smoothly to
+the reach, no jump. Perf: short-reach speedup now ~2x (was ~2.8x) due to the larger cell — correctness
+over speed. affinity still acts; regressions pass.
+
+NOTE for future: falloff is linear (reaches exactly 0 at reach = clean cutoff). If we ever want the
+exponential FEEL (stronger near contact), reshape the curve but keep the reach-to-0 property so the
+cutoff stays invisible. Linear-to-0 is actually ideal for "no visible cutoff" (exponential never hits 0).

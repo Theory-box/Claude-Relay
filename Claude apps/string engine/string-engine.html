@@ -719,7 +719,8 @@ function attract(){
   for(let a=0;a<nO;a++)for(let bb=0;bb<nO;bb++){const v=interVal(objs[a],objs[bb].ids,a===bb);vmat[a*nO+bb]=v;if(v)anyPair=true;}
   if(!anyPair)return;
   // hash each tagged segment into ONE cell by its midpoint; query 3x3 neighbours, dedup by index order
-  const cell=IR,bkt=new Map(),mid=new Array(idx.length);
+  let maxSeg=0;for(const k of idx){const s=G.segs[k],a=G.nodes[s.a],b=G.nodes[s.b];const l=hyp2(a.x-b.x,a.y-b.y);if(l>maxSeg)maxSeg=l;}   // a segment's midpoint can sit up to ~its length from its nearest point
+  const cell=IR+maxSeg,bkt=new Map(),mid=new Array(idx.length);   // grid must cover reach + segment extent, else short reaches drop still-active pairs (visible pop)
   for(let ii=0;ii<idx.length;ii++){const k=idx[ii],s=G.segs[k],a=G.nodes[s.a],b=G.nodes[s.b];
     const mx=(a.x+b.x)*0.5,my=(a.y+b.y)*0.5;mid[ii]=mx;mid[ii+idx.length]=my;
     const key=Math.floor(mx/cell)+'_'+Math.floor(my/cell);let arr=bkt.get(key);if(!arr){arr=[];bkt.set(key,arr);}arr.push(k);}
@@ -734,7 +735,7 @@ function attract(){
         if(oai===obi&&!objs[oai].interSelf)continue;
         if(sa.a===sb.a||sa.a===sb.b||sa.b===sb.a||sa.b===sb.b)continue;
         const oa=objs[oai],ob=objs[obi];
-        const arA=(oa.affRange!=null?oa.affRange:140),arB=(ob.affRange!=null?ob.affRange:140),pr=Math.max(arA,arB),prej=(pr+40)*(pr+40);
+        const arA=(oa.affRange!=null?oa.affRange:140),arB=(ob.affRange!=null?ob.affRange:140),pr=Math.max(arA,arB),prm=pr+maxSeg,prej=prm*prm;
         const b0=G.nodes[sb.a],b1=G.nodes[sb.b],bmx=(b0.x+b1.x)*0.5,bmy=(b0.y+b1.y)*0.5;
         const ddx=mx-bmx,ddy=my-bmy;if(ddx*ddx+ddy*ddy>prej)continue;// midpoint reject sized to this pair's reach (skips closest() for far pairs)
         const a0=G.nodes[sa.a],a1=G.nodes[sa.b];
