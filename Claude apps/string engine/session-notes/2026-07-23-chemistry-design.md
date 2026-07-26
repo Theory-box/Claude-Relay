@@ -914,3 +914,22 @@ don't" on the same string).
 gate = (dist<sepDist && frame<sepUntil). Anti-buzz preserved (gated during the ~0.5s cooldown),
 permanent-stuck eliminated. Verified: pair at 12px (inside sepDist) gated during cooldown, re-bonds
 after it lapses. Regressions pass.
+
+---
+
+## Per-object affinity Reach (affRange) — perf lever
+
+User asked: is there an affinity falloff/cutoff, could it be per-object? Answer: there was ALREADY a
+hard global 140px cutoff (IR=140) + linear falloff to zero at 140 (fall=1-(dist-contact)/(140-contact)).
+So distant objects are already free; cost is many objects WITHIN 140px.
+
+Made it per-object. Each object has o.affRange (default 140). In attract(): IR = max affRange over
+objects (sizes the hash cell + reject), and per PAIR: pr=max(arA,arB) drives the midpoint reject
+(skips closest() for far pairs), the cl.dist cutoff, and per-object falloff (fallA uses arA, fallB uses
+arB — asymmetric reach is consistent with the already-asymmetric affinity model). Shorter reach ->
+smaller hash cell + fewer closest() calls.
+
+UI: "Reach" slider (20-200px, default 140) in the Affinity editor; sv on select, bindPair wiring,
+captured/restored (added affRange to capture block + restoreSettings). Verified: hub-with-40-neighbors
+attract() 0.52ms @140 -> 0.18ms @50 (**2.8x**) -> 0.16ms @25 (3.3x); affinity still acts; slider
+reflects/sets; persists through reset; regressions pass.

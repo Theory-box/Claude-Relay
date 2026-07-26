@@ -219,6 +219,8 @@
         <div id="epAffinity" class="subfold">
           <p class="eyebrow">Affinity</p>
           <div id="interWrap"></div>
+          <div class="ctrl" style="margin-top:6px"><label>Reach <input id="eAffRN" class="numin" type="number" step="5"></label><input id="eAffR" type="range" min="20" max="200" value="140" step="5"></div>
+          <div class="stat" style="margin-top:2px"><span>how far this object\u2019s affinity reaches (px) \u00b7 shorter = faster when it interacts with many things</span></div>
           <p class="note">+ attracts, − repels. Each object has its own row, so pulls can be one-way. "own body" folds the object onto itself; 0 means it ignores itself.</p>
         </div>
         <div id="epConnect" class="subfold">
@@ -445,7 +447,7 @@ function weldNodes(){ // merge coincident vertices (even across objects) so touc
 function snapshotInit(){G.init=G.nodes.map(n=>[n.x,n.y,n.h]);}      // remember starting layout
 function captureSettings(){const m={_g:{}};
   for(const o of G.objs)m[o.name]={inter:o.inter?Object.assign({},o.inter):null,interSelf:o.interSelf,selfSolid:o.selfSolid,
-    damp:o.damp,padSelf:o.padSelf,padOther:o.padOther,ids:o.ids?o.ids.slice():null,r:o.r,stiff:o.stiff,curl:o.curl,grow:o.grow,
+    damp:o.damp,padSelf:o.padSelf,padOther:o.padOther,affRange:o.affRange,ids:o.ids?o.ids.slice():null,r:o.r,stiff:o.stiff,curl:o.curl,grow:o.grow,
     affinity:o.affinity,polarity:o.polarity,bondOn:o.bondOn,autoSpace:o.autoSpace,spaceMult:o.spaceMult,breakable:o.breakable,brkStretch:o.brkStretch,brkAbs:o.brkAbs,bendAbsLim:o.bendAbsLim,brkRel:o.brkRel,bendRelLim:o.bendRelLim,endType:o.endType?JSON.parse(JSON.stringify(o.endType)):null,
     solid:o.solid,fixed:o.fixed};
   for(const k of ['temp','damp','speed','weave','iters','wallPad','contactDamp','weld','gCurl','gStiff','gThick','gGrow','chunk','bonding','bondSnap','bondBrk','bondCure','bondBlend','bondTimer','bondEnergy','view','repel','tol','maxBondEvents','showHeat','strandFill','outlineW','outlineA','gloss','shade','bg','shadow','xpbd','bondChunk'])m._g[k]=S[k];
@@ -454,7 +456,7 @@ function restoreSettings(m){
   if(m._g)applyGlobals(m._g);                                   // keep the user's global settings + resync their sliders
   for(const o of G.objs){const s=m[o.name];if(!s)continue;
     if(s.inter)o.inter=Object.assign({},s.inter);if(s.interSelf!==undefined)o.interSelf=s.interSelf;if(s.selfSolid!==undefined)o.selfSolid=s.selfSolid;
-    if(s.damp!==undefined)o.damp=s.damp;if(s.padSelf!==undefined)o.padSelf=s.padSelf;if(s.padOther!==undefined)o.padOther=s.padOther;
+    if(s.damp!==undefined)o.damp=s.damp;if(s.padSelf!==undefined)o.padSelf=s.padSelf;if(s.padOther!==undefined)o.padOther=s.padOther;if(s.affRange!==undefined)o.affRange=s.affRange;
     if(s.r!==undefined)o.r=s.r;if(s.stiff!==undefined)o.stiff=s.stiff;if(s.curl!==undefined)o.curl=s.curl;if(s.grow!==undefined)o.grow=s.grow;
     if(s.affinity!==undefined)o.affinity=s.affinity;if(s.polarity!==undefined)o.polarity=s.polarity;
     if(s.endType)o.endType=JSON.parse(JSON.stringify(s.endType));if(s.bondOn!==undefined)o.bondOn=s.bondOn;
@@ -704,7 +706,8 @@ function attract(){
   // any nonzero interaction anywhere? (objs are few — cheap)
   let any=false;for(const o of G.objs){if(o.interSelf){any=true;break;}if(o.inter){for(const k in o.inter){if(o.inter[k]){any=true;break;}}if(any)break;}}
   if(!any)return;
-  const IR=140,IR2=IR*IR,REJ=(IR+40)*(IR+40),BASE=0.18;
+  let IR=20;for(const o of G.objs){const ar=(o.affRange!=null?o.affRange:140);if(ar>IR)IR=ar;}   // search radius = the widest per-object affinity reach; shorter reaches shrink the whole search
+  const IR2=IR*IR,REJ=(IR+40)*(IR+40),BASE=0.18;
   const CHUNKS=3,chunkOn=S.chunk,phase=chunkOn?((G.attractPhase|0)%CHUNKS):0,B2=chunkOn?BASE*CHUNKS:BASE; // temporal spread: 1/3 of segments per frame, force scaled x3 so the average matches
   const tagged=[];for(let i=0;i<G.segs.length;i++)if(G.segs[i].ids&&G.segs[i].ids.length)tagged.push(i);
   if(tagged.length<2)return;
@@ -730,19 +733,20 @@ function attract(){
         if(va===0&&vb===0)continue;
         if(oai===obi&&!objs[oai].interSelf)continue;
         if(sa.a===sb.a||sa.a===sb.b||sa.b===sb.a||sa.b===sb.b)continue;
+        const oa=objs[oai],ob=objs[obi];
+        const arA=(oa.affRange!=null?oa.affRange:140),arB=(ob.affRange!=null?ob.affRange:140),pr=Math.max(arA,arB),prej=(pr+40)*(pr+40);
         const b0=G.nodes[sb.a],b1=G.nodes[sb.b],bmx=(b0.x+b1.x)*0.5,bmy=(b0.y+b1.y)*0.5;
-        const ddx=mx-bmx,ddy=my-bmy;if(ddx*ddx+ddy*ddy>REJ)continue;// cheap midpoint reject before closest()
+        const ddx=mx-bmx,ddy=my-bmy;if(ddx*ddx+ddy*ddy>prej)continue;// midpoint reject sized to this pair's reach (skips closest() for far pairs)
         const a0=G.nodes[sa.a],a1=G.nodes[sa.b];
         if(a0.inv+a1.inv+b0.inv+b1.inv<=0)continue;
-        const cl=closest(a0,a1,b0,b1,false);if(cl.dist>IR||cl.dist<1e-6)continue;  // true nearest points (2D)
-        const oa=objs[oai],ob=objs[obi];
-        const tgt=objR[oai]+objR[obi],fall=1-clamp((cl.dist-tgt)/Math.max(1,IR-tgt),0,1);
+        const cl=closest(a0,a1,b0,b1,false);if(cl.dist>pr||cl.dist<1e-6)continue;  // true nearest points (2D), per-pair reach
+        const tgt=objR[oai]+objR[obi];
         const contact=tgt+(oai===obi?(oa.padSelf||0):Math.max(oa.padOther||0,ob.padOther||0));
         const gate=clamp((cl.dist-contact)/10,0,1);               // attraction fades to 0 inside the contact distance
         const ux=cl.nx/cl.dist,uy=cl.ny/cl.dist,s=cl.s,t=cl.t;     // normal points B->A
-        if(va!==0){const mA=va*B2*fall*(va>0?gate:1);            // gate pulls only; pushes (repel) act at any range
+        if(va!==0){const fallA=1-clamp((cl.dist-tgt)/Math.max(1,arA-tgt),0,1);const mA=va*B2*fallA*(va>0?gate:1);   // A's own reach shapes its falloff
           a0.x+=-ux*mA*(1-s)*a0.inv;a0.y+=-uy*mA*(1-s)*a0.inv;a1.x+=-ux*mA*s*a1.inv;a1.y+=-uy*mA*s*a1.inv;}
-        if(vb!==0){const mB=vb*B2*fall*(vb>0?gate:1);
+        if(vb!==0){const fallB=1-clamp((cl.dist-tgt)/Math.max(1,arB-tgt),0,1);const mB=vb*B2*fallB*(vb>0?gate:1);
           b0.x+=ux*mB*(1-t)*b0.inv;b0.y+=uy*mB*(1-t)*b0.inv;b1.x+=ux*mB*t*b1.inv;b1.y+=uy*mB*t*b1.inv;}}}}
   if(chunkOn)G.attractPhase=(phase+1)%CHUNKS;
 }
@@ -1269,7 +1273,7 @@ function selectObject(i){if(i!==S.selected)activeConnTarget=null;S.snapViz=null;
   if(!o){ed.style.display='none';return;}ed.style.display='';
   document.getElementById('objName').textContent=o.name||('object '+(i+1));
   const sv=(rid,nid,val)=>{const v=+val;document.getElementById(rid).value=v;document.getElementById(nid).value=Math.round(v*1000)/1000;};
-  sv('eThick','eThickN',o.r);sv('eStiff','eStiffN',o.stiff);sv('eCurl','eCurlN',o.curl);sv('eGrow','eGrowN',o.grow);
+  sv('eThick','eThickN',o.r);sv('eStiff','eStiffN',o.stiff);sv('eCurl','eCurlN',o.curl);sv('eGrow','eGrowN',o.grow);sv('eAffR','eAffRN',o.affRange!=null?o.affRange:140);
   sv('eDamp','eDampN',o.damp||0);sv('ePadO','ePadON',o.padOther||0);sv('ePadS','ePadSN',o.padSelf||0);
   sv('eSpace','eSpaceN',o.spaceMult||1);
   document.getElementById('eAutoSpace').classList.toggle('on',!!o.autoSpace);
@@ -1378,6 +1382,7 @@ function bindPair(rid,nid,fn){const r=document.getElementById(rid),n=document.ge
 bindPair('eThick','eThickN',(o,v)=>{o.r=v;computeExclusions();refreshObjMass(o);if(curReachUpd)curReachUpd();});
 bindPair('eStiff','eStiffN',(o,v)=>o.stiff=v);
 bindPair('eCurl','eCurlN',(o,v)=>o.curl=v);
+bindPair('eAffR','eAffRN',(o,v)=>o.affRange=v);
 bindPair('eGrow','eGrowN',(o,v)=>o.grow=v);
 bindPair('eDamp','eDampN',(o,v)=>o.damp=v);
 bindPair('ePadO','ePadON',(o,v)=>{o.padOther=v;if(curReachUpd)curReachUpd();});
