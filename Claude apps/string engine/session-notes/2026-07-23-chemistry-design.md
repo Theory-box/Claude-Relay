@@ -968,3 +968,20 @@ shadow contrast 576 vs 237 (gradient was 636 vs 407). Regressions pass.
 The binary LOD (drop effects below zr 1.5) still exists for extreme zoom-out, but the mid-zoom cliff is
 gone since effects are now cheap. Could lower the LOD threshold now if desired. Future render levers if
 ever needed: batch base+outline strokes per-object into one path (fewer stroke calls). Not needed now.
+
+## Shade: graduated gradient (nice + fast) + toggle
+
+User preferred the OLD gradient shade over the 2-stroke; wants nice look WITH speed, or at least a
+toggle. Micro-benched: gradient cost is the createLinearGradient CREATION (3.07us/op); reuse is free
+(0.038us) but reuse-via-transform is 2.15us (barely cheaper, not worth it). So the gradient is
+inherently ~7x the 2-stroke; no cheap universal reuse.
+
+Solution = graduated: use the TRUE gradient only when a strand is big on screen (zr = effR*zoom > 4) —
+that's exactly when you're zoomed in appreciating it AND there are few strands (so cost stays tiny);
+use the fast 2-stroke for smaller strands (mid-zoom, many on screen). Naturally routes the expensive
+path to thick/zoomed-in strands only. Toggle S.shadeSmooth (default ON = graduated; OFF = 2-stroke
+everywhere, max speed) in View->Strand look; persisted.
+
+Measured (c002b, all effects): zoomed-in gradient 3.85ms (bounded by culling+few strands); mid-zoom
+3.84ms (mostly 2-stroke; thick strands still gradient); fast mode 2.66ms. vs original all-gradient
+5.8ms. Regressions pass. Threshold zr>4 tunable if user wants the gradient at more/fewer zoom levels.
