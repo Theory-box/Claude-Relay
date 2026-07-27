@@ -153,3 +153,13 @@ our own datablock churn doesn't self-trigger).
   swatch) in both manual and warm paths; was magenta before.
 - Note: pink != dead worker — a missing image renders fine, just placeholder-
   coloured (mix nodes on top still show their effect, which is the tell).
+
+## v0.10 — neutral colour management (no grading on previews)
+- BUG: a freshly created job scene defaults to AgX view transform (Blender 4.x),
+  so previews were being colour-graded (e.g. pure green rendered as muted
+  [0.43,0.77,0.32]).
+- FIX: job scene now forces View Transform = Standard, Look = None, Exposure = 0,
+  Gamma = 1 -> raw texture/node colours. Verified: green test texture now renders
+  [0,1,0] (was [0.43,0.77,0.32]); manual + warm paths.
+- Note: user mentioned "Medium Contrast" but that Look ADDS grading; used Look =
+  None to actually eliminate grading. Switch to Medium Contrast only if desired.

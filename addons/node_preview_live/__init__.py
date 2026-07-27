@@ -424,6 +424,16 @@ def _build_job_scene(src_mat, node_name, resolution):
     scene.render.resolution_percentage = 100
     scene.render.film_transparent = False
 
+    # Neutralise colour management so the preview shows raw texture/node colours,
+    # not the scene's grading (the default on a new scene is AgX in 4.x).
+    try:
+        scene.view_settings.view_transform = "Standard"
+        scene.view_settings.look = "None"
+        scene.view_settings.exposure = 0.0
+        scene.view_settings.gamma = 1.0
+    except Exception:
+        pass
+
     return scene, created, True, ""
 
 
