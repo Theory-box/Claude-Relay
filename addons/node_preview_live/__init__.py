@@ -482,7 +482,9 @@ def start_job(context, warm=False):
         png = os.path.join(tmpdir, "np_out_%s.png" % stamp)
         status = png + ".status"
 
-        bpy.data.libraries.write(blend, {scene}, path_remap="NONE", fake_user=True)
+        # ABSOLUTE so image textures with relative paths (Blender's default)
+        # still resolve from the temp job .blend's location in the worker.
+        bpy.data.libraries.write(blend, {scene}, path_remap="ABSOLUTE", fake_user=True)
     except Exception as exc:
         _remove_created(created)
         _state["busy"] = False

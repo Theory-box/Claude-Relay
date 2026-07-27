@@ -141,3 +141,15 @@ our own datablock churn doesn't self-trigger).
 - Verified: warm reuse, dead-man switch (0.1s), idle timeout (~3s w/ idle=3),
   QUIT, live-off stops worker, unregister stops worker, 0 orphan processes,
   0 leftover temp files, manual one-shot still works.
+
+## v0.9 — fix image-texture materials rendering pink
+- BUG: materials using external image textures with RELATIVE paths (Blender's
+  default, e.g. //tex/wood.jpg) rendered PINK (missing-texture placeholder),
+  because the temp job .blend was written to /tmp with path_remap="NONE", so
+  the relative path resolved against /tmp instead of the user's project.
+- FIX: libraries.write now uses path_remap="ABSOLUTE" -> the job .blend stores
+  absolute image paths, so the worker finds the files. No-op for procedural
+  materials. Verified: relative-path texture renders correctly (green test
+  swatch) in both manual and warm paths; was magenta before.
+- Note: pink != dead worker — a missing image renders fine, just placeholder-
+  coloured (mix nodes on top still show their effect, which is the tell).
