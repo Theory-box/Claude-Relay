@@ -81,3 +81,15 @@ our own datablock churn doesn't self-trigger).
 - Note: fresh-process-per-render means GPU context init each spawn; GPU mainly
   wins on big (4096+) / high-sample renders. A persistent worker would remove
   that per-spawn overhead — still the top future optimisation.
+
+## v0.5 — device preference + status readout
+- Add-on Preferences: "Render Device" = Auto / GPU / CPU. GPU uses the backend
+  already set in the user's Cycles prefs (OptiX on desktop, Metal on the Mac).
+- Worker writes a .status sidecar with the device it actually used; the panel
+  shows "Rendered on: GPU (OPTIX)" (checkmark) or "Rendered on: CPU" (error icon
+  if GPU/Auto was requested but fell back) — so GPU success/fallback is visible.
+- BUGFIX: worker script was cached and only written if missing -> add-on updates
+  ran a STALE worker (arg mismatch -> crash). Now always rewritten.
+- Verified headless: Auto/CPU/GPU modes all report correctly (CPU on the no-GPU
+  test box, incl. visible fallback when GPU requested); status files cleaned up.
+  Actual GPU-success path is static-reviewed only (no GPU on the test box).

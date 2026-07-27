@@ -58,34 +58,49 @@ _WORKER_NAME = "np_worker.py"
 # It targets the scene by name and renders it to the given path.
 _WORKER_SRC = '''import bpy, sys
 argv = sys.argv[sys.argv.index("--") + 1:]
-scene_name, out_path, samples = argv[0], argv[1], int(argv[2])
+scene_name, out_path, samples, mode, status_path = argv[0], argv[1], int(argv[2]), argv[3], argv[4]
 scene = bpy.data.scenes[scene_name]
+dev = "CPU"
+backend = ""
 try:
     scene.render.engine = "CYCLES"
     scene.cycles.samples = samples
     scene.cycles.use_denoising = False
-    # Prefer GPU (whatever backend the user's prefs expose); fall back to CPU.
-    dev = "CPU"
-    try:
-        prefs = bpy.context.preferences.addons["cycles"].preferences
-        for dtype in ("OPTIX", "CUDA", "HIP", "METAL", "ONEAPI"):
-            try:
-                prefs.compute_device_type = dtype
-            except TypeError:
-                continue
-            try:
-                prefs.refresh_devices()
-            except Exception:
-                pass
-            gpus = [d for d in prefs.devices if getattr(d, "type", "") == dtype]
-            if gpus:
-                for d in prefs.devices:
-                    d.use = (getattr(d, "type", "") == dtype)
-                dev = "GPU"
-                break
-    except Exception:
-        dev = "CPU"
+    if mode != "CPU":
+        try:
+            prefs = bpy.context.preferences.addons["cycles"].preferences
+            pref_type = getattr(prefs, "compute_device_type", "NONE")
+            # Prefer the backend the user already configured; otherwise scan.
+            if pref_type and pref_type != "NONE":
+                candidates = [pref_type]
+            else:
+                candidates = ["OPTIX", "CUDA", "HIP", "METAL", "ONEAPI"]
+            for dtype in candidates:
+                try:
+                    prefs.compute_device_type = dtype
+                except TypeError:
+                    continue
+                try:
+                    prefs.refresh_devices()
+                except Exception:
+                    pass
+                gpus = [d for d in prefs.devices if getattr(d, "type", "") == dtype]
+                if gpus:
+                    for d in prefs.devices:
+                        if getattr(d, "type", "") == dtype:
+                            d.use = True
+                    dev = "GPU"
+                    backend = dtype
+                    break
+        except Exception:
+            dev = "CPU"
     scene.cycles.device = dev
+except Exception:
+    pass
+# Report what device we ended up using, so the main add-on can show it.
+try:
+    with open(status_path, "w") as f:
+        f.write(dev + ((":" + backend) if backend else ""))
 except Exception:
     pass
 scene.render.filepath = out_path
@@ -111,6 +126,7 @@ _state = {
     "locked_node": "",
     "last_target_key": None,  # (material_name, node_name) we last rendered
     "seen_target_key": None,  # (material_name, node_name) last noticed as active
+    "last_device": "",        # what the last render actually ran on
 }
 
 
@@ -119,18 +135,27 @@ _state = {
 # ---------------------------------------------------------------------------
 
 def _worker_path():
-    """Write the worker script to the temp dir (once) and return its path."""
+    """Write the worker script to the temp dir and return its path.
+
+    Always rewritten so an add-on update never runs a stale cached worker.
+    """
     path = os.path.join(tempfile.gettempdir(), _WORKER_NAME)
     try:
-        if not os.path.exists(path):
-            with open(path, "w") as f:
-                f.write(_WORKER_SRC)
+        with open(path, "w") as f:
+            f.write(_WORKER_SRC)
     except Exception:
-        # Fall back to a fresh unique file if the shared one can't be written.
         fd, path = tempfile.mkstemp(suffix=".py", prefix="np_worker_")
         with os.fdopen(fd, "w") as f:
             f.write(_WORKER_SRC)
     return path
+
+
+def _get_device_mode():
+    """AUTO / GPU / CPU from add-on preferences (AUTO if unavailable)."""
+    try:
+        return bpy.context.preferences.addons[__name__].preferences.device
+    except Exception:
+        return "AUTO"
 
 
 def _find_target():
@@ -314,6 +339,7 @@ def start_job(context):
         stamp = str(int(time.time() * 1000))
         blend = os.path.join(tmpdir, "np_job_%s.blend" % stamp)
         png = os.path.join(tmpdir, "np_out_%s.png" % stamp)
+        status = png + ".status"
 
         bpy.data.libraries.write(blend, {scene}, path_remap="NONE", fake_user=True)
     except Exception as exc:
@@ -328,11 +354,13 @@ def start_job(context):
     try:
         exe = bpy.app.binary_path
         worker = _worker_path()
+        mode = _get_device_mode()
         kwargs = dict(stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         if os.name == "nt":
             kwargs["creationflags"] = 0x08000000  # CREATE_NO_WINDOW
         proc = subprocess.Popen(
-            [exe, "-b", blend, "--python", worker, "--", JOB_SCENE_NAME, png, str(samples)],
+            [exe, "-b", blend, "--python", worker, "--",
+             JOB_SCENE_NAME, png, str(samples), mode, status],
             **kwargs
         )
     except Exception as exc:
@@ -343,7 +371,8 @@ def start_job(context):
             pass
         return False, "Could not launch background Blender: %s" % exc
 
-    _state["job"] = {"proc": proc, "blend": blend, "png": png, "tiling": tiling, "started": time.time()}
+    _state["job"] = {"proc": proc, "blend": blend, "png": png, "status": status,
+                     "tiling": tiling, "started": time.time()}
     _state["busy"] = False
     _state["cooldown_until"] = time.time() + 0.05
     _ensure_timer()
@@ -413,6 +442,12 @@ def _complete_job():
 
     _state["busy"] = True
     try:
+        # Read what device the worker actually used.
+        try:
+            with open(job["status"], "r") as f:
+                _state["last_device"] = f.read().strip()
+        except Exception:
+            _state["last_device"] = ""
         if proc.returncode == 0 and os.path.exists(job["png"]):
             _store_result(job["png"], job["tiling"])
             _state["last_error"] = ""
@@ -430,7 +465,7 @@ def _complete_job():
 
 
 def _cleanup_job_files(job):
-    for key in ("blend", "png"):
+    for key in ("blend", "png", "status"):
         try:
             p = job.get(key)
             if p and os.path.exists(p):
@@ -525,6 +560,27 @@ def _remove_handler():
 # ---------------------------------------------------------------------------
 # Operators
 # ---------------------------------------------------------------------------
+
+class NodePreviewPrefs(bpy.types.AddonPreferences):
+    bl_idname = __name__
+
+    device: bpy.props.EnumProperty(
+        name="Render Device",
+        description="Which device the background preview render uses",
+        items=[
+            ("AUTO", "Auto (GPU, fall back to CPU)", "Use the GPU if available, otherwise CPU"),
+            ("GPU", "GPU", "Force GPU (falls back to CPU only if none is found)"),
+            ("CPU", "CPU", "Always render on CPU"),
+        ],
+        default="AUTO",
+    )
+
+    def draw(self, context):
+        col = self.layout.column()
+        col.prop(self, "device")
+        col.label(text="GPU uses the backend set in Preferences > System (OptiX, Metal, etc.).",
+                  icon="INFO")
+
 
 class NODEPREVIEW_OT_refresh(bpy.types.Operator):
     bl_idname = "nodepreview.refresh"
@@ -655,12 +711,22 @@ class NODEPREVIEW_PT_panel(bpy.types.Panel):
         if res_img is not None:
             layout.label(text="Result: %d x %d" % (res_img.size[0], res_img.size[1]))
 
+        dev = _state["last_device"]
+        if dev:
+            if dev.startswith("GPU"):
+                pretty = "GPU" + (" (%s)" % dev.split(":", 1)[1] if ":" in dev else "")
+                layout.label(text="Rendered on: " + pretty, icon="CHECKMARK")
+            else:
+                icon = "ERROR" if _get_device_mode() in ("GPU", "AUTO") else "NONE"
+                layout.label(text="Rendered on: CPU", icon=icon)
+
 
 # ---------------------------------------------------------------------------
 # Registration
 # ---------------------------------------------------------------------------
 
 _classes = (
+    NodePreviewPrefs,
     NODEPREVIEW_OT_refresh,
     NODEPREVIEW_OT_toggle_live,
     NODEPREVIEW_OT_toggle_lock,
