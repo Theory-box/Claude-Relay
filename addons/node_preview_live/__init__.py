@@ -56,59 +56,125 @@ _WORKER_NAME = "np_worker.py"
 
 # The worker runs inside a headless "blender -b job.blend --python np_worker.py -- SCENE OUT".
 # It targets the scene by name and renders it to the given path.
-_WORKER_SRC = '''import bpy, sys
+_WORKER_SRC = '''import bpy, sys, os
+
+def _setup_and_render(scene_name, out_path, samples, mode):
+    scene = bpy.data.scenes[scene_name]
+    dev = "CPU"; backend = ""
+    try:
+        scene.render.engine = "CYCLES"
+        scene.cycles.samples = samples
+        scene.cycles.use_denoising = False
+        if mode != "CPU":
+            try:
+                prefs = bpy.context.preferences.addons["cycles"].preferences
+                pref_type = getattr(prefs, "compute_device_type", "NONE")
+                if pref_type and pref_type != "NONE":
+                    candidates = [pref_type]
+                else:
+                    candidates = ["OPTIX", "CUDA", "HIP", "METAL", "ONEAPI"]
+                for dtype in candidates:
+                    try:
+                        prefs.compute_device_type = dtype
+                    except TypeError:
+                        continue
+                    try:
+                        prefs.refresh_devices()
+                    except Exception:
+                        pass
+                    gpus = [d for d in prefs.devices if getattr(d, "type", "") == dtype]
+                    if gpus:
+                        for d in prefs.devices:
+                            if getattr(d, "type", "") == dtype:
+                                d.use = True
+                        dev = "GPU"; backend = dtype
+                        break
+            except Exception:
+                dev = "CPU"
+        scene.cycles.device = dev
+    except Exception:
+        pass
+    scene.render.filepath = out_path
+    scene.render.use_file_extension = False
+    scene.render.image_settings.file_format = "PNG"
+    scene.render.image_settings.color_mode = "RGBA"
+    with bpy.context.temp_override(scene=scene):
+        bpy.ops.render.render(write_still=True)
+    return dev + ((":" + backend) if backend else "")
+
 argv = sys.argv[sys.argv.index("--") + 1:]
-scene_name, out_path, samples, mode, status_path = argv[0], argv[1], int(argv[2]), argv[3], argv[4]
-scene = bpy.data.scenes[scene_name]
-dev = "CPU"
-backend = ""
-try:
-    scene.render.engine = "CYCLES"
-    scene.cycles.samples = samples
-    scene.cycles.use_denoising = False
-    if mode != "CPU":
+
+if argv and argv[0] == "--serve":
+    # Persistent WARM worker for live mode. Reads one job per line from stdin.
+    # SAFETY - it exits on any of:
+    #   * stdin EOF  -> the parent Blender died/closed the pipe (dead-man switch)
+    #   * idle timeout elapses with no job
+    #   * an explicit QUIT line
+    import threading
+    try:
+        import queue
+    except ImportError:
+        import Queue as queue
+    NL = chr(10); TAB = chr(9)
+    idle = float(argv[1]) if len(argv) > 1 else 60.0
+    jobs = queue.Queue()
+    ended = threading.Event()
+
+    def _reader():
         try:
-            prefs = bpy.context.preferences.addons["cycles"].preferences
-            pref_type = getattr(prefs, "compute_device_type", "NONE")
-            # Prefer the backend the user already configured; otherwise scan.
-            if pref_type and pref_type != "NONE":
-                candidates = [pref_type]
-            else:
-                candidates = ["OPTIX", "CUDA", "HIP", "METAL", "ONEAPI"]
-            for dtype in candidates:
-                try:
-                    prefs.compute_device_type = dtype
-                except TypeError:
-                    continue
-                try:
-                    prefs.refresh_devices()
-                except Exception:
-                    pass
-                gpus = [d for d in prefs.devices if getattr(d, "type", "") == dtype]
-                if gpus:
-                    for d in prefs.devices:
-                        if getattr(d, "type", "") == dtype:
-                            d.use = True
-                    dev = "GPU"
-                    backend = dtype
-                    break
+            while True:
+                line = sys.stdin.readline()
+                if not line:
+                    break            # EOF -> parent gone
+                jobs.put(line.rstrip(NL))
         except Exception:
-            dev = "CPU"
-    scene.cycles.device = dev
-except Exception:
-    pass
-# Report what device we ended up using, so the main add-on can show it.
-try:
-    with open(status_path, "w") as f:
-        f.write(dev + ((":" + backend) if backend else ""))
-except Exception:
-    pass
-scene.render.filepath = out_path
-scene.render.use_file_extension = False
-scene.render.image_settings.file_format = "PNG"
-scene.render.image_settings.color_mode = "RGBA"
-with bpy.context.temp_override(scene=scene):
-    bpy.ops.render.render(write_still=True)
+            pass
+        ended.set()
+        try:
+            jobs.put_nowait(None)    # wake the main loop so it exits at once
+        except Exception:
+            pass
+
+    threading.Thread(target=_reader, daemon=True).start()
+    try:
+        sys.stdout.write("READY" + NL); sys.stdout.flush()
+    except Exception:
+        pass
+
+    while not ended.is_set():
+        try:
+            line = jobs.get(timeout=idle)
+        except Exception:
+            break                    # idle timeout -> exit
+        if not line or line == "QUIT":
+            break
+        parts = line.split(TAB)
+        if len(parts) < 6 or parts[0] != "RENDER":
+            continue
+        _, blend, scene_name, out_path, samples, mode = parts[:6]
+        done = out_path + ".done"
+        try:
+            bpy.ops.wm.open_mainfile(filepath=blend)
+            dev = _setup_and_render(scene_name, out_path, int(samples), mode)
+            with open(done, "w") as f:
+                f.write(dev)
+        except Exception as e:
+            try:
+                with open(done, "w") as f:
+                    f.write("ERR:" + str(e))
+            except Exception:
+                pass
+    # falling out of the loop ends the script; blender -b then quits.
+else:
+    # One-shot (manual refresh): the job .blend is already loaded via the
+    # command line, so render directly and write a status sidecar.
+    scene_name, out_path, samples, mode, status_path = argv[0], argv[1], int(argv[2]), argv[3], argv[4]
+    dev = _setup_and_render(scene_name, out_path, samples, mode)
+    try:
+        with open(status_path, "w") as f:
+            f.write(dev)
+    except Exception:
+        pass
 '''
 
 # Live-loop / job state (kept off bpy props so timer + handler can mutate it).
@@ -127,6 +193,7 @@ _state = {
     "last_target_key": None,  # (material_name, node_name) we last rendered
     "seen_target_key": None,  # (material_name, node_name) last noticed as active
     "last_device": "",        # what the last render actually ran on
+    "worker": None,           # persistent warm worker Popen (live mode only)
 }
 
 
@@ -156,6 +223,78 @@ def _get_device_mode():
         return bpy.context.preferences.addons[__name__].preferences.device
     except Exception:
         return "AUTO"
+
+
+# --- Warm worker (live mode only) -----------------------------------------
+# A single persistent `blender -b --python worker --serve` process that stays
+# up between renders to skip startup/GPU-init cost. It CANNOT outlive us:
+#   * its stdin is our pipe; if we die, it hits EOF and exits (dead-man switch)
+#   * it self-exits after WARM_IDLE_SECS with no job
+#   * we send QUIT and kill+reap it on stop/disable/unregister
+
+WARM_IDLE_SECS = 60
+
+def _warm_alive():
+    p = _state["worker"]
+    return p is not None and p.poll() is None
+
+def _ensure_warm_worker():
+    if _warm_alive():
+        return _state["worker"]
+    _state["worker"] = None
+    try:
+        exe = bpy.app.binary_path
+        worker = _worker_path()
+        kwargs = dict(stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
+                      stderr=subprocess.DEVNULL, text=True)
+        if os.name == "nt":
+            kwargs["creationflags"] = 0x08000000  # CREATE_NO_WINDOW
+        p = subprocess.Popen(
+            [exe, "-b", "--python", worker, "--", "--serve", str(WARM_IDLE_SECS)],
+            **kwargs)
+        _state["worker"] = p
+        return p
+    except Exception:
+        _state["worker"] = None
+        return None
+
+def _send_warm_job(blend, scene, out, samples, mode):
+    p = _ensure_warm_worker()
+    if p is None or p.poll() is not None:
+        return False
+    try:
+        p.stdin.write("RENDER\t%s\t%s\t%s\t%s\t%s\n" % (blend, scene, out, samples, mode))
+        p.stdin.flush()
+        return True
+    except Exception:
+        # Pipe broke (worker died) — drop the handle so the next call respawns.
+        _state["worker"] = None
+        return False
+
+def _stop_warm_worker():
+    p = _state["worker"]
+    _state["worker"] = None
+    if p is None:
+        return
+    try:
+        if p.poll() is None:
+            try:
+                p.stdin.write("QUIT\n"); p.stdin.flush()
+            except Exception:
+                pass
+            try:
+                p.stdin.close()   # also triggers the dead-man switch
+            except Exception:
+                pass
+    except Exception:
+        pass
+    try:
+        p.wait(timeout=3)
+    except Exception:
+        try:
+            p.kill(); p.wait(timeout=3)
+        except Exception:
+            pass
 
 
 def _find_target():
@@ -310,10 +449,11 @@ def _remove_created(created):
                 pass
 
 
-def start_job(context):
-    """Build the temp scene, write it to a .blend, and spawn the worker.
+def start_job(context, warm=False):
+    """Build the temp scene, write it to a .blend, and render it.
 
-    Returns (ok, message). Non-blocking: does NOT wait for the render.
+    warm=True routes to the persistent live worker; otherwise a one-shot
+    Blender is spawned. Returns (ok, message). Non-blocking either way.
     """
     if _state["job"] is not None:
         return False, "A preview render is already in progress."
@@ -325,6 +465,7 @@ def start_job(context):
     resolution = int(context.scene.np_resolution)
     tiling = int(context.scene.np_tiling)
     samples = int(context.scene.np_samples)
+    mode = _get_device_mode()
     _state["last_target_key"] = (mat.name, node.name)
 
     _state["busy"] = True
@@ -347,14 +488,29 @@ def start_job(context):
         _state["busy"] = False
         return False, "Failed to prepare preview: %s" % exc
     finally:
-        # Whether or not write succeeded, the temp datablocks are no longer
-        # needed in the main file.
         _remove_created(created)
 
+    # --- Warm path (live mode): hand the job to the persistent worker ---
+    if warm:
+        done = png + ".done"
+        try:
+            if os.path.exists(done):
+                os.remove(done)
+        except Exception:
+            pass
+        if _send_warm_job(blend, JOB_SCENE_NAME, png, samples, mode):
+            _state["job"] = {"warm": True, "blend": blend, "png": png, "done": done,
+                             "tiling": tiling, "started": time.time()}
+            _state["busy"] = False
+            _state["cooldown_until"] = time.time() + 0.05
+            _ensure_timer()
+            return True, "Rendering preview (live)..."
+        # Warm worker unavailable — fall through to a one-shot render.
+
+    # --- One-shot path (manual, or warm fallback) ---
     try:
         exe = bpy.app.binary_path
         worker = _worker_path()
-        mode = _get_device_mode()
         kwargs = dict(stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         if os.name == "nt":
             kwargs["creationflags"] = 0x08000000  # CREATE_NO_WINDOW
@@ -371,8 +527,8 @@ def start_job(context):
             pass
         return False, "Could not launch background Blender: %s" % exc
 
-    _state["job"] = {"proc": proc, "blend": blend, "png": png, "status": status,
-                     "tiling": tiling, "started": time.time()}
+    _state["job"] = {"warm": False, "proc": proc, "blend": blend, "png": png,
+                     "status": status, "tiling": tiling, "started": time.time()}
     _state["busy"] = False
     _state["cooldown_until"] = time.time() + 0.05
     _ensure_timer()
@@ -438,9 +594,46 @@ def _complete_job():
     job = _state["job"]
     if job is None:
         return True
+
+    if job.get("warm"):
+        # Warm worker signals completion by writing the .done sidecar.
+        if not os.path.exists(job["done"]):
+            if time.time() - job["started"] > 120.0:
+                # Something stuck — drop this job and recycle the worker.
+                _state["last_error"] = "Preview render timed out."
+                _stop_warm_worker()
+                _cleanup_job_files(job)
+                _state["job"] = None
+                return True
+            return False
+        _state["busy"] = True
+        try:
+            try:
+                with open(job["done"], "r") as f:
+                    payload = f.read().strip()
+            except Exception:
+                payload = ""
+            if payload.startswith("ERR:"):
+                _state["last_error"] = "Background render failed: " + payload[4:]
+            elif os.path.exists(job["png"]):
+                _state["last_device"] = payload
+                _store_result(job["png"], job["tiling"])
+                _state["last_error"] = ""
+            else:
+                _state["last_error"] = "Background render produced no image."
+        except Exception as exc:
+            _state["last_error"] = "Loading preview failed: %s" % exc
+        finally:
+            _cleanup_job_files(job)
+            _state["job"] = None
+            _state["busy"] = False
+            _state["cooldown_until"] = time.time() + 0.05
+        _redraw_node_editors()
+        return True
+
+    # --- One-shot job ---
     proc = job["proc"]
     if proc.poll() is None:
-        # Still rendering. Guard against a hung/very slow process.
         if time.time() - job["started"] > 120.0:
             try:
                 proc.kill()
@@ -455,7 +648,6 @@ def _complete_job():
 
     _state["busy"] = True
     try:
-        # Read what device the worker actually used.
         try:
             with open(job["status"], "r") as f:
                 _state["last_device"] = f.read().strip()
@@ -478,7 +670,7 @@ def _complete_job():
 
 
 def _cleanup_job_files(job):
-    for key in ("blend", "png", "status"):
+    for key in ("blend", "png", "status", "done"):
         try:
             p = job.get(key)
             if p and os.path.exists(p):
@@ -523,7 +715,7 @@ def _timer():
         now = time.time()
         if _state["dirty"] and (now - _state["last_change"]) >= float(_debounce()):
             _state["dirty"] = False
-            ok, msg = start_job(bpy.context)
+            ok, msg = start_job(bpy.context, warm=True)
             if not ok:
                 _state["last_error"] = msg
                 _redraw_node_editors()
@@ -531,6 +723,8 @@ def _timer():
     # 4) decide whether to keep the timer alive.
     if _state["live_on"] or _state["job"] is not None:
         return 0.1
+    # Live is off and nothing is in flight — release the warm worker.
+    _stop_warm_worker()
     _state["timer_registered"] = False
     return None
 
@@ -621,6 +815,8 @@ class NODEPREVIEW_OT_toggle_live(bpy.types.Operator):
         if _state["live_on"]:
             _state["live_on"] = False
             _remove_handler()
+            if _state["job"] is None:
+                _stop_warm_worker()
             self.report({"INFO"}, "Live preview stopped.")
         else:
             _state["live_on"] = True
@@ -773,13 +969,17 @@ def unregister():
     _remove_handler()
     job = _state["job"]
     if job is not None:
-        try:
-            job["proc"].kill()
-            job["proc"].wait(timeout=5)
-        except Exception:
-            pass
+        # One-shot jobs own a process; warm jobs run in the shared worker.
+        proc = job.get("proc")
+        if proc is not None:
+            try:
+                proc.kill()
+                proc.wait(timeout=5)
+            except Exception:
+                pass
         _cleanup_job_files(job)
         _state["job"] = None
+    _stop_warm_worker()
     try:
         if _state["timer_registered"] and bpy.app.timers.is_registered(_timer):
             bpy.app.timers.unregister(_timer)

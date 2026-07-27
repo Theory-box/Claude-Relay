@@ -123,3 +123,21 @@ our own datablock churn doesn't self-trigger).
   independent and the preview stays the clean live target. Verified.
 - REMOVED the "Finalize to Active Object" button (was a workaround for the bug;
   no longer needed).
+
+## v0.8 — warm worker for live mode (safe persistent process)
+- LIVE mode now keeps ONE persistent `blender -b --python worker --serve`
+  process warm between renders (skips startup + GPU init). Verified reuse:
+  first job ~0.5s, subsequent ~0.05s on the test box.
+- MANUAL refresh stays a one-shot spawn (cold), as requested.
+- SAFETY (all three verified on 4.4, cannot orphan):
+  1. Dead-man switch: worker reads jobs from our stdin pipe; if the main
+     Blender dies, stdin hits EOF and the worker exits immediately (~0.1s).
+     (Reader thread pushes a sentinel to wake the job loop at once.)
+  2. Idle timeout: worker self-exits after WARM_IDLE_SECS (60s) with no job.
+  3. Explicit stop: QUIT + kill/reap on live-off, addon disable, and quit.
+- Protocol: main writes "RENDER<TAB>blend<TAB>scene<TAB>out<TAB>samples<TAB>mode";
+  worker opens the job .blend, renders, writes "<out>.done" (device string, or
+  "ERR:..."). Main polls the .done file in its timer (no main-thread stdout read).
+- Verified: warm reuse, dead-man switch (0.1s), idle timeout (~3s w/ idle=3),
+  QUIT, live-off stops worker, unregister stops worker, 0 orphan processes,
+  0 leftover temp files, manual one-shot still works.
