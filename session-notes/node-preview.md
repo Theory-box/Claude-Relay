@@ -1,51 +1,57 @@
 # Node Preview Live — session notes
 
 **Branch:** `feature/node-preview` (off `main`)
-**Blender target:** 4.4
+**Blender target:** 4.4 (tested against a local 4.4.0 build)
 
 ## Goal
-Let procedural shader nodes (Brick, Noise, ColorRamp, Hue/Sat, etc.) be seen
-as an image while editing, since the final render is Workbench, which only
-shows the active image-texture node and never evaluates the node graph.
+See procedural shader nodes (Brick, Noise, ColorRamp, Hue/Sat...) as an image
+while editing, since the final render is Workbench (which never evaluates the
+node graph, only shows the active image-texture node).
 
-## Approach (decided)
-Fork the mechanism of `node-preview-reborn` (GPLv3), but change its output
-sink: instead of drawing a GPU overlay above the node, write the rendered
-swatch into a `bpy.data.images` datablock. That datablock is what the Image
-Editor shows now (Milestone 1) and what a shader Image Texture node will
-sample for the Workbench viewport later (Milestone 2).
+## Architecture (v0.2 — REWRITTEN after a freeze bug)
+v0.1 rendered in-process on the main thread -> **froze the whole UI for the
+render duration** (verified: a 256px render took ~2 min under software EEVEE;
+also mangled the output path). Replaced with a **background-process** design:
+
+1. Build a tiny temp scene in the main Blender: a COPY of the user's material,
+   its target-node output rewired through an Emission to a fresh Output, on a
+   1x1 UV plane under an orthographic camera. (Real material never touched.)
+2. `bpy.data.libraries.write({scene})` -> a small temp .blend (only that scene
+   + deps). Then the temp datablocks are removed from the main file.
+3. Spawn a headless `blender -b job.blend --python np_worker.py -- SCENE OUT`
+   via `subprocess.Popen` (non-blocking). The worker forces Cycles (1 sample,
+   CPU), renders to PNG.
+4. A `bpy.app.timers` poll (0.1s) loads the PNG when ready, tiles it (numpy
+   np.tile NxN), writes it into a persistent image datablock, shows it in any
+   open Image Editor. Temp files cleaned up.
+
+Live mode: `depsgraph_update_post` sets a dirty flag; the timer starts a job
+after `debounce` seconds of quiet (guarded by a busy flag + 0.1s cooldown so
+our own datablock churn doesn't self-trigger).
+
+## Verified on local Blender 4.4 (headless + xvfb)
+- start_job returns in ~0.003s (non-blocking; no UI freeze).
+- Full round-trip ~1-2s on a 1-core/no-GPU VM (spawn + render + load).
+- Brick + Noise render correctly; tiling=2 -> 512x512 as expected.
+- Live auto-render fires on edit and updates the image (brick -> noise).
+- Temp files cleaned; timer unregisters when idle.
+- `_find_target` resolves material+node via the active-object-material
+  fallback even when space.id/edit_tree are unpopulated.
+
+## Known remaining costs / limitations
+- Fresh Blender spawn per render (~1-2s launch overhead each). NEXT OPTIMISATION:
+  a persistent worker to cut this to <0.5s.
+- Colour round-trips linear->linear through the PNG (both images default sRGB;
+  should match, minor risk of a slight shift).
+- Top-level Material nodes only (not groups, not World/Light).
+- Materials using packed/relative image textures may not resolve in the worker.
 
 ## Milestones
-1. **DONE (untested on device):** live render -> image datablock -> Image
-   Editor. Resolution + tiling + debounce controls in Shader Editor N-panel.
-   Manual "Refresh" (guaranteed) + "Start Live" (debounced modal auto-refresh).
-2. **TODO:** route the same datablock onto the object via a shader Image
-   Texture node; solve active-vs-selected node so Workbench Solid+Texture
-   keeps showing it while a procedural node is being edited; viewport GPU
-   texture refresh nudge.
-3. **TODO:** "Finalize" high-res bake button.
-
-## Milestone 1 implementation notes (`addons/node_preview_live.py`)
-- Renders a COPY of the material on a temp plane in a temp scene; real
-  material is never touched.
-- Engine chosen at runtime (prefers Cycles) to dodge the EEVEE identifier
-  change across 4.2-4.4.
-- Temp plane/camera built from raw data (no bpy.ops), 1x1 ortho framing.
-- Tiling = numpy np.tile post-step (coordinate-source agnostic; seamless iff
-  the 0..1 swatch is seamless). Resolution is per-tile; final capped 4096/side.
-- Live loop = depsgraph_update_post sets a dirty flag; a modal timer renders
-  after `debounce` seconds of quiet, guarded by a rendering flag + 0.15s
-  cooldown to avoid self-triggering.
-
-## Known risks / where to look if it misbehaves (NOT runtime-tested here)
-- `bpy.ops.render.render` under `temp_override` from a modal timer is the
-  single highest-risk call; there is a window.scene-swap fallback.
-- Colour round-trips linear->linear through the PNG; both images default sRGB
-  so it should match, minor risk of a slight shift.
-- Group-interior nodes and World/Light trees are intentionally unsupported in
-  M1 (reports a friendly message).
+1. **DONE + tested:** live render -> image datablock -> Image Editor.
+2. **TODO:** viewport (Workbench) routing via a shader Image Texture node +
+   active-vs-selected node handling + viewport GPU-texture refresh.
+3. **TODO:** persistent worker; "Finalize" high-res bake button.
 
 ## Next actions
-- Get device test result (does Refresh produce a correct swatch on 4.4?).
-- Decide colour-management handling if any shift appears.
-- Then start Milestone 2 (viewport routing).
+- User device test on the 4090 (expect much faster than the VM numbers).
+- If good, add persistent worker, then start Milestone 2.
