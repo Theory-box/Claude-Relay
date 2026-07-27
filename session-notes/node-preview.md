@@ -93,3 +93,16 @@ our own datablock churn doesn't self-trigger).
 - Verified headless: Auto/CPU/GPU modes all report correctly (CPU on the no-GPU
   test box, incl. visible fallback when GPU requested); status files cleaned up.
   Actual GPU-success path is static-reviewed only (no GPU on the test box).
+
+## v0.6 — Finalize to Object (fixes multi-object sharing)
+- ROOT CAUSE of "refreshing one object changes another": there is a single
+  shared image datablock (NodePreview_Result); the preview overwrites its
+  pixels by NAME every render. Saving-as-JPEG doesn't detach the object's node
+  from that datablock (the datablock keeps its name), so later previews clobber
+  it. Any object whose node points at NodePreview_Result shares it.
+- FIX: "Finalize to Active Object" button. Copies the current preview into a
+  new independent, uniquely-named, packed image and repoints the active
+  object's image-texture node(s) at it. Object then owns its image; future
+  previews never touch it. Removes the manual save/reload workflow.
+- Verified headless on 4.4: after finalize, later previews change
+  NodePreview_Result but leave the finalized object's image untouched.

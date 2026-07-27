@@ -650,6 +650,56 @@ class NODEPREVIEW_OT_toggle_lock(bpy.types.Operator):
         return {"FINISHED"}
 
 
+class NODEPREVIEW_OT_finalize(bpy.types.Operator):
+    bl_idname = "nodepreview.finalize"
+    bl_label = "Finalize to Active Object"
+    bl_description = ("Copy the current preview into a new independent image and point the active "
+                      "object's preview node at it, so future previews no longer affect this object")
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        res_img = bpy.data.images.get(RESULT_IMAGE_NAME)
+        if res_img is None or res_img.size[0] == 0:
+            self.report({"WARNING"}, "No preview to finalize yet — render one first.")
+            return {"CANCELLED"}
+
+        obj = getattr(context, "object", None)
+        mat = obj.active_material if obj is not None else None
+        if mat is None or mat.node_tree is None:
+            self.report({"WARNING"}, "Select an object with a material first.")
+            return {"CANCELLED"}
+
+        # Image-texture nodes on this material that currently show the shared preview.
+        targets = [n for n in mat.node_tree.nodes
+                   if n.type == "TEX_IMAGE" and n.image == res_img]
+        if not targets:
+            self.report({"WARNING"},
+                        "No image-texture node here points at the preview. Add one set to '%s' first."
+                        % RESULT_IMAGE_NAME)
+            return {"CANCELLED"}
+
+        # Independent copy with its own pixels.
+        w, h = res_img.size
+        baked = bpy.data.images.new("NP_Baked_" + mat.name, w, h, alpha=True)
+        buf = np.empty(w * h * 4, dtype=np.float32)
+        res_img.pixels.foreach_get(buf)
+        baked.pixels.foreach_set(buf)
+        baked.update()
+        baked.use_fake_user = True          # persists in the .blend
+        try:
+            baked.pack()                    # embed pixels so it survives reloads/moves
+        except Exception:
+            pass
+
+        for n in targets:
+            n.image = baked
+
+        self.report({"INFO"}, "Finalized: %d node(s) now use independent image '%s'."
+                    % (len(targets), baked.name))
+        _redraw_node_editors()
+        return {"FINISHED"}
+
+
 class NODEPREVIEW_PT_panel(bpy.types.Panel):
     bl_idname = "NODEPREVIEW_PT_panel"
     bl_label = "Node Preview"
@@ -692,6 +742,9 @@ class NODEPREVIEW_PT_panel(bpy.types.Panel):
         else:
             row.operator("nodepreview.toggle_lock", text="Lock to Node", icon="UNLOCKED")
 
+        layout.separator()
+        layout.operator("nodepreview.finalize", icon="CHECKMARK")
+
         box = layout.box()
         if rendering:
             box.label(text="Rendering preview...", icon="SORTTIME")
@@ -730,6 +783,7 @@ _classes = (
     NODEPREVIEW_OT_refresh,
     NODEPREVIEW_OT_toggle_live,
     NODEPREVIEW_OT_toggle_lock,
+    NODEPREVIEW_OT_finalize,
     NODEPREVIEW_PT_panel,
 )
 
