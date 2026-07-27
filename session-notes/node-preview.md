@@ -55,3 +55,16 @@ our own datablock churn doesn't self-trigger).
 ## Next actions
 - User device test on the 4090 (expect much faster than the VM numbers).
 - If good, add persistent worker, then start Milestone 2.
+
+## v0.3 — hardening pass (audited on Blender 4.4)
+- FIX: live mode now follows the active node (selection doesn't fire a
+  depsgraph update, so the timer polls active-node identity). Fixed a deadlock
+  where the debounce reset every tick.
+- NEW: Lock feature — "Lock to Node" captures the current node; preview stays
+  on it while you click/edit other nodes; unlock to resume following.
+- Process cleanup verified: children reaped after completion, after 120s
+  timeout, and on unregister/close mid-render (0 lingering in all tests).
+- Confirmed no self-triggered render loop (the busy flag is the real guard);
+  post-render cooldown reduced 0.1 -> 0.05s so live edits aren't dropped.
+- No leftover temp files in any tested path.
+- All checks pass headless on a local 4.4.0 build.

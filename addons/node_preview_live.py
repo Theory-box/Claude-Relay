@@ -87,6 +87,11 @@ _state = {
     "job": None,            # dict(proc, blend, png, tiling) or None
     "last_error": "",
     "timer_registered": False,
+    "locked": False,        # when True, keep previewing the locked node
+    "locked_mat": "",
+    "locked_node": "",
+    "last_target_key": None,  # (material_name, node_name) we last rendered
+    "seen_target_key": None,  # (material_name, node_name) last noticed as active
 }
 
 
@@ -151,6 +156,19 @@ def _find_target():
     if node is None:
         return None, "No active node — click a node to select it."
     return mat, node
+
+
+def _resolve_target():
+    """The node the preview should render: the locked one if locked, else active."""
+    if _state["locked"]:
+        mat = bpy.data.materials.get(_state["locked_mat"])
+        if mat is None or mat.node_tree is None:
+            return None, "Locked material no longer exists."
+        node = mat.node_tree.nodes.get(_state["locked_node"])
+        if node is None:
+            return None, "Locked node was renamed or deleted — unlock to continue."
+        return mat, node
+    return _find_target()
 
 
 def _choose_output_socket(node):
@@ -256,12 +274,13 @@ def start_job(context):
     if _state["job"] is not None:
         return False, "A preview render is already in progress."
 
-    mat, node = _find_target()
+    mat, node = _resolve_target()
     if mat is None:
         return False, node  # reason string
 
     resolution = int(context.scene.np_resolution)
     tiling = int(context.scene.np_tiling)
+    _state["last_target_key"] = (mat.name, node.name)
 
     _state["busy"] = True
     created = []
@@ -306,7 +325,7 @@ def start_job(context):
 
     _state["job"] = {"proc": proc, "blend": blend, "png": png, "tiling": tiling, "started": time.time()}
     _state["busy"] = False
-    _state["cooldown_until"] = time.time() + 0.1
+    _state["cooldown_until"] = time.time() + 0.05
     _ensure_timer()
     return True, "Rendering preview..."
 
@@ -363,6 +382,7 @@ def _complete_job():
         if time.time() - job["started"] > 120.0:
             try:
                 proc.kill()
+                proc.wait(timeout=5)
             except Exception:
                 pass
             _state["last_error"] = "Preview render timed out."
@@ -384,7 +404,7 @@ def _complete_job():
         _cleanup_job_files(job)
         _state["job"] = None
         _state["busy"] = False
-        _state["cooldown_until"] = time.time() + 0.1
+        _state["cooldown_until"] = time.time() + 0.05
     _redraw_node_editors()
     return True
 
@@ -419,7 +439,18 @@ def _timer():
     if _state["job"] is not None:
         _complete_job()
 
-    # 2) in live mode, start a new job after a quiet period.
+    # 2) in live mode, react to the user switching to a different node.
+    #    (Selecting a node does NOT fire a depsgraph update, so we poll for it.)
+    if _state["live_on"] and not _state["locked"] and _state["job"] is None:
+        mat, node = _find_target()
+        if mat is not None:
+            key = (mat.name, node.name)
+            if key != _state["seen_target_key"]:
+                _state["seen_target_key"] = key
+                _state["dirty"] = True
+                _state["last_change"] = time.time()
+
+    # 3) in live mode, start a new job after a quiet period.
     if _state["live_on"] and _state["job"] is None:
         now = time.time()
         if _state["dirty"] and (now - _state["last_change"]) >= float(_debounce()):
@@ -429,7 +460,7 @@ def _timer():
                 _state["last_error"] = msg
                 _redraw_node_editors()
 
-    # 3) decide whether to keep the timer alive.
+    # 4) decide whether to keep the timer alive.
     if _state["live_on"] or _state["job"] is not None:
         return 0.1
     _state["timer_registered"] = False
@@ -506,6 +537,7 @@ class NODEPREVIEW_OT_toggle_live(bpy.types.Operator):
             _state["live_on"] = True
             _state["dirty"] = True
             _state["last_change"] = 0.0   # render once right away
+            _state["seen_target_key"] = None
             _install_handler()
             _ensure_timer()
             self.report({"INFO"}, "Live preview started.")
@@ -516,6 +548,31 @@ class NODEPREVIEW_OT_toggle_live(bpy.types.Operator):
 # ---------------------------------------------------------------------------
 # Panel
 # ---------------------------------------------------------------------------
+
+class NODEPREVIEW_OT_toggle_lock(bpy.types.Operator):
+    bl_idname = "nodepreview.toggle_lock"
+    bl_label = "Lock Preview to Node"
+    bl_description = "Lock the preview to the current node so you can click other nodes without changing it"
+    bl_options = {"REGISTER"}
+
+    def execute(self, context):
+        if _state["locked"]:
+            _state["locked"] = False
+            _state["locked_mat"] = ""
+            _state["locked_node"] = ""
+            self.report({"INFO"}, "Preview unlocked — following the active node.")
+        else:
+            mat, node = _find_target()
+            if mat is None:
+                self.report({"WARNING"}, node)  # reason string
+                return {"CANCELLED"}
+            _state["locked"] = True
+            _state["locked_mat"] = mat.name
+            _state["locked_node"] = node.name
+            self.report({"INFO"}, "Preview locked to '%s'." % node.name)
+        _redraw_node_editors()
+        return {"FINISHED"}
+
 
 class NODEPREVIEW_PT_panel(bpy.types.Panel):
     bl_idname = "NODEPREVIEW_PT_panel"
@@ -551,15 +608,25 @@ class NODEPREVIEW_PT_panel(bpy.types.Panel):
         else:
             row.operator("nodepreview.toggle_live", text="Start Live", icon="PLAY")
 
+        row = layout.row()
+        if _state["locked"]:
+            row.alert = True
+            row.operator("nodepreview.toggle_lock", text="Unlock Node", icon="LOCKED")
+        else:
+            row.operator("nodepreview.toggle_lock", text="Lock to Node", icon="UNLOCKED")
+
         box = layout.box()
         if rendering:
             box.label(text="Rendering preview...", icon="SORTTIME")
-        mat, node = _find_target()
-        if mat is None:
-            box.label(text=node, icon="INFO")
+        if _state["locked"]:
+            box.label(text="LOCKED: " + _state["locked_node"], icon="LOCKED")
         else:
-            box.label(text="Material: " + mat.name, icon="MATERIAL")
-            box.label(text="Node: " + node.name, icon="NODE")
+            mat, node = _find_target()
+            if mat is None:
+                box.label(text=node, icon="INFO")
+            else:
+                box.label(text="Material: " + mat.name, icon="MATERIAL")
+                box.label(text="Node: " + node.name, icon="NODE")
         if _state["last_error"]:
             box.label(text=_state["last_error"], icon="ERROR")
 
@@ -575,6 +642,7 @@ class NODEPREVIEW_PT_panel(bpy.types.Panel):
 _classes = (
     NODEPREVIEW_OT_refresh,
     NODEPREVIEW_OT_toggle_live,
+    NODEPREVIEW_OT_toggle_lock,
     NODEPREVIEW_PT_panel,
 )
 
@@ -603,6 +671,7 @@ def unregister():
     if job is not None:
         try:
             job["proc"].kill()
+            job["proc"].wait(timeout=5)
         except Exception:
             pass
         _cleanup_job_files(job)
