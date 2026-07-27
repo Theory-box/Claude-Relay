@@ -106,3 +106,20 @@ our own datablock churn doesn't self-trigger).
   previews never touch it. Removes the manual save/reload workflow.
 - Verified headless on 4.4: after finalize, later previews change
   NodePreview_Result but leave the finalized object's image untouched.
+
+## v0.7 — fix multi-object texture clobbering (real root cause)
+- ROOT CAUSE (verified): "Save As" on the preview image binds that file's path
+  to the preview datablock. Blender then REUSES that datablock when the file is
+  opened (reuse-on-open by filepath) -> the user's node becomes the preview
+  datablock -> next render overwrites their texture. (v0.6's dedup theory was
+  wrong; confirmed by test.)
+- FIX (safeguard in _store_result): never render into a preview datablock that
+  the user has claimed (has a filepath or source != GENERATED). Such a datablock
+  is renamed aside (to its file's basename) and a fresh generated preview is
+  created. Verified: claimed texture preserved & independent; normal
+  render-to-render reuse still works.
+- RECOMMENDED native workflow: use Image > "Save a Copy" (not "Save As") — it
+  writes the file WITHOUT binding the path to the datablock, so reload is always
+  independent and the preview stays the clean live target. Verified.
+- REMOVED the "Finalize to Active Object" button (was a workaround for the bug;
+  no longer needed).
