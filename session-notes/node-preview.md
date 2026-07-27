@@ -68,3 +68,16 @@ our own datablock churn doesn't self-trigger).
   post-render cooldown reduced 0.1 -> 0.05s so live edits aren't dropped.
 - No leftover temp files in any tested path.
 - All checks pass headless on a local 4.4.0 build.
+
+## v0.4 — GPU + samples + bigger sizes
+- Worker now renders on GPU (activates the first available backend: OPTIX/
+  CUDA/HIP/METAL/ONEAPI from the user's prefs) with automatic CPU fallback if
+  no GPU device is present.
+- NEW "Samples" slider (default 1, 1-256) passed through to the worker — raise
+  for anti-aliased edges. Denoising stays off (emission has no light noise).
+- Resolution cap raised 2048 -> 4096; tiling output cap raised 4096 -> 8192.
+- Verified headless on 4.4: samples plumbing, CPU-fallback path, 4096 accepted,
+  tiling 4 -> 1024. GPU branch is static-reviewed only (no GPU on the test box).
+- Note: fresh-process-per-render means GPU context init each spawn; GPU mainly
+  wins on big (4096+) / high-sample renders. A persistent worker would remove
+  that per-spawn overhead — still the top future optimisation.

@@ -58,15 +58,34 @@ _WORKER_NAME = "np_worker.py"
 # It targets the scene by name and renders it to the given path.
 _WORKER_SRC = '''import bpy, sys
 argv = sys.argv[sys.argv.index("--") + 1:]
-scene_name, out_path = argv[0], argv[1]
+scene_name, out_path, samples = argv[0], argv[1], int(argv[2])
 scene = bpy.data.scenes[scene_name]
-# Force Cycles here (the worker always has it), so the main Blender never needs
-# the Cycles add-on enabled just to build the job.
 try:
     scene.render.engine = "CYCLES"
-    scene.cycles.samples = 1
+    scene.cycles.samples = samples
     scene.cycles.use_denoising = False
-    scene.cycles.device = "CPU"
+    # Prefer GPU (whatever backend the user's prefs expose); fall back to CPU.
+    dev = "CPU"
+    try:
+        prefs = bpy.context.preferences.addons["cycles"].preferences
+        for dtype in ("OPTIX", "CUDA", "HIP", "METAL", "ONEAPI"):
+            try:
+                prefs.compute_device_type = dtype
+            except TypeError:
+                continue
+            try:
+                prefs.refresh_devices()
+            except Exception:
+                pass
+            gpus = [d for d in prefs.devices if getattr(d, "type", "") == dtype]
+            if gpus:
+                for d in prefs.devices:
+                    d.use = (getattr(d, "type", "") == dtype)
+                dev = "GPU"
+                break
+    except Exception:
+        dev = "CPU"
+    scene.cycles.device = dev
 except Exception:
     pass
 scene.render.filepath = out_path
@@ -280,6 +299,7 @@ def start_job(context):
 
     resolution = int(context.scene.np_resolution)
     tiling = int(context.scene.np_tiling)
+    samples = int(context.scene.np_samples)
     _state["last_target_key"] = (mat.name, node.name)
 
     _state["busy"] = True
@@ -312,7 +332,7 @@ def start_job(context):
         if os.name == "nt":
             kwargs["creationflags"] = 0x08000000  # CREATE_NO_WINDOW
         proc = subprocess.Popen(
-            [exe, "-b", blend, "--python", worker, "--", JOB_SCENE_NAME, png],
+            [exe, "-b", blend, "--python", worker, "--", JOB_SCENE_NAME, png, str(samples)],
             **kwargs
         )
     except Exception as exc:
@@ -341,7 +361,7 @@ def _store_result(png_path, tiling):
         tmp.pixels.foreach_get(buf)
         img2d = buf.reshape(h, w, 4)
         n = max(1, int(tiling))
-        while n > 1 and (w * n > 4096 or h * n > 4096):
+        while n > 1 and (w * n > 8192 or h * n > 8192):
             n -= 1
         if n > 1:
             img2d = np.tile(img2d, (n, n, 1))
@@ -592,6 +612,7 @@ class NODEPREVIEW_PT_panel(bpy.types.Panel):
 
         col = layout.column(align=True)
         col.prop(scene, "np_resolution")
+        col.prop(scene, "np_samples")
         col.prop(scene, "np_tiling")
         col.prop(scene, "np_debounce")
 
@@ -650,7 +671,11 @@ _classes = (
 def register():
     bpy.types.Scene.np_resolution = bpy.props.IntProperty(
         name="Resolution", description="Pixel size of the 0..1 swatch (per tile)",
-        default=256, min=32, max=2048,
+        default=256, min=32, max=4096,
+    )
+    bpy.types.Scene.np_samples = bpy.props.IntProperty(
+        name="Samples", description="Cycles samples — raise for smoother (anti-aliased) edges",
+        default=1, min=1, max=256,
     )
     bpy.types.Scene.np_tiling = bpy.props.IntProperty(
         name="Tiling", description="Repeat the swatch NxN in the final image",
@@ -688,7 +713,7 @@ def unregister():
             bpy.utils.unregister_class(cls)
         except Exception:
             pass
-    for prop in ("np_resolution", "np_tiling", "np_debounce"):
+    for prop in ("np_resolution", "np_samples", "np_tiling", "np_debounce"):
         if hasattr(bpy.types.Scene, prop):
             delattr(bpy.types.Scene, prop)
 
