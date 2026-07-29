@@ -1,10 +1,14 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
-# Preferences Migrator  —  v1.0.0
+# Preferences Migrator  —  v1.0.0  (Blender 4.2+ extension)
 # -------------------------------------------------------------------------
 # Copies user preferences (userpref.blend) from one installed Blender
-# version into the currently running one, so you don't have to hunt through
+# version INTO the currently running one, so you don't have to hunt through
 # the config folders by hand.
+#
+# DIRECTION (important): this add-on always copies preferences INTO the
+# Blender you are running it from. To move your 4.4 settings to 4.2, run it
+# from *inside Blender 4.2* and pick 4.4 as the source.
 #
 # HOW IT FINDS VERSIONS:
 #   bpy.utils.resource_path('USER') returns THIS version's user folder, e.g.
@@ -20,28 +24,17 @@
 # APPLYING:
 #   Blender holds preferences in memory while running and has no stable
 #   cross-version operator to hot-reload userpref.blend, so the add-on copies
-#   the file and asks you to RESTART Blender. That's deliberate — predictable
-#   over clever.
+#   the file and asks you to RESTART Blender.
 #
-# CONTROLS  (Edit > Preferences > Add-ons > Preferences Migrator):
+# CONTROLS  (Edit > Preferences > Add-ons > expand "Preferences Migrator"):
 #   * "Copy From" dropdown -> pick a source version.
 #   * "Also copy startup file" -> include your custom default scene/layout.
 #   * Copy button -> back up + copy, then restart.
 #
 # CAVEAT: copying from a NEWER version into an OLDER one is a downgrade of the
-# preference format and may not fully apply. Same-version and old->new are the
-# happy paths.
+# preference format and may not fully apply. Tested case (4.4 -> 4.2) loaded
+# cleanly, but settings that only exist in the newer version are ignored.
 # -------------------------------------------------------------------------
-
-bl_info = {
-    "name": "Preferences Migrator",
-    "author": "Claude Relay",
-    "version": (1, 0, 0),
-    "blender": (4, 2, 0),
-    "location": "Edit > Preferences > Add-ons > Preferences Migrator",
-    "description": "Copy user preferences from another installed Blender version into this one.",
-    "category": "System",
-}
 
 import bpy
 import os
@@ -90,18 +83,18 @@ def _source_items(self, context):
             continue
         items.append((name, "Blender %s" % name, "Copy preferences from Blender %s" % name))
     if not items:
-        items = [("NONE", "No other versions with preferences found", "")]
+        items = [("NONE", "No other versions with saved preferences found", "")]
     _enum_cache = items
     return items
 
 
 class PREFMIG_OT_migrate(Operator):
     bl_idname = "prefmig.migrate"
-    bl_label = "Copy Preferences From Selected Version"
-    bl_description = "Back up current preferences, then copy them from the chosen version"
+    bl_label = "Copy Preferences Into This Version"
+    bl_description = "Back up the current preferences, then copy them from the chosen version"
 
     def execute(self, context):
-        prefs = context.preferences.addons[__name__].preferences
+        prefs = context.preferences.addons[__package__].preferences
         source = prefs.source_version
         if not source or source == "NONE":
             self.report({'ERROR'}, "No source version selected")
@@ -140,14 +133,14 @@ class PREFMIG_OT_migrate(Operator):
 
         self.report(
             {'INFO'},
-            "Copied %s from Blender %s. Restart Blender to apply (backup saved with .bak- suffix)."
-            % (", ".join(copied), source),
+            "Copied %s from Blender %s into %s. Restart Blender to apply (backup saved with .bak- suffix)."
+            % (", ".join(copied), source, _current_version_name()),
         )
         return {'FINISHED'}
 
 
 class PREFMIG_Preferences(AddonPreferences):
-    bl_idname = __name__
+    bl_idname = __package__
 
     source_version: EnumProperty(
         name="Copy From",
@@ -163,7 +156,7 @@ class PREFMIG_Preferences(AddonPreferences):
     def draw(self, context):
         layout = self.layout
         layout.label(
-            text="Copy preferences into this version (Blender %s)." % _current_version_name()
+            text="Copies preferences INTO this version (Blender %s)." % _current_version_name()
         )
         layout.prop(self, "source_version")
         layout.prop(self, "include_startup")
@@ -171,7 +164,7 @@ class PREFMIG_Preferences(AddonPreferences):
         box = layout.box()
         box.label(text="Current preferences are backed up automatically (.bak- suffix).", icon='INFO')
         box.label(text="Restart Blender after copying for changes to take effect.", icon='FILE_REFRESH')
-        box.label(text="Copying from a newer version into an older one may not fully apply.", icon='ERROR')
+        box.label(text="Newer-into-older is a downgrade and may not fully apply.", icon='ERROR')
 
 
 classes = (PREFMIG_OT_migrate, PREFMIG_Preferences)
@@ -185,7 +178,3 @@ def register():
 def unregister():
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)
-
-
-if __name__ == "__main__":
-    register()

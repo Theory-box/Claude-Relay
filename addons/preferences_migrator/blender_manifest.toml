@@ -1,0 +1,14 @@
+schema_version = "1.0.0"
+
+id = "preferences_migrator"
+version = "1.0.0"
+name = "Preferences Migrator"
+tagline = "Copy user preferences from another installed Blender version"
+maintainer = "Claude Relay"
+type = "add-on"
+
+blender_version_min = "4.2.0"
+
+license = [
+  "SPDX:GPL-3.0-or-later",
+]

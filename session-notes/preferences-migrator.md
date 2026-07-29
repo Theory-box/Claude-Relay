@@ -8,8 +8,20 @@ Move Blender user preferences between installed versions without manually
 digging through `~/Library/Application Support/Blender/<version>/config/`.
 Originating case: pull 4.4 preferences into 4.2 on macOS.
 
+## v1.0.0 packaged as a Blender 4.2+ EXTENSION (was legacy bl_info)
+First cut was a legacy `bl_info` add-on. It worked logically but failed in
+practice on the install step: on 4.2+ the main "Install from Disk" expects an
+extension (manifest), while `bl_info`-only add-ons need the separate "Install
+legacy Add-on" path and land DISABLED. Converted to a proper extension:
+- Added `blender_manifest.toml` (schema 1.0.0, type add-on, blender_version_min
+  4.2.0). Removed `bl_info`.
+- `bl_idname` / preferences lookup now use `__package__` (installed module name
+  is `bl_ext.user_default.preferences_migrator`), not `__name__`.
+- Result: installs via normal button AND auto-enables on install.
+
 ## Architecture (v1.0.0)
-Single-file legacy add-on (`addons/preferences_migrator/__init__.py`).
+Single-folder extension (`addons/preferences_migrator/`: `__init__.py` +
+`blender_manifest.toml`).
 
 1. `bpy.utils.resource_path('USER')` gives the running version's user folder
    (e.g. `.../Blender/4.4`); its parent holds all versions as siblings.
@@ -30,10 +42,24 @@ Single-file legacy add-on (`addons/preferences_migrator/__init__.py`).
 - A source version only appears in the dropdown once it has been launched at
   least once (so a `config/userpref.blend` exists).
 
-## Status
-- Syntax-checked (`py_compile`) only — NOT yet run against a live Blender.
-- Not merged to `main`. Awaiting user confirmation it works + merge permission.
+## Status — TESTED against real Blender 4.2.23 LTS + 4.4.3 (Linux)
+Harness: `BLENDER_USER_RESOURCES` pointed at a fake `.../Blender/{4.2,4.4}`
+tree; marker `ui_scale` set per version to prove real prefs carried over.
+- Extension installs via `extensions.package_install_files` in BOTH 4.2 & 4.4
+  and AUTO-ENABLES (no separate enable step).
+- Dropdown lists the sibling version; operator copies its userpref.blend into
+  the running version; copied file byte-identical to source.
+- 4.4 -> 4.2 DOWNGRADE: 4.2 loaded the migrated file and applied ui_scale=1.44
+  (a 4.4-authored value) with no error.
+- Overwrite creates timestamped `userpref.blend.bak-YYYYmmdd-HHMMSS`.
+- Note: after migrating, the enabled-addon list also comes from the migrated
+  userpref, so the add-on may show disabled on next launch (expected).
+
+## Not verified
+- Not run on actual macOS (tested on Linux; path logic is OS-agnostic via
+  resource_path('USER'), so expected to behave identically).
+- Not merged to `main`. Awaiting user confirmation on their Mac + merge
+  permission.
 
 ## TODO / open questions
-- Verify `resource_path('USER')` return + install flow on the user's Mac.
 - Optional: hot-reload without restart (needs per-version operator research).
