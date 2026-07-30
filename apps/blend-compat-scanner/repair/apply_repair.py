@@ -96,6 +96,14 @@ def main():
     for f in flagged:
         print("  [manual]", f)
 
+    # blackbody: recommend the node-preserving two-stage tool rather than baking
+    bb = [(t, n) for t, _ in all_trees() for n in t.nodes
+          if n.bl_idname in fixers.NEEDS_TWO_STAGE]
+    if bb:
+        print(f"\n  {len(bb)} Blackbody node(s): run keep_blackbody_run.py to preserve "
+              f"them as real nodes across the downgrade (recommended), or use the "
+              f"bake alternative if a colour is acceptable.")
+
     if out:
         bpy.ops.wm.save_as_mainfile(filepath=out)
         print(f"\n saved repaired copy -> {out}")

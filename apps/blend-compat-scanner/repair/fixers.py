@@ -170,12 +170,20 @@ def fix_blackbody(nt, node):
 
 # --------------------------------------------------------------------------- #
 # registry: node bl_idname -> fixer
+#
+# Blackbody is deliberately NOT in the default registry: the preferred fix keeps
+# it a real Blackbody node (repair/keep_blackbody_run.py, two-stage) rather than
+# baking it to a colour, since users who work in temperature want the node.
+# fix_blackbody (bake -> RGB/Color) remains available as a one-command alternative
+# for those who don't need to keep the node.
 # --------------------------------------------------------------------------- #
 FIXERS = {
     "FunctionNodeIntegerMath": fix_integer_math,
-    "ShaderNodeBlackbody": fix_blackbody,
 }
 FIXERS.update({nid: fix_safe_drop for nid in SAFE_DROP})
+
+BAKE_ALTERNATIVE = {"ShaderNodeBlackbody": fix_blackbody}   # opt-in
+NEEDS_TWO_STAGE = {"ShaderNodeBlackbody"}                   # -> keep_blackbody_run.py
 
 
 def apply_fixer(nt, node):

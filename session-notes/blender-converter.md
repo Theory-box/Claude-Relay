@@ -244,3 +244,30 @@ Fixers now: safe-drop, IntegerMath, Blackbody. All pass repair/verify.py.
 - Object/Collection Input -> group-input socket.
 - Matrix Determinant -> component arithmetic.
 - Import OBJ/PLY/STL -> bake to mesh.
+
+## Update — BLACKBODY: keep the node (user/client preference), not bake
+User: client thinks in blackbody, wants the NODE kept, not converted to RGB.
+Built the two-stage keep-node approach (the user's manual fix, automated):
+- Confirmed the temperature is genuinely lost in the 4.2 file (degraded socket
+  stores nothing; readable=False). A LINK into the socket crashes 4.2 on load.
+  So value must be re-applied by rebuilding a fresh node IN the target.
+- repair/blackbody_keep.py: --stage extract (source, manifest of temps keyed by
+  MATERIAL/LIGHT/WORLD/NODEGROUP::name::node) / --stage apply (target, rebuild
+  fresh native blackbody + temp + reconnect).
+- repair/keep_blackbody_run.py: one-command orchestrator (runs 4.4 extract then
+  4.2 rebuild via subprocess).
+- VERIFIED end-to-end: source with light bb=6000 + material bb=4000 -> client
+  reopens 4.2 -> both REAL native blackbody nodes, correct temps, linked. 
+- Made keep-node the DEFAULT: removed ShaderNodeBlackbody from bake FIXERS;
+  fix_blackbody kept as opt-in BAKE_ALTERNATIVE. apply_repair now points blackbody
+  nodes to keep_blackbody_run.py.
+- Test-setup lesson (again): orphan datablocks (unused material) get purged on
+  save - anchor to an object in tests.
+
+Minor known scanner nit: in DETECT mode (running in 4.2), a fixed native blackbody
+still matches the 'changed' DB by bl_idname so it shows as '1 socket-changed'
+(informational, not a real break). Predict-mode value-loss check is the meaningful
+one. Could refine detect-mode later.
+
+Fixers: safe-drop, IntegerMath (default apply_repair); Blackbody keep-node (two-stage
+tool) + bake (opt-in). All harness checks pass.
