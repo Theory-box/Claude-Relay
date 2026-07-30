@@ -1,0 +1,248 @@
+{
+  "source": "4.4.3",
+  "target": "4.2.23",
+  "note": "Node lists are EMPIRICAL (enumerated from both binaries). Actions are suggested strategies.",
+  "missing": {
+    "FunctionNodeFindInString": {
+      "node_category": "geometry",
+      "class": "function",
+      "action": "manual",
+      "note": "String nodes limited in older versions; likely manual."
+    },
+    "FunctionNodeHashValue": {
+      "node_category": "geometry",
+      "class": "function",
+      "action": "manual",
+      "note": "No clean equivalent; approximate or remove."
+    },
+    "FunctionNodeIntegerMath": {
+      "node_category": "geometry",
+      "class": "function",
+      "action": "reconstruct",
+      "note": "Rebuild with float Math + rounding (large-int precision)."
+    },
+    "FunctionNodeMatrixDeterminant": {
+      "node_category": "geometry",
+      "class": "function",
+      "action": "reconstruct",
+      "note": "Rebuild from matrix component extraction + arithmetic."
+    },
+    "GeometryNodeCurvesToGreasePencil": {
+      "node_category": "geometry",
+      "class": "grease-pencil",
+      "action": "manual",
+      "note": "Grease Pencil v3 dependent; manual."
+    },
+    "GeometryNodeForeachGeometryElementInput": {
+      "node_category": "geometry",
+      "class": "control-flow",
+      "action": "manual",
+      "note": "For-Each zone: no equivalent. User must restructure or remove."
+    },
+    "GeometryNodeForeachGeometryElementOutput": {
+      "node_category": "geometry",
+      "class": "control-flow",
+      "action": "manual",
+      "note": "For-Each zone: no equivalent. User must restructure or remove."
+    },
+    "GeometryNodeGizmoDial": {
+      "node_category": "geometry",
+      "class": "cosmetic",
+      "action": "safe-drop",
+      "note": "Authoring gizmo; no effect on output geometry."
+    },
+    "GeometryNodeGizmoLinear": {
+      "node_category": "geometry",
+      "class": "cosmetic",
+      "action": "safe-drop",
+      "note": "Authoring gizmo; no effect on output geometry."
+    },
+    "GeometryNodeGizmoTransform": {
+      "node_category": "geometry",
+      "class": "cosmetic",
+      "action": "safe-drop",
+      "note": "Authoring gizmo; no effect on output geometry."
+    },
+    "GeometryNodeGreasePencilToCurves": {
+      "node_category": "geometry",
+      "class": "grease-pencil",
+      "action": "manual",
+      "note": "Grease Pencil v3 dependent; manual."
+    },
+    "GeometryNodeImportOBJ": {
+      "node_category": "geometry",
+      "class": "import",
+      "action": "bake",
+      "note": "Realize imported geometry into stored mesh before downgrade."
+    },
+    "GeometryNodeImportPLY": {
+      "node_category": "geometry",
+      "class": "import",
+      "action": "bake",
+      "note": "Realize imported geometry into stored mesh before downgrade."
+    },
+    "GeometryNodeImportSTL": {
+      "node_category": "geometry",
+      "class": "import",
+      "action": "bake",
+      "note": "Realize imported geometry into stored mesh before downgrade."
+    },
+    "GeometryNodeInputCollection": {
+      "node_category": "geometry",
+      "class": "input",
+      "action": "reconstruct",
+      "note": "Replace with a Collection group-input socket."
+    },
+    "GeometryNodeInputObject": {
+      "node_category": "geometry",
+      "class": "input",
+      "action": "reconstruct",
+      "note": "Replace with an Object group-input socket."
+    },
+    "GeometryNodeMergeLayers": {
+      "node_category": "geometry",
+      "class": "grease-pencil",
+      "action": "manual",
+      "note": "Grease Pencil v3 dependent; manual."
+    },
+    "GeometryNodeSetGeometryName": {
+      "node_category": "geometry",
+      "class": "cosmetic",
+      "action": "safe-drop",
+      "note": "Sets a name string; cosmetic."
+    },
+    "GeometryNodeWarning": {
+      "node_category": "geometry",
+      "class": "cosmetic",
+      "action": "safe-drop",
+      "note": "Only emits editor warnings; no geometry effect."
+    },
+    "ShaderNodeBsdfMetallic": {
+      "node_category": "shader",
+      "class": "shader-bsdf",
+      "action": "reconstruct",
+      "note": "Approximate with Principled/Glossy BSDF (visual check)."
+    },
+    "ShaderNodeTexGabor": {
+      "node_category": "shader",
+      "class": "shader-texture",
+      "action": "manual",
+      "note": "No equivalent; approximate with Noise/Wave (visual)."
+    }
+  },
+  "changed": {
+    "GeometryNodeRepeatInput": {
+      "node_category": "geometry",
+      "action": "review",
+      "delta": {
+        "out_added": [
+          [
+            "Iteration",
+            "INT"
+          ]
+        ]
+      }
+    },
+    "GeometryNodeSubdivisionSurface": {
+      "node_category": "geometry",
+      "action": "review",
+      "delta": {
+        "in_added": [
+          [
+            "Limit Surface",
+            "BOOLEAN"
+          ]
+        ]
+      }
+    },
+    "GeometryNodeToolSelection": {
+      "node_category": "geometry",
+      "action": "review",
+      "delta": {
+        "out_added": [
+          [
+            "Boolean",
+            "BOOLEAN"
+          ],
+          [
+            "Float",
+            "VALUE"
+          ]
+        ],
+        "out_removed": [
+          [
+            "Selection",
+            "BOOLEAN"
+          ]
+        ]
+      }
+    },
+    "GeometryNodeTriangulate": {
+      "node_category": "geometry",
+      "action": "review",
+      "delta": {
+        "in_removed": [
+          [
+            "Minimum Vertices",
+            "INT"
+          ]
+        ]
+      }
+    },
+    "ShaderNodeBsdfPrincipled": {
+      "node_category": "shader",
+      "action": "review",
+      "delta": {
+        "in_added": [
+          [
+            "Diffuse Roughness",
+            "VALUE"
+          ]
+        ]
+      }
+    },
+    "ShaderNodeBump": {
+      "node_category": "shader",
+      "action": "review",
+      "delta": {
+        "in_added": [
+          [
+            "Filter Width",
+            "VALUE"
+          ]
+        ]
+      }
+    },
+    "ShaderNodeVolumeScatter": {
+      "node_category": "shader",
+      "action": "review",
+      "delta": {
+        "in_added": [
+          [
+            "Alpha",
+            "VALUE"
+          ],
+          [
+            "Backscatter",
+            "VALUE"
+          ],
+          [
+            "Diameter",
+            "VALUE"
+          ],
+          [
+            "IOR",
+            "VALUE"
+          ]
+        ]
+      }
+    }
+  },
+  "non_node_warnings": [
+    {
+      "id": "grease_pencil_v3",
+      "severity": "critical",
+      "detail": "Grease Pencil objects created/saved in 4.3+ use GP v3 and do not open correctly in 4.2 or earlier. No node-level fix; handle before downgrade."
+    }
+  ]
+}
