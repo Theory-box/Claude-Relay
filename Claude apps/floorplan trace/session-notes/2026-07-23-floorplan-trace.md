@@ -155,3 +155,43 @@ and the guide visuals (blue extension line, yellow distance tick+label) need an 
 Possible follow-ups if the feel needs it: forward pattern extrapolation (place the *next* point at
 last+interval, past existing points), and extension+distance combined once guideline handling is
 proven.
+
+---
+
+## Update — nav revert + inference-guide bugfix (tested in real Blender 4.4.3)
+
+Downloaded Blender 4.4.3 and ran headless harnesses (register/enable/disable, property + keymap
+creation, and a driver that calls `compute_target` with mocked projection). Catches the whole
+"won't install / API mismatch / bad keymap" class; can't test interactive feel / GPU rendering.
+
+**Navigation reverted to stock + lock-pan.** User changed their mind: two-finger should ORBIT
+normally, and pan only when the view is locked. Fix = `custom_nav` now defaults **False**, so the
+two-finger pan/orbit/zoom remap and one-finger look are off by default (opt-in in prefs). The
+lock-pan (`view3d.move` on TRACKPADPAN + MMB, `active=False`, toggled by lock via `_resync_pan`)
+is separate and still gives two-finger pan while locked. Verified: with custom_nav off, only the
+lock-pan bindings exist; native orbit is untouched.
+
+**Inference-guide bug found and fixed.** User reported none of extension / relative-angle /
+distance-memory appeared to work. Driving `compute_target` in Blender showed extension and
+relative-angle actually worked, but **distance memory never fired in its own use case**: when you
+draw along a line collinear with existing edges (continuing a wall, or a repeated bump-out width),
+the extension guide grabs the cursor, and distance memory had been gated to `angle_locked` only
+(deliberately excluding extension, to avoid an ambiguous guideline). So it was disabled exactly when
+needed. Fix: when extension is active AND the last point lies on the extension line (collinear
+check via perpendicular distance), extension now supplies the locked direction, enabling distance
+memory. Verified: dragging 2.05 along a row of 2.0 segments snaps to 2.0 (`dist=2.0`).
+
+Also fixed the extension guide **visual** (was drawn as a 10,000-unit world line that projects
+off-screen and doesn't render) — now a finite 3000px screen-space line through the target along the
+edge direction. Added a faint green angle-lock guide ray so relative/world angle snaps are visible
+(there was no visual before, so angle snapping was invisible even when working). `res['dir']` now
+carries the locked direction for that overlay.
+
+Verified in Blender 4.4.3 via `compute_target` driver:
+- [A] 45° wall, drag 133° -> snaps 135° (locked)
+- [B] hover near a line's extension -> snaps onto it
+- [C] row of 2.0 segments, drag 2.05 -> snaps length to 2.0
+- [D] 30° wall, drag 118° -> snaps 120° (30+90, which world-axis snap would miss)
+
+Still untested (needs a human in a live viewport): actual snap feel/tolerances, overlay rendering,
+whether guides trigger too eagerly. `dist_px`/`align_px` are the tuning knobs.

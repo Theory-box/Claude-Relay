@@ -56,9 +56,9 @@ class FT_Prefs(bpy.types.AddonPreferences):
     )
 
     custom_nav: bpy.props.BoolProperty(
-        name="Custom trackpad navigation", default=True,
-        description="Use the modifier bindings below for two-finger pan/orbit/zoom "
-                    "and one-finger camera look",
+        name="Custom trackpad navigation", default=False,
+        description="Remap two-finger to pan/orbit/zoom and one-finger to look. "
+                    "Off = stock Blender nav (two-finger orbit), with two-finger pan only when locked",
         update=lambda self, ctx: _refresh_nav())
     pan_ctrl: bpy.props.BoolProperty(name="Ctrl", default=False, update=lambda self, ctx: _refresh_nav())
     pan_shift: bpy.props.BoolProperty(name="Shift", default=False, update=lambda self, ctx: _refresh_nav())
@@ -372,6 +372,17 @@ class MESH_OT_floorplan_trace(bpy.types.Operator):
                             t = round(t / s.grid_size) * s.grid_size
                         P = Lp + locked_dir * t
 
+        # extension supplies the direction for distance memory when the last point
+        # lies on the extension line (the collinear repeated-length case)
+        if res['ext'] is not None and Lp is not None and not angle_locked:
+            a_uv, sd = res['ext']
+            rel = Lp - a_uv
+            if (rel - sd * rel.dot(sd)).length * ppu <= s.align_px:
+                d = P - Lp
+                if d.length > 1e-6:
+                    locked_dir = sd if d.dot(sd) >= 0 else -sd
+                    angle_locked = True
+
         # 4. alignment snap (only when the direction is free)
         candidates = self.align_candidates(s) if self.use_alignment_enabled(s) else []
         if candidates and not angle_locked and res['ext'] is None:
@@ -419,6 +430,8 @@ class MESH_OT_floorplan_trace(bpy.types.Operator):
 
         res['world'] = self.from_uv(P.x, P.y)
         res['angle'] = angle_locked
+        res['dir'] = (locked_dir.copy() if (angle_locked and locked_dir is not None)
+                      else None)
         return res
 
     def use_alignment_enabled(self, s):
@@ -687,17 +700,36 @@ def _draw_callback(self):
                 shader.uniform_float("color", (0.20, 0.90, 0.45, 1.0))
                 b.draw(shader)
 
-        # extension guide: dashed-ish line along the extended edge, through target
+        # extension guide: a long line through the target along the edge's direction
         if d.get('ext') is not None and tgt:
             a_uv, dir_uv = d['ext']
-            p1 = self.from_uv(a_uv.x - dir_uv.x * 1e4, a_uv.y - dir_uv.y * 1e4)
-            p2 = self.from_uv(a_uv.x + dir_uv.x * 1e4, a_uv.y + dir_uv.y * 1e4)
-            s1, s2 = s(p1), s(p2)
-            if s1 and s2:
-                b = batch_for_shader(shader, 'LINES', {"pos": [s1, s2]})
-                shader.bind()
-                shader.uniform_float("color", (0.3, 0.7, 1.0, 0.55))
-                b.draw(shader)
+            sa = s(self.from_uv(a_uv.x, a_uv.y))
+            sb = s(self.from_uv(a_uv.x + dir_uv.x, a_uv.y + dir_uv.y))
+            if sa and sb:
+                sd = Vector((sb[0] - sa[0], sb[1] - sa[1]))
+                if sd.length > 1e-6:
+                    sd = sd.normalized() * 3000.0
+                    p1 = (tgt[0] - sd.x, tgt[1] - sd.y)
+                    p2 = (tgt[0] + sd.x, tgt[1] + sd.y)
+                    b = batch_for_shader(shader, 'LINES', {"pos": [p1, p2]})
+                    shader.bind()
+                    shader.uniform_float("color", (0.3, 0.7, 1.0, 0.55))
+                    b.draw(shader)
+
+        # angle-lock guide: faint ray from the last point through the target
+        if (d.get('dir') is not None and self.last_world is not None and tgt
+                and d.get('ext') is None):
+            la = s(self.last_world)
+            if la:
+                sd = Vector((tgt[0] - la[0], tgt[1] - la[1]))
+                if sd.length > 1e-6:
+                    sd = sd.normalized() * 3000.0
+                    p1 = (la[0] - sd.x, la[1] - sd.y)
+                    p2 = (la[0] + sd.x, la[1] + sd.y)
+                    b = batch_for_shader(shader, 'LINES', {"pos": [p1, p2]})
+                    shader.bind()
+                    shader.uniform_float("color", (0.55, 0.9, 0.55, 0.4))
+                    b.draw(shader)
 
         # distance-memory: highlight the matched span and a tick at the target
         if d.get('dist') is not None and d.get('dist_a') is not None and tgt:
