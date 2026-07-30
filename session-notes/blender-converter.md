@@ -194,3 +194,31 @@ full animation-data (actions/slots).
 - Deferred by user: physics, particles, animation-data.
 
 DIAGNOSIS BASE = SOLID. Next: REPAIR PHASE.
+
+## Update — REPAIR PHASE started (scaffolding + first verified fixers)
+Architecture: all fixers run in SOURCE (4.4), carry values + relink, report-honest
+(fixed / flagged / None). Never overwrite input. New folder apps/blend-compat-scanner/repair/.
+
+Verification bar (repair/verify.py regression harness): fixer output must be
+IDENTICAL to original by evaluation, AND saved file opens in target with 0 undefined.
+
+Fixers landed (both verified):
+- safe-drop (SetGeometryName + Gizmo* + Warning): remove node, reconnect geometry
+  passthrough. Geometry byte-identical.
+- reconstruct FunctionNodeIntegerMath -> ShaderNodeMath(+round): EXACT-equal for all
+  16 supported ops across signed input pairs. GCD/LCM flagged (no Math equiv), left
+  in place. DIVIDE family uses Math DIVIDE + TRUNC/ROUND/FLOOR/CEIL. NEGATE = *-1.
+
+End-to-end apply_repair test PASSED: file with SetGeometryName + IntegerMath(ADD) +
+IntegerMath(GCD) -> fixed 2, flagged 1; reconstructed attribute r=10 verified
+IDENTICAL when reopened in 4.2; only remaining break is the honestly-flagged GCD.
+
+Files: repair/fixers.py (registry), repair/apply_repair.py (headless apply),
+repair/verify.py (regression harness), repair/README.md.
+
+## Next fixers (same bar)
+- Object/Collection Input -> group-input socket.
+- Matrix Determinant -> component arithmetic.
+- Import OBJ/PLY/STL -> bake to mesh.
+- Blackbody / Volume Principled temperature -> TWO-STAGE (manifest in source,
+  re-apply in target). The user's real pain; tackle after these.
