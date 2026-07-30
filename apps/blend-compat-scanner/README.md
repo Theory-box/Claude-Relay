@@ -12,6 +12,38 @@ things silently break on their end. This finds them first.
 Working and tested against local **4.4.3** and **4.2.23 LTS** builds. Diagnosis
 is solid; automatic *repair* is intentionally not implemented yet (see below).
 
+## Coverage: what "a node" is made of (systematic, not guessed)
+
+Rather than discover breakage classes one at a time, the pipeline introspects the
+full RNA schema of every node in both versions and diffs every component:
+
+| Component | What can break | Detected? |
+|-----------|----------------|-----------|
+| node type (`bl_idname`) | exists only in source → Undefined | yes (missing) |
+| socket name | added / removed | yes (changed) |
+| socket coarse type | retyped | yes (changed) |
+| socket **subtype** (`bl_idname`) | value silently dropped (blackbody class) | yes (changed) |
+| socket default value | shifted | yes (changed) |
+| node **property** (enum/bool/…) | added → lost, or removed | yes (prop_changed) |
+| property **enum values** | source uses a value the target lacks → resets | yes (value-conditional) |
+| property default / subtype | shifted | yes (prop_changed) |
+
+For 4.4→4.2 this found: 21 missing nodes, 10 socket-changed (3 the hidden subtype
+class), 21 nodes with property-schema changes (16 enum-value additions, 5 new
+properties). The scanner reports a property/enum issue **only when a node actually
+uses** the source-only value, so internal-only enum entries (e.g. `INT16_2D`)
+never produce false positives.
+
+Node-tree hosts walked: geometry-nodes modifiers, materials, lights, worlds, the
+compositor, nested node groups.
+
+### Fundamental surface still to audit (next hardening)
+- node **sub-structures**: ColorRamp elements, CurveMapping, node-group
+  **interface** sockets (could hide the same subtype issue as regular sockets).
+- **non-node datablocks** at property depth: modifier properties, constraints,
+  physics, particles, mesh/curve attribute layers.
+- zone **state items** (simulation / repeat).
+
 ## Value fidelity (what survives a break)
 
 Established empirically, and it's better than expected:

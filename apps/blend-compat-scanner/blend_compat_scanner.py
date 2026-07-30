@@ -181,7 +181,9 @@ def node_values(n):
 def analyse(nodes, db):
     missing_db = (db or {}).get("missing", {})
     changed_db = (db or {}).get("changed", {})
-    hits = {"undefined": [], "predicted_missing": [], "predicted_changed": []}
+    prop_db = (db or {}).get("prop_changed", {})
+    hits = {"undefined": [], "predicted_missing": [], "predicted_changed": [],
+            "prop_issues": []}
 
     for n, where in nodes:
         bl = n.bl_idname
@@ -216,6 +218,33 @@ def analyse(nodes, db):
                 "value_loss": [(s, vals.get(s)) for s in at_risk],
                 "note": "Socket set differs in target version.",
             })
+
+        # PROPERTY schema issues (independent - a node can have both socket and
+        # property problems). Only fires when the node actually uses a value the
+        # target can't represent, or sets a source-only property.
+        if bl in prop_db:
+            pinfo = prop_db[bl]
+            issues = []
+            for prop in pinfo.get("added", []):
+                if hasattr(n, prop):
+                    try:
+                        val = getattr(n, prop)
+                        dflt = n.bl_rna.properties[prop].default
+                        if val != dflt:
+                            issues.append(f"'{prop}'={val!r} (4.4-only property, lost -> target default)")
+                    except Exception:
+                        pass
+            for prop, newvals in pinfo.get("enum_values_added", {}).items():
+                if hasattr(n, prop):
+                    try:
+                        val = getattr(n, prop)
+                        if val in newvals:
+                            issues.append(f"'{prop}'={val!r} (value doesn't exist in target -> resets)")
+                    except Exception:
+                        pass
+            if issues:
+                hits["prop_issues"].append({
+                    "name": n.name, "type": bl, "location": where, "issues": issues})
     return hits
 
 
@@ -281,6 +310,15 @@ def report(hits, settings_hits, db, opts):
                 print(f"        !! value LOST on '{sock}'{shown} — "
                       f"reverts to target default (this is the blackbody-pink class)")
 
+    pi = hits.get("prop_issues", [])
+    if pi:
+        print(f"\n PROPERTY VALUES AT RISK — {len(pi)} node(s) using a 4.4-only "
+              f"property/value the target can't represent:")
+        for h in pi:
+            print(f"   ~  {h['type']}  ('{h['name']}')  at {h['location']}")
+            for iss in h["issues"]:
+                print(f"        !! {iss}")
+
     if settings_hits:
         print(f"\n SETTINGS LOST — {len(settings_hits)} non-default setting(s) "
               f"with no target equivalent (revert to default):")
@@ -292,10 +330,11 @@ def report(hits, settings_hits, db, opts):
         print(f"\n [!] non-node warning ({w['severity']}): {w['id']}")
         print(f"     {w['detail']}")
 
-    total = len(u) + len(pm) + len(pc) + len(settings_hits)
+    total = len(u) + len(pm) + len(pc) + len(pi) + len(settings_hits)
     print("\n" + line)
     print(f" SUMMARY: {len(u)} already-broken, {len(pm)} will-break, "
-          f"{len(pc)} may-shift, {len(settings_hits)} settings-lost  (total {total})")
+          f"{len(pc)} socket-changed, {len(pi)} prop-at-risk, "
+          f"{len(settings_hits)} settings-lost  (total {total})")
     print(line + "\n")
 
     if opts["json"]:

@@ -43,8 +43,28 @@ def sval(s):
     except Exception:
         try: return str(dv)
         except Exception: return None
+_BASE={p.identifier for p in bpy.types.Node.bl_rna.properties}
+def nprops(n):
+    out={}
+    for p in n.bl_rna.properties:
+        if p.identifier in _BASE or p.identifier in ("inputs","outputs"): continue
+        e={"t":p.type}
+        if p.type=="ENUM":
+            try: e["enum"]=sorted(x.identifier for x in p.enum_items)
+            except Exception: pass
+        sub=getattr(p,"subtype",None)
+        if sub and sub!="NONE": e["sub"]=sub
+        try:
+            if p.type in ("BOOLEAN","INT","FLOAT","ENUM","STRING"):
+                d=getattr(p,"default",None)
+                if d is not None and not hasattr(d,"__len__"):
+                    e["def"]=round(float(d),4) if p.type=="FLOAT" else d
+        except Exception: pass
+        out[p.identifier]=e
+    return out
 def sig(n): return {"in":[[s.name,s.type,s.bl_idname,sval(s)] for s in n.inputs],
-                    "out":[[s.name,s.type,s.bl_idname] for s in n.outputs]}
+                    "out":[[s.name,s.type,s.bl_idname] for s in n.outputs],
+                    "props":nprops(n)}
 def ids(pref):
     o=[]
     for nm in dir(bpy.types):
@@ -177,11 +197,36 @@ def diff_sockets(new_sig, old_sig):
     return delta
 
 
+def diff_props(new_props, old_props):
+    """Non-socket node properties: what a source-version node loses/uses that the
+    target can't represent."""
+    d = {}
+    added = sorted(p for p in new_props if p not in old_props)
+    removed = sorted(p for p in old_props if p not in new_props)
+    if added:   d["added"] = added
+    if removed: d["removed"] = removed
+    for p in sorted(new_props):
+        if p not in old_props:
+            continue
+        a, b = new_props[p], old_props[p]
+        if a.get("t") != b.get("t"):
+            d.setdefault("type_changed", []).append([p, b.get("t"), a.get("t")])
+        if a.get("t") == "ENUM" and "enum" in a and "enum" in b:
+            new_vals = sorted(set(a["enum"]) - set(b["enum"]))   # usable in source only
+            if new_vals:
+                d.setdefault("enum_values_added", {})[p] = new_vals
+        if a.get("sub") != b.get("sub"):
+            d.setdefault("subtype_changed", []).append([p, b.get("sub"), a.get("sub")])
+        if "def" in a and "def" in b and a["def"] != b["def"]:
+            d.setdefault("default_changed", []).append([p, b["def"], a["def"]])
+    return d
+
+
 def build(new, old, src_label, tgt_label):
     db = {"source": src_label, "target": tgt_label,
           "note": "Node lists are EMPIRICAL (enumerated from both binaries). "
                   "Actions are suggested strategies.",
-          "missing": {}, "changed": {}, "non_node_warnings": NON_NODE}
+          "missing": {}, "changed": {}, "prop_changed": {}, "non_node_warnings": NON_NODE}
     for cat in ("geometry", "shader"):
         n, o = new[cat], old[cat]
         for k in sorted(n):
@@ -193,6 +238,11 @@ def build(new, old, src_label, tgt_label):
                 delta = diff_sockets(n[k], o[k])
                 if delta:
                     db["changed"][k] = {"node_category": cat, "action": "review", "delta": delta}
+        for k in sorted(n):
+            if k in o and "err" not in n[k] and "err" not in o[k]:
+                pd = diff_props(n[k].get("props", {}), o[k].get("props", {}))
+                if pd:
+                    db["prop_changed"][k] = dict(node_category=cat, **pd)
 
     # non-node: settings properties present in source but missing in target
     # (i.e. LOST when the file is opened/saved in the older target version)

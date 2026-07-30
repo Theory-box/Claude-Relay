@@ -277,6 +277,166 @@
       }
     }
   },
+  "prop_changed": {
+    "FunctionNodeRandomValue": {
+      "node_category": "geometry",
+      "enum_values_added": {
+        "data_type": [
+          "INT16_2D"
+        ]
+      }
+    },
+    "FunctionNodeValueToString": {
+      "node_category": "geometry",
+      "added": [
+        "data_type"
+      ]
+    },
+    "GeometryNodeAttributeDomainSize": {
+      "node_category": "geometry",
+      "enum_values_added": {
+        "component": [
+          "GREASEPENCIL"
+        ]
+      }
+    },
+    "GeometryNodeAttributeStatistic": {
+      "node_category": "geometry",
+      "enum_values_added": {
+        "data_type": [
+          "INT16_2D"
+        ]
+      }
+    },
+    "GeometryNodeBlurAttribute": {
+      "node_category": "geometry",
+      "enum_values_added": {
+        "data_type": [
+          "INT16_2D"
+        ]
+      }
+    },
+    "GeometryNodeDuplicateElements": {
+      "node_category": "geometry",
+      "enum_values_added": {
+        "domain": [
+          "LAYER"
+        ]
+      }
+    },
+    "GeometryNodeFieldAtIndex": {
+      "node_category": "geometry",
+      "enum_values_added": {
+        "data_type": [
+          "INT16_2D"
+        ]
+      }
+    },
+    "GeometryNodeFieldOnDomain": {
+      "node_category": "geometry",
+      "enum_values_added": {
+        "data_type": [
+          "INT16_2D"
+        ]
+      }
+    },
+    "GeometryNodeInputNamedAttribute": {
+      "node_category": "geometry",
+      "enum_values_added": {
+        "data_type": [
+          "INT16_2D"
+        ]
+      }
+    },
+    "GeometryNodeInputNormal": {
+      "node_category": "geometry",
+      "added": [
+        "legacy_corner_normals"
+      ]
+    },
+    "GeometryNodeRaycast": {
+      "node_category": "geometry",
+      "enum_values_added": {
+        "data_type": [
+          "INT16_2D"
+        ]
+      }
+    },
+    "GeometryNodeResampleCurve": {
+      "node_category": "geometry",
+      "added": [
+        "keep_last_segment"
+      ]
+    },
+    "GeometryNodeSampleCurve": {
+      "node_category": "geometry",
+      "enum_values_added": {
+        "data_type": [
+          "INT16_2D"
+        ]
+      }
+    },
+    "GeometryNodeSampleIndex": {
+      "node_category": "geometry",
+      "enum_values_added": {
+        "data_type": [
+          "INT16_2D"
+        ]
+      }
+    },
+    "GeometryNodeSampleNearestSurface": {
+      "node_category": "geometry",
+      "enum_values_added": {
+        "data_type": [
+          "INT16_2D"
+        ]
+      }
+    },
+    "GeometryNodeSampleUVSurface": {
+      "node_category": "geometry",
+      "enum_values_added": {
+        "data_type": [
+          "INT16_2D"
+        ]
+      }
+    },
+    "GeometryNodeStoreNamedAttribute": {
+      "node_category": "geometry",
+      "enum_values_added": {
+        "data_type": [
+          "INT16_2D"
+        ]
+      }
+    },
+    "GeometryNodeStoreNamedGrid": {
+      "node_category": "geometry",
+      "enum_values_added": {
+        "data_type": [
+          "INT16_2D"
+        ]
+      }
+    },
+    "GeometryNodeToolSetSelection": {
+      "node_category": "geometry",
+      "added": [
+        "selection_type"
+      ]
+    },
+    "GeometryNodeViewer": {
+      "node_category": "geometry",
+      "enum_values_added": {
+        "data_type": [
+          "INT16_2D"
+        ]
+      }
+    },
+    "ShaderNodeVolumeScatter": {
+      "node_category": "shader",
+      "added": [
+        "phase"
+      ]
+    }
+  },
   "non_node_warnings": [
     {
       "id": "grease_pencil_v3",

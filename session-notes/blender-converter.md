@@ -123,3 +123,36 @@ sockets.
 Lesson: coarse signatures miss subtype-level breaks. Node-tree host coverage must
 include: materials, lights, worlds, scene compositor, GN modifiers, node_groups.
 Consider auditing other specialised socket subtypes for future pairs.
+
+## Update — SYSTEMATIC schema audit (stop guessing classes)
+User: worried more breakage classes are hidden; wants fundamental introspection
+of what nodes are MADE OF, not ad-hoc discovery. Did full RNA schema dump of every
+node in both versions and diffed every component.
+
+New classes found systematically:
+- prop_added (5): node gains a property in 4.4, lost on downgrade. e.g.
+  ShaderNodeVolumeScatter.phase, FunctionNodeValueToString.data_type,
+  GeometryNodeInputNormal.legacy_corner_normals, ResampleCurve.keep_last_segment,
+  ToolSetSelection.selection_type.
+- enum_values_added (16): a shared property's ENUM gained values in 4.4 (INT16_2D
+  data type; GREASEPENCIL component; LAYER domain). Breaks only if a node USES the
+  new value. NOTE: INT16_2D is internal-only (not settable via UI) - enum_items in
+  RNA is a superset of settable items - so scanner's value-conditional check avoids
+  false positives. GREASEPENCIL/LAYER are real user values.
+- Zero: prop_removed, prop_type_changed, enum_removed, default_changed. Clean.
+
+Folded into pipeline: sig() now also captures nprops() (non-socket props + enum
+items + subtype + default). build() computes db["prop_changed"]. Scanner analyse()
+checks prop_changed per node: flags added-prop set!=default, and enum value in the
+source-only set. Tested: VolumeScatter phase=FOURNIER_FORAND flagged correctly.
+
+Node schema coverage now: type, sockets(name/type/subtype/default), props(enum
+items/subtype/default). Hosts walked: GN mods, materials, lights, worlds,
+compositor, nested groups.
+
+## Remaining fundamental surface to audit (next)
+- node sub-structures: ColorRamp elements, CurveMapping, node-GROUP INTERFACE
+  sockets (same subtype risk as node sockets - HIGH priority to check).
+- non-node datablock properties at depth: modifiers (props not just types),
+  constraints, physics, particles, mesh/curve attribute layers.
+- zone state items (sim/repeat).
