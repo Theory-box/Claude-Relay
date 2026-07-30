@@ -23,9 +23,14 @@ Established empirically, and it's better than expected:
 - What's lost on the break: the node's **type identity** (generic `Undefined`)
   and any **non-socket properties** (enum dropdowns etc.). Those are only fully
   available in the source version.
-- **A save in the target version is destructive.** After 4.2 saves the file,
-  reopening in 4.4 leaves the node permanently `Undefined` — the type is not
-  restored. So "round-trip through 4.2 and back" loses data.
+- **What round-trips and what doesn't (4.4 → 4.2 → 4.4):** anything that exists
+  in *both* versions round-trips fine — that's the normal case and it's lossless.
+  The exceptions are narrow: (a) a node that exists **only in 4.4** becomes
+  `Undefined` in 4.2 and, once 4.2 *saves*, does **not** come back on reopening in
+  4.4 (permanently lost — verified); (b) a **subtype-changed** socket (blackbody
+  Temperature etc.) keeps the node but loses that specific value. So "4.2 comes
+  through fine" is true for shared features; the losses are exactly the 21 missing
+  nodes + the 3 subtype sockets.
 
 **Reconstruction architecture (decided):** rebuild in the **source** version
 (4.4) before saving the downgraded copy. Source has full fidelity (type + socket
@@ -54,16 +59,23 @@ blender-4.4 -b myfile.blend --python blend_compat_scanner.py -- --target 4.2 --j
 blender-4.2 -b myfile.blend --python blend_compat_scanner.py
 ```
 
-It walks geometry-nodes modifiers, materials, worlds, the compositor, and every
-nested node group (cycle-safe), and in predict mode also checks non-node settings
-(EEVEE / render) that would be lost. It **only reports** — nothing is edited or
-deleted.
+It walks geometry-nodes modifiers, materials, **lights**, worlds, the compositor,
+and every nested node group (cycle-safe), and in predict mode also checks
+non-node settings (EEVEE / render) that would be lost. It **only reports** —
+nothing is edited or deleted.
 
 ## What it found for 4.4 -> 4.2 (ground truth, from the binaries)
 
 Nodes:
 - **21 nodes** exist in 4.4 but not 4.2 → become `Undefined` (19 geometry/function, 2 shader).
-- **7 nodes** exist in both but changed sockets → may silently shift to old defaults.
+- **10 nodes** exist in both but changed sockets. Of these, **3 have a hidden
+  socket-*subtype* change that silently drops the value** even though the node
+  survives: `ShaderNodeBlackbody` (Temperature), `ShaderNodeVolumePrincipled`
+  (Temperature), `GeometryNodePoints` (Position). In 4.4 these use a specialised
+  socket (`NodeSocketFloatColorTemperature` / `NodeSocketVectorTranslation`) that
+  4.2 lacks, so the socket degrades to a bare one and the value is lost — this is
+  the real "blackbody-driven lights go pink in 4.2" bug. The scanner catches it
+  and reports the at-risk value.
 
 Non-node (settings + types, also enumerated from the binaries):
 - **3 settings** exist in 4.4 but not 4.2 and are lost on downgrade: `SceneEEVEE.use_fast_gi`

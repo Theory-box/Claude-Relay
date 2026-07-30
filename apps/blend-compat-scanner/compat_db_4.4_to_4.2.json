@@ -131,6 +131,19 @@
     }
   },
   "changed": {
+    "GeometryNodePoints": {
+      "node_category": "geometry",
+      "action": "review",
+      "delta": {
+        "in_subtype_changed": [
+          [
+            "Position",
+            "NodeSocketVector",
+            "NodeSocketVectorTranslation"
+          ]
+        ]
+      }
+    },
     "GeometryNodeRepeatInput": {
       "node_category": "geometry",
       "action": "review",
@@ -189,6 +202,19 @@
         ]
       }
     },
+    "ShaderNodeBlackbody": {
+      "node_category": "shader",
+      "action": "review",
+      "delta": {
+        "in_subtype_changed": [
+          [
+            "Temperature",
+            "NodeSocketFloat",
+            "NodeSocketFloatColorTemperature"
+          ]
+        ]
+      }
+    },
     "ShaderNodeBsdfPrincipled": {
       "node_category": "shader",
       "action": "review",
@@ -209,6 +235,19 @@
           [
             "Filter Width",
             "VALUE"
+          ]
+        ]
+      }
+    },
+    "ShaderNodeVolumePrincipled": {
+      "node_category": "shader",
+      "action": "review",
+      "delta": {
+        "in_subtype_changed": [
+          [
+            "Temperature",
+            "NodeSocketFloat",
+            "NodeSocketFloatColorTemperature"
           ]
         ]
       }

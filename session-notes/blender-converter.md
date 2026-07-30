@@ -92,3 +92,34 @@ GENERALIZED to catch everything (incl. grease pencil) even though live pain is
   input nodes (Object/Collection) + Integer Math.
 - 'bake' path for Import OBJ/PLY/STL (realize to mesh).
 - Optional in-Blender add-on panel (jump-select broken nodes).
+
+## Update — BLACKBODY BUG FOUND (user was right) + subtype class + lights gap
+User insisted blackbody breaks 4.4->4.2 (lights go pink, must replace node).
+Investigated empirically:
+- Blackbody node EXISTS in both; math identical (BB6000 -> [1.0887,0.9783,0.9531]
+  in both). So not a missing-node or compute change.
+- REAL cause: the Temperature input socket bl_idname changed
+  NodeSocketFloat (4.2) -> NodeSocketFloatColorTemperature (4.4). 4.2 lacks that
+  subtype, so on load the socket degrades to a bare NodeSocket with NO
+  default_value -> the 6000 is dropped -> light reverts -> pink. Replacing the
+  node fixes it (fresh socket). Verified via the 'no default_value' traceback.
+- My signature only captured coarse socket TYPE ('VALUE') so it MISSED this.
+  Fix: signature now captures socket bl_idname; diff_sockets detects
+  in/out_subtype_changed. Now catches 3 nodes: ShaderNodeBlackbody,
+  ShaderNodeVolumePrincipled (both Temperature), GeometryNodePoints (Position:
+  NodeSocketVector -> NodeSocketVectorTranslation).
+- SECOND gap: collect_nodes() did NOT walk LIGHT node trees (user's exact case!).
+  Added bpy.data.lights. Scanner now flags blackbody-in-light with value LOST +
+  shows the at-risk value (Temperature currently 6000.0).
+- changed count 7 -> 10.
+
+Round-trip reconciliation (user asked): shared features round-trip 4.4->4.2->4.4
+LOSSLESSLY (user's intuition correct). Exceptions: (a) 4.4-only nodes go
+Undefined and are PERMANENTLY lost once 4.2 saves (verified: Metallic BSDF stays
+undefined back in 4.4); (b) subtype sockets lose that value. So earlier blanket
+"4.2 save is destructive" was too broad — it's only the missing nodes + subtype
+sockets.
+
+Lesson: coarse signatures miss subtype-level breaks. Node-tree host coverage must
+include: materials, lights, worlds, scene compositor, GN modifiers, node_groups.
+Consider auditing other specialised socket subtypes for future pairs.

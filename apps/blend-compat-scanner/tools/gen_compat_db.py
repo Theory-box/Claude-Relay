@@ -43,8 +43,8 @@ def sval(s):
     except Exception:
         try: return str(dv)
         except Exception: return None
-def sig(n): return {"in":[[s.name,s.type,sval(s)] for s in n.inputs],
-                    "out":[[s.name,s.type] for s in n.outputs]}
+def sig(n): return {"in":[[s.name,s.type,s.bl_idname,sval(s)] for s in n.inputs],
+                    "out":[[s.name,s.type,s.bl_idname] for s in n.outputs]}
 def ids(pref):
     o=[]
     for nm in dir(bpy.types):
@@ -136,10 +136,14 @@ def dump(blender_exe):
 
 
 def _by_name(sockets):
-    # sockets: [[name,type,default?], ...] -> {name:(type, default_or_None)}
+    # inputs: [name,type,bl_idname,default]; outputs: [name,type,bl_idname]
     d = {}
     for s in sockets:
-        d[s[0]] = (s[1], s[2] if len(s) > 2 else None)
+        name = s[0]
+        typ = s[1]
+        bl = s[2] if len(s) > 2 else None
+        dflt = s[3] if len(s) > 3 else None
+        d[name] = (typ, bl, dflt)
     return d
 
 
@@ -150,18 +154,24 @@ def diff_sockets(new_sig, old_sig):
     for side in ("in", "out"):
         nn = _by_name(new_sig[side])
         oo = _by_name(old_sig[side])
-        added   = sorted([n, nn[n][0]] for n in nn if n not in oo)   # in new, not target
-        removed = sorted([n, oo[n][0]] for n in oo if n not in nn)   # target has, new didn't
+        added   = sorted([n, nn[n][0]] for n in nn if n not in oo)
+        removed = sorted([n, oo[n][0]] for n in oo if n not in nn)
         retyped = sorted([n, oo[n][0], nn[n][0]] for n in nn
                          if n in oo and nn[n][0] != oo[n][0])
+        # same coarse type but the source uses a specialised socket SUBTYPE the
+        # target lacks -> the socket degrades and its value is dropped on load.
+        subtype = sorted([n, oo[n][1], nn[n][1]] for n in nn
+                         if n in oo and nn[n][0] == oo[n][0]
+                         and nn[n][1] != oo[n][1])
         if added:   delta[f"{side}_added"] = added
         if removed: delta[f"{side}_removed"] = removed
         if retyped: delta[f"{side}_retyped"] = retyped
+        if subtype: delta[f"{side}_subtype_changed"] = subtype
         if side == "in":
-            dchg = sorted([n, oo[n][1], nn[n][1]] for n in nn
-                          if n in oo and nn[n][0] == oo[n][0]
-                          and nn[n][1] is not None and oo[n][1] is not None
-                          and nn[n][1] != oo[n][1])
+            dchg = sorted([n, oo[n][2], nn[n][2]] for n in nn
+                          if n in oo and nn[n][0] == oo[n][0] and nn[n][1] == oo[n][1]
+                          and nn[n][2] is not None and oo[n][2] is not None
+                          and nn[n][2] != oo[n][2])
             if dchg:
                 delta["in_default_changed"] = dchg
     return delta

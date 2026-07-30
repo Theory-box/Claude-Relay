@@ -95,6 +95,9 @@ def collect_nodes():
     for mat in bpy.data.materials:
         if mat.use_nodes and mat.node_tree:
             _walk_tree(mat.node_tree, f"Material '{mat.name}'", seen, out)
+    for lt in bpy.data.lights:
+        if lt.use_nodes and lt.node_tree:
+            _walk_tree(lt.node_tree, f"Light '{lt.name}'", seen, out)
     for w in bpy.data.worlds:
         if w.use_nodes and w.node_tree:
             _walk_tree(w.node_tree, f"World '{w.name}'", seen, out)
@@ -202,11 +205,16 @@ def analyse(nodes, db):
                 "values": node_values(n), "note": info.get("note", ""),
             })
         elif bl in changed_db:
+            delta = changed_db[bl].get("delta", {})
+            # sockets that outright lose their value in the target: a subtype the
+            # target lacks, or an input the target doesn't have at all.
+            at_risk = [e[0] for e in delta.get("in_subtype_changed", [])] \
+                    + [e[0] for e in delta.get("in_removed", [])]
+            vals = dict(node_values(n))
             hits["predicted_changed"].append({
-                "name": n.name, "type": bl, "location": where,
-                "delta": changed_db[bl].get("delta", {}),
-                "note": "Socket set differs in target version; links to "
-                        "added/removed sockets will drop or revert to default.",
+                "name": n.name, "type": bl, "location": where, "delta": delta,
+                "value_loss": [(s, vals.get(s)) for s in at_risk],
+                "note": "Socket set differs in target version.",
             })
     return hits
 
@@ -263,11 +271,15 @@ def report(hits, settings_hits, db, opts):
                 print(f"         {h['note']}")
 
     if pc:
-        print(f"\n MAY SHIFT — {len(pc)} node(s) whose sockets changed:")
+        print(f"\n CHANGED SOCKETS — {len(pc)} node(s) that exist in both but differ:")
         for h in pc:
             print(f"   ~  {h['type']}  ('{h['name']}')  at {h['location']}")
             for k, v in h["delta"].items():
                 print(f"        {k}: {v}")
+            for sock, val in h.get("value_loss", []):
+                shown = f" (currently {val})" if val is not None else ""
+                print(f"        !! value LOST on '{sock}'{shown} — "
+                      f"reverts to target default (this is the blackbody-pink class)")
 
     if settings_hits:
         print(f"\n SETTINGS LOST — {len(settings_hits)} non-default setting(s) "
