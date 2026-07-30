@@ -102,6 +102,27 @@ for sn,pn in [("Modifier","type"),("Constraint","type"),
         p=t.bl_rna.properties.get(pn)
         if p is not None and hasattr(p,"enum_items"):
             db["enums"][pn]=sorted(e.identifier for e in p.enum_items)
+# socket TYPE universe (a new socket subtype is the root cause of value drops)
+db["socket_types"]=sorted({c.bl_rna.identifier for nm in dir(bpy.types)
+    for c in [getattr(bpy.types,nm)]
+    if isinstance(c,type) and issubclass(c,bpy.types.NodeSocket)})
+# modifier / constraint class property schemas (non-node datablocks)
+def _dbcls(basecls):
+    base={p.identifier for p in basecls.bl_rna.properties}
+    out={}
+    for nm in dir(bpy.types):
+        c=getattr(bpy.types,nm)
+        try:
+            if not (isinstance(c,type) and issubclass(c,basecls) and c is not basecls): continue
+        except TypeError: continue
+        props={}
+        for p in c.bl_rna.properties:
+            if p.identifier in base: continue
+            props[p.identifier]={"t":p.type}
+        out[c.bl_rna.identifier]=props
+    return out
+db["mods"]=_dbcls(bpy.types.Modifier)
+db["cons"]=_dbcls(bpy.types.Constraint)
 print("JSONSTART"+json.dumps(db)+"JSONEND")
 '''
 
@@ -136,6 +157,11 @@ NON_NODE = [
  {"id":"grease_pencil_v3","severity":"critical",
   "detail":"Grease Pencil objects created/saved in 4.3+ use GP v3 and do not open "
            "correctly in 4.2 or earlier. No node-level fix; handle before downgrade."},
+ {"id":"slotted_actions","severity":"moderate",
+  "detail":"4.4 introduced the slotted-actions animation system (action slots). "
+           "Slot links on actions/constraints (e.g. ActionConstraint.action_slot) "
+           "have no 4.2 equivalent and are lost on downgrade; action assignment "
+           "may need to be re-linked in 4.2."},
 ]
 
 
@@ -257,6 +283,20 @@ def build(new, old, src_label, tgt_label):
         added = sorted(set(items) - set(old.get("enums", {}).get(en, [])))
         if added:
             db["types_new"][en] = added
+    # socket TYPE universe: types present only in source (root cause of value drops)
+    db["socket_types_new"] = sorted(set(new.get("socket_types", []))
+                                    - set(old.get("socket_types", [])))
+    # non-node datablock property changes (modifiers, constraints)
+    db["datablock_changes"] = {}
+    for key in ("mods", "cons"):
+        nd, od = new.get(key, {}), old.get(key, {})
+        for cls in sorted(nd):
+            if cls not in od:
+                db["datablock_changes"].setdefault(key, {})[cls] = {"new_class": True}
+                continue
+            added = sorted(set(nd[cls]) - set(od[cls]))
+            if added:
+                db["datablock_changes"].setdefault(key, {})[cls] = {"props_added": added}
     return db
 
 

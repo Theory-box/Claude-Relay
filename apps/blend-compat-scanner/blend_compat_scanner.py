@@ -175,6 +175,25 @@ def node_values(n):
     return vals
 
 
+def check_interfaces(db):
+    """Flag node-group interface sockets whose socket TYPE exists only in the
+    source version (would drop on load). Generic across version pairs."""
+    new_types = set((db or {}).get("socket_types_new", []))
+    out = []
+    if not new_types:
+        return out
+    for g in bpy.data.node_groups:
+        iface = getattr(g, "interface", None)
+        if iface is None:
+            continue
+        for it in getattr(iface, "items_tree", []):
+            if getattr(it, "item_type", "") == "SOCKET":
+                st = getattr(it, "socket_type", None)
+                if st in new_types:
+                    out.append({"group": g.name, "socket": it.name, "type": st})
+    return out
+
+
 # --------------------------------------------------------------------------- #
 # analysis
 # --------------------------------------------------------------------------- #
@@ -259,7 +278,7 @@ def _fmt_vals(vals, limit=6):
     return s or "(none set)"
 
 
-def report(hits, settings_hits, db, opts):
+def report(hits, settings_hits, interface_hits, db, opts):
     running = bpy.app.version_string
     src = (db or {}).get("source", "?")
     tgt = opts["target"] or (db or {}).get("target", "?")
@@ -326,15 +345,22 @@ def report(hits, settings_hits, db, opts):
             print(f"   -  {h['setting']} = {h['value']}")
             print(f"        at {h['location']}")
 
+    if interface_hits:
+        print(f"\n GROUP INTERFACE — {len(interface_hits)} interface socket(s) "
+              f"using a source-only socket type:")
+        for h in interface_hits:
+            print(f"   ~  group '{h['group']}' socket '{h['socket']}' ({h['type']})")
+
     for w in (db or {}).get("non_node_warnings", []):
         print(f"\n [!] non-node warning ({w['severity']}): {w['id']}")
         print(f"     {w['detail']}")
 
-    total = len(u) + len(pm) + len(pc) + len(pi) + len(settings_hits)
+    total = len(u) + len(pm) + len(pc) + len(pi) + len(settings_hits) + len(interface_hits)
     print("\n" + line)
     print(f" SUMMARY: {len(u)} already-broken, {len(pm)} will-break, "
           f"{len(pc)} socket-changed, {len(pi)} prop-at-risk, "
-          f"{len(settings_hits)} settings-lost  (total {total})")
+          f"{len(settings_hits)} settings-lost, {len(interface_hits)} iface  "
+          f"(total {total})")
     print(line + "\n")
 
     if opts["json"]:
@@ -356,7 +382,8 @@ def main():
     nodes = collect_nodes()
     hits = analyse(nodes, db)
     settings_hits = check_settings(db)
-    report(hits, settings_hits, db, opts)
+    interface_hits = check_interfaces(db)
+    report(hits, settings_hits, interface_hits, db, opts)
 
 
 if __name__ == "__main__":

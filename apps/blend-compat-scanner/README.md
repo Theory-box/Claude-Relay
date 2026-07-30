@@ -37,12 +37,25 @@ never produce false positives.
 Node-tree hosts walked: geometry-nodes modifiers, materials, lights, worlds, the
 compositor, nested node groups.
 
-### Fundamental surface still to audit (next hardening)
-- node **sub-structures**: ColorRamp elements, CurveMapping, node-group
-  **interface** sockets (could hide the same subtype issue as regular sockets).
-- **non-node datablocks** at property depth: modifier properties, constraints,
-  physics, particles, mesh/curve attribute layers.
+### Beyond nodes — also audited (empirically, 4.4 vs 4.2)
+- **Socket-type universe:** exactly 3 types are 4.4-only —
+  `NodeSocketFloatColorTemperature`, `NodeSocketFloatFrequency`,
+  `NodeSocketStringFilePath` — all node-internal (the API rejects them on group
+  interfaces), so interface sockets carry no new drop risk. The built-in-node uses
+  are caught. The scanner still checks interface sockets generically for future pairs.
+- **Modifier properties:** no new modifier types; 3 minor property additions
+  (Bevel edge/vertex weight, Nodes-modifier bake target + warnings, a GP UI panel).
+- **Constraint properties:** no new types; `ActionConstraint` gained the 4.4
+  slotted-actions fields → surfaced as the `slotted_actions` non-node warning.
+- **Settings / type enums:** 3 lost EEVEE/render settings; world/HDRI stable;
+  no new object/modifier/constraint/light-probe types.
+- **Grease Pencil v3:** critical non-node warning.
+
+### Genuinely remaining (lower impact, not yet automated)
+- node **sub-structures**: ColorRamp elements, CurveMapping (historically stable).
 - zone **state items** (simulation / repeat).
+- mesh/curve **attribute layers**, physics, particles.
+- full **animation-data** audit (actions/slots beyond the ActionConstraint case).
 
 ## Value fidelity (what survives a break)
 

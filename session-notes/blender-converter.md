@@ -156,3 +156,27 @@ compositor, nested groups.
 - non-node datablock properties at depth: modifiers (props not just types),
   constraints, physics, particles, mesh/curve attribute layers.
 - zone state items (sim/repeat).
+
+## Update — socket-type universe, interfaces, modifiers, constraints
+Continued systematic audit beyond the node's own schema:
+- SOCKET-TYPE universe: only 3 types are 4.4-only: NodeSocketFloatColorTemperature,
+  NodeSocketFloatFrequency, NodeSocketStringFilePath. All node-internal — the
+  interface API REJECTS them (TypeError), so group interfaces carry NO new drop
+  risk. Built-in-node uses already caught. Added generic interface-socket check to
+  scanner (check_interfaces) for future pairs. DB gains socket_types_new.
+- MODIFIERS: no new types; 3 minor prop additions (Bevel edge/vertex_weight;
+  NodesModifier bake_target/node_warnings/panel; GP simplify panel).
+- CONSTRAINTS: no new types; ActionConstraint gained slotted-actions fields
+  (action_slot etc.) -> 4.4 animation system. Added 'slotted_actions' non-node
+  warning. DB gains datablock_changes (mods+cons).
+- gen_compat_db.py now emits socket_types + mods + cons; build() computes
+  socket_types_new + datablock_changes. Fully reproducible.
+
+Audit map now COMPLETE for: node types, node sockets (name/type/subtype/default),
+node props (added/enum-values/subtype/default), socket-type universe, group
+interface sockets, settings structs, type enums, modifier props, constraint props,
+GP v3, slotted actions.
+
+Genuinely remaining (lower impact): node sub-structures (ColorRamp/CurveMapping),
+zone state items (sim/repeat), mesh/curve attribute layers, physics/particles,
+full animation-data (actions/slots).
