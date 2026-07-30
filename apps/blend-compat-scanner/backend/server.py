@@ -1,12 +1,16 @@
 #!/usr/bin/env python3
 """server.py — tiny local HTTP server the Relay UI talks to. Serves the UI and the
 scan/convert API. In the packaged app this runs as the bundled engine process."""
-import json, os
+import json, os, sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import engine
 
 HERE=os.path.dirname(os.path.abspath(__file__))
-UI=os.path.join(os.path.dirname(HERE),"ui","relay-ui.html")
+if getattr(sys,"frozen",False):
+    APP=os.path.join(sys._MEIPASS,"blend-compat-scanner")
+else:
+    APP=os.path.dirname(HERE)
+UI=os.path.join(APP,"ui","relay-ui.html")
 
 class H(BaseHTTPRequestHandler):
     def _send(self, code, body, ctype="application/json"):
@@ -16,7 +20,10 @@ class H(BaseHTTPRequestHandler):
     def log_message(self,*a): pass
     def do_GET(self):
         if self.path in ("/","/index.html"):
-            self._send(200, open(UI,"rb").read(), "text/html")
+            try:
+                self._send(200, open(UI,"rb").read(), "text/html")
+            except Exception as e:
+                self._send(500, "<h2>Relay UI not found</h2><pre>"+str(e)+"\nlooked in: "+UI+"</pre>", "text/html")
         elif self.path=="/api/ping": self._send(200, '{"ok":true}')
         else: self._send(404,"{}")
     def do_POST(self):

@@ -30,8 +30,10 @@ def main():
 
     issues = []
     def add(id, sev, typ, loc, action, desc, risk, how, sock="--sock-val"):
-        issues.append({"id":id,"sev":sev,"type":typ,"loc":loc,"action":action,
-                       "desc":desc,"risk":risk,"how":how,"sock":sock})
+        it={"id":id,"sev":sev,"type":typ,"loc":loc,"action":action,
+            "desc":desc,"risk":risk,"how":how,"sock":sock}
+        if id.startswith("image::"): it["fixLabel"]="Pack"; it["optional"]=True
+        issues.append(it)
 
     for n, where in sc.collect_nodes():
         bl = n.bl_idname
@@ -76,6 +78,20 @@ def main():
             if hit:
                 add(iid,"shift",bl,where,"acknowledge",f"Uses a 4.x-only property/value ('{hit[0]}') the target can't represent.",f"{hit[0]} = {hit[1]}","Reverts to target default.",sock)
 
+    # images: unpacked textures + generated blocks won't travel with the file
+    for img in bpy.data.images:
+        if img.type in ("RENDER_RESULT","COMPOSITING") or img.name in ("Render Result","Viewer Node"):
+            continue
+        if img.packed_file is not None:
+            continue
+        if img.source=="FILE" and img.filepath:
+            add(f"image::{img.name}", "shift", "Image \u00b7 "+img.name, "external texture", "fix",
+                "This texture is linked from disk and isn't packed \u2014 the client won't see it unless you also send the file.",
+                f"path: {img.filepath}", "Pack the texture into the .blend.", "--sock-col")
+        elif img.source=="GENERATED":
+            add(f"imagegen::{img.name}", "shift", "Image \u00b7 "+img.name, "generated image", "manual",
+                "Generated inside Blender with no file backing. It can't be packed and its pixels aren't saved in the .blend \u2014 procedural ones regenerate fine, but if an add-on painted or computed this, save it to a file in Blender before sending.",
+                f"{img.size[0]}x{img.size[1]}", "Save the image to a file in Blender (it can't be auto-packed).", "--sock-col")
     # settings
     for h in sc.check_settings(db):
         add("setting::"+h["setting"],"shift","Scene · "+h["setting"].split(".")[0],h["location"],"acknowledge",

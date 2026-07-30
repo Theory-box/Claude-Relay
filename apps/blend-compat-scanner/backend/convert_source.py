@@ -40,6 +40,14 @@ for n,where in list(sc.collect_nodes()):
             if s is not None and not s.is_linked:
                 v=s.default_value
                 manifest[f"{iid}::{sname}"]=list(v) if hasattr(v,"__len__") else v
+# pack any staged images
+packed=0
+for iid in sel:
+    if iid.startswith("image::"):
+        img=bpy.data.images.get(iid.split("::",1)[1])
+        if img:
+            try: img.pack(); packed+=1
+            except Exception as e: print("PACK_WARN", iid, e)
 json.dump(manifest, open(arg("--manifest"),"w"))
 bpy.ops.wm.save_as_mainfile(filepath=arg("--out"))
-print(f"SRC_OK fixed={fixed} keep_recorded={len(manifest)} applied={applied}")
+print(f"SRC_OK fixed={fixed} keep_recorded={len(manifest)} applied={applied} packed={packed}")

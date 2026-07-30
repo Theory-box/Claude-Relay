@@ -326,3 +326,18 @@ Volume Principled (keep_nodes_run.py two-stage); blackbody bake (opt-in).
     obj::mod; convert gating counts staged fixes + APPLY.size.
 - Only OFFERED for GN modifiers with a detected unfixable error (not clean mods, not
   non-GN mods). Acknowledge remains an alternative.
+
+## Update — app runtime fix + texture/image checks
+- CRITICAL FIX: server.py UI path wasn't bundle-aware -> in the packaged exe the
+  WebView2 window loaded but the server returned ERR_EMPTY_RESPONSE (UI file not
+  found). Now uses sys._MEIPASS when frozen + serves a visible error instead of an
+  empty response. (This was the "127.0.0.1 didn't send any data" bug.)
+- NEW CHECK — images:
+  * External unpacked textures (source FILE, filepath, packed_file None) -> FIX: pack
+    (img.pack() works; verified). The classic "forgot to pack textures" case.
+  * Generated images (source GENERATED, unpacked) -> MANUAL warning. Verified the hard
+    truth: generated-image edits do NOT survive .blend save (0.9->0.0 on reload) and
+    img.pack() silently no-ops on generated. So Relay can't fix/recover them; it warns
+    to save them to a file in Blender. Honest, not fake.
+  * scan_ui adds these; convert_source packs staged external images (packed=N);
+    UI shows 'Pack' + 'Acknowledge(ignore)' for textures, manual warning for generated.
