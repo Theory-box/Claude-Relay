@@ -118,3 +118,40 @@ Edit → Preferences → Add-ons → install from disk → `floorplan_trace.py` 
 Panel: 3D View → N-panel → **Trace** tab. Key binds: Add-on Preferences.
 Toggle shortcut: right-click the Trace button → Assign Shortcut (deliberately no pre-registered
 hotkey, so nothing collides with the user's existing binds).
+
+---
+
+## Update — inference guides (extension, relative-angle, distance memory)
+
+Added three CAD-style inference guides to the trace tool, all working in the drawing-plane (u,v)
+coordinates so they hold on plans and elevations alike. Researched against SketchUp inference,
+FreeCAD Draft snapping (Snap Extension / Parallel / Ortho), and the Microsoft equal-spacing patent
+before building.
+
+- **Extension guides** (`use_extension`): snap the cursor onto the infinite line of any candidate
+  edge (chain segments always; whole-object edges when scope = Object). Drawn as a faint blue line.
+- **Angle from last edge** (`use_relative_angle`): angle-snap candidates now include multiples of the
+  increment measured from the *previous segment's* heading, not just world/plane axes — so you get a
+  clean 90° (or 45°, etc.) turn off a diagonal wall. Picks nearest across {world, relative} bases.
+- **Distance memory** (`use_distance_memory`, `dist_px`): only while a direction is angle-locked.
+  Gathers candidate lengths **scoped to the current guideline** (points/edges collinear with the
+  locked direction from the last point): distances to collinear points, lengths of collinear edges,
+  and any repeated interval among collinear points. Snaps the current length to the nearest candidate;
+  shows a yellow span + tick + numeric label. This is the collinear/point-projection approach — it
+  cleanly separates parallel-but-offset guidelines (wall row vs bump-out row) so equal widths repeat
+  without the depth edges contaminating them.
+
+Priority order in `compute_target`: close > extension > angle(world+relative) > alignment(free only)
+> distance-memory(angle-locked only) > grid. Distance memory is deliberately gated to angle-lock (not
+extension) to avoid an ambiguous guideline when the extension edge isn't collinear with the last point.
+
+Panel: new "Inference" box (extension + distance memory + dist px); "Angle from last edge" under Angle.
+
+Verified cold with numpy: extension projection lands on the edge line; 137° drag near a 45° wall
+snaps to 135°; distance candidates recover both "same length" matches and repeated intervals.
+Not yet tested in Blender — snap feel / tolerances (align_px, dist_px) will likely want a tuning pass,
+and the guide visuals (blue extension line, yellow distance tick+label) need an eyeball.
+
+Possible follow-ups if the feel needs it: forward pattern extrapolation (place the *next* point at
+last+interval, past existing points), and extension+distance combined once guideline handling is
+proven.

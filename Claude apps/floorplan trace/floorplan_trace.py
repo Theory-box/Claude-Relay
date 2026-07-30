@@ -137,6 +137,12 @@ class FT_Settings(bpy.types.PropertyGroup):
         name="Angle Tolerance", default=7.0, min=0.0, max=45.0,
         description="Snap to an allowed angle only when the drag is within this many degrees of it")
     use_alignment: bpy.props.BoolProperty(name="Alignment Snap", default=True)
+    use_extension: bpy.props.BoolProperty(name="Extension Guides", default=True,
+        description="Snap to the infinite line extending an existing edge")
+    use_relative_angle: bpy.props.BoolProperty(name="Angle From Last Edge", default=True,
+        description="Also snap turns relative to the previous segment (e.g. 90 off a 45 wall)")
+    use_distance_memory: bpy.props.BoolProperty(name="Distance Memory", default=True,
+        description="Snap the current length to lengths/spacings already drawn on this guideline")
     snap_scope: bpy.props.EnumProperty(
         name="Snap Scope",
         description="Which points act as alignment/guide candidates",
@@ -150,6 +156,8 @@ class FT_Settings(bpy.types.PropertyGroup):
         description="Pixel tolerance for lining up with an earlier point")
     close_px: bpy.props.IntProperty(name="Close Px", default=14, min=2, max=60,
         description="Pixel tolerance for closing onto the start point")
+    dist_px: bpy.props.IntProperty(name="Distance Px", default=12, min=2, max=60,
+        description="Pixel tolerance for matching a remembered length")
     use_grid: bpy.props.BoolProperty(name="Grid Snap", default=False)
     grid_size: bpy.props.FloatProperty(name="Grid Size", default=0.1, min=0.0001,
         description="Snap increment in scene units")
@@ -229,17 +237,76 @@ class MESH_OT_floorplan_trace(bpy.types.Operator):
     def from_uv(self, u, v):
         return self.plane_origin + self.u_axis * u + self.v_axis * v
 
+    def _ppu(self):
+        # screen pixels per 1 unit of uv, so uv-space tolerances match pixel tolerances
+        p0 = self.to2d(self.plane_origin)
+        p1 = self.to2d(self.from_uv(1.0, 0.0))
+        if p0 is None or p1 is None:
+            return 1.0
+        d = (Vector((p1.x, p1.y)) - Vector((p0.x, p0.y))).length
+        return d if d > 1e-6 else 1.0
+
+    def _segments_uv(self, s):
+        segs = []
+        for i in range(len(self.chain) - 1):
+            a = Vector(self.to_uv(self.mw @ self.chain[i].co))
+            b = Vector(self.to_uv(self.mw @ self.chain[i + 1].co))
+            segs.append((a, b))
+        if s.snap_scope == 'OBJECT':
+            for e in self.bm.edges:
+                a = Vector(self.to_uv(self.mw @ e.verts[0].co))
+                b = Vector(self.to_uv(self.mw @ e.verts[1].co))
+                segs.append((a, b))
+        return segs
+
+    def _distance_candidates(self, s, Lp, d, ppu):
+        """Lengths worth snapping to, measured along direction d from last point Lp.
+        Scoped to the current guideline: points/edges collinear with (Lp, d)."""
+        perp_tol = s.align_px / ppu
+        pts_t = []
+        for w in self.align_candidates(s):
+            rel = Vector(self.to_uv(w)) - Lp
+            along = rel.dot(d)
+            perp = (rel - d * along).length
+            if perp <= perp_tol:
+                pts_t.append(along)
+        cands = set()
+        # land aligned with an existing collinear point
+        for t in pts_t:
+            if t > 1e-6:
+                cands.add(round(t, 6))
+        # lengths of edges lying on this guideline
+        for a, b in self._segments_uv(s):
+            seg = b - a
+            L = seg.length
+            if L < 1e-6:
+                continue
+            sd = seg / L
+            if abs(sd.dot(d)) > 0.999:
+                rel = a - Lp
+                if (rel - d * rel.dot(d)).length <= perp_tol:
+                    cands.add(round(L, 6))
+        # repeated interval (evenly spaced pattern) among collinear points
+        ts = sorted(pts_t)
+        diffs = [ts[i + 1] - ts[i] for i in range(len(ts) - 1) if ts[i + 1] - ts[i] > 1e-4]
+        for dv in diffs:
+            if sum(1 for x in diffs if abs(x - dv) <= perp_tol) >= 2:
+                cands.add(round(dv, 6))
+        return cands
+
     def compute_target(self, context, coord):
         s = context.scene.floorplan_trace
         raw = self.plane_point(coord)
         if raw is None:
             return None
-        res = {'world': raw.copy(), 'close': False, 'guide': None, 'angle': False}
+        res = {'world': raw.copy(), 'close': False, 'guide': None, 'angle': False,
+               'ext': None, 'dist': None, 'dist_a': None, 'dist_b': None}
 
         if self.free_active:
             return res
 
         m = Vector(coord)
+        ppu = self._ppu()
 
         # 1. close onto start
         if self.chain and self.start_world is not None and len(self.chain) >= 3:
@@ -249,79 +316,108 @@ class MESH_OT_floorplan_trace(bpy.types.Operator):
                 res['close'] = True
                 return res
 
-        # everything below works in the drawing plane's (u, v) coordinates
-        pu, pv = self.to_uv(raw)
+        # work in the drawing plane's (u, v) coordinates; P is the running target
+        P = Vector(self.to_uv(raw))
+        Lp = Vector(self.to_uv(self.last_world)) if self.last_world is not None else None
         angle_locked = False
         locked_dir = None
 
-        # 2. angle snap (direction lock from last point)
-        if self.last_world is not None and s.use_angle_snap:
-            lu, lv = self.to_uv(self.last_world)
-            du, dv = pu - lu, pv - lv
-            if (du * du + dv * dv) ** 0.5 > 1e-6:
+        # 2. extension guides: snap onto the infinite line of an existing edge
+        if s.use_extension:
+            best = float(s.align_px)
+            hit = None
+            for a, b in self._segments_uv(s):
+                seg = b - a
+                L = seg.length
+                if L < 1e-6:
+                    continue
+                sd = seg / L
+                proj = a + sd * (P - a).dot(sd)
+                perp = (P - proj).length * ppu
+                if perp < best:
+                    best = perp
+                    hit = (a, sd, proj)
+            if hit is not None:
+                a, sd, proj = hit
+                P = proj.copy()
+                res['ext'] = (a, sd)
+
+        # 3. angle snap: world axes plus (optionally) relative to the previous segment
+        if Lp is not None and s.use_angle_snap and res['ext'] is None:
+            d = P - Lp
+            if d.length > 1e-6:
                 inc = radians(s.angle_increment)
                 if inc > 0:
-                    ang = atan2(dv, du)
-                    n = round(ang / inc) * inc
-                    diff = atan2(sin(ang - n), cos(ang - n))
-                    if abs(diff) <= radians(s.angle_tolerance):
+                    ang = atan2(d.y, d.x)
+                    bases = [0.0]
+                    if s.use_relative_angle and len(self.chain) >= 2:
+                        pa = Vector(self.to_uv(self.mw @ self.chain[-2].co))
+                        pb = Vector(self.to_uv(self.mw @ self.chain[-1].co))
+                        seg = pb - pa
+                        if seg.length > 1e-6:
+                            bases.append(atan2(seg.y, seg.x))
+                    best_diff = None
+                    best_ang = None
+                    for base in bases:
+                        cand = base + round((ang - base) / inc) * inc
+                        diff = abs(atan2(sin(ang - cand), cos(ang - cand)))
+                        if best_diff is None or diff < best_diff:
+                            best_diff = diff
+                            best_ang = cand
+                    if best_diff <= radians(s.angle_tolerance):
                         angle_locked = True
-                        locked_dir = (cos(n), sin(n))
-                        t = du * locked_dir[0] + dv * locked_dir[1]
-                        if t < 0.0:
-                            t = 0.0
+                        locked_dir = Vector((cos(best_ang), sin(best_ang)))
+                        t = max(0.0, d.dot(locked_dir))
                         if s.use_grid and s.grid_size > 0:
                             t = round(t / s.grid_size) * s.grid_size
-                        pu = lu + locked_dir[0] * t
-                        pv = lv + locked_dir[1] * t
+                        P = Lp + locked_dir * t
 
-        # 3. alignment snap
+        # 4. alignment snap (only when the direction is free)
         candidates = self.align_candidates(s) if self.use_alignment_enabled(s) else []
-        if candidates:
-            if not angle_locked:
-                best_u = best_v = None
-                bud = bvd = s.align_px
-                gu_w = gv_w = None
-                for w in candidates:
-                    w2 = self.to2d(w)
-                    if w2 is None:
-                        continue
-                    cu, cv = self.to_uv(w)
-                    if abs(m.x - w2.x) < bud:
-                        bud = abs(m.x - w2.x); best_u = cu; gu_w = w
-                    if abs(m.y - w2.y) < bvd:
-                        bvd = abs(m.y - w2.y); best_v = cv; gv_w = w
-                if best_u is not None:
-                    pu = best_u; res['guide'] = gu_w.copy()
-                if best_v is not None:
-                    pv = best_v; res['guide'] = gv_w.copy()
-                if s.use_grid and s.grid_size > 0:
-                    if best_u is None:
-                        pu = round(pu / s.grid_size) * s.grid_size
-                    if best_v is None:
-                        pv = round(pv / s.grid_size) * s.grid_size
-            else:
-                horiz = abs(locked_dir[1]) < 1e-4
-                vert = abs(locked_dir[0]) < 1e-4
-                if horiz:
-                    for w in candidates:
-                        w2 = self.to2d(w)
-                        if w2 and abs(m.x - w2.x) < s.align_px:
-                            cu, cv = self.to_uv(w)
-                            pu = cu; res['guide'] = w.copy(); break
-                elif vert:
-                    for w in candidates:
-                        w2 = self.to2d(w)
-                        if w2 and abs(m.y - w2.y) < s.align_px:
-                            cu, cv = self.to_uv(w)
-                            pv = cv; res['guide'] = w.copy(); break
-        elif not self.chain:
-            # first point of a fresh polyline, no candidates
+        if candidates and not angle_locked and res['ext'] is None:
+            best_u = best_v = None
+            bud = bvd = s.align_px
+            gu_w = gv_w = None
+            for w in candidates:
+                w2 = self.to2d(w)
+                if w2 is None:
+                    continue
+                cu, cv = self.to_uv(w)
+                if abs(m.x - w2.x) < bud:
+                    bud = abs(m.x - w2.x); best_u = cu; gu_w = w
+                if abs(m.y - w2.y) < bvd:
+                    bvd = abs(m.y - w2.y); best_v = cv; gv_w = w
+            if best_u is not None:
+                P.x = best_u; res['guide'] = gu_w.copy()
+            if best_v is not None:
+                P.y = best_v; res['guide'] = gv_w.copy()
             if s.use_grid and s.grid_size > 0:
-                pu = round(pu / s.grid_size) * s.grid_size
-                pv = round(pv / s.grid_size) * s.grid_size
+                if best_u is None:
+                    P.x = round(P.x / s.grid_size) * s.grid_size
+                if best_v is None:
+                    P.y = round(P.y / s.grid_size) * s.grid_size
+        elif not self.chain:
+            if s.use_grid and s.grid_size > 0:
+                P.x = round(P.x / s.grid_size) * s.grid_size
+                P.y = round(P.y / s.grid_size) * s.grid_size
 
-        res['world'] = self.from_uv(pu, pv)
+        # 5. distance memory: snap length along a locked direction
+        if (s.use_distance_memory and angle_locked and locked_dir is not None
+                and Lp is not None):
+            cur_t = (P - Lp).dot(locked_dir)
+            if cur_t > 1e-6:
+                best = None
+                for cd in self._distance_candidates(s, Lp, locked_dir, ppu):
+                    if abs(cur_t - cd) * ppu <= s.dist_px:
+                        if best is None or abs(cur_t - cd) < abs(cur_t - best):
+                            best = cd
+                if best is not None:
+                    P = Lp + locked_dir * best
+                    res['dist'] = best
+                    res['dist_a'] = Lp.copy()
+                    res['dist_b'] = P.copy()
+
+        res['world'] = self.from_uv(P.x, P.y)
         res['angle'] = angle_locked
         return res
 
@@ -591,6 +687,35 @@ def _draw_callback(self):
                 shader.uniform_float("color", (0.20, 0.90, 0.45, 1.0))
                 b.draw(shader)
 
+        # extension guide: dashed-ish line along the extended edge, through target
+        if d.get('ext') is not None and tgt:
+            a_uv, dir_uv = d['ext']
+            p1 = self.from_uv(a_uv.x - dir_uv.x * 1e4, a_uv.y - dir_uv.y * 1e4)
+            p2 = self.from_uv(a_uv.x + dir_uv.x * 1e4, a_uv.y + dir_uv.y * 1e4)
+            s1, s2 = s(p1), s(p2)
+            if s1 and s2:
+                b = batch_for_shader(shader, 'LINES', {"pos": [s1, s2]})
+                shader.bind()
+                shader.uniform_float("color", (0.3, 0.7, 1.0, 0.55))
+                b.draw(shader)
+
+        # distance-memory: highlight the matched span and a tick at the target
+        if d.get('dist') is not None and d.get('dist_a') is not None and tgt:
+            a_uv = d['dist_a']
+            aw = s(self.from_uv(a_uv.x, a_uv.y))
+            if aw:
+                b = batch_for_shader(shader, 'LINES', {"pos": [aw, tgt]})
+                shader.bind()
+                shader.uniform_float("color", (1.0, 0.85, 0.2, 0.9))
+                b.draw(shader)
+                # small perpendicular tick at the target
+                r = 7.0
+                tick = [(tgt[0] - r, tgt[1] - r), (tgt[0] + r, tgt[1] + r)]
+                b = batch_for_shader(shader, 'LINES', {"pos": tick})
+                shader.bind()
+                shader.uniform_float("color", (1.0, 0.85, 0.2, 1.0))
+                b.draw(shader)
+
         # alignment guide
         if d.get('guide') is not None and tgt:
             g2 = s(d['guide'])
@@ -621,6 +746,21 @@ def _draw_callback(self):
                 shader.bind()
                 shader.uniform_float("color", (1.0, 0.8, 0.1, 1.0))
                 b.draw(shader)
+
+        # distance-memory length label
+        if d.get('dist') is not None and tgt:
+            try:
+                import blf
+                fid = 0
+                try:
+                    blf.size(fid, 15)
+                except TypeError:
+                    blf.size(fid, 15, 72)
+                blf.color(fid, 1.0, 0.85, 0.2, 1.0)
+                blf.position(fid, tgt[0] + 12, tgt[1] + 12, 0)
+                blf.draw(fid, "%.4g" % d['dist'])
+            except Exception:
+                pass
 
         gpu.state.line_width_set(1.0)
         gpu.state.blend_set('NONE')
@@ -1248,6 +1388,7 @@ class VIEW3D_PT_floorplan_trace(bpy.types.Panel):
         r.enabled = s.use_angle_snap
         r.prop(s, "angle_increment")
         r.prop(s, "angle_tolerance")
+        r.prop(s, "use_relative_angle")
 
         box = layout.box()
         box.label(text="Alignment")
@@ -1257,6 +1398,14 @@ class VIEW3D_PT_floorplan_trace(bpy.types.Panel):
         sub.prop(s, "snap_scope", text="")
         sub.prop(s, "align_px")
         box.prop(s, "close_px")
+
+        box = layout.box()
+        box.label(text="Inference")
+        box.prop(s, "use_extension")
+        box.prop(s, "use_distance_memory")
+        row = box.row()
+        row.enabled = s.use_distance_memory
+        row.prop(s, "dist_px")
 
         box = layout.box()
         box.label(text="Grid")
