@@ -49,5 +49,13 @@ for iid in sel:
             try: img.pack(); packed+=1
             except Exception as e: print("PACK_WARN", iid, e)
 json.dump(manifest, open(arg("--manifest"),"w"))
+purged=0
+if arg("--purge")=="1":
+    before=sum(len(getattr(bpy.data,c)) for c in ("node_groups","meshes","materials","images","curves"))
+    for _ in range(4):
+        try: bpy.ops.outliner.orphans_purge(do_recursive=True)
+        except Exception: break
+    after=sum(len(getattr(bpy.data,c)) for c in ("node_groups","meshes","materials","images","curves"))
+    purged=max(0, before-after)
 bpy.ops.wm.save_as_mainfile(filepath=arg("--out"))
-print(f"SRC_OK fixed={fixed} keep_recorded={len(manifest)} applied={applied} packed={packed}")
+print(f"SRC_OK fixed={fixed} keep_recorded={len(manifest)} applied={applied} packed={packed} purged={purged}")

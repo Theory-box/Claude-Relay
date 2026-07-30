@@ -341,3 +341,22 @@ Volume Principled (keep_nodes_run.py two-stage); blackbody bake (opt-in).
     to save them to a file in Blender. Honest, not fake.
   * scan_ui adds these; convert_source packs staged external images (packed=N);
     UI shows 'Pack' + 'Acknowledge(ignore)' for textures, manual warning for generated.
+
+## Update — real-file validation (Livano North Hills, 525MB) + purge-unused
+- REAL FILE TEST: scanned a 525MB production .blend (Blender 4.4). Found the user's
+  blackbody light (auto-fixed), 4 gizmos (safe-drop), and — critically — the "CT
+  Cabinet Door" geo-node modifier (For-Each zones, unfixable) which the user always
+  applies by hand. VALIDATED the apply-modifier fix on it:
+  * Broken (modifier intact) opened in 4.2: 18v, 6 undefined nodes, DOORS ABSENT.
+  * Fixed (apply-modifier) opened in 4.2: 96v, 0 undefined, modifier gone, DOORS PRESENT.
+  Exactly reproduces the user's problem and confirms the fix solves it.
+- SCANNER ACCURACY FIX (surfaced by the real file): added-socket changes were
+  flagged for EVERY node of a changed type (112 phantom Principled BSDF flags from
+  the added Diffuse Roughness socket). Now compares each added socket to the node's
+  real default (cached reference node) and only flags linked/non-default ones.
+  130 -> 17 accurate issues. Also fixed greedy modifier-name parse for nested groups.
+- PURGE-UNUSED: user wants unused data removed after fixing (e.g. the node graph left
+  orphaned after applying a modifier). Added --purge to convert_source (orphans_purge),
+  plumbed purge_unused through engine/server, UI toggle "Remove unused data after
+  fixing" (default on). Verified: apply cabinet modifier + purge -> purged=5 orphans,
+  clean 96v 4.2 file.

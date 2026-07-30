@@ -60,6 +60,9 @@
   .go{font-family:var(--disp); font-weight:600; font-size:13.5px; color:var(--accent-ink); background:var(--accent); padding:11px 18px; border-radius:9px; display:flex; align-items:center; gap:8px; transition:.15s}
   .go:hover{filter:brightness(1.08); box-shadow:0 6px 22px -8px var(--accent)}
   .go.disabled{opacity:.4; box-shadow:none}
+  .conv-actions{display:flex; flex-direction:column; gap:8px; align-items:flex-start}
+  .purge-toggle{display:flex; align-items:center; gap:7px; font-size:11.5px; color:var(--dim); cursor:pointer; user-select:none}
+  .purge-toggle input{accent-color:var(--accent); cursor:pointer}
   .go.disabled:hover{filter:none; box-shadow:none}
   .tag.queued{color:var(--accent); background:#12262a}
   .tag.applyq{color:#E0A63C; background:#2A2418}
@@ -199,7 +202,10 @@
             <div class="select"><select id="target"><option>4.2.23 LTS</option><option disabled>scanning installed builds…</option></select></div>
           </div>
         </div>
-        <button class="go" id="convertBtn" onclick="convert()"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M5 12h14m-6-6l6 6-6 6"/></svg><span id="convertLabel">Convert &amp; save</span></button>
+        <div class="conv-actions">
+          <button class="go" id="convertBtn" onclick="convert()"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M5 12h14m-6-6l6 6-6 6"/></svg><span id="convertLabel">Convert &amp; save</span></button>
+          <label class="purge-toggle"><input type="checkbox" id="purgeChk" checked> Remove unused data after fixing</label>
+        </div>
       </div>
     </div>
 
@@ -378,7 +384,7 @@ async function convert(){
   if(CTX.path){
     try{
       const out=CTX.path.replace(/\.blend$/,'_for_'+el('#target').value.split(' ')[0]+'.blend');
-      const r=await fetch('/api/convert',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:CTX.path,selected:ids,detected:CTX.detected,target_version:el('#target').value,apply_modifiers:[...APPLY],out})});
+      const r=await fetch('/api/convert',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:CTX.path,selected:ids,detected:CTX.detected,target_version:el('#target').value,apply_modifiers:[...APPLY],purge_unused:(el('#purgeChk')?el('#purgeChk').checked:true),out})});
       const d=await r.json(); if(d.error) throw new Error(d.error);
       ISSUES.forEach(it=>{ if(it.action==='fix'&&it.state==='staged') it.state='done'; if(it.action==='acknowledge') it.state='done'; if(applyQueued(it)) it.state='done'; }); render();
       toast('Saved '+d.out.split(/[\\/]/).pop(), `${d.rebuilt+d.source_fixed} fixed \u00B7 ${k} acknowledged \u00B7 ${m} left for manual`);
