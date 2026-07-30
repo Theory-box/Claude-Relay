@@ -360,3 +360,19 @@ Volume Principled (keep_nodes_run.py two-stage); blackbody bake (opt-in).
   plumbed purge_unused through engine/server, UI toggle "Remove unused data after
   fixing" (default on). Verified: apply cabinet modifier + purge -> purged=5 orphans,
   clean 96v 4.2 file.
+
+## Update — third-party scene test (Blender 4.5 official splash) + accuracy fixes
+- Downloaded the official Blender 4.5 splash (401MB, real scene I didn't design against),
+  opened in 4.4 (0 undefined — no 4.5-only nodes), converted 4.4->4.2.
+- REAL breakage: only 3 FunctionNodeIntegerMath (in GN-collision_primitive groups).
+  Scanner caught all 3; converter fixed them; converted 4.2 output = 0 undefined nodes.
+- RIGOROUS MISS CHECK: node types present in 4.4 but not creatable in 4.2 =
+  [IntegerMath (flagged), CompositorNodeCurveRGB/HueCorrect/HueSat]. The 3 compositor
+  ones were a TEST ARTIFACT (created them in wrong tree type); they DO exist in 4.2,
+  and the scanner walks the compositor tree. So NO genuine misses.
+- ACCURACY FIX (surfaced by this test): non_node_warnings (Grease Pencil v3, Slotted
+  Actions) were firing UNCONDITIONALLY on every file. Now file-aware:
+  * GP v3 only flags if the file has grease pencil objects/datablocks (splash had none).
+  * Slotted Actions only flags MULTI-slot layered actions. Verified single-slot
+    animation survives 4.4->4.2 intact (z=5.0 preserved), so those aren't flagged.
+  This also removed a false GP flag from the Livano scan.

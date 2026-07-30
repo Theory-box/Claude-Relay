@@ -132,10 +132,20 @@ def main():
     for h in sc.check_settings(db):
         add("setting::"+h["setting"],"shift","Scene · "+h["setting"].split(".")[0],h["location"],"acknowledge",
             "This setting has no equivalent in the target and reverts to default.",f"{h['setting'].split('.')[-1]} = {h['value']}","Reverts on open.","--sock-val")
-    # non-node
-    for w in db.get("non_node_warnings",[]):
-        add("nonnode::"+w["id"], "break" if w["severity"]=="critical" else "shift", w["id"].replace("_"," ").title(),
-            "whole file","manual",w["detail"],"non-node · "+w["severity"],"Handle before downgrading.","--sock-geo")
+    # non-node warnings — only when the file ACTUALLY contains the at-risk data
+    gp=[o for o in bpy.data.objects if o.type in ("GPENCIL","GREASEPENCIL")]
+    if not gp:
+        for attr in ("grease_pencils_v3","grease_pencils"):
+            gp=gp or list(getattr(bpy.data, attr, []))
+    if gp:
+        add("nonnode::grease_pencil_v3","break","Grease Pencil v3","whole file","manual",
+            "This file has Grease Pencil data in the 4.3+ format, which won't open correctly in 4.2.",
+            f"{len(gp)} object(s)/datablock(s)","Handle Grease Pencil before downgrading.","--sock-geo")
+    multi=[a for a in bpy.data.actions if len(getattr(a,"slots",[]))>1]
+    if multi:
+        add("nonnode::slotted_actions","shift","Slotted Actions","whole file","manual",
+            "Some actions use 4.4 multi-slot layered actions (one action driving several objects), which 4.2 can't represent \u2014 extra slots may be lost. (Single-slot actions convert fine.)",
+            f"{len(multi)} multi-slot action(s)","Split or bake these actions before downgrading.","--sock-geo")
 
     # manual issues living inside a GN modifier can be resolved by applying it
     for it in issues:
