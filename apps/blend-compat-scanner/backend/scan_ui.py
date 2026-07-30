@@ -28,6 +28,23 @@ def main():
     keep = set(fixers.NEEDS_TWO_STAGE)
     safe_drop = set(fixers.SAFE_DROP)
 
+    _refcache={}
+    def ref_default(bl, sname):
+        if bl not in _refcache:
+            _refcache[bl]={}
+            try:
+                tt='ShaderNodeTree' if bl.startswith('ShaderNode') else 'GeometryNodeTree'
+                sc_=bpy.data.node_groups.new("_relayref", tt)
+                rn=sc_.nodes.new(bl)
+                for inp in rn.inputs:
+                    try:
+                        dv=inp.default_value
+                        _refcache[bl][inp.name]=tuple(dv) if hasattr(dv,"__len__") else dv
+                    except Exception: pass
+                bpy.data.node_groups.remove(sc_)
+            except Exception: pass
+        return _refcache[bl].get(sname)
+
     issues = []
     def add(id, sev, typ, loc, action, desc, risk, how, sock="--sock-val"):
         it={"id":id,"sev":sev,"type":typ,"loc":loc,"action":action,
@@ -62,8 +79,27 @@ def main():
                 sname = lost[0][0]
                 rv = vals.get(sname, "—")
                 add(iid,"break",bl,where,"fix",f"The {sname} socket uses a subtype the target lacks, so its value is dropped.",f"{sname} = {rv}","Rebuilt as a native target node with the same value (node kept).",sock)
-            elif delta:
-                add(iid,"shift",bl,where,"acknowledge","Exists in both versions but a socket changed; the added value reverts to the target default.",risk,"Reverts to target behaviour (minor).",sock)
+            else:
+                # only flag an added-socket change when the socket is actually USED
+                # (linked or non-default) — otherwise dropping it in 4.2 changes nothing.
+                real=[]
+                for entry in delta.get("in_added",[]):
+                    sname=entry[0]; sk=n.inputs.get(sname)
+                    if sk is None: continue
+                    if sk.is_linked: real.append((sname,"linked")); continue
+                    try: v=sk.default_value
+                    except Exception: continue
+                    ref=ref_default(bl,sname)
+                    cur=tuple(v) if hasattr(v,"__len__") else v
+                    def _diff(a,b):
+                        if a is None: return False
+                        if isinstance(a,tuple): return any(abs(x-y)>1e-5 for x,y in zip(a,b))
+                        return abs(a-b)>1e-5 if isinstance(a,(int,float)) else a!=b
+                    if _diff(ref,cur):
+                        real.append((sname, round(v,3) if isinstance(v,(int,float)) else tuple(round(x,3) for x in v)))
+                if real:
+                    sname,val=real[0]
+                    add(iid,"shift",bl,where,"acknowledge",f"The 4.4 '{sname}' input doesn't exist in 4.2, so its value reverts to the 4.2 default.",f"{sname} = {val}","Reverts to 4.2 default (minor look change).",sock)
 
         elif bl in prop_changed:
             pinfo = prop_changed[bl]
