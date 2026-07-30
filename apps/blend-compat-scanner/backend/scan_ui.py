@@ -140,7 +140,7 @@ def main():
     # manual issues living inside a GN modifier can be resolved by applying it
     for it in issues:
         if it["action"]=="manual":
-            m=re.match(r"Object '(.+)' > GN modifier '(.+)'", it["loc"])
+            m=re.match(r"Object '([^']+)' > GN modifier '([^']+)'", it["loc"])
             if m:
                 it["obj"], it["mod"], it["can_apply"] = m.group(1), m.group(2), True
     out = arg("--out")
