@@ -25,6 +25,7 @@ blender-4.4 -b --python repair/verify.py
 |------|----------|-------|
 | Set Geometry Name, Gizmo*, Warning | safe-drop | removed; geometry passthrough reconnected. Output identical. |
 | Integer Math | reconstruct → Math node(s) | exact-equal for all 16 supported ops across signed inputs. GCD/LCM flagged (no Math equivalent). |
+| Matrix Determinant | reconstruct → SeparateMatrix + Math cofactor expansion | verified numerically vs the native determinant for random 4×4 matrices. Needs a matrix source (unlinked input → flagged). |
 | **Blackbody / Volume Principled** (preferred: keep the node) | two-stage rebuild | the pink-lights bug and its siblings — the socket subtype (`NodeSocketFloatColorTemperature`) is missing in the target so the value drops. `keep_nodes_run.py` extracts each at-risk value in the source, then rebuilds each node as a fresh **native** node in the target, preserving its other sockets/links. Verified: light BB (6000K) + material BB (4000K) + Volume Principled (Temp 5500K, Density 0.4 preserved) all come back correct on the client's 4.2 reopen. |
 | Blackbody (alternative: bake) | bake → RGB / Color node | `fixers.fix_blackbody`, opt-in. Evaluates the constant temperature to its exact colour and replaces the node (tree-aware). Verified colour-identical across temperatures. Use only if replacing the node with a colour is acceptable. |
 

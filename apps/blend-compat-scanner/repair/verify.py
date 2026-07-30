@@ -119,10 +119,43 @@ def check_blackbody():
     RESULTS.append(("Blackbody bake-to-colour (evaluated colour identical across temps)", bad == 0))
 
 
+def check_matrix_determinant():
+    import random
+    bad = 0
+    for _ in range(5):
+        mat = [[round(random.uniform(-3, 3), 2) for _ in range(4)] for _ in range(4)]
+        obj, ng, gin, gout = _fresh_gn()
+        cm = ng.nodes.new("FunctionNodeCombineMatrix")
+        for c in range(4):
+            for r in range(4):
+                cm.inputs[f"Column {c + 1} Row {r + 1}"].default_value = mat[r][c]
+        det = ng.nodes.new("FunctionNodeMatrixDeterminant")
+        ng.links.new(cm.outputs[0], det.inputs["Matrix"])
+        sto = ng.nodes.new("GeometryNodeStoreNamedAttribute")
+        sto.data_type = "FLOAT"; sto.domain = "POINT"; sto.inputs["Name"].default_value = "d"
+        ng.links.new(gin.outputs[0], sto.inputs["Geometry"])
+        vin = [s for s in sto.inputs if s.type == "VALUE" and s.name != "Name"][0]
+        ng.links.new(det.outputs[0], vin)
+        ng.links.new(sto.outputs["Geometry"], gout.inputs[0])
+
+        def val():
+            d = bpy.context.evaluated_depsgraph_get()
+            return obj.evaluated_get(d).to_mesh().attributes["d"].data[0].value
+
+        before = val()                      # Blender's own determinant
+        fixers.fix_matrix_determinant(ng, det)
+        after = val()                       # reconstructed
+        if abs(before - after) > 1e-3:
+            bad += 1
+            print(f"   FAIL det {mat}: {before} != {after}")
+    RESULTS.append(("MatrixDeterminant reconstruct (matches native det, random 4x4)", bad == 0))
+
+
 def main():
     check_integer_math()
     check_safe_drop_passthrough()
     check_blackbody()
+    check_matrix_determinant()
     print("\n" + "=" * 60)
     ok = True
     for name, passed in RESULTS:

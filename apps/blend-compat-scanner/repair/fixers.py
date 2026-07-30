@@ -169,6 +169,50 @@ def fix_blackbody(nt, node):
 
 
 # --------------------------------------------------------------------------- #
+# reconstruct: FunctionNodeMatrixDeterminant -> SeparateMatrix + Math cofactor
+# expansion. Verified numerically vs true determinant for random matrices.
+# --------------------------------------------------------------------------- #
+def fix_matrix_determinant(nt, node):
+    src = _incoming(nt, node, node.inputs["Matrix"])
+    if src is None:
+        return "flagged"     # no matrix source to separate
+    targets = _outgoing_targets(nt, node)
+    sep = nt.nodes.new("FunctionNodeSeparateMatrix")
+    nt.links.new(src, sep.inputs[0])
+    e = [[sep.outputs[f"Column {c + 1} Row {r + 1}"] for c in range(4)] for r in range(4)]
+
+    def M(op, a, b):
+        m = nt.nodes.new("ShaderNodeMath"); m.operation = op
+        for i, x in enumerate((a, b)):
+            if hasattr(x, "is_linked") or hasattr(x, "node"):
+                nt.links.new(x, m.inputs[i])
+            else:
+                m.inputs[i].default_value = float(x)
+        return m.outputs[0]
+    mul = lambda a, b: M("MULTIPLY", a, b)
+    sub = lambda a, b: M("SUBTRACT", a, b)
+    add = lambda a, b: M("ADD", a, b)
+
+    def det3(m):
+        a, b, c = m[0]; d, f2, f = m[1]; g, h, i = m[2]
+        t1 = mul(a, sub(mul(f2, i), mul(f, h)))
+        t2 = mul(b, sub(mul(d, i), mul(f, g)))
+        t3 = mul(c, sub(mul(d, h), mul(f2, g)))
+        return add(sub(t1, t2), t3)
+
+    terms = []
+    for k in range(4):
+        cols = [c for c in range(4) if c != k]
+        minor = [[e[r][c] for c in cols] for r in (1, 2, 3)]
+        terms.append(mul(e[0][k], det3(minor)))
+    res = sub(add(sub(terms[0], terms[1]), terms[2]), terms[3])
+    for t in targets:
+        nt.links.new(res, t)
+    nt.nodes.remove(node)
+    return "fixed"
+
+
+# --------------------------------------------------------------------------- #
 # registry: node bl_idname -> fixer
 #
 # Blackbody is deliberately NOT in the default registry: the preferred fix keeps
@@ -179,6 +223,7 @@ def fix_blackbody(nt, node):
 # --------------------------------------------------------------------------- #
 FIXERS = {
     "FunctionNodeIntegerMath": fix_integer_math,
+    "FunctionNodeMatrixDeterminant": fix_matrix_determinant,
 }
 FIXERS.update({nid: fix_safe_drop for nid in SAFE_DROP})
 
