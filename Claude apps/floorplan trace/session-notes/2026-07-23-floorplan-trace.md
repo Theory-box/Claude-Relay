@@ -207,3 +207,15 @@ wasn't square. Fix: `compute_target` now establishes the angle lock FIRST, and w
 with the ray -> candidate distance t; nearest within tolerance wins). Direction stays square, length
 lands on the guideline crossing (CAD "intersection of two inferences"). Unlocked behaviour unchanged.
 Verified [E]: horizontal drag toward an earlier vertical line -> (0,-3): square AND on guideline.
+
+---
+
+## Update — remove custom zoom, restore RTS pan (tested 4.4.3)
+
+Custom zoom (Ctrl+two-finger) removed entirely: the `floorplan_zoom` operator, its prefs
+(zoom_ctrl/shift/alt, zoom_invert), the keymap binding, and the `exp` import are gone. Nothing binds
+Ctrl+two-finger now, so it falls through to Blender native zoom (was overriding it before). RTS ground
+pan restored as `VIEW3D_OT_floorplan_rts_pan` (per-gesture, hybrid `_do_pan`: ground-slide in
+perspective, in-plane pan in ortho so elevations still pan). Added to the custom-nav prefs section
+as the "RTS Pan" modifier row (default Ctrl+Shift on two-finger) plus RTS invert X/Y in the feel box.
+Verified in 4.4.3: zoom operator absent, rts_pan bound to Ctrl+Shift+TRACKPADPAN, pan/orbit/look/lock-pan intact.

@@ -11,7 +11,7 @@ bl_info = {
 import bpy
 import bmesh
 from bpy.app.handlers import persistent
-from math import radians, atan2, sin, cos, pi, exp
+from math import radians, atan2, sin, cos, pi
 from mathutils import Vector, Quaternion, Matrix
 from mathutils.geometry import intersect_line_plane
 from bpy_extras.view3d_utils import (
@@ -66,10 +66,11 @@ class FT_Prefs(bpy.types.AddonPreferences):
     orbit_ctrl: bpy.props.BoolProperty(name="Ctrl", default=False, update=lambda self, ctx: _refresh_nav())
     orbit_shift: bpy.props.BoolProperty(name="Shift", default=False, update=lambda self, ctx: _refresh_nav())
     orbit_alt: bpy.props.BoolProperty(name="Alt", default=False, update=lambda self, ctx: _refresh_nav())
-    zoom_ctrl: bpy.props.BoolProperty(name="Ctrl", default=True, update=lambda self, ctx: _refresh_nav())
-    zoom_shift: bpy.props.BoolProperty(name="Shift", default=False, update=lambda self, ctx: _refresh_nav())
-    zoom_alt: bpy.props.BoolProperty(name="Alt", default=False, update=lambda self, ctx: _refresh_nav())
-    zoom_invert: bpy.props.BoolProperty(name="Invert Zoom", default=True)
+    rts_ctrl: bpy.props.BoolProperty(name="Ctrl", default=True, update=lambda self, ctx: _refresh_nav())
+    rts_shift: bpy.props.BoolProperty(name="Shift", default=True, update=lambda self, ctx: _refresh_nav())
+    rts_alt: bpy.props.BoolProperty(name="Alt", default=False, update=lambda self, ctx: _refresh_nav())
+    rts_invert_x: bpy.props.BoolProperty(name="RTS Invert X", default=False)
+    rts_invert_y: bpy.props.BoolProperty(name="RTS Invert Y", default=False)
     look_ctrl: bpy.props.BoolProperty(name="Ctrl", default=True, update=lambda self, ctx: _refresh_nav())
     look_shift: bpy.props.BoolProperty(name="Shift", default=True, update=lambda self, ctx: _refresh_nav())
     look_alt: bpy.props.BoolProperty(name="Alt", default=False, update=lambda self, ctx: _refresh_nav())
@@ -93,19 +94,22 @@ class FT_Prefs(bpy.types.AddonPreferences):
         col.separator()
 
         box = self.layout.box()
-        box.label(text="Look / Zoom feel")
+        box.label(text="Look / RTS feel")
         box.prop(self, "look_sensitivity")
         row = box.row(align=True)
         row.prop(self, "look_invert_x")
         row.prop(self, "look_invert_y")
-        box.prop(self, "zoom_invert")
+        row = box.row(align=True)
+        row.prop(self, "rts_invert_x")
+        row.prop(self, "rts_invert_y")
 
         box = self.layout.box()
         box.label(text="Trackpad Navigation")
         box.prop(self, "custom_nav")
         nav = box.column(align=True)
         nav.enabled = self.custom_nav
-        nav.label(text="Two-finger: pan / orbit / zoom     One-finger: look")
+        nav.label(text="Two-finger: pan / orbit / RTS pan     One-finger: look")
+        nav.label(text="(Zoom stays Blender-native)")
 
         def modrow(label, base):
             r = nav.row(align=True)
@@ -116,7 +120,7 @@ class FT_Prefs(bpy.types.AddonPreferences):
 
         modrow("Pan", "pan")
         modrow("Orbit", "orbit")
-        modrow("Zoom", "zoom")
+        modrow("RTS Pan", "rts")
         modrow("Look", "look")
 
 
@@ -938,10 +942,42 @@ class VIEW3D_OT_floorplan_view(bpy.types.Operator):
 
 
 # ------------------------------------------------------------------ navigate
-class VIEW3D_OT_floorplan_zoom(bpy.types.Operator):
-    """Two-finger trackpad zoom (vertical drag)"""
-    bl_idname = "view3d.floorplan_zoom"
-    bl_label = "Floorplan Zoom"
+def _do_pan(context, rv3d, region, dx, dy):
+    """RTS pan: ground-slide along world XY when tilted/perspective; in-plane pan
+    when in an ortho view (so top plans and elevations still pan correctly)."""
+    prefs = get_prefs(context)
+    ix = -1.0 if (prefs and prefs.rts_invert_x) else 1.0
+    iy = -1.0 if (prefs and prefs.rts_invert_y) else 1.0
+    rot = rv3d.view_rotation
+    right = rot @ Vector((1.0, 0.0, 0.0))
+    up = rot @ Vector((0.0, 1.0, 0.0))
+    fwd = rot @ Vector((0.0, 0.0, -1.0))
+    h = max(getattr(region, "height", 1000), 1)
+    scale = rv3d.view_distance / h
+    if rv3d.is_perspective:
+        gr = Vector((right.x, right.y, 0.0))
+        gr = gr.normalized() if gr.length > 1e-6 else Vector((1.0, 0.0, 0.0))
+        gf = Vector((fwd.x, fwd.y, 0.0))
+        if gf.length < 1e-4:
+            gf = Vector((up.x, up.y, 0.0))
+            gf = gf.normalized() if gf.length > 1e-6 else Vector((0.0, 1.0, 0.0))
+        else:
+            gf = gf.normalized()
+        move = gr * (dx * ix * scale) + gf * (dy * iy * scale)
+        loc = rv3d.view_location.copy()
+        loc.x += move.x
+        loc.y += move.y
+        rv3d.view_location = loc
+    else:
+        rv3d.view_location = (rv3d.view_location
+                              + right * (dx * ix * scale)
+                              + up * (dy * iy * scale))
+
+
+class VIEW3D_OT_floorplan_rts_pan(bpy.types.Operator):
+    """RTS ground pan (two-finger). Slides across the ground when tilted"""
+    bl_idname = "view3d.floorplan_rts_pan"
+    bl_label = "Floorplan RTS Pan"
     bl_options = {'INTERNAL'}
 
     @classmethod
@@ -954,10 +990,9 @@ class VIEW3D_OT_floorplan_zoom(bpy.types.Operator):
         rv = sd.region_3d if sd else None
         if rv is None:
             return {'PASS_THROUGH'}
-        prefs = get_prefs(context)
-        sign = -1.0 if (prefs and prefs.zoom_invert) else 1.0
-        dy = (event.mouse_y - event.mouse_prev_y) * sign
-        rv.view_distance = max(1e-4, rv.view_distance * exp(-dy * 0.01))
+        _do_pan(context, rv, context.region,
+                event.mouse_x - event.mouse_prev_x,
+                event.mouse_y - event.mouse_prev_y)
         if context.area:
             context.area.tag_redraw()
         return {'FINISHED'}
@@ -1479,7 +1514,7 @@ classes = (
     MESH_OT_floorplan_trace,
     VIEW3D_OT_floorplan_toggle_lock,
     VIEW3D_OT_floorplan_view,
-    VIEW3D_OT_floorplan_zoom,
+    VIEW3D_OT_floorplan_rts_pan,
     VIEW3D_OT_floorplan_look,
     OBJECT_OT_floorplan_calibrate,
     OBJECT_OT_floorplan_apply_scale,
@@ -1503,7 +1538,7 @@ def _build_nav_keymaps():
 
     add('view3d.move', 'TRACKPADPAN', prefs.pan_ctrl, prefs.pan_shift, prefs.pan_alt)
     add('view3d.rotate', 'TRACKPADPAN', prefs.orbit_ctrl, prefs.orbit_shift, prefs.orbit_alt)
-    add('view3d.floorplan_zoom', 'TRACKPADPAN', prefs.zoom_ctrl, prefs.zoom_shift, prefs.zoom_alt)
+    add('view3d.floorplan_rts_pan', 'TRACKPADPAN', prefs.rts_ctrl, prefs.rts_shift, prefs.rts_alt)
     add('view3d.floorplan_look', 'MOUSEMOVE', prefs.look_ctrl, prefs.look_shift, prefs.look_alt)
 
 
