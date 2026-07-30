@@ -23,111 +23,90 @@
   }
   *{box-sizing:border-box}
   html,body{margin:0;height:100%}
-  body{background:
-      radial-gradient(1200px 600px at 82% -10%, #17222b 0%, transparent 55%),
-      var(--bg);
-    color:var(--text); font-family:var(--body);
-    font-size:14px; line-height:1.45; -webkit-font-smoothing:antialiased;}
+  body{background:radial-gradient(1200px 600px at 82% -10%, #17222b 0%, transparent 55%), var(--bg);
+    color:var(--text); font-family:var(--body); font-size:14px; line-height:1.45; -webkit-font-smoothing:antialiased;}
   ::selection{background:var(--accent-dim); color:#fff}
   button{font-family:inherit; cursor:pointer; border:none; background:none; color:inherit}
   .mono{font-family:var(--mono)}
+  .app{max-width:1180px; margin:0 auto; min-height:100%; display:flex; flex-direction:column; padding:0 26px}
 
-  /* shell */
-  .app{max-width:1180px; margin:0 auto; min-height:100%; display:flex; flex-direction:column;
-       padding:0 26px}
-
-  /* topbar */
   .top{display:flex; align-items:center; gap:16px; padding:20px 2px 18px}
   .brand{display:flex; align-items:center; gap:11px}
   .mark{width:30px;height:30px;flex:none}
   .brand h1{font-family:var(--disp); font-size:19px; font-weight:700; letter-spacing:-.01em; margin:0}
   .brand .sub{font-size:11px; color:var(--faint); letter-spacing:.14em; text-transform:uppercase; margin-top:1px}
   .top .spacer{flex:1}
-  .ghost{font-family:var(--disp); font-size:12.5px; color:var(--dim); letter-spacing:.02em;
-    padding:8px 13px; border:1px solid var(--line); border-radius:8px; transition:.15s}
+  .ghost{font-family:var(--disp); font-size:12.5px; color:var(--dim); letter-spacing:.02em; padding:8px 13px; border:1px solid var(--line); border-radius:8px; transition:.15s}
   .ghost:hover{color:var(--text); border-color:var(--line2)}
 
-  /* file / version bar */
   .rig{display:flex; align-items:stretch; gap:12px; margin:2px 2px 20px; flex-wrap:wrap}
   .card{background:var(--panel); border:1px solid var(--line); border-radius:var(--r2)}
   .file{flex:1; min-width:300px; display:flex; align-items:center; gap:14px; padding:14px 16px}
-  .fico{width:38px;height:38px;border-radius:9px;flex:none;display:grid;place-items:center;
-    background:linear-gradient(160deg,#20303a,#1a222c); border:1px solid var(--line2)}
+  .fico{width:38px;height:38px;border-radius:9px;flex:none;display:grid;place-items:center; background:linear-gradient(160deg,#20303a,#1a222c); border:1px solid var(--line2)}
   .fname{font-family:var(--mono); font-weight:500; font-size:14px}
-  .fmeta{font-size:12px; color:var(--dim); margin-top:2px; display:flex; align-items:center; gap:7px}
+  .fmeta{font-size:12px; color:var(--dim); margin-top:2px}
   .detected{color:var(--safe)}
   .swap-file{margin-left:auto; font-size:12px; color:var(--faint); padding:6px 10px; border:1px solid var(--line); border-radius:7px}
   .swap-file:hover{color:var(--dim)}
-
   .conv{display:flex; align-items:center; gap:14px; padding:12px 14px}
   .verpick{display:flex; flex-direction:column; gap:5px}
   .verpick label{font-size:10.5px; letter-spacing:.13em; text-transform:uppercase; color:var(--faint)}
   .flow{display:flex; align-items:center; gap:10px}
-  .vfrom{font-family:var(--mono); font-size:13px; color:var(--dim); padding:7px 11px;
-    border:1px dashed var(--line2); border-radius:8px; white-space:nowrap}
+  .vfrom{font-family:var(--mono); font-size:13px; color:var(--dim); padding:7px 11px; border:1px dashed var(--line2); border-radius:8px; white-space:nowrap}
   .arrow{color:var(--faint)}
   .select{position:relative}
-  .select select{appearance:none; font-family:var(--mono); font-size:13px; color:var(--text);
-    background:var(--panel3); border:1px solid var(--line2); border-radius:8px;
-    padding:7px 30px 7px 11px; cursor:pointer}
-  .select::after{content:"▾"; position:absolute; right:11px; top:50%; transform:translateY(-50%);
-    color:var(--dim); pointer-events:none; font-size:11px}
-  .go{font-family:var(--disp); font-weight:600; font-size:13.5px; letter-spacing:.01em;
-    color:var(--accent-ink); background:var(--accent); padding:11px 18px; border-radius:9px;
-    display:flex; align-items:center; gap:8px; transition:.15s; box-shadow:0 0 0 0 var(--accent-dim)}
+  .select select{appearance:none; font-family:var(--mono); font-size:13px; color:var(--text); background:var(--panel3); border:1px solid var(--line2); border-radius:8px; padding:7px 30px 7px 11px; cursor:pointer}
+  .select::after{content:"▾"; position:absolute; right:11px; top:50%; transform:translateY(-50%); color:var(--dim); pointer-events:none; font-size:11px}
+  .go{font-family:var(--disp); font-weight:600; font-size:13.5px; color:var(--accent-ink); background:var(--accent); padding:11px 18px; border-radius:9px; display:flex; align-items:center; gap:8px; transition:.15s}
   .go:hover{filter:brightness(1.08); box-shadow:0 6px 22px -8px var(--accent)}
-  .go:disabled{opacity:.4; cursor:not-allowed; box-shadow:none}
 
-  /* stats strip */
-  .stats{display:flex; gap:0; margin:0 2px 14px; border:1px solid var(--line);
-    border-radius:var(--r2); overflow:hidden; background:var(--panel)}
+  .stats{display:flex; margin:0 2px 18px; border:1px solid var(--line); border-radius:var(--r2); overflow:hidden; background:var(--panel)}
   .stat{flex:1; padding:15px 18px; border-right:1px solid var(--line)}
   .stat:last-child{border-right:none}
   .stat .n{font-family:var(--disp); font-size:26px; font-weight:600; letter-spacing:-.02em; line-height:1}
   .stat .l{font-size:11.5px; color:var(--dim); margin-top:6px}
   .stat.br .n{color:var(--break)} .stat.sh .n{color:var(--shift)} .stat.sf .n{color:var(--safe)}
-  .stat .l b{color:var(--text); font-weight:600}
 
-  /* controls row */
-  .ctrls{display:flex; align-items:center; gap:8px; margin:0 2px 10px; flex-wrap:wrap}
-  .chip{font-size:12px; color:var(--dim); padding:6px 12px; border:1px solid var(--line);
-    border-radius:20px; transition:.15s; display:flex; align-items:center; gap:7px}
-  .chip:hover{border-color:var(--line2); color:var(--text)}
-  .chip.on{color:var(--text); border-color:var(--line2); background:var(--panel2)}
-  .chip .dot{width:7px;height:7px;border-radius:50%}
-  .dot.break{background:var(--break)} .dot.shift{background:var(--shift)} .dot.safe{background:var(--safe)}
-  .ctrls .spacer{flex:1}
-  .fixall{font-family:var(--disp); font-size:12.5px; color:var(--accent); padding:7px 14px;
-    border:1px solid var(--accent-dim); border-radius:8px; transition:.15s}
-  .fixall:hover{background:#12262a}
+  /* group headers */
+  .group{margin:0 2px}
+  .ghead{display:flex; align-items:center; gap:12px; padding:20px 2px 11px}
+  .ghead .gt{font-family:var(--disp); font-size:13px; font-weight:600; letter-spacing:.02em; display:flex; align-items:center; gap:9px}
+  .ghead .gt .c{font-family:var(--mono); font-size:12px; color:var(--faint); font-weight:500}
+  .ghead .gline{flex:1; height:1px; background:var(--line)}
+  .badge-auto{color:var(--accent)} .badge-manual{color:var(--shift)} .badge-fixed{color:var(--safe)}
 
-  /* issue list */
-  .list{display:flex; flex-direction:column; gap:8px; padding-bottom:40px}
-  .issue{background:var(--panel); border:1px solid var(--line); border-radius:var(--r);
-    overflow:hidden; transition:border-color .15s}
+  /* prominent fix-all */
+  .fixall{font-family:var(--disp); font-size:13px; font-weight:600; color:var(--accent-ink); background:var(--accent);
+    padding:9px 16px; border-radius:9px; display:flex; align-items:center; gap:8px; transition:.15s; box-shadow:0 4px 16px -6px var(--accent)}
+  .fixall:hover{filter:brightness(1.09); box-shadow:0 8px 22px -6px var(--accent)}
+  .fixall svg{width:15px;height:15px}
+
+  .list{display:flex; flex-direction:column; gap:8px}
+  .issue{background:var(--panel); border:1px solid var(--line); border-radius:var(--r); overflow:hidden; transition:border-color .15s, opacity .3s}
   .issue:hover{border-color:var(--line2)}
   .issue.break{border-left:3px solid var(--break)}
   .issue.shift{border-left:3px solid var(--shift)}
   .issue.safe{border-left:3px solid var(--safe)}
-  .issue.done{border-left-color:var(--safe); opacity:.72}
+  .issue.fixed{border-left:3px solid var(--safe); background:linear-gradient(90deg, var(--safe-bg), var(--panel) 60%)}
   .ihead{display:flex; align-items:center; gap:14px; padding:14px 16px; cursor:pointer; user-select:none}
   .sock{width:12px;height:12px;border-radius:50%; flex:none; border:2px solid #0c0f14}
+  .fixed .sock{background:var(--safe)!important}
   .ir{flex:1; min-width:0}
   .itype{font-family:var(--mono); font-size:13.5px; font-weight:500}
+  .fixed .itype{color:var(--dim); text-decoration:line-through; text-decoration-color:var(--faint)}
   .iloc{font-size:12px; color:var(--dim); margin-top:3px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
   .iloc .at{color:var(--faint)}
-  .tag{font-size:10.5px; letter-spacing:.06em; text-transform:uppercase; padding:4px 9px;
-    border-radius:6px; font-weight:600; white-space:nowrap; flex:none}
+  .tag{font-size:10.5px; letter-spacing:.06em; text-transform:uppercase; padding:4px 9px; border-radius:6px; font-weight:600; white-space:nowrap; flex:none}
   .tag.break{color:var(--break); background:var(--break-bg)}
   .tag.shift{color:var(--shift); background:var(--shift-bg)}
   .tag.safe{color:var(--safe); background:var(--safe-bg)}
   .tag.manual{color:var(--dim); background:var(--panel3)}
+  .tag.fixed{color:var(--safe); background:var(--safe-bg); display:flex; align-items:center; gap:5px}
   .caret{color:var(--faint); font-size:12px; transition:transform .2s; flex:none; width:14px; text-align:center}
   .issue.open .caret{transform:rotate(90deg)}
-
   .ibody{max-height:0; overflow:hidden; transition:max-height .25s ease}
-  .issue.open .ibody{max-height:340px}
-  .ibin{padding:2px 16px 16px 42px; border-top:1px solid var(--line); margin-top:0}
+  .issue.open .ibody{max-height:360px}
+  .ibin{padding:2px 16px 16px 42px; border-top:1px solid var(--line)}
   .issue.open .ibin{padding-top:14px}
   .desc{color:var(--dim); font-size:13px; max-width:70ch}
   .kv{display:flex; gap:26px; margin-top:12px; flex-wrap:wrap}
@@ -135,76 +114,52 @@
   .kv .k{font-size:10.5px; letter-spacing:.1em; text-transform:uppercase; color:var(--faint)}
   .kv .v{font-family:var(--mono); font-size:13px; color:var(--text)}
   .kv .v.risk{color:var(--break)}
-  .act{display:flex; align-items:center; gap:12px; margin-top:16px}
-  .fix{font-family:var(--disp); font-weight:600; font-size:12.5px; color:var(--accent-ink);
-    background:var(--accent); padding:8px 15px; border-radius:8px; transition:.15s}
+  .act{display:flex; align-items:center; gap:12px; margin-top:16px; flex-wrap:wrap}
+  .fix{font-family:var(--disp); font-weight:600; font-size:12.5px; color:var(--accent-ink); background:var(--accent); padding:8px 15px; border-radius:8px; transition:.15s}
   .fix:hover{filter:brightness(1.08)}
-  .howfix{font-size:12px; color:var(--faint)}
-  .howfix b{color:var(--dim); font-weight:500}
+  .fixtype{font-family:var(--disp); font-weight:600; font-size:12.5px; color:var(--accent); padding:8px 14px; border:1px solid var(--accent-dim); border-radius:8px; transition:.15s}
+  .fixtype:hover{background:#12262a}
+  .howfix{font-size:12px; color:var(--faint)} .howfix b{color:var(--dim); font-weight:500}
   .manual-note{font-size:12.5px; color:var(--shift); display:flex; gap:8px; align-items:flex-start}
   .manual-note .i{flex:none; margin-top:1px}
-  .fixed-badge{display:none; font-family:var(--disp); font-size:12.5px; color:var(--safe);
-    align-items:center; gap:7px}
-  .issue.done .fix{display:none}
-  .issue.done .fixed-badge{display:flex}
-  .issue.done .howfix{display:none}
 
-  /* empty state */
-  .empty{flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center;
-    text-align:center; padding:60px 20px 90px}
-  .drop{width:min(560px,90%); border:1.5px dashed var(--line2); border-radius:20px;
-    padding:54px 40px; background:var(--panel); transition:.2s}
+  .empty{flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; padding:60px 20px 90px}
+  .drop{width:min(560px,90%); border:1.5px dashed var(--line2); border-radius:20px; padding:54px 40px; background:var(--panel); transition:.2s; cursor:pointer}
   .drop:hover{border-color:var(--accent-dim); background:var(--panel2)}
   .drop h2{font-family:var(--disp); font-size:21px; font-weight:600; margin:20px 0 8px}
   .drop p{color:var(--dim); margin:0 0 24px; font-size:13.5px}
-  .load{font-family:var(--disp); font-weight:600; font-size:13.5px; color:var(--accent-ink);
-    background:var(--accent); padding:11px 22px; border-radius:9px}
+  .load{font-family:var(--disp); font-weight:600; font-size:13.5px; color:var(--accent-ink); background:var(--accent); padding:11px 22px; border-radius:9px}
   .empty .hint{margin-top:22px; font-size:12px; color:var(--faint)}
   .empty .hint .mono{color:var(--dim)}
-
-  .footnote{color:var(--faint); font-size:11.5px; text-align:center; padding:14px 0 26px}
+  .footnote{color:var(--faint); font-size:11.5px; text-align:center; padding:26px 0}
   .hidden{display:none !important}
 
-  /* toast */
-  .toast{position:fixed; left:50%; bottom:28px; transform:translateX(-50%) translateY(20px);
-    background:var(--panel3); border:1px solid var(--line2); border-radius:12px;
-    padding:14px 20px; display:flex; align-items:center; gap:14px; opacity:0; pointer-events:none;
-    transition:.3s; box-shadow:0 20px 50px -20px #000}
+  .toast{position:fixed; left:50%; bottom:28px; transform:translateX(-50%) translateY(20px); background:var(--panel3); border:1px solid var(--line2); border-radius:12px; padding:14px 20px; display:flex; align-items:center; gap:14px; opacity:0; pointer-events:none; transition:.3s; box-shadow:0 20px 50px -20px #000}
   .toast.show{opacity:1; transform:translateX(-50%) translateY(0)}
-  .toast .tick{width:26px;height:26px;border-radius:50%;background:var(--safe-bg);color:var(--safe);
-    display:grid;place-items:center;flex:none;font-weight:700}
+  .toast .tick{width:26px;height:26px;border-radius:50%;background:var(--safe-bg);color:var(--safe); display:grid;place-items:center;flex:none;font-weight:700}
   .toast .tt{font-family:var(--disp); font-weight:600; font-size:13.5px}
   .toast .ts{font-size:12px; color:var(--dim); font-family:var(--mono)}
 </style>
 </head>
 <body>
 <div class="app">
-
   <div class="top">
     <div class="brand">
       <svg class="mark" viewBox="0 0 32 32" fill="none">
         <rect x="1.5" y="1.5" width="29" height="29" rx="8" stroke="#2A313D" stroke-width="1.5"/>
-        <circle cx="9" cy="11" r="3" fill="#F26069"/>
-        <circle cx="9" cy="21" r="3" fill="#E4A73C"/>
+        <circle cx="9" cy="11" r="3" fill="#F26069"/><circle cx="9" cy="21" r="3" fill="#E4A73C"/>
         <path d="M12 11 H20 a3 3 0 0 1 3 3 v0 a3 3 0 0 1-3 3 H12" stroke="#54C7D6" stroke-width="1.6"/>
-        <path d="M12 21 H23" stroke="#333B49" stroke-width="1.6"/>
-        <circle cx="23" cy="16" r="3" fill="#3FC28A"/>
+        <path d="M12 21 H23" stroke="#333B49" stroke-width="1.6"/><circle cx="23" cy="16" r="3" fill="#3FC28A"/>
       </svg>
-      <div>
-        <h1>Relay</h1>
-        <div class="sub">blend compatibility</div>
-      </div>
+      <div><h1>Relay</h1><div class="sub">blend compatibility</div></div>
     </div>
     <div class="spacer"></div>
     <button class="ghost" onclick="reset()">Reset demo</button>
   </div>
 
-  <!-- ===== EMPTY STATE ===== -->
   <div id="empty" class="empty">
     <div class="drop" onclick="loadFile()">
-      <svg width="52" height="52" viewBox="0 0 24 24" fill="none" stroke="#54C7D6" stroke-width="1.4">
-        <path d="M12 16V4m0 0L8 8m4-4l4 4"/><path d="M4 15v3a2 2 0 002 2h12a2 2 0 002-2v-3"/>
-      </svg>
+      <svg width="52" height="52" viewBox="0 0 24 24" fill="none" stroke="#54C7D6" stroke-width="1.4"><path d="M12 16V4m0 0L8 8m4-4l4 4"/><path d="M4 15v3a2 2 0 002 2h12a2 2 0 002-2v-3"/></svg>
       <h2>Drop a .blend file</h2>
       <p>Relay detects the version it was saved in and shows exactly what will<br>break in an older Blender — then fixes what it can.</p>
       <button class="load">Load .blend</button>
@@ -212,155 +167,73 @@
     </div>
   </div>
 
-  <!-- ===== SCANNED STATE ===== -->
   <div id="scanned" class="hidden">
     <div class="rig">
       <div class="card file">
-        <div class="fico">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#8CA0B0" stroke-width="1.5">
-            <path d="M13 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V9z"/><path d="M13 2v7h7"/></svg>
-        </div>
-        <div>
-          <div class="fname">lighting_test.blend</div>
-          <div class="fmeta">saved in <span class="detected mono">Blender 4.4.3</span> · auto-detected · 3.2 MB</div>
-        </div>
+        <div class="fico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#8CA0B0" stroke-width="1.5"><path d="M13 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V9z"/><path d="M13 2v7h7"/></svg></div>
+        <div><div class="fname">lighting_test.blend</div><div class="fmeta">saved in <span class="detected mono">Blender 4.4.3</span> · auto-detected · 3.2 MB</div></div>
         <button class="swap-file" onclick="reset()">Change file</button>
       </div>
-
       <div class="card conv">
-        <div class="verpick">
-          <label>Convert to</label>
-          <div class="flow">
-            <span class="vfrom">4.4.3</span>
-            <span class="arrow">→</span>
-            <div class="select">
-              <select id="target">
-                <option>4.2.23 LTS</option>
-                <option disabled>4.4.3 (source)</option>
-                <option disabled>scanning installed builds…</option>
-              </select>
-            </div>
+        <div class="verpick"><label>Convert to</label>
+          <div class="flow"><span class="vfrom">4.4.3</span><span class="arrow">→</span>
+            <div class="select"><select id="target"><option>4.2.23 LTS</option><option disabled>scanning installed builds…</option></select></div>
           </div>
         </div>
-        <button class="go" id="convert" onclick="convert()">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M5 12h14m-6-6l6 6-6 6"/></svg>
-          Convert &amp; save
-        </button>
+        <button class="go" onclick="convert()"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M5 12h14m-6-6l6 6-6 6"/></svg>Convert &amp; save</button>
       </div>
     </div>
 
     <div class="stats">
-      <div class="stat"><div class="n" id="s-total">0</div><div class="l"><b id="s-total2">0</b> compatibility issues found</div></div>
+      <div class="stat"><div class="n" id="s-total">0</div><div class="l">compatibility issues</div></div>
       <div class="stat br"><div class="n" id="s-break">0</div><div class="l">will break / lose data</div></div>
       <div class="stat sh"><div class="n" id="s-shift">0</div><div class="l">may shift · needs review</div></div>
       <div class="stat sf"><div class="n" id="s-auto">0</div><div class="l">fixable automatically</div></div>
     </div>
 
-    <div class="ctrls">
-      <button class="chip on" data-f="all" onclick="filter('all',this)">All</button>
-      <button class="chip" data-f="break" onclick="filter('break',this)"><span class="dot break"></span>Breaking</button>
-      <button class="chip" data-f="shift" onclick="filter('shift',this)"><span class="dot shift"></span>Review</button>
-      <button class="chip" data-f="safe" onclick="filter('safe',this)"><span class="dot safe"></span>Safe</button>
-      <button class="chip" data-f="manual" onclick="filter('manual',this)">Manual only</button>
-      <div class="spacer"></div>
-      <button class="fixall" onclick="fixAll()">Fix all automatic ✦</button>
-    </div>
-
-    <div class="list" id="list"></div>
+    <div id="groups"></div>
     <div class="footnote">Prototype UI · issue data is the real 4.4 → 4.2 result set · fixes here are simulated</div>
   </div>
 </div>
 
-<div class="toast" id="toast">
-  <div class="tick">✓</div>
-  <div><div class="tt" id="toast-t">Saved</div><div class="ts" id="toast-s"></div></div>
-</div>
+<div class="toast" id="toast"><div class="tick">✓</div><div><div class="tt" id="toast-t">Saved</div><div class="ts" id="toast-s"></div></div></div>
 
 <script>
-// severity: break | shift | safe   ·   socket colour echoes Blender node sockets
 const ISSUES = [
-  {sev:'break', sock:'--sock-col', type:'ShaderNodeBlackbody', loc:"Light 'KeyLight'",
-   desc:"Temperature socket uses a subtype (NodeSocketFloatColorTemperature) that 4.2 doesn't have, so the value is dropped — the light renders the wrong colour.",
-   risk:'Temperature = 6000 K', auto:true, how:'Rebuilt as a native 4.2 Blackbody node with the same temperature (node kept).'},
-  {sev:'break', sock:'--sock-col', type:'ShaderNodeBlackbody', loc:"Material 'Lava'",
-   desc:"Same as above — the temperature value is lost on load in 4.2.",
-   risk:'Temperature = 4000 K', auto:true, how:'Rebuilt as a native 4.2 Blackbody node with the same temperature.'},
-  {sev:'break', sock:'--sock-col', type:'ShaderNodeVolumePrincipled', loc:"Material 'Smoke'",
-   desc:"Temperature socket has the same missing subtype. Other inputs (Density, Colour…) are unaffected and preserved.",
-   risk:'Temperature = 5500 K', auto:true, how:'Rebuilt fresh, preserving all other sockets and links.'},
-  {sev:'break', sock:'--sock-val', type:'FunctionNodeIntegerMath', loc:"Geometry Nodes 'Scatter'",
-   desc:"This node doesn't exist in 4.2 and becomes an Undefined node, breaking the graph.",
-   risk:'operation = MULTIPLY', auto:true, how:'Reconstructed with a Math node + rounding (exact-equal output).'},
-  {sev:'break', sock:'--sock-val', type:'FunctionNodeMatrixDeterminant', loc:"Geometry Nodes 'Align'",
-   desc:"Missing in 4.2. Becomes Undefined.",
-   risk:'—', auto:true, how:'Reconstructed from Separate Matrix + cofactor expansion (matches native determinant).'},
-  {sev:'break', sock:'--sock-geo', type:'GeometryNodeForeachGeometryElementInput', loc:"Geometry Nodes 'PerIsland'",
-   desc:"The For-Each Element zone is new control flow with no 4.2 equivalent. It can't be reconstructed automatically.",
-   risk:'zone · 2 nodes', auto:false, how:'Restructure or remove the zone manually.'},
-  {sev:'break', sock:'--sock-val', type:'FunctionNodeIntegerMath', loc:"Geometry Nodes 'Hash'",
-   desc:"Missing node, and its GCD operation has no Math-node equivalent, so it can't be reconstructed.",
-   risk:'operation = GCD', auto:false, how:'No Math equivalent — rebuild by hand if needed.'},
-  {sev:'break', sock:'--sock-geo', type:'Grease Pencil v3', loc:"whole file",
-   desc:"Grease Pencil objects saved in 4.3+ use GP v3 and will not open correctly in 4.2. This is a file-level change, not a node.",
-   risk:'non-node · critical', auto:false, how:'Handle Grease Pencil objects before downgrading.'},
-  {sev:'shift', sock:'--sock-geo', type:'GeometryNodeImportSTL', loc:"Geometry Nodes 'Load'",
-   desc:"Missing in 4.2. Becomes Undefined. Its imported geometry can't be injected as a constant in 4.2.",
-   risk:"path: /models/part.stl", auto:false, how:'Re-import or realise the geometry in 4.2.'},
-  {sev:'shift', sock:'--sock-geo', type:'GeometryNodeInputObject', loc:"Geometry Nodes 'Ref'",
-   desc:"Missing in 4.2 — there's no way to inline a constant object reference there.",
-   risk:"references object 'TargetObj'", auto:false, how:"Recreate as an Object group input set to 'TargetObj'."},
-  {sev:'shift', sock:'--sock-val', type:'ShaderNodeBsdfPrincipled', loc:"Material 'Skin'",
-   desc:"Exists in both, but the 4.4 Diffuse Roughness input doesn't exist in 4.2 — any value there reverts to the old default.",
-   risk:'Diffuse Roughness = 0.3', auto:true, how:'Added socket dropped; reverts to 4.2 behaviour (minor).'},
-  {sev:'shift', sock:'--sock-val', type:'Scene · EEVEE', loc:'Scene',
-   desc:"Fast GI is a 4.3+ setting with no equivalent in 4.2. It reverts to standard GI.",
-   risk:'use_fast_gi = on', auto:true, how:'No target equivalent — will revert to default.'},
-  {sev:'safe', sock:'--sock-geo', type:'GeometryNodeSetGeometryName', loc:"Geometry Nodes 'Prep'",
-   desc:"Missing in 4.2, but only sets a name — no effect on the evaluated geometry.",
-   risk:'cosmetic', auto:true, how:'Removed; geometry passthrough reconnected (output identical).'},
-  {sev:'safe', sock:'--sock-vec', type:'GeometryNodeGizmoDial', loc:"Geometry Nodes 'Rig'",
-   desc:"An authoring gizmo with no effect on output geometry.",
-   risk:'cosmetic', auto:true, how:'Safely dropped.'},
+  {sev:'break', sock:'--sock-col', type:'ShaderNodeBlackbody', loc:"Light 'KeyLight'", state:'todo', auto:true,
+   desc:"Temperature socket uses a subtype (NodeSocketFloatColorTemperature) that 4.2 doesn't have, so the value is dropped — the light renders the wrong colour.", risk:'Temperature = 6000 K', how:'Rebuilt as a native 4.2 Blackbody node with the same temperature (node kept).'},
+  {sev:'break', sock:'--sock-col', type:'ShaderNodeBlackbody', loc:"Material 'Lava'", state:'todo', auto:true,
+   desc:"Same as above — the temperature value is lost on load in 4.2.", risk:'Temperature = 4000 K', how:'Rebuilt as a native 4.2 Blackbody node with the same temperature.'},
+  {sev:'break', sock:'--sock-col', type:'ShaderNodeBlackbody', loc:"Material 'Embers'", state:'todo', auto:true,
+   desc:"Same subtype value-loss on the Temperature socket.", risk:'Temperature = 1800 K', how:'Rebuilt as a native 4.2 Blackbody node with the same temperature.'},
+  {sev:'break', sock:'--sock-col', type:'ShaderNodeVolumePrincipled', loc:"Material 'Smoke'", state:'todo', auto:true,
+   desc:"Temperature socket has the same missing subtype. Other inputs (Density, Colour…) are unaffected and preserved.", risk:'Temperature = 5500 K', how:'Rebuilt fresh, preserving all other sockets and links.'},
+  {sev:'break', sock:'--sock-val', type:'FunctionNodeIntegerMath', loc:"Geometry Nodes 'Scatter'", state:'todo', auto:true,
+   desc:"This node doesn't exist in 4.2 and becomes an Undefined node, breaking the graph.", risk:'operation = MULTIPLY', how:'Reconstructed with a Math node + rounding (exact-equal output).'},
+  {sev:'break', sock:'--sock-val', type:'FunctionNodeMatrixDeterminant', loc:"Geometry Nodes 'Align'", state:'todo', auto:true,
+   desc:"Missing in 4.2. Becomes Undefined.", risk:'—', how:'Reconstructed from Separate Matrix + cofactor expansion (matches native determinant).'},
+  {sev:'shift', sock:'--sock-val', type:'ShaderNodeBsdfPrincipled', loc:"Material 'Skin'", state:'todo', auto:true,
+   desc:"Exists in both, but the 4.4 Diffuse Roughness input doesn't exist in 4.2 — any value there reverts to the old default.", risk:'Diffuse Roughness = 0.3', how:'Added socket dropped; reverts to 4.2 behaviour (minor).'},
+  {sev:'shift', sock:'--sock-val', type:'Scene · EEVEE', loc:'Scene', state:'todo', auto:true,
+   desc:"Fast GI is a 4.3+ setting with no equivalent in 4.2. It reverts to standard GI.", risk:'use_fast_gi = on', how:'No target equivalent — reverts to default.'},
+  {sev:'safe', sock:'--sock-geo', type:'GeometryNodeSetGeometryName', loc:"Geometry Nodes 'Prep'", state:'todo', auto:true,
+   desc:"Missing in 4.2, but only sets a name — no effect on the evaluated geometry.", risk:'cosmetic', how:'Removed; geometry passthrough reconnected (output identical).'},
+  {sev:'safe', sock:'--sock-vec', type:'GeometryNodeGizmoDial', loc:"Geometry Nodes 'Rig'", state:'todo', auto:true,
+   desc:"An authoring gizmo with no effect on output geometry.", risk:'cosmetic', how:'Safely dropped.'},
+  {sev:'break', sock:'--sock-geo', type:'GeometryNodeForeachGeometryElementInput', loc:"Geometry Nodes 'PerIsland'", state:'todo', auto:false,
+   desc:"The For-Each Element zone is new control flow with no 4.2 equivalent. It can't be reconstructed automatically.", risk:'zone · 2 nodes', how:'Restructure or remove the zone manually.'},
+  {sev:'break', sock:'--sock-val', type:'FunctionNodeIntegerMath', loc:"Geometry Nodes 'Hash'", state:'todo', auto:false,
+   desc:"Missing node, and its GCD operation has no Math-node equivalent, so it can't be reconstructed.", risk:'operation = GCD', how:'No Math equivalent — rebuild by hand if needed.'},
+  {sev:'break', sock:'--sock-geo', type:'Grease Pencil v3', loc:"whole file", state:'todo', auto:false,
+   desc:"Grease Pencil objects saved in 4.3+ use GP v3 and will not open correctly in 4.2. This is a file-level change, not a node.", risk:'non-node · critical', how:'Handle Grease Pencil objects before downgrading.'},
+  {sev:'shift', sock:'--sock-geo', type:'GeometryNodeImportSTL', loc:"Geometry Nodes 'Load'", state:'todo', auto:false,
+   desc:"Missing in 4.2. Becomes Undefined. Its imported geometry can't be injected as a constant in 4.2.", risk:"path: /models/part.stl", how:'Re-import or realise the geometry in 4.2.'},
+  {sev:'shift', sock:'--sock-geo', type:'GeometryNodeInputObject', loc:"Geometry Nodes 'Ref'", state:'todo', auto:false,
+   desc:"Missing in 4.2 — there's no way to inline a constant object reference there.", risk:"references object 'TargetObj'", how:"Recreate as an Object group input set to 'TargetObj'."},
 ];
+const SEVRANK={break:0, shift:1, safe:2};
+const el=s=>document.querySelector(s);
 
-const el = s => document.querySelector(s);
-let activeFilter = 'all';
-
-function render(){
-  const list = el('#list');
-  list.innerHTML = ISSUES.map((it,i)=>{
-    const tag = it.auto
-      ? (it.sev==='safe' ? `<span class="tag safe">auto · safe</span>` : `<span class="tag ${it.sev}">auto-fix</span>`)
-      : `<span class="tag manual">manual</span>`;
-    const action = it.auto
-      ? `<div class="act">
-           <button class="fix" onclick="fixOne(${i},event)">Fix this</button>
-           <span class="howfix"><b>How:</b> ${it.how}</span>
-           <span class="fixed-badge">✓ Fixed</span>
-         </div>`
-      : `<div class="act"><span class="manual-note"><span class="i">△</span><span>${it.how}</span></span></div>`;
-    return `<div class="issue ${it.sev}" data-sev="${it.sev}" data-auto="${it.auto}" data-i="${i}">
-      <div class="ihead" onclick="toggle(${i})">
-        <span class="sock" style="background:var(${it.sock})"></span>
-        <div class="ir">
-          <div class="itype">${it.type}</div>
-          <div class="iloc"><span class="at">at</span> ${it.loc}</div>
-        </div>
-        ${tag}
-        <span class="caret">▶</span>
-      </div>
-      <div class="ibody"><div class="ibin">
-        <div class="desc">${it.desc}</div>
-        <div class="kv">
-          <div><span class="k">At risk</span><span class="v risk">${it.risk}</span></div>
-          <div><span class="k">Category</span><span class="v">${catOf(it)}</span></div>
-        </div>
-        ${action}
-      </div></div>
-    </div>`;
-  }).join('');
-  stats();
-}
 function catOf(it){
   if(it.type.includes('Blackbody')||it.type.includes('VolumePrincipled')) return 'subtype value-loss';
   if(it.type.includes('Import')||it.type.includes('InputObject')) return 'missing · needs object ref';
@@ -371,38 +244,62 @@ function catOf(it){
   if(it.type.includes('EEVEE')) return 'setting lost';
   return 'changed socket';
 }
-function stats(){
-  const vis = ISSUES.filter(notDone);
-  el('#s-total').textContent = ISSUES.length;
-  el('#s-total2').textContent = ISSUES.length;
-  el('#s-break').textContent = ISSUES.filter(i=>i.sev==='break').length;
-  el('#s-shift').textContent = ISSUES.filter(i=>i.sev==='shift').length;
-  el('#s-auto').textContent = ISSUES.filter(i=>i.auto).length;
+function rowHTML(it,i){
+  const tag = it.state==='fixed' ? `<span class="tag fixed">✓ fixed</span>`
+    : it.auto ? (it.sev==='safe'?`<span class="tag safe">auto · safe</span>`:`<span class="tag ${it.sev}">auto-fix</span>`)
+    : `<span class="tag manual">manual</span>`;
+  const sameType = ISSUES.filter(x=>x.type===it.type && x.auto && x.state==='todo').length;
+  const typeBtn = (it.auto && sameType>1) ? `<button class="fixtype" onclick="fixType('${it.type}',event)">Fix all ${sameType} of this type</button>` : '';
+  let action='';
+  if(it.state==='fixed') action = `<div class="act"><span class="howfix"><b>Done:</b> ${it.how}</span></div>`;
+  else if(it.auto) action = `<div class="act"><button class="fix" onclick="fixOne(${i},event)">Fix this</button>${typeBtn}<span class="howfix"><b>How:</b> ${it.how}</span></div>`;
+  else action = `<div class="act"><span class="manual-note"><span class="i">△</span><span>${it.how}</span></span></div>`;
+  const cls = it.state==='fixed' ? 'fixed' : it.sev;
+  return `<div class="issue ${cls}" data-i="${i}">
+    <div class="ihead" onclick="toggle(${i})">
+      <span class="sock" style="background:var(${it.sock})"></span>
+      <div class="ir"><div class="itype">${it.type}</div><div class="iloc"><span class="at">at</span> ${it.loc}</div></div>
+      ${tag}<span class="caret">▶</span>
+    </div>
+    <div class="ibody"><div class="ibin">
+      <div class="desc">${it.desc}</div>
+      <div class="kv"><div><span class="k">At risk</span><span class="v risk">${it.risk}</span></div><div><span class="k">Category</span><span class="v">${catOf(it)}</span></div></div>
+      ${action}
+    </div></div></div>`;
 }
-const done = new Set();
-const notDone = (it)=>true;
-
-function toggle(i){ document.querySelector(`.issue[data-i="${i}"]`).classList.toggle('open'); }
-function fixOne(i,e){ e.stopPropagation(); const n=document.querySelector(`.issue[data-i="${i}"]`); n.classList.add('done'); n.classList.remove('open'); }
-function fixAll(){ document.querySelectorAll('.issue[data-auto="true"]').forEach(n=>{n.classList.add('done'); n.classList.remove('open');}); }
-function filter(f,btn){
-  activeFilter=f;
-  document.querySelectorAll('.chip').forEach(c=>c.classList.remove('on')); btn.classList.add('on');
-  document.querySelectorAll('.issue').forEach(n=>{
-    const sev=n.dataset.sev, auto=n.dataset.auto==='true';
-    let show = f==='all' || sev===f || (f==='manual' && !auto);
-    n.classList.toggle('hidden', !show);
-  });
+function groupHTML(title, cls, badge, items, headExtra=''){
+  if(!items.length) return '';
+  const rows = items.map(({it,i})=>rowHTML(it,i)).join('');
+  return `<div class="group"><div class="ghead"><div class="gt ${cls}">${badge} ${title}<span class="c">${items.length}</span></div><div class="gline"></div>${headExtra}</div><div class="list">${rows}</div></div>`;
 }
+function render(){
+  const idx = ISSUES.map((it,i)=>({it,i}));
+  const bySeverity=(a,b)=>SEVRANK[a.it.sev]-SEVRANK[b.it.sev];
+  const auto = idx.filter(x=>x.it.auto && x.it.state==='todo').sort(bySeverity);
+  const manual = idx.filter(x=>!x.it.auto && x.it.state==='todo').sort(bySeverity);
+  const fixed = idx.filter(x=>x.it.state==='fixed');
+  const fixAllBtn = auto.length ? `<button class="fixall" onclick="fixAllAuto()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M20 6L9 17l-5-5"/></svg>Fix all ${auto.length} automatic</button>` : '';
+  el('#groups').innerHTML =
+      groupHTML('Automatic', 'badge-auto', '✦', auto, fixAllBtn)
+    + groupHTML('Manual — you handle these', 'badge-manual', '△', manual)
+    + groupHTML('Fixed', 'badge-fixed', '✓', fixed);
+  el('#s-total').textContent=ISSUES.length;
+  el('#s-break').textContent=ISSUES.filter(i=>i.sev==='break').length;
+  el('#s-shift').textContent=ISSUES.filter(i=>i.sev==='shift').length;
+  el('#s-auto').textContent=ISSUES.filter(i=>i.auto).length;
+}
+function toggle(i){ const n=document.querySelector(`.issue[data-i="${i}"]`); if(n) n.classList.toggle('open'); }
+function fixOne(i,e){ e.stopPropagation(); ISSUES[i].state='fixed'; render(); }
+function fixType(t,e){ e.stopPropagation(); ISSUES.forEach(it=>{ if(it.type===t && it.auto) it.state='fixed'; }); render(); }
+function fixAllAuto(){ ISSUES.forEach(it=>{ if(it.auto) it.state='fixed'; }); render(); }
 function loadFile(){ el('#empty').classList.add('hidden'); el('#scanned').classList.remove('hidden'); render(); }
-function reset(){ el('#scanned').classList.add('hidden'); el('#empty').classList.remove('hidden'); }
+function reset(){ ISSUES.forEach(it=>it.state='todo'); el('#scanned').classList.add('hidden'); el('#empty').classList.remove('hidden'); }
 function convert(){
-  const autoCount = ISSUES.filter(i=>i.auto).length;
-  const manualCount = ISSUES.filter(i=>!i.auto).length;
-  fixAll();
-  el('#toast-t').textContent = `Saved lighting_test_for_4.2.blend`;
-  el('#toast-s').textContent = `${autoCount} fixed automatically · ${manualCount} flagged for manual review`;
-  const t=el('#toast'); t.classList.add('show'); setTimeout(()=>t.classList.remove('show'), 4200);
+  const a=ISSUES.filter(i=>i.auto).length, m=ISSUES.filter(i=>!i.auto).length;
+  fixAllAuto();
+  el('#toast-t').textContent='Saved lighting_test_for_4.2.blend';
+  el('#toast-s').textContent=`${a} fixed automatically · ${m} flagged for manual review`;
+  const t=el('#toast'); t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),4200);
 }
 </script>
 </body>
