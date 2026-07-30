@@ -182,8 +182,8 @@ FIXERS = {
 }
 FIXERS.update({nid: fix_safe_drop for nid in SAFE_DROP})
 
-BAKE_ALTERNATIVE = {"ShaderNodeBlackbody": fix_blackbody}   # opt-in
-NEEDS_TWO_STAGE = {"ShaderNodeBlackbody"}                   # -> keep_blackbody_run.py
+BAKE_ALTERNATIVE = {"ShaderNodeBlackbody": fix_blackbody}   # opt-in (blackbody only)
+NEEDS_TWO_STAGE = {"ShaderNodeBlackbody", "ShaderNodeVolumePrincipled"}  # -> keep_nodes_run.py
 
 
 def apply_fixer(nt, node):

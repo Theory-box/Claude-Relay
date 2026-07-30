@@ -25,16 +25,18 @@ blender-4.4 -b --python repair/verify.py
 |------|----------|-------|
 | Set Geometry Name, Gizmo*, Warning | safe-drop | removed; geometry passthrough reconnected. Output identical. |
 | Integer Math | reconstruct → Math node(s) | exact-equal for all 16 supported ops across signed inputs. GCD/LCM flagged (no Math equivalent). |
-| **Blackbody** (preferred: keep the node) | two-stage rebuild | the pink-lights bug. `keep_blackbody_run.py` extracts each temperature in the source, then rebuilds each Blackbody as a fresh **native** node in the target with that temperature — so the client still sees a real Blackbody, not an RGB. Verified: light (6000K) + material (4000K) both come back correct on the client's 4.2 reopen. |
+| **Blackbody / Volume Principled** (preferred: keep the node) | two-stage rebuild | the pink-lights bug and its siblings — the socket subtype (`NodeSocketFloatColorTemperature`) is missing in the target so the value drops. `keep_nodes_run.py` extracts each at-risk value in the source, then rebuilds each node as a fresh **native** node in the target, preserving its other sockets/links. Verified: light BB (6000K) + material BB (4000K) + Volume Principled (Temp 5500K, Density 0.4 preserved) all come back correct on the client's 4.2 reopen. |
 | Blackbody (alternative: bake) | bake → RGB / Color node | `fixers.fix_blackbody`, opt-in. Evaluates the constant temperature to its exact colour and replaces the node (tree-aware). Verified colour-identical across temperatures. Use only if replacing the node with a colour is acceptable. |
 
-> Why two-stage for keep-node: the temperature is genuinely gone in the target file
-> (the degraded socket stores nothing), and a *link* into that socket crashes the
-> target on load — so the value must be re-applied by rebuilding a fresh node in the
-> target. `keep_blackbody_run.py` orchestrates both Blender versions in one command:
+> Why two-stage: the value is genuinely gone in the target file (the degraded socket
+> stores nothing), and a *link* into that socket crashes the target on load — so the
+> value must be re-applied by rebuilding a fresh node in the target. Which nodes/
+> sockets qualify is read from the compat DB (subtype changes whose subtype is in
+> `socket_types_new`), so it generalises to any such node. One command orchestrates
+> both Blender versions:
 >
 > ```bash
-> python3 repair/keep_blackbody_run.py \
+> python3 repair/keep_nodes_run.py \
 >   --source-blender /path/to/4.4/blender --target-blender /path/to/4.2/blender \
 >   --in scene.blend --out scene_for_4.2.blend
 > ```
@@ -43,5 +45,3 @@ blender-4.4 -b --python repair/verify.py
 - Object / Collection Input → group-input socket (reconstruct)
 - Matrix Determinant → component arithmetic (reconstruct)
 - Import OBJ/PLY/STL → realize geometry into stored mesh (bake)
-- Volume Principled temperature (same subtype class; different node — not a pure
-  temperature→colour bake, so needs its own approach).

@@ -201,6 +201,7 @@ def analyse(nodes, db):
     missing_db = (db or {}).get("missing", {})
     changed_db = (db or {}).get("changed", {})
     prop_db = (db or {}).get("prop_changed", {})
+    new_socket_types = set((db or {}).get("socket_types_new", []))
     hits = {"undefined": [], "predicted_missing": [], "predicted_changed": [],
             "prop_issues": []}
 
@@ -227,10 +228,12 @@ def analyse(nodes, db):
             })
         elif bl in changed_db:
             delta = changed_db[bl].get("delta", {})
-            # sockets that outright lose their value in the target: a subtype the
-            # target lacks, or an input the target doesn't have at all.
-            at_risk = [e[0] for e in delta.get("in_subtype_changed", [])] \
-                    + [e[0] for e in delta.get("in_removed", [])]
+            # a subtype change only loses the value if the source subtype is
+            # ENTIRELY absent from the target; a subtype that still exists there
+            # (e.g. Points Position VectorTranslation) keeps its value.
+            at_risk = [e[0] for e in delta.get("in_subtype_changed", [])
+                       if e[2] in new_socket_types] \
+                + [e[0] for e in delta.get("in_removed", [])]
             vals = dict(node_values(n))
             hits["predicted_changed"].append({
                 "name": n.name, "type": bl, "location": where, "delta": delta,

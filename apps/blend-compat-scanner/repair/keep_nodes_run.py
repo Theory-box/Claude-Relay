@@ -1,20 +1,17 @@
 #!/usr/bin/env python3
 """
-keep_blackbody_run.py — one command to preserve Blackbody nodes across a downgrade.
-=================================================================================
-Runs the two stages of blackbody_keep.py for you: extract temperatures in the
-source Blender, rebuild the nodes in the target Blender. Plain Python (run OUTSIDE
-Blender).
+keep_nodes_run.py — one command to preserve subtype value-loss nodes.
+====================================================================
+Runs both stages of subtype_keep.py: extract at-risk socket values in the source
+Blender, rebuild the nodes in the target Blender. Handles every node whose socket
+subtype is missing in the target (Blackbody, Volume Principled, ...). Plain Python.
 
-  python3 keep_blackbody_run.py \
-      --source-blender /path/to/blender-4.4/blender \
-      --target-blender /path/to/blender-4.2/blender \
-      --in  scene.blend \
-      --out scene_for_4.2.blend
+  python3 keep_nodes_run.py \
+      --source-blender /path/to/4.4/blender --target-blender /path/to/4.2/blender \
+      --in scene.blend --out scene_for_4.2.blend
 
-The output is a target-openable file whose Blackbody nodes are real, native nodes
-carrying their original temperatures. A linked/animated temperature is reported
-and left for manual handling.
+Output opens in the target with those nodes intact as real native nodes carrying
+their original values. Linked/animated at-risk sockets are reported for manual work.
 """
 
 import argparse
@@ -24,12 +21,12 @@ import sys
 import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-STAGES = os.path.join(HERE, "blackbody_keep.py")
+STAGES = os.path.join(HERE, "subtype_keep.py")
 
 
 def run(blender, blendfile, extra):
-    cmd = [blender, "-b", blendfile, "--python", STAGES, "--"] + extra
-    p = subprocess.run(cmd, capture_output=True, text=True)
+    p = subprocess.run([blender, "-b", blendfile, "--python", STAGES, "--"] + extra,
+                       capture_output=True, text=True)
     for line in p.stdout.splitlines():
         if line.startswith("[extract]") or line.startswith("[apply]"):
             print(" ", line)
@@ -44,9 +41,8 @@ def main():
     ap.add_argument("--in", dest="inp", required=True)
     ap.add_argument("--out", required=True)
     a = ap.parse_args()
-
     manifest = tempfile.mktemp(suffix=".json")
-    print("stage 1/2 — extract temperatures (source):")
+    print("stage 1/2 — extract at-risk values (source):")
     run(a.source_blender, a.inp, ["--stage", "extract", "--manifest", manifest])
     print("stage 2/2 — rebuild nodes (target):")
     run(a.target_blender, a.inp, ["--stage", "apply", "--manifest", manifest, "--out", a.out])

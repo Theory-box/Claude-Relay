@@ -100,9 +100,10 @@ def main():
     bb = [(t, n) for t, _ in all_trees() for n in t.nodes
           if n.bl_idname in fixers.NEEDS_TWO_STAGE]
     if bb:
-        print(f"\n  {len(bb)} Blackbody node(s): run keep_blackbody_run.py to preserve "
-              f"them as real nodes across the downgrade (recommended), or use the "
-              f"bake alternative if a colour is acceptable.")
+        print(f"\n  {len(bb)} node(s) with a missing socket-subtype (Blackbody / "
+              f"Volume Principled): run keep_nodes_run.py to preserve them as real "
+              f"nodes across the downgrade (recommended). Blackbody can alternatively "
+              f"be baked to a colour.")
 
     if out:
         bpy.ops.wm.save_as_mainfile(filepath=out)

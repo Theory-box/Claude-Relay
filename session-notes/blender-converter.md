@@ -271,3 +271,24 @@ one. Could refine detect-mode later.
 
 Fixers: safe-drop, IntegerMath (default apply_repair); Blackbody keep-node (two-stage
 tool) + bake (opt-in). All harness checks pass.
+
+## Update — generalized subtype value-loss keeper (blackbody + volume principled)
+- Verified which subtype-changed sockets ACTUALLY lose values in 4.2:
+  * Blackbody Temperature: LOST. Volume Principled Temperature: LOST.
+  * Points Position (NodeSocketVector->NodeSocketVectorTranslation): NOT lost
+    (VectorTranslation exists in 4.2). FALSE ALARM.
+- Scanner refined: value-loss now only flagged when the new subtype is in
+  socket_types_new (truly missing). Points no longer flagged as value-loss.
+- Generalized the keep tool: repair/subtype_keep.py (DB-driven: at-risk =
+  in_subtype_changed whose subtype in socket_types_new) + repair/keep_nodes_run.py
+  orchestrator. Uses a general rebuild_node() that preserves ALL readable sockets,
+  links, and node properties, applying manifest overrides for the lost sockets.
+- Removed the old blackbody-specific blackbody_keep.py / keep_blackbody_run.py.
+- fixers: NEEDS_TWO_STAGE = {Blackbody, VolumePrincipled}; blackbody bake stays as
+  opt-in BAKE_ALTERNATIVE. apply_repair points these to keep_nodes_run.py.
+- VERIFIED end-to-end (one command): combined file (light BB 6000 + material BB 4000
+  + Volume Principled Temp 5500/Density 0.4) -> client 4.2 reopen -> all real native
+  nodes, correct values, VP density preserved.
+
+Fixers now: safe-drop, IntegerMath (apply_repair); subtype-keep for Blackbody +
+Volume Principled (keep_nodes_run.py two-stage); blackbody bake (opt-in).
