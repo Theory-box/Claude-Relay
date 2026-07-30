@@ -329,13 +329,42 @@ function stageType(t,e){ e.stopPropagation(); ISSUES.forEach(it=>{ if(it.type===
 function stageAll(){ ISSUES.forEach(it=>{ if(it.action==='fix' && it.state==='todo') it.state='staged'; }); render(); }
 function ackOne(i,e){ e.stopPropagation(); ISSUES[i].state='done'; render(); }
 function ackAll(){ ISSUES.forEach(it=>{ if(it.action==='acknowledge' && it.state==='todo') it.state='done'; }); render(); }
-function loadFile(){ el('#empty').classList.add('hidden'); el('#scanned').classList.remove('hidden'); render(); }
+let CTX={path:null, source:null, blenders:{}};
+async function loadFile(realPath){
+  // Tauri drag-drop passes a real path; static preview passes none -> demo data.
+  const path = realPath || (window.__TAURI__ ? null : null);
+  if(path){
+    try{
+      const r=await fetch('/api/scan',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path})});
+      if(!r.ok) throw new Error('scan failed');
+      const d=await r.json();
+      ISSUES.length=0; d.issues.forEach(it=>ISSUES.push(Object.assign({state:'todo'},it)));
+      CTX={path, source:Object.values(d.blenders||{})[0]||null, blenders:d.blenders||{}};
+      const fn=document.querySelector('.fname'); if(fn) fn.textContent=path.split(/[\\/]/).pop();
+      const dv=document.querySelector('.detected'); if(dv&&d.detected) dv.textContent='Blender '+d.detected;
+      const sel=el('#target'); if(sel&&d.blenders){ sel.innerHTML=Object.keys(d.blenders).map(v=>`<option>${v}</option>`).join(''); }
+    }catch(e){ /* fall through to demo data already in ISSUES */ }
+  }
+  el('#empty').classList.add('hidden'); el('#scanned').classList.remove('hidden'); render();
+}
 function reset(){ ISSUES.forEach(it=>it.state='todo'); el('#scanned').classList.add('hidden'); el('#empty').classList.remove('hidden'); }
-function convert(){
+async function convert(){
   const staged=stagedCount();
   if(staged===0){ toast('Nothing to convert', 'No fixes selected \u2014 stage at least one fix, or converting only produces a broken file.'); return; }
   const k=ISSUES.filter(i=>i.action==='acknowledge' && i.state!=='done').length;
   const m=ISSUES.filter(i=>i.action==='manual').length;
+  const ids=ISSUES.filter(i=>i.action==='fix' && i.state==='staged').map(i=>i.id);
+  if(CTX.path){
+    try{
+      const target=CTX.blenders[el('#target').value];
+      const out=CTX.path.replace(/\.blend$/,'_for_'+el('#target').value.split(' ')[0]+'.blend');
+      const r=await fetch('/api/convert',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:CTX.path,selected:ids,source_blender:CTX.source,target_blender:target,out})});
+      const d=await r.json(); if(d.error) throw new Error(d.error);
+      ISSUES.forEach(it=>{ if(it.action==='fix'&&it.state==='staged') it.state='done'; if(it.action==='acknowledge') it.state='done'; }); render();
+      toast('Saved '+d.out.split(/[\\/]/).pop(), `${d.rebuilt+d.source_fixed} fixed \u00B7 ${k} acknowledged \u00B7 ${m} left for manual`);
+    }catch(e){ toast('Convert failed', String(e.message||e)); }
+    return;
+  }
   ISSUES.forEach(it=>{ if(it.action==='fix' && it.state==='staged') it.state='done'; if(it.action==='acknowledge') it.state='done'; });
   render();
   toast('Saved lighting_test_for_4.2.blend', `${staged} fixed \u00B7 ${k} acknowledged \u00B7 ${m} left for manual`);

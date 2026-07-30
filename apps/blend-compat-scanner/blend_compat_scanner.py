@@ -72,9 +72,9 @@ def load_db(path):
 # traversal - yields (node, location_string) for every node in the file
 # --------------------------------------------------------------------------- #
 def _walk_tree(tree, where, seen, out):
-    if tree is None or tree.name in seen:
+    if tree is None or tree.as_pointer() in seen:
         return
-    seen.add(tree.name)
+    seen.add(tree.as_pointer())
     for n in tree.nodes:
         out.append((n, where))
         sub = getattr(n, "node_tree", None)   # GROUP nodes reference a sub-tree

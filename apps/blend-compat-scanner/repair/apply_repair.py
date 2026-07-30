@@ -36,9 +36,9 @@ def all_trees():
     trees = []
 
     def add(tree, where):
-        if tree is None or tree.name in seen:
+        if tree is None or tree.as_pointer() in seen:
             return
-        seen.add(tree.name)
+        seen.add(tree.as_pointer())
         trees.append((tree, where))
         for n in tree.nodes:
             sub = getattr(n, "node_tree", None)
