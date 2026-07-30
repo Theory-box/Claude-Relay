@@ -75,7 +75,7 @@ def ids(pref):
         i=c.bl_rna.identifier
         if any(i.startswith(p) for p in pref): o.append(i)
     return sorted(set(o))
-db={"version":bpy.app.version_string,"geometry":{},"shader":{}}
+db={"version":bpy.app.version_string,"geometry":{},"shader":{},"compositor":{}}
 g=bpy.data.node_groups.new("g",'GeometryNodeTree')
 for i in ids(("GeometryNode","FunctionNode")):
     try:
@@ -86,6 +86,11 @@ for i in ids(("ShaderNode",)):
     try:
         n=s.nodes.new(i); db["shader"][i]=sig(n); s.nodes.remove(n)
     except Exception as e: db["shader"][i]={"err":type(e).__name__}
+bpy.context.scene.use_nodes=True; ct=bpy.context.scene.node_tree
+for i in ids(("CompositorNode",)):
+    try:
+        n=ct.nodes.new(i); db["compositor"][i]=sig(n); ct.nodes.remove(n)
+    except Exception as e: db["compositor"][i]={"err":type(e).__name__}
 # settings structs + type enums (non-node compatibility surface)
 STRUCTS=["World","WorldLighting","SceneEEVEE","RenderSettings","Material",
          "Object","SunLight","PointLight","AreaLight","Mesh","Curves"]
@@ -253,7 +258,7 @@ def build(new, old, src_label, tgt_label):
           "note": "Node lists are EMPIRICAL (enumerated from both binaries). "
                   "Actions are suggested strategies.",
           "missing": {}, "changed": {}, "prop_changed": {}, "non_node_warnings": NON_NODE}
-    for cat in ("geometry", "shader"):
+    for cat in ("geometry", "shader", "compositor"):
         n, o = new[cat], old[cat]
         for k in sorted(n):
             if k not in o:

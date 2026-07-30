@@ -376,3 +376,20 @@ Volume Principled (keep_nodes_run.py two-stage); blackbody bake (opt-in).
   * Slotted Actions only flags MULTI-slot layered actions. Verified single-slot
     animation survives 4.4->4.2 intact (z=5.0 preserved), so those aren't flagged.
   This also removed a false GP flag from the Livano scan.
+
+## Update — COMPOSITOR COVERAGE GAP found + fixed (user asked to check)
+- User asked whether compositor nodes convert properly. Investigation found a real gap:
+  * NODE TYPES: 102 in both 4.4 and 4.2, 0 missing -> no compositor node goes undefined. Good.
+  * BUT gen_compat_db.py only instantiated nodes in GEOMETRY + SHADER trees, never a
+    CompositorNodeTree -> compositor node SOCKET/PROPERTY diffs were NEVER computed.
+    The "0 compositor changes" was "never checked", not "clean".
+- FIX: gen_compat_db now also enumerates compositor nodes (scene.node_tree) and the
+  diff loop includes "compositor". Regenerated the DB. Real compositor changes found:
+  * CompositorNodeGlare: reworked in 4.4 -> 12 new input sockets + 2 outputs (props ->
+    sockets). Settings lost/revert in 4.2.
+  * CompositorNodeColorBalance: whitepoint/temp/tint sockets + WHITEPOINT mode.
+  * Denoise(quality), OutputFile(save_as_render), Translate(interp modes), Viewer.
+- scan_ui ref_default also fixed to instantiate CompositorNode in a CompositorNodeTree
+  (was using geo tree -> would've silently not-flagged compositor changes).
+- VERIFIED on the 4.5 splash: its Glare (Maximum=10.0, non-default) is now flagged
+  (acknowledge). Was completely invisible before.

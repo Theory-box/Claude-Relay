@@ -1,6 +1,6 @@
 {
-  "source": "4.4.3",
-  "target": "4.2.23",
+  "source": "4.4",
+  "target": "4.2",
   "note": "Node lists are EMPIRICAL (enumerated from both binaries). Actions are suggested strategies.",
   "missing": {
     "FunctionNodeFindInString": {
@@ -275,6 +275,72 @@
           ]
         ]
       }
+    },
+    "CompositorNodeGlare": {
+      "node_category": "compositor",
+      "action": "review",
+      "delta": {
+        "in_added": [
+          [
+            "Color Modulation",
+            "VALUE"
+          ],
+          [
+            "Fade",
+            "VALUE"
+          ],
+          [
+            "Iterations",
+            "INT"
+          ],
+          [
+            "Maximum",
+            "VALUE"
+          ],
+          [
+            "Saturation",
+            "VALUE"
+          ],
+          [
+            "Size",
+            "VALUE"
+          ],
+          [
+            "Smoothness",
+            "VALUE"
+          ],
+          [
+            "Streaks",
+            "INT"
+          ],
+          [
+            "Streaks Angle",
+            "VALUE"
+          ],
+          [
+            "Strength",
+            "VALUE"
+          ],
+          [
+            "Threshold",
+            "VALUE"
+          ],
+          [
+            "Tint",
+            "RGBA"
+          ]
+        ],
+        "out_added": [
+          [
+            "Glare",
+            "RGBA"
+          ],
+          [
+            "Highlights",
+            "RGBA"
+          ]
+        ]
+      }
     }
   },
   "prop_changed": {
@@ -434,6 +500,50 @@
       "node_category": "shader",
       "added": [
         "phase"
+      ]
+    },
+    "CompositorNodeColorBalance": {
+      "node_category": "compositor",
+      "added": [
+        "input_temperature",
+        "input_tint",
+        "input_whitepoint",
+        "output_temperature",
+        "output_tint",
+        "output_whitepoint"
+      ],
+      "enum_values_added": {
+        "correction_method": [
+          "WHITEPOINT"
+        ]
+      }
+    },
+    "CompositorNodeDenoise": {
+      "node_category": "compositor",
+      "added": [
+        "quality"
+      ]
+    },
+    "CompositorNodeOutputFile": {
+      "node_category": "compositor",
+      "added": [
+        "save_as_render"
+      ]
+    },
+    "CompositorNodeTranslate": {
+      "node_category": "compositor",
+      "enum_values_added": {
+        "interpolation": [
+          "BICUBIC",
+          "BILINEAR",
+          "NEAREST"
+        ]
+      }
+    },
+    "CompositorNodeViewer": {
+      "node_category": "compositor",
+      "added": [
+        "ui_shortcut"
       ]
     }
   },

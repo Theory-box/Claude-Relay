@@ -33,7 +33,7 @@ def main():
         if bl not in _refcache:
             _refcache[bl]={}
             try:
-                tt='ShaderNodeTree' if bl.startswith('ShaderNode') else 'GeometryNodeTree'
+                tt='ShaderNodeTree' if bl.startswith('ShaderNode') else ('CompositorNodeTree' if bl.startswith('CompositorNode') else 'GeometryNodeTree')
                 sc_=bpy.data.node_groups.new("_relayref", tt)
                 rn=sc_.nodes.new(bl)
                 for inp in rn.inputs:
