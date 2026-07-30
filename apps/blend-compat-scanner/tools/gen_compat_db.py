@@ -35,7 +35,15 @@ import os
 DUMP = r'''
 import bpy, json
 bpy.ops.wm.read_factory_settings(use_empty=True)
-def sig(n): return {"in":[[s.name,s.type] for s in n.inputs],
+def sval(s):
+    dv=getattr(s,"default_value",None)
+    if dv is None: return None
+    try:
+        return [round(float(x),4) for x in dv] if hasattr(dv,"__len__") else round(float(dv),4)
+    except Exception:
+        try: return str(dv)
+        except Exception: return None
+def sig(n): return {"in":[[s.name,s.type,sval(s)] for s in n.inputs],
                     "out":[[s.name,s.type] for s in n.outputs]}
 def ids(pref):
     o=[]
@@ -127,6 +135,38 @@ def dump(blender_exe):
     return json.loads(out[s + 9:e])
 
 
+def _by_name(sockets):
+    # sockets: [[name,type,default?], ...] -> {name:(type, default_or_None)}
+    d = {}
+    for s in sockets:
+        d[s[0]] = (s[1], s[2] if len(s) > 2 else None)
+    return d
+
+
+def diff_sockets(new_sig, old_sig):
+    """new = source (e.g. 4.4), old = target (e.g. 4.2). Report what a file
+    from `new` loses/shifts when opened in `old`."""
+    delta = {}
+    for side in ("in", "out"):
+        nn = _by_name(new_sig[side])
+        oo = _by_name(old_sig[side])
+        added   = sorted([n, nn[n][0]] for n in nn if n not in oo)   # in new, not target
+        removed = sorted([n, oo[n][0]] for n in oo if n not in nn)   # target has, new didn't
+        retyped = sorted([n, oo[n][0], nn[n][0]] for n in nn
+                         if n in oo and nn[n][0] != oo[n][0])
+        if added:   delta[f"{side}_added"] = added
+        if removed: delta[f"{side}_removed"] = removed
+        if retyped: delta[f"{side}_retyped"] = retyped
+        if side == "in":
+            dchg = sorted([n, oo[n][1], nn[n][1]] for n in nn
+                          if n in oo and nn[n][0] == oo[n][0]
+                          and nn[n][1] is not None and oo[n][1] is not None
+                          and nn[n][1] != oo[n][1])
+            if dchg:
+                delta["in_default_changed"] = dchg
+    return delta
+
+
 def build(new, old, src_label, tgt_label):
     db = {"source": src_label, "target": tgt_label,
           "note": "Node lists are EMPIRICAL (enumerated from both binaries). "
@@ -140,14 +180,9 @@ def build(new, old, src_label, tgt_label):
                 db["missing"][k] = {"node_category": cat, "class": c, "action": a, "note": note}
         for k in sorted(n):
             if k in o and "err" not in n[k] and "err" not in o[k] and n[k] != o[k]:
-                ni = {tuple(x) for x in n[k]["in"]};  oi = {tuple(x) for x in o[k]["in"]}
-                no = {tuple(x) for x in n[k]["out"]}; oo = {tuple(x) for x in o[k]["out"]}
-                delta = {}
-                if ni - oi: delta["in_added"] = sorted([list(x) for x in ni - oi])
-                if oi - ni: delta["in_removed"] = sorted([list(x) for x in oi - ni])
-                if no - oo: delta["out_added"] = sorted([list(x) for x in no - oo])
-                if oo - no: delta["out_removed"] = sorted([list(x) for x in oo - no])
-                db["changed"][k] = {"node_category": cat, "action": "review", "delta": delta}
+                delta = diff_sockets(n[k], o[k])
+                if delta:
+                    db["changed"][k] = {"node_category": cat, "action": "review", "delta": delta}
 
     # non-node: settings properties present in source but missing in target
     # (i.e. LOST when the file is opened/saved in the older target version)

@@ -154,6 +154,24 @@ def check_settings(db):
     return out
 
 
+def node_values(n):
+    """Actual set values on a node's unlinked inputs - survives even on an
+    Undefined node in the target version, so reconstruction can carry them."""
+    vals = []
+    for s in n.inputs:
+        try:
+            if s.is_linked:
+                continue
+            dv = getattr(s, "default_value", None)
+            if dv is None:
+                continue
+            v = [round(float(x), 4) for x in dv] if hasattr(dv, "__len__") else round(float(dv), 4)
+        except Exception:
+            continue
+        vals.append((s.name, v))
+    return vals
+
+
 # --------------------------------------------------------------------------- #
 # analysis
 # --------------------------------------------------------------------------- #
@@ -168,9 +186,10 @@ def analyse(nodes, db):
         # DETECT: already broken in the running (older) version
         if bl == "NodeUndefined":
             hits["undefined"].append({
-                "name": n.name, "location": where,
+                "name": n.name, "location": where, "values": node_values(n),
                 "note": "Unknown node type - was valid in a newer version. "
-                        "Original type not recoverable from this file.",
+                        "Original type not recoverable from this file, but its "
+                        "input values below survived and can seed a rebuild.",
             })
             continue
 
@@ -180,7 +199,7 @@ def analyse(nodes, db):
             hits["predicted_missing"].append({
                 "name": n.name, "type": bl, "location": where,
                 "class": info.get("class"), "action": info.get("action"),
-                "note": info.get("note", ""),
+                "values": node_values(n), "note": info.get("note", ""),
             })
         elif bl in changed_db:
             hits["predicted_changed"].append({
@@ -195,6 +214,14 @@ def analyse(nodes, db):
 # --------------------------------------------------------------------------- #
 # reporting
 # --------------------------------------------------------------------------- #
+def _fmt_vals(vals, limit=6):
+    shown = vals[:limit]
+    s = ", ".join(f"{name}={v}" for name, v in shown)
+    if len(vals) > limit:
+        s += f", ... (+{len(vals) - limit} more)"
+    return s or "(none set)"
+
+
 def report(hits, settings_hits, db, opts):
     running = bpy.app.version_string
     src = (db or {}).get("source", "?")
@@ -217,6 +244,8 @@ def report(hits, settings_hits, db, opts):
         for h in u:
             print(f"   x  '{h['name']}'")
             print(f"        at {h['location']}")
+            if h.get("values"):
+                print(f"        recovered values: {_fmt_vals(h['values'])}")
 
     if pm:
         # group by suggested action so the user sees the shape at a glance
@@ -229,6 +258,8 @@ def report(hits, settings_hits, db, opts):
             for h in by_action[action]:
                 print(f"     - {h['type']}  ('{h['name']}')")
                 print(f"         at {h['location']}")
+                if h.get("values"):
+                    print(f"         values: {_fmt_vals(h['values'])}")
                 print(f"         {h['note']}")
 
     if pc:

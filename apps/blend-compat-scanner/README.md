@@ -12,6 +12,27 @@ things silently break on their end. This finds them first.
 Working and tested against local **4.4.3** and **4.2.23 LTS** builds. Diagnosis
 is solid; automatic *repair* is intentionally not implemented yet (see below).
 
+## Value fidelity (what survives a break)
+
+Established empirically, and it's better than expected:
+
+- A broken node in the target version becomes `Undefined` but **keeps its name,
+  all input sockets + their values, and its links**. So the scanner reports the
+  actual knob values (`Roughness=0.777`, Base Color, IOR, ...) in *both* modes —
+  reconstruction can carry them forward, not just recreate an empty node.
+- What's lost on the break: the node's **type identity** (generic `Undefined`)
+  and any **non-socket properties** (enum dropdowns etc.). Those are only fully
+  available in the source version.
+- **A save in the target version is destructive.** After 4.2 saves the file,
+  reopening in 4.4 leaves the node permanently `Undefined` — the type is not
+  restored. So "round-trip through 4.2 and back" loses data.
+
+**Reconstruction architecture (decided):** rebuild in the **source** version
+(4.4) before saving the downgraded copy. Source has full fidelity (type + socket
+values + non-socket properties + links); the target-side undefined node is a
+good fallback (values + links + name, inferred type). Never rely on a
+target-version round-trip.
+
 ## Two modes (auto-detected)
 
 | Mode | Run it in | Answers | Needs DB? |
@@ -68,6 +89,9 @@ Each missing node is tagged with a suggested strategy:
 The node lists are **empirical** (enumerated from both binaries, not scraped
 from release notes). The `class`/`action` tags are advisory judgement and are
 individually verifiable by output-diffing a reconstruction against the original.
+Socket default *values* are now captured too, so the `changed` set also flags a
+shared node whose default shifted between versions (none happen to differ
+between 4.2 and 4.4, but the check is there for other pairs).
 
 ## Files
 

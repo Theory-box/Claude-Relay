@@ -68,3 +68,27 @@ Extended the pipeline + scanner beyond nodes (user asked about world/HDRI/env/re
   with `use_fast_gi=True` is flagged; detect-mode in 4.2 skips cleanly.
 - Known gap: changed DEFAULT values (prop exists in both) not detected — needs value-level
   diff, not existence diff. Candidate for next pass.
+
+## Update — value fidelity + value-aware diffing
+User (correctly) wanted node VALUES preserved, not just node types. Tested:
+- Undefined node in target (4.2) KEEPS name + all input sockets + values + links.
+  (Metallic BSDF -> Undefined still exposed Roughness=0.777 and its link.)
+- LOST on break: type identity + non-socket properties (enums).
+- A SAVE in 4.2 is destructive: reopening in 4.4 stays Undefined (type not
+  restored). => round-trip through 4.2 loses data. DECISION: reconstruct in the
+  SOURCE version (4.4) before saving the downgraded copy; target-side is fallback.
+- Scanner now reports actual values per breaking node in BOTH modes.
+- Signature capture now includes socket default_values; `diff_sockets()` detects
+  added/removed/retyped sockets AND changed defaults (closes the earlier gap).
+  (No default changes 4.2<->4.4, but retype/default logic is in for other pairs.)
+
+User confirmed: they're in 4.4 (not 4.5) - no 4.5 work needed. Want the app
+GENERALIZED to catch everything (incl. grease pencil) even though live pain is
+~6 nodes. Prefer not to test yet; may later send a complex 4.4 scene to validate.
+
+## Next candidates
+- First real reconstruct fixers, built in SOURCE version, value-preserving,
+  each verified by output-diff: start with safe-drop (gizmos/warning) + the two
+  input nodes (Object/Collection) + Integer Math.
+- 'bake' path for Import OBJ/PLY/STL (realize to mesh).
+- Optional in-Blender add-on panel (jump-select broken nodes).
