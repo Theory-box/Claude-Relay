@@ -52,26 +52,26 @@ class FT_Prefs(bpy.types.AddonPreferences):
             ('LEFT_CTRL', "Left Ctrl (hold)", ""),
             ('LEFT_SHIFT', "Left Shift (hold)", ""),
         ],
-        default='RIGHTMOUSE',
+        default='LEFT_ALT',
     )
 
     custom_nav: bpy.props.BoolProperty(
-        name="Custom trackpad navigation", default=False,
+        name="Custom trackpad navigation", default=True,
         description="Remap two-finger to pan/orbit/zoom and one-finger to look. "
                     "Off = stock Blender nav (two-finger orbit), with two-finger pan only when locked",
         update=lambda self, ctx: _refresh_nav())
     pan_ctrl: bpy.props.BoolProperty(name="Ctrl", default=False, update=lambda self, ctx: _refresh_nav())
-    pan_shift: bpy.props.BoolProperty(name="Shift", default=False, update=lambda self, ctx: _refresh_nav())
+    pan_shift: bpy.props.BoolProperty(name="Shift", default=True, update=lambda self, ctx: _refresh_nav())
     pan_alt: bpy.props.BoolProperty(name="Alt", default=False, update=lambda self, ctx: _refresh_nav())
-    orbit_ctrl: bpy.props.BoolProperty(name="Ctrl", default=True, update=lambda self, ctx: _refresh_nav())
+    orbit_ctrl: bpy.props.BoolProperty(name="Ctrl", default=False, update=lambda self, ctx: _refresh_nav())
     orbit_shift: bpy.props.BoolProperty(name="Shift", default=False, update=lambda self, ctx: _refresh_nav())
     orbit_alt: bpy.props.BoolProperty(name="Alt", default=False, update=lambda self, ctx: _refresh_nav())
     zoom_ctrl: bpy.props.BoolProperty(name="Ctrl", default=True, update=lambda self, ctx: _refresh_nav())
-    zoom_shift: bpy.props.BoolProperty(name="Shift", default=True, update=lambda self, ctx: _refresh_nav())
+    zoom_shift: bpy.props.BoolProperty(name="Shift", default=False, update=lambda self, ctx: _refresh_nav())
     zoom_alt: bpy.props.BoolProperty(name="Alt", default=False, update=lambda self, ctx: _refresh_nav())
-    zoom_invert: bpy.props.BoolProperty(name="Invert Zoom", default=False)
+    zoom_invert: bpy.props.BoolProperty(name="Invert Zoom", default=True)
     look_ctrl: bpy.props.BoolProperty(name="Ctrl", default=True, update=lambda self, ctx: _refresh_nav())
-    look_shift: bpy.props.BoolProperty(name="Shift", default=False, update=lambda self, ctx: _refresh_nav())
+    look_shift: bpy.props.BoolProperty(name="Shift", default=True, update=lambda self, ctx: _refresh_nav())
     look_alt: bpy.props.BoolProperty(name="Alt", default=False, update=lambda self, ctx: _refresh_nav())
 
     look_sensitivity: bpy.props.FloatProperty(
@@ -81,7 +81,7 @@ class FT_Prefs(bpy.types.AddonPreferences):
         name="Invert X", default=False,
         description="Flip horizontal look direction")
     look_invert_y: bpy.props.BoolProperty(
-        name="Invert Y", default=False,
+        name="Invert Y", default=True,
         description="Flip vertical look direction")
 
     def draw(self, context):
