@@ -331,15 +331,16 @@ function ackOne(i,e){ e.stopPropagation(); ISSUES[i].state='done'; render(); }
 function ackAll(){ ISSUES.forEach(it=>{ if(it.action==='acknowledge' && it.state==='todo') it.state='done'; }); render(); }
 let CTX={path:null, source:null, blenders:{}};
 async function loadFile(realPath){
-  // Tauri drag-drop passes a real path; static preview passes none -> demo data.
-  const path = realPath || (window.__TAURI__ ? null : null);
+  // App mode: native file picker. Static preview: no path -> demo data.
+  let path = realPath;
+  if(!path && window.pywebview && window.pywebview.api){ path = await window.pywebview.api.pick_blend(); if(!path) return; }
   if(path){
     try{
       const r=await fetch('/api/scan',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path})});
       if(!r.ok) throw new Error('scan failed');
       const d=await r.json();
       ISSUES.length=0; d.issues.forEach(it=>ISSUES.push(Object.assign({state:'todo'},it)));
-      CTX={path, source:Object.values(d.blenders||{})[0]||null, blenders:d.blenders||{}};
+      CTX={path, detected:d.detected, blenders:d.blenders||{}};
       const fn=document.querySelector('.fname'); if(fn) fn.textContent=path.split(/[\\/]/).pop();
       const dv=document.querySelector('.detected'); if(dv&&d.detected) dv.textContent='Blender '+d.detected;
       const sel=el('#target'); if(sel&&d.blenders){ sel.innerHTML=Object.keys(d.blenders).map(v=>`<option>${v}</option>`).join(''); }
@@ -356,9 +357,8 @@ async function convert(){
   const ids=ISSUES.filter(i=>i.action==='fix' && i.state==='staged').map(i=>i.id);
   if(CTX.path){
     try{
-      const target=CTX.blenders[el('#target').value];
       const out=CTX.path.replace(/\.blend$/,'_for_'+el('#target').value.split(' ')[0]+'.blend');
-      const r=await fetch('/api/convert',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:CTX.path,selected:ids,source_blender:CTX.source,target_blender:target,out})});
+      const r=await fetch('/api/convert',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:CTX.path,selected:ids,detected:CTX.detected,target_version:el('#target').value,out})});
       const d=await r.json(); if(d.error) throw new Error(d.error);
       ISSUES.forEach(it=>{ if(it.action==='fix'&&it.state==='staged') it.state='done'; if(it.action==='acknowledge') it.state='done'; }); render();
       toast('Saved '+d.out.split(/[\\/]/).pop(), `${d.rebuilt+d.source_fixed} fixed \u00B7 ${k} acknowledged \u00B7 ${m} left for manual`);

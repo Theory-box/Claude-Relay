@@ -26,9 +26,25 @@ app this is auto-populated by scanning your installs and the app-managed folder.
 - `convert_source.py` / `convert_target.py` — the two convert passes, selection-
   driven by the same issue IDs the UI stages.
 
-## Packaging into a clickable app
-Wrap this with **Tauri** (small installer, OS web view) or **Electron**: the web
-view loads `ui/relay-ui.html`, this engine runs as the bundled sidecar. The UI
-auto-detects the backend (falls back to demo data when served statically). Blender
-builds are fetched on first run into the app folder if a needed version isn't
-already installed.
+## The clickable app
+`relay_app.py` opens the UI in a native window (pywebview) with the engine running
+on a local port behind it. Closing the window exits everything; Blender never
+lingers (tasks are short-lived `blender -b` subprocesses), and every temp file is
+cleaned up. The native file picker (`Api.pick_blend`) provides the real .blend path.
+
+Blender builds are auto-managed (`blender_manage.py`): the engine uses versions you
+already have installed and downloads a portable build only for a target version you
+don't have, into the app-data folder.
+
+## Building the executable — no toolchain needed
+GitHub Actions builds it for Windows / macOS / Linux with PyInstaller (pure Python,
+so no Rust/Node). Run the **Build Relay** workflow from the Actions tab (or push a
+`v*` tag to also cut a release); download the `Relay-windows` etc. artifact.
+
+Locally (optional):
+```bash
+pip install -r apps/blend-compat-scanner/backend/requirements.txt
+pyinstaller relay.spec            # -> dist/Relay(.exe)
+```
+The Blender-side scripts + compat DB ship as bundled data so the engine can point
+Blender at them at runtime.

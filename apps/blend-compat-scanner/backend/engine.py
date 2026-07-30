@@ -1,73 +1,79 @@
 #!/usr/bin/env python3
-"""engine.py — orchestrates Blender for Relay. No bpy here; launches short-lived
-headless Blender subprocesses and cleans up after itself."""
-import subprocess, json, tempfile, os, gzip, glob, shutil
+"""engine.py — orchestrates Blender for Relay. No bpy here. Launches short-lived
+headless Blender subprocesses (which exit on their own) and cleans up temp files.
+Version-driven: resolves/downloads the Blender builds it needs."""
+import subprocess, json, tempfile, os, sys, gzip, shutil
+import blender_manage
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-APP = os.path.dirname(HERE)
-DB = next((os.path.join(APP,f) for f in sorted(os.listdir(APP))
+# bundle-aware: when frozen by PyInstaller, data ships under _MEIPASS
+if getattr(sys, "frozen", False):
+    APP = os.path.join(sys._MEIPASS, "blend-compat-scanner")
+    HERE = os.path.join(APP, "backend")
+else:
+    APP = os.path.dirname(HERE)
+DB = next((os.path.join(APP, f) for f in sorted(os.listdir(APP))
            if f.startswith("compat_db_") and f.endswith(".json")), None)
+CFG = os.path.join(HERE, "blenders.json")   # dev override (ignored if absent)
 
-# ---- source version straight from the .blend header ----
+def _mm(v):  # "4.2.23 LTS" -> "4.2"
+    parts = v.replace("LTS", "").strip().split(".")
+    return ".".join(parts[:2])
+
 def detect_version(path):
-    with open(path,"rb") as f: head=f.read(32)
-    if head[:2]==b"\x1f\x8b":
-        with gzip.open(path,"rb") as f: head=f.read(32)
-    elif head[:4]==b"\x28\xb5\x2f\xfd":
+    with open(path, "rb") as f: head = f.read(32)
+    if head[:2] == b"\x1f\x8b":
+        with gzip.open(path, "rb") as f: head = f.read(32)
+    elif head[:4] == b"\x28\xb5\x2f\xfd":
         try:
             import zstandard as zstd
-            with open(path,"rb") as f: head=zstd.ZstdDecompressor().stream_reader(f).read(32)
+            with open(path, "rb") as f: head = zstd.ZstdDecompressor().stream_reader(f).read(32)
         except Exception: return None
-    if head[:7]!=b"BLENDER": return None
-    v=head[9:12].decode("ascii","ignore")
+    if head[:7] != b"BLENDER": return None
+    v = head[9:12].decode("ascii", "ignore")
     try: return f"{int(v[0])}.{int(v[1:])}"
     except Exception: return None
 
-# ---- find available Blender builds (dev config + real install scan) ----
-def find_blenders():
-    found={}
-    cfg=os.path.join(HERE,"blenders.json")           # dev / app-managed override
-    if os.path.exists(cfg): found.update(json.load(open(cfg)))
-    pats=["/Applications/Blender*.app/Contents/MacOS/Blender",
-          "/usr/bin/blender","/opt/blender*/blender",
-          os.path.expanduser("~/blender*/blender"),
-          "C:\\Program Files\\Blender Foundation\\Blender*\\blender.exe"]
-    for p in pats:
-        for hit in glob.glob(p):
-            found.setdefault("installed:"+os.path.basename(os.path.dirname(hit)), hit)
-    return found
+def blenders():
+    return blender_manage.discover(CFG)
+
+def _blender_for(version):     # ensure a build for this version; download if missing
+    return blender_manage.ensure(_mm(version), CFG)
 
 def _run(blender, blendfile, script, extra):
-    r=subprocess.run([blender,"-b",blendfile,"--python",os.path.join(HERE,script),"--"]+extra,
-                     capture_output=True, text=True, timeout=600)
-    return r
+    return subprocess.run([blender, "-b", blendfile, "--python", os.path.join(HERE, script), "--"] + extra,
+                          capture_output=True, text=True, timeout=900)
 
-# ---- scan: returns UI-format issues ----
-def scan(path, src_blender):
-    out=tempfile.mktemp(suffix=".json")
+def scan(path):
+    ver = detect_version(path)
+    if not ver: raise RuntimeError("not a .blend file (no version header)")
+    src = _blender_for(ver)
+    out = tempfile.mktemp(suffix=".json")
     try:
-        r=_run(src_blender, path, "scan_ui.py", ["--db",DB,"--out",out])
+        r = _run(src, path, "scan_ui.py", ["--db", DB, "--out", out])
         if "SCAN_OK" not in r.stdout: raise RuntimeError(r.stderr[-600:] or "scan failed")
-        data=json.load(open(out))
-        data["blenders"]=find_blenders()
+        data = json.load(open(out))
+        data["detected"] = ver
+        data["blenders"] = blenders()
         return data
     finally:
         if os.path.exists(out): os.unlink(out)
 
-# ---- convert: two staged passes, then clean up everything but the final file ----
-def convert(path, selected_ids, src_blender, tgt_blender, out_path):
-    work=tempfile.mkdtemp(prefix="relay_")
-    sel=os.path.join(work,"sel.json"); man=os.path.join(work,"m.json")
-    inter=os.path.join(work,"inter.blend")
-    json.dump(selected_ids, open(sel,"w"))
+def convert(path, selected_ids, source_version, target_version, out_path):
+    src = _blender_for(source_version)
+    tgt = _blender_for(target_version)     # auto-downloads target build if missing
+    work = tempfile.mkdtemp(prefix="relay_")
+    sel = os.path.join(work, "sel.json"); man = os.path.join(work, "m.json")
+    inter = os.path.join(work, "inter.blend")
+    json.dump(selected_ids, open(sel, "w"))
     try:
-        r1=_run(src_blender, path, "convert_source.py",
-                ["--select",sel,"--db",DB,"--manifest",man,"--out",inter])
+        r1 = _run(src, path, "convert_source.py", ["--select", sel, "--db", DB, "--manifest", man, "--out", inter])
         if "SRC_OK" not in r1.stdout: raise RuntimeError(r1.stderr[-600:] or "source stage failed")
-        r2=_run(tgt_blender, inter, "convert_target.py",
-                ["--select",sel,"--db",DB,"--manifest",man,"--out",out_path])
+        r2 = _run(tgt, inter, "convert_target.py", ["--select", sel, "--db", DB, "--manifest", man, "--out", out_path])
         if "TGT_OK" not in r2.stdout: raise RuntimeError(r2.stderr[-600:] or "target stage failed")
-        s=int(r1.stdout.split("fixed=")[1].split()[0]); k=int(r1.stdout.split("keep_recorded=")[1].split()[0])
-        return {"out":out_path,"source_fixed":s,"rebuilt":int(r2.stdout.split("rebuilt=")[1].split()[0]),"kept":k}
+        return {"out": out_path,
+                "source_fixed": int(r1.stdout.split("fixed=")[1].split()[0]),
+                "kept": int(r1.stdout.split("keep_recorded=")[1].split()[0]),
+                "rebuilt": int(r2.stdout.split("rebuilt=")[1].split()[0])}
     finally:
-        shutil.rmtree(work, ignore_errors=True)          # no leftovers
+        shutil.rmtree(work, ignore_errors=True)

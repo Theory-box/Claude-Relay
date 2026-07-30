@@ -1,0 +1,57 @@
+name: Build Relay
+
+on:
+  workflow_dispatch:        # build on demand from the Actions tab
+  push:
+    tags: ['v*']            # tagging v1.0 etc. also builds + makes a release
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            name: Relay-windows
+            out: dist/Relay.exe
+          - os: macos-latest
+            name: Relay-macos
+            out: dist/Relay
+          - os: ubuntu-latest
+            name: Relay-linux
+            out: dist/Relay
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Linux webview deps
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-gi gir1.2-webkit2-4.1 \
+            libgirepository1.0-dev gcc pkg-config libcairo2-dev
+          python -m pip install pygobject
+
+      - name: Install build deps
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyinstaller pywebview zstandard
+
+      - name: Build executable
+        run: pyinstaller relay.spec
+
+      - name: Upload build
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}
+          path: ${{ matrix.out }}
+
+      - name: Attach to release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ matrix.out }}

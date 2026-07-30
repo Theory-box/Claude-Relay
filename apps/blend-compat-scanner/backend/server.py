@@ -22,14 +22,10 @@ class H(BaseHTTPRequestHandler):
         n=int(self.headers.get("Content-Length",0)); body=json.loads(self.rfile.read(n) or "{}")
         try:
             if self.path=="/api/scan":
-                path=body["path"]; ver=engine.detect_version(path)
-                bl=engine.find_blenders()
-                src=body.get("source_blender") or next(iter(bl.values()), None)
-                data=engine.scan(path, src); data["detected"]=ver
-                self._send(200, json.dumps(data))
+                self._send(200, json.dumps(engine.scan(body["path"])))
             elif self.path=="/api/convert":
-                res=engine.convert(body["path"], body["selected"], body["source_blender"],
-                                    body["target_blender"], body["out"])
+                res=engine.convert(body["path"], body["selected"], body.get("source_version") or body.get("detected"),
+                                    body["target_version"], body["out"])
                 self._send(200, json.dumps(res))
             else: self._send(404,"{}")
         except Exception as e:
