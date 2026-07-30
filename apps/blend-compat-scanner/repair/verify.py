@@ -93,9 +93,36 @@ def check_safe_drop_passthrough():
                     before == after and gone))
 
 
+def check_blackbody():
+    bad = 0
+    for T in (1500, 4000, 6500, 10000):
+        obj, ng, gin, gout = _fresh_gn()
+        bb = ng.nodes.new("ShaderNodeBlackbody"); bb.inputs["Temperature"].default_value = T
+        sto = ng.nodes.new("GeometryNodeStoreNamedAttribute")
+        sto.data_type = "FLOAT_COLOR"; sto.domain = "POINT"
+        sto.inputs["Name"].default_value = "c"
+        ng.links.new(gin.outputs[0], sto.inputs["Geometry"])
+        ng.links.new(bb.outputs["Color"], [s for s in sto.inputs if s.type == "RGBA"][0])
+        ng.links.new(sto.outputs["Geometry"], gout.inputs[0])
+
+        def col():
+            d = bpy.context.evaluated_depsgraph_get()
+            return [round(x, 5) for x in obj.evaluated_get(d).to_mesh().attributes["c"].data[0].color]
+
+        before = col()
+        fixers.fix_blackbody(ng, bb)
+        after = col()
+        gone = not any(n.bl_idname == "ShaderNodeBlackbody" for n in ng.nodes)
+        if before != after or not gone:
+            bad += 1
+            print(f"   FAIL Blackbody {T}K: {before} != {after} (gone={gone})")
+    RESULTS.append(("Blackbody bake-to-colour (evaluated colour identical across temps)", bad == 0))
+
+
 def main():
     check_integer_math()
     check_safe_drop_passthrough()
+    check_blackbody()
     print("\n" + "=" * 60)
     ok = True
     for name, passed in RESULTS:

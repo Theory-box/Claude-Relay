@@ -16,6 +16,8 @@ its output is confirmed identical to the original by evaluation in the source
 version AND the saved file opens in the target with no undefined nodes.
 """
 
+import bpy
+
 
 # --------------------------------------------------------------------------- #
 # helpers
@@ -118,9 +120,61 @@ def fix_integer_math(nt, node):
 
 
 # --------------------------------------------------------------------------- #
+# subtype value-loss: ShaderNodeBlackbody. Its Temperature socket subtype
+# (NodeSocketFloatColorTemperature) doesn't exist in the target, so the value
+# drops (and a *link* into it crashes the target on load). Fix by baking the
+# constant temperature to its evaluated colour in a plain RGB / Color node, which
+# survives cleanly. A linked/animated temperature can't bake -> flagged.
+# --------------------------------------------------------------------------- #
+_bb_cache = {}
+
+
+def blackbody_color(T):
+    key = round(float(T), 3)
+    if key in _bb_cache:
+        return _bb_cache[key]
+    tg = bpy.data.node_groups.new("_bbtmp", "GeometryNodeTree")
+    tg.interface.new_socket("Geometry", in_out="INPUT", socket_type="NodeSocketGeometry")
+    tg.interface.new_socket("Geometry", in_out="OUTPUT", socket_type="NodeSocketGeometry")
+    i = tg.nodes.new("NodeGroupInput"); o = tg.nodes.new("NodeGroupOutput")
+    b = tg.nodes.new("ShaderNodeBlackbody"); b.inputs["Temperature"].default_value = T
+    s = tg.nodes.new("GeometryNodeStoreNamedAttribute")
+    s.data_type = "FLOAT_COLOR"; s.domain = "POINT"; s.inputs["Name"].default_value = "_bb"
+    tg.links.new(i.outputs[0], s.inputs["Geometry"])
+    tg.links.new(b.outputs["Color"], [x for x in s.inputs if x.type == "RGBA"][0])
+    tg.links.new(s.outputs["Geometry"], o.inputs[0])
+    bpy.ops.mesh.primitive_cube_add(); tobj = bpy.context.active_object
+    tobj.modifiers.new("t", "NODES").node_group = tg
+    d = bpy.context.evaluated_depsgraph_get()
+    col = [float(x) for x in tobj.evaluated_get(d).to_mesh().attributes["_bb"].data[0].color]
+    bpy.data.objects.remove(tobj); bpy.data.node_groups.remove(tg)
+    _bb_cache[key] = col
+    return col
+
+
+def fix_blackbody(nt, node):
+    temp = node.inputs["Temperature"]
+    if temp.is_linked:
+        return "flagged"   # dynamic temperature can't bake to a constant colour
+    col = blackbody_color(temp.default_value)
+    targets = _outgoing_targets(nt, node)
+    if nt.type == "GEOMETRY":
+        cn = nt.nodes.new("FunctionNodeInputColor"); cn.value = col
+    else:
+        cn = nt.nodes.new("ShaderNodeRGB"); cn.outputs[0].default_value = col
+    for t in targets:
+        nt.links.new(cn.outputs[0], t)
+    nt.nodes.remove(node)
+    return "fixed"
+
+
+# --------------------------------------------------------------------------- #
 # registry: node bl_idname -> fixer
 # --------------------------------------------------------------------------- #
-FIXERS = {"FunctionNodeIntegerMath": fix_integer_math}
+FIXERS = {
+    "FunctionNodeIntegerMath": fix_integer_math,
+    "ShaderNodeBlackbody": fix_blackbody,
+}
 FIXERS.update({nid: fix_safe_drop for nid in SAFE_DROP})
 
 

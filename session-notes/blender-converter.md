@@ -222,3 +222,25 @@ repair/verify.py (regression harness), repair/README.md.
 - Import OBJ/PLY/STL -> bake to mesh.
 - Blackbody / Volume Principled temperature -> TWO-STAGE (manifest in source,
   re-apply in target). The user's real pain; tackle after these.
+
+## Update — BLACKBODY FIXER DONE (user's #1 pain solved)
+Tested the clean approaches thoroughly:
+- Link-driven temperature (Value node -> Temperature): CRASHES 4.2 on load (a link
+  into the missing-subtype socket segfaults, unlike a default which degrades). REJECTED.
+- BAKE approach (WINNER): evaluate the constant blackbody colour in 4.4, replace the
+  node with a plain RGB (shader trees) / Color (geometry trees) node of that colour.
+  Single-stage, source-side. Tree-aware. Linked/animated temp -> flagged.
+Verified: colour-identical across 1500/4000/6500/10000K in harness; full integration
+(light w/ blackbody -> apply_repair -> open 4.2) = 0 issues, NO crash, correct colour,
+0 blackbody, 0 undefined. blackbody_color() stores FULL precision (rounding caused a
+1e-5 harness mismatch, fixed).
+Trade-off: temperature baked to a colour (not re-editable as temp in 4.2) - correct for
+downgrade-to-send. Registered ShaderNodeBlackbody -> fix_blackbody.
+
+Fixers now: safe-drop, IntegerMath, Blackbody. All pass repair/verify.py.
+
+## Next
+- Volume Principled temperature (same subtype, different node - own approach).
+- Object/Collection Input -> group-input socket.
+- Matrix Determinant -> component arithmetic.
+- Import OBJ/PLY/STL -> bake to mesh.
