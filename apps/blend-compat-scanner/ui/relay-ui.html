@@ -102,6 +102,15 @@
   .tag.safe{color:var(--safe); background:var(--safe-bg)}
   .tag.manual{color:var(--dim); background:var(--panel3)}
   .tag.fixed{color:var(--safe); background:var(--safe-bg); display:flex; align-items:center; gap:5px}
+  .tag.review{color:#8CA6C0; background:#1B2530}
+  .tag.ackd{color:var(--dim); background:var(--panel3); display:flex; align-items:center; gap:5px}
+  .ack{font-family:var(--disp); font-weight:600; font-size:12.5px; color:#A9BAC9; padding:8px 15px; border:1px solid var(--line2); border-radius:8px; transition:.15s}
+  .ack:hover{background:var(--panel3); color:var(--text)}
+  .ackall{font-family:var(--disp); font-size:13px; font-weight:600; color:#A9BAC9; padding:9px 16px; border:1px solid var(--line2); border-radius:9px}
+  .ackall:hover{background:var(--panel3); color:var(--text)}
+  .issue.ackd{border-left:3px solid #4A5A6B; background:var(--panel)}
+  .issue.ackd .itype{color:var(--dim)}
+  .badge-review{color:#8CA6C0}
   .caret{color:var(--faint); font-size:12px; transition:transform .2s; flex:none; width:14px; text-align:center}
   .issue.open .caret{transform:rotate(90deg)}
   .ibody{max-height:0; overflow:hidden; transition:max-height .25s ease}
@@ -200,35 +209,35 @@
 
 <script>
 const ISSUES = [
-  {sev:'break', sock:'--sock-col', type:'ShaderNodeBlackbody', loc:"Light 'KeyLight'", state:'todo', auto:true,
+  {sev:'break', sock:'--sock-col', type:'ShaderNodeBlackbody', loc:"Light 'KeyLight'", state:'todo', action:'fix',
    desc:"Temperature socket uses a subtype (NodeSocketFloatColorTemperature) that 4.2 doesn't have, so the value is dropped — the light renders the wrong colour.", risk:'Temperature = 6000 K', how:'Rebuilt as a native 4.2 Blackbody node with the same temperature (node kept).'},
-  {sev:'break', sock:'--sock-col', type:'ShaderNodeBlackbody', loc:"Material 'Lava'", state:'todo', auto:true,
+  {sev:'break', sock:'--sock-col', type:'ShaderNodeBlackbody', loc:"Material 'Lava'", state:'todo', action:'fix',
    desc:"Same as above — the temperature value is lost on load in 4.2.", risk:'Temperature = 4000 K', how:'Rebuilt as a native 4.2 Blackbody node with the same temperature.'},
-  {sev:'break', sock:'--sock-col', type:'ShaderNodeBlackbody', loc:"Material 'Embers'", state:'todo', auto:true,
+  {sev:'break', sock:'--sock-col', type:'ShaderNodeBlackbody', loc:"Material 'Embers'", state:'todo', action:'fix',
    desc:"Same subtype value-loss on the Temperature socket.", risk:'Temperature = 1800 K', how:'Rebuilt as a native 4.2 Blackbody node with the same temperature.'},
-  {sev:'break', sock:'--sock-col', type:'ShaderNodeVolumePrincipled', loc:"Material 'Smoke'", state:'todo', auto:true,
+  {sev:'break', sock:'--sock-col', type:'ShaderNodeVolumePrincipled', loc:"Material 'Smoke'", state:'todo', action:'fix',
    desc:"Temperature socket has the same missing subtype. Other inputs (Density, Colour…) are unaffected and preserved.", risk:'Temperature = 5500 K', how:'Rebuilt fresh, preserving all other sockets and links.'},
-  {sev:'break', sock:'--sock-val', type:'FunctionNodeIntegerMath', loc:"Geometry Nodes 'Scatter'", state:'todo', auto:true,
+  {sev:'break', sock:'--sock-val', type:'FunctionNodeIntegerMath', loc:"Geometry Nodes 'Scatter'", state:'todo', action:'fix',
    desc:"This node doesn't exist in 4.2 and becomes an Undefined node, breaking the graph.", risk:'operation = MULTIPLY', how:'Reconstructed with a Math node + rounding (exact-equal output).'},
-  {sev:'break', sock:'--sock-val', type:'FunctionNodeMatrixDeterminant', loc:"Geometry Nodes 'Align'", state:'todo', auto:true,
+  {sev:'break', sock:'--sock-val', type:'FunctionNodeMatrixDeterminant', loc:"Geometry Nodes 'Align'", state:'todo', action:'fix',
    desc:"Missing in 4.2. Becomes Undefined.", risk:'—', how:'Reconstructed from Separate Matrix + cofactor expansion (matches native determinant).'},
-  {sev:'shift', sock:'--sock-val', type:'ShaderNodeBsdfPrincipled', loc:"Material 'Skin'", state:'todo', auto:true,
-   desc:"Exists in both, but the 4.4 Diffuse Roughness input doesn't exist in 4.2 — any value there reverts to the old default.", risk:'Diffuse Roughness = 0.3', how:'Added socket dropped; reverts to 4.2 behaviour (minor).'},
-  {sev:'shift', sock:'--sock-val', type:'Scene · EEVEE', loc:'Scene', state:'todo', auto:true,
-   desc:"Fast GI is a 4.3+ setting with no equivalent in 4.2. It reverts to standard GI.", risk:'use_fast_gi = on', how:'No target equivalent — reverts to default.'},
-  {sev:'safe', sock:'--sock-geo', type:'GeometryNodeSetGeometryName', loc:"Geometry Nodes 'Prep'", state:'todo', auto:true,
+  {sev:'safe', sock:'--sock-geo', type:'GeometryNodeSetGeometryName', loc:"Geometry Nodes 'Prep'", state:'todo', action:'fix',
    desc:"Missing in 4.2, but only sets a name — no effect on the evaluated geometry.", risk:'cosmetic', how:'Removed; geometry passthrough reconnected (output identical).'},
-  {sev:'safe', sock:'--sock-vec', type:'GeometryNodeGizmoDial', loc:"Geometry Nodes 'Rig'", state:'todo', auto:true,
+  {sev:'safe', sock:'--sock-vec', type:'GeometryNodeGizmoDial', loc:"Geometry Nodes 'Rig'", state:'todo', action:'fix',
    desc:"An authoring gizmo with no effect on output geometry.", risk:'cosmetic', how:'Safely dropped.'},
-  {sev:'break', sock:'--sock-geo', type:'GeometryNodeForeachGeometryElementInput', loc:"Geometry Nodes 'PerIsland'", state:'todo', auto:false,
+  {sev:'shift', sock:'--sock-val', type:'Scene · EEVEE', loc:'Scene', state:'todo', action:'acknowledge',
+   desc:"Fast GI is a 4.3+ setting with no equivalent in 4.2. There's nothing to fix — it simply reverts to standard GI. Just be aware the look may differ.", risk:'use_fast_gi = on', how:'No 4.2 equivalent — reverts to standard GI on open.'},
+  {sev:'shift', sock:'--sock-val', type:'ShaderNodeBsdfPrincipled', loc:"Material 'Skin'", state:'todo', action:'acknowledge',
+   desc:"The 4.4 Diffuse Roughness input doesn't exist in 4.2. Nothing to reconstruct — the value is simply dropped and reverts to 4.2 behaviour.", risk:'Diffuse Roughness = 0.3', how:'Added socket dropped on open; reverts to 4.2 default (minor).'},
+  {sev:'break', sock:'--sock-geo', type:'GeometryNodeForeachGeometryElementInput', loc:"Geometry Nodes 'PerIsland'", state:'todo', action:'manual',
    desc:"The For-Each Element zone is new control flow with no 4.2 equivalent. It can't be reconstructed automatically.", risk:'zone · 2 nodes', how:'Restructure or remove the zone manually.'},
-  {sev:'break', sock:'--sock-val', type:'FunctionNodeIntegerMath', loc:"Geometry Nodes 'Hash'", state:'todo', auto:false,
+  {sev:'break', sock:'--sock-val', type:'FunctionNodeIntegerMath', loc:"Geometry Nodes 'Hash'", state:'todo', action:'manual',
    desc:"Missing node, and its GCD operation has no Math-node equivalent, so it can't be reconstructed.", risk:'operation = GCD', how:'No Math equivalent — rebuild by hand if needed.'},
-  {sev:'break', sock:'--sock-geo', type:'Grease Pencil v3', loc:"whole file", state:'todo', auto:false,
+  {sev:'break', sock:'--sock-geo', type:'Grease Pencil v3', loc:"whole file", state:'todo', action:'manual',
    desc:"Grease Pencil objects saved in 4.3+ use GP v3 and will not open correctly in 4.2. This is a file-level change, not a node.", risk:'non-node · critical', how:'Handle Grease Pencil objects before downgrading.'},
-  {sev:'shift', sock:'--sock-geo', type:'GeometryNodeImportSTL', loc:"Geometry Nodes 'Load'", state:'todo', auto:false,
+  {sev:'shift', sock:'--sock-geo', type:'GeometryNodeImportSTL', loc:"Geometry Nodes 'Load'", state:'todo', action:'manual',
    desc:"Missing in 4.2. Becomes Undefined. Its imported geometry can't be injected as a constant in 4.2.", risk:"path: /models/part.stl", how:'Re-import or realise the geometry in 4.2.'},
-  {sev:'shift', sock:'--sock-geo', type:'GeometryNodeInputObject', loc:"Geometry Nodes 'Ref'", state:'todo', auto:false,
+  {sev:'shift', sock:'--sock-geo', type:'GeometryNodeInputObject', loc:"Geometry Nodes 'Ref'", state:'todo', action:'manual',
    desc:"Missing in 4.2 — there's no way to inline a constant object reference there.", risk:"references object 'TargetObj'", how:"Recreate as an Object group input set to 'TargetObj'."},
 ];
 const SEVRANK={break:0, shift:1, safe:2};
@@ -245,16 +254,26 @@ function catOf(it){
   return 'changed socket';
 }
 function rowHTML(it,i){
-  const tag = it.state==='fixed' ? `<span class="tag fixed">✓ fixed</span>`
-    : it.auto ? (it.sev==='safe'?`<span class="tag safe">auto · safe</span>`:`<span class="tag ${it.sev}">auto-fix</span>`)
-    : `<span class="tag manual">manual</span>`;
-  const sameType = ISSUES.filter(x=>x.type===it.type && x.auto && x.state==='todo').length;
-  const typeBtn = (it.auto && sameType>1) ? `<button class="fixtype" onclick="fixType('${it.type}',event)">Fix all ${sameType} of this type</button>` : '';
+  const done = it.state==='done';
+  let tag;
+  if(done) tag = it.action==='acknowledge' ? `<span class="tag ackd">◦ acknowledged</span>` : `<span class="tag fixed">✓ fixed</span>`;
+  else if(it.action==='fix') tag = it.sev==='safe'?`<span class="tag safe">auto · safe</span>`:`<span class="tag ${it.sev}">auto-fix</span>`;
+  else if(it.action==='acknowledge') tag = `<span class="tag review">review</span>`;
+  else tag = `<span class="tag manual">manual</span>`;
+
   let action='';
-  if(it.state==='fixed') action = `<div class="act"><span class="howfix"><b>Done:</b> ${it.how}</span></div>`;
-  else if(it.auto) action = `<div class="act"><button class="fix" onclick="fixOne(${i},event)">Fix this</button>${typeBtn}<span class="howfix"><b>How:</b> ${it.how}</span></div>`;
-  else action = `<div class="act"><span class="manual-note"><span class="i">△</span><span>${it.how}</span></span></div>`;
-  const cls = it.state==='fixed' ? 'fixed' : it.sev;
+  if(done) action = `<div class="act"><span class="howfix"><b>${it.action==='acknowledge'?'Note':'Done'}:</b> ${it.how}</span></div>`;
+  else if(it.action==='fix'){
+    const sameType = ISSUES.filter(x=>x.type===it.type && x.action==='fix' && x.state==='todo').length;
+    const typeBtn = sameType>1 ? `<button class="fixtype" onclick="fixType('${it.type}',event)">Fix all ${sameType} of this type</button>` : '';
+    action = `<div class="act"><button class="fix" onclick="fixOne(${i},event)">Fix this</button>${typeBtn}<span class="howfix"><b>How:</b> ${it.how}</span></div>`;
+  }
+  else if(it.action==='acknowledge')
+    action = `<div class="act"><button class="ack" onclick="fixOne(${i},event)">Acknowledge</button><span class="howfix"><b>Why:</b> ${it.how}</span></div>`;
+  else
+    action = `<div class="act"><span class="manual-note"><span class="i">△</span><span>${it.how}</span></span></div>`;
+
+  const cls = done ? (it.action==='acknowledge'?'ackd':'fixed') : it.sev;
   return `<div class="issue ${cls}" data-i="${i}">
     <div class="ihead" onclick="toggle(${i})">
       <span class="sock" style="background:var(${it.sock})"></span>
@@ -275,30 +294,33 @@ function groupHTML(title, cls, badge, items, headExtra=''){
 function render(){
   const idx = ISSUES.map((it,i)=>({it,i}));
   const bySeverity=(a,b)=>SEVRANK[a.it.sev]-SEVRANK[b.it.sev];
-  const auto = idx.filter(x=>x.it.auto && x.it.state==='todo').sort(bySeverity);
-  const manual = idx.filter(x=>!x.it.auto && x.it.state==='todo').sort(bySeverity);
-  const fixed = idx.filter(x=>x.it.state==='fixed');
-  const fixAllBtn = auto.length ? `<button class="fixall" onclick="fixAllAuto()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M20 6L9 17l-5-5"/></svg>Fix all ${auto.length} automatic</button>` : '';
+  const fix = idx.filter(x=>x.it.action==='fix' && x.it.state==='todo').sort(bySeverity);
+  const ack = idx.filter(x=>x.it.action==='acknowledge' && x.it.state==='todo').sort(bySeverity);
+  const manual = idx.filter(x=>x.it.action==='manual' && x.it.state==='todo').sort(bySeverity);
+  const done = idx.filter(x=>x.it.state==='done');
+  const fixAllBtn = fix.length ? `<button class="fixall" onclick="fixAll('fix')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M20 6L9 17l-5-5"/></svg>Fix all ${fix.length} automatic</button>` : '';
+  const ackAllBtn = ack.length>1 ? `<button class="ackall" onclick="fixAll('acknowledge')">Acknowledge all ${ack.length}</button>` : '';
   el('#groups').innerHTML =
-      groupHTML('Automatic', 'badge-auto', '✦', auto, fixAllBtn)
+      groupHTML('Automatic', 'badge-auto', '✦', fix, fixAllBtn)
+    + groupHTML('Review — will change, nothing to fix', 'badge-review', '◦', ack, ackAllBtn)
     + groupHTML('Manual — you handle these', 'badge-manual', '△', manual)
-    + groupHTML('Fixed', 'badge-fixed', '✓', fixed);
+    + groupHTML('Done', 'badge-fixed', '✓', done);
   el('#s-total').textContent=ISSUES.length;
   el('#s-break').textContent=ISSUES.filter(i=>i.sev==='break').length;
   el('#s-shift').textContent=ISSUES.filter(i=>i.sev==='shift').length;
-  el('#s-auto').textContent=ISSUES.filter(i=>i.auto).length;
+  el('#s-auto').textContent=ISSUES.filter(i=>i.action==='fix').length;
 }
 function toggle(i){ const n=document.querySelector(`.issue[data-i="${i}"]`); if(n) n.classList.toggle('open'); }
-function fixOne(i,e){ e.stopPropagation(); ISSUES[i].state='fixed'; render(); }
-function fixType(t,e){ e.stopPropagation(); ISSUES.forEach(it=>{ if(it.type===t && it.auto) it.state='fixed'; }); render(); }
-function fixAllAuto(){ ISSUES.forEach(it=>{ if(it.auto) it.state='fixed'; }); render(); }
+function fixOne(i,e){ e.stopPropagation(); ISSUES[i].state='done'; render(); }
+function fixType(t,e){ e.stopPropagation(); ISSUES.forEach(it=>{ if(it.type===t && it.action==='fix') it.state='done'; }); render(); }
+function fixAll(kind){ ISSUES.forEach(it=>{ if(it.action===kind) it.state='done'; }); render(); }
 function loadFile(){ el('#empty').classList.add('hidden'); el('#scanned').classList.remove('hidden'); render(); }
 function reset(){ ISSUES.forEach(it=>it.state='todo'); el('#scanned').classList.add('hidden'); el('#empty').classList.remove('hidden'); }
 function convert(){
-  const a=ISSUES.filter(i=>i.auto).length, m=ISSUES.filter(i=>!i.auto).length;
-  fixAllAuto();
+  const a=ISSUES.filter(i=>i.action==='fix').length, k=ISSUES.filter(i=>i.action==='acknowledge').length, m=ISSUES.filter(i=>i.action==='manual').length;
+  ISSUES.forEach(it=>{ if(it.action==='fix'||it.action==='acknowledge') it.state='done'; }); render();
   el('#toast-t').textContent='Saved lighting_test_for_4.2.blend';
-  el('#toast-s').textContent=`${a} fixed automatically · ${m} flagged for manual review`;
+  el('#toast-s').textContent=`${a} fixed · ${k} acknowledged · ${m} left for manual`;
   const t=el('#toast'); t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),4200);
 }
 </script>
