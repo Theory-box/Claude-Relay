@@ -333,7 +333,13 @@ let CTX={path:null, source:null, blenders:{}};
 async function loadFile(realPath){
   // App mode: native file picker. Static preview: no path -> demo data.
   let path = realPath;
-  if(!path && window.pywebview && window.pywebview.api){ path = await window.pywebview.api.pick_blend(); if(!path) return; }
+  if(!path){
+    if(window.pywebview && window.pywebview.api){ path = await window.pywebview.api.pick_blend(); if(!path) return; }
+    else {
+      let backend=false; try{ backend=(await fetch('/api/ping')).ok; }catch(e){}
+      if(backend){ path = prompt('Path to your .blend file:'); if(!path) return; }
+    }
+  }
   if(path){
     try{
       const r=await fetch('/api/scan',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path})});

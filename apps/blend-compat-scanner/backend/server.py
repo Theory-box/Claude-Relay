@@ -17,6 +17,7 @@ class H(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path in ("/","/index.html"):
             self._send(200, open(UI,"rb").read(), "text/html")
+        elif self.path=="/api/ping": self._send(200, '{"ok":true}')
         else: self._send(404,"{}")
     def do_POST(self):
         n=int(self.headers.get("Content-Length",0)); body=json.loads(self.rfile.read(n) or "{}")
