@@ -180,3 +180,17 @@ GP v3, slotted actions.
 Genuinely remaining (lower impact): node sub-structures (ColorRamp/CurveMapping),
 zone state items (sim/repeat), mesh/curve attribute layers, physics/particles,
 full animation-data (actions/slots).
+
+## Update — sub-structures / attributes / zones audited (all ~clean)
+- Node sub-structures (ColorRamp, ColorRampElement, CurveMapping, CurveMap,
+  CurveMapPoint): ZERO changes 4.2<->4.4. Stable.
+- Attribute layers: only internal INT16_2D added; no new user-facing data types or
+  domains. No real risk (value-conditional check covers it).
+- Zone state items (SimulationStateItem, RepeatItem, IndexSwitchItem): stable.
+  GeometryNodeSimulationOutput gained minor props (color_tag, location_absolute,
+  warning_propagation) - low impact. NOTE: node-prop audit via instantiation skips
+  zone-OUTPUT nodes (can't instantiate standalone); direct bl_rna introspection
+  catches them. Minor gap, minor props.
+- Deferred by user: physics, particles, animation-data.
+
+DIAGNOSIS BASE = SOLID. Next: REPAIR PHASE.

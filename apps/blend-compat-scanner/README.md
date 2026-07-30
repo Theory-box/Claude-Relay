@@ -51,11 +51,16 @@ compositor, nested node groups.
   no new object/modifier/constraint/light-probe types.
 - **Grease Pencil v3:** critical non-node warning.
 
-### Genuinely remaining (lower impact, not yet automated)
-- node **sub-structures**: ColorRamp elements, CurveMapping (historically stable).
-- zone **state items** (simulation / repeat).
-- mesh/curve **attribute layers**, physics, particles.
-- full **animation-data** audit (actions/slots beyond the ActionConstraint case).
+### Audited and clean (4.4 vs 4.2)
+- node **sub-structures** (ColorRamp / ColorRampElement / CurveMapping / CurveMap /
+  CurveMapPoint): zero changes.
+- mesh/curve **attribute layers**: only the internal-only `INT16_2D` type; no new
+  user-facing types or domains.
+- **zone state items** (Simulation / Repeat): stable; Simulation-output node gained
+  3 minor organizational props (color_tag, location_absolute, warning_propagation).
+
+### Deferred (by request, lower impact)
+- physics, particles, and full animation-data (actions/slots).
 
 ## Value fidelity (what survives a break)
 
