@@ -59,21 +59,25 @@ def scan(path):
     finally:
         if os.path.exists(out): os.unlink(out)
 
-def convert(path, selected_ids, source_version, target_version, out_path):
+def convert(path, selected_ids, source_version, target_version, out_path, apply_modifiers=None):
     src = _blender_for(source_version)
     tgt = _blender_for(target_version)     # auto-downloads target build if missing
     work = tempfile.mkdtemp(prefix="relay_")
+    src_copy = os.path.join(work, "source.blend")
+    shutil.copy2(path, src_copy)                 # ORIGINAL is only ever READ, never opened for writing
     sel = os.path.join(work, "sel.json"); man = os.path.join(work, "m.json")
-    inter = os.path.join(work, "inter.blend")
+    apl = os.path.join(work, "apply.json"); inter = os.path.join(work, "inter.blend")
     json.dump(selected_ids, open(sel, "w"))
+    json.dump(apply_modifiers or [], open(apl, "w"))
     try:
-        r1 = _run(src, path, "convert_source.py", ["--select", sel, "--db", DB, "--manifest", man, "--out", inter])
+        r1 = _run(src, src_copy, "convert_source.py", ["--select", sel, "--apply", apl, "--db", DB, "--manifest", man, "--out", inter])
         if "SRC_OK" not in r1.stdout: raise RuntimeError(r1.stderr[-600:] or "source stage failed")
         r2 = _run(tgt, inter, "convert_target.py", ["--select", sel, "--db", DB, "--manifest", man, "--out", out_path])
         if "TGT_OK" not in r2.stdout: raise RuntimeError(r2.stderr[-600:] or "target stage failed")
         return {"out": out_path,
                 "source_fixed": int(r1.stdout.split("fixed=")[1].split()[0]),
                 "kept": int(r1.stdout.split("keep_recorded=")[1].split()[0]),
+                "applied": int(r1.stdout.split("applied=")[1].split()[0]),
                 "rebuilt": int(r2.stdout.split("rebuilt=")[1].split()[0])}
     finally:
         shutil.rmtree(work, ignore_errors=True)

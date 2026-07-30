@@ -3,7 +3,7 @@
 shape the Relay UI consumes, reusing the tested scanner traversal + fixer registry.
   blender-4.4 -b file.blend --python scan_ui.py -- --db compat.json --out issues.json
 """
-import bpy, sys, os, json
+import bpy, sys, os, json, re
 
 def arg(name, default=None):
     a = sys.argv; a = a[a.index("--")+1:] if "--" in a else []
@@ -85,6 +85,12 @@ def main():
         add("nonnode::"+w["id"], "break" if w["severity"]=="critical" else "shift", w["id"].replace("_"," ").title(),
             "whole file","manual",w["detail"],"non-node · "+w["severity"],"Handle before downgrading.","--sock-geo")
 
+    # manual issues living inside a GN modifier can be resolved by applying it
+    for it in issues:
+        if it["action"]=="manual":
+            m=re.match(r"Object '(.+)' > GN modifier '(.+)'", it["loc"])
+            if m:
+                it["obj"], it["mod"], it["can_apply"] = m.group(1), m.group(2), True
     out = arg("--out")
     payload = {"source": bpy.app.version_string, "file": bpy.data.filepath, "issues": issues}
     if out: json.dump(payload, open(out,"w"), indent=1)

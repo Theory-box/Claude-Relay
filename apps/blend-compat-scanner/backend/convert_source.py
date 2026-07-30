@@ -14,7 +14,20 @@ from subtype_keep import at_risk_map
 
 sel=set(json.load(open(arg("--select"))))
 db=json.load(open(arg("--db"))); risk=at_risk_map(db)
-manifest={}; fixed=0
+apply_list=json.load(open(arg("--apply"))) if arg("--apply") else []
+manifest={}; fixed=0; applied=0
+# apply chosen modifiers first: bakes evaluated geometry into the mesh and removes
+# the modifier (and its unfixable nodes) entirely.
+for entry in apply_list:
+    obj_name, mod_name = entry.split("::",1)
+    obj=bpy.data.objects.get(obj_name)
+    if obj and obj.modifiers.get(mod_name):
+        try:
+            with bpy.context.temp_override(object=obj, active_object=obj, selected_objects=[obj]):
+                bpy.ops.object.modifier_apply(modifier=mod_name)
+            applied+=1
+        except Exception as e:
+            print("APPLY_WARN", obj_name, mod_name, e)
 for n,where in list(sc.collect_nodes()):
     iid=f"{where}::{n.name}"
     if iid not in sel: continue
@@ -29,4 +42,4 @@ for n,where in list(sc.collect_nodes()):
                 manifest[f"{iid}::{sname}"]=list(v) if hasattr(v,"__len__") else v
 json.dump(manifest, open(arg("--manifest"),"w"))
 bpy.ops.wm.save_as_mainfile(filepath=arg("--out"))
-print(f"SRC_OK fixed={fixed} keep_recorded={len(manifest)}")
+print(f"SRC_OK fixed={fixed} keep_recorded={len(manifest)} applied={applied}")

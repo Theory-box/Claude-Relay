@@ -306,3 +306,23 @@ Volume Principled (keep_nodes_run.py two-stage); blackbody bake (opt-in).
 - Fixer phase substantially complete. Auto-fixed+verified: safe-drop, IntegerMath,
   MatrixDeterminant, subtype-keep (Blackbody/VolumePrincipled). Flagged-with-guidance:
   Object/Collection Input, Import, Foreach zone, Hash, FindInString, GP conversions.
+
+## Update — file safety + apply-modifier escape hatch
+- ORIGINAL FILE SAFETY: engine.convert now copies the source to a temp working copy
+  and runs all stages on the COPY. The original is only ever READ, never opened for
+  writing. Verified: after a convert (incl. applying a modifier), the original still
+  has its modifier + base geometry, md5 unchanged.
+- APPLY-MODIFIER option: for a manual (unfixable) issue living inside a GN modifier,
+  offer applying that object's modifier (bakes evaluated geometry into the mesh,
+  removes the modifier + its nodes). Verified: 8-vert cube w/ subdivide+InputObject
+  modifier -> apply -> 4.2 opens with 98 verts, 0 undefined nodes.
+  * scan_ui: manual GN-modifier issues get obj/mod/can_apply (parsed from
+    "Object 'X' > GN modifier 'Y'").
+  * convert_source: --apply list; applies those modifiers FIRST (temp_override +
+    modifier_apply), then node-fixes the rest.
+  * engine/server: apply_modifiers plumbed through convert.
+  * UI: can_apply issues offer "Apply modifier (bake)" + "Acknowledge"; staged apply
+    shows "will apply" queued state (amber); applying resolves all issues in that
+    obj::mod; convert gating counts staged fixes + APPLY.size.
+- Only OFFERED for GN modifiers with a detected unfixable error (not clean mods, not
+  non-GN mods). Acknowledge remains an alternative.

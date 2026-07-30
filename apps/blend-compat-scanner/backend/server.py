@@ -26,7 +26,7 @@ class H(BaseHTTPRequestHandler):
                 self._send(200, json.dumps(engine.scan(body["path"])))
             elif self.path=="/api/convert":
                 res=engine.convert(body["path"], body["selected"], body.get("source_version") or body.get("detected"),
-                                    body["target_version"], body["out"])
+                                    body["target_version"], body["out"], body.get("apply_modifiers"))
                 self._send(200, json.dumps(res))
             else: self._send(404,"{}")
         except Exception as e:
