@@ -292,3 +292,17 @@ tool) + bake (opt-in). All harness checks pass.
 
 Fixers now: safe-drop, IntegerMath (apply_repair); subtype-keep for Blackbody +
 Volume Principled (keep_nodes_run.py two-stage); blackbody bake (opt-in).
+
+## Update — Matrix Determinant fixer + honest flagging of the rest
+- Matrix Determinant: 4.2 has SeparateMatrix (16 elements) but not MatrixDeterminant.
+  Reconstruct via SeparateMatrix + Math cofactor expansion (4x4). VERIFIED in harness
+  vs native determinant for random matrices. Registered.
+- Object/Collection Input + Import OBJ/PLY/STL: clean fixes hit a real wall (4.2 has
+  no way to inline a constant object reference; would need group-interface changes +
+  modifier-level values, fragile esp. nested). DECISION: flag with GUIDANCE, not
+  fragile auto-fix. apply_repair now reports the referenced object/collection name
+  and import file path so the manual fix is trivial. (Held the verification bar:
+  don't ship fixers that can't be cleanly verified.)
+- Fixer phase substantially complete. Auto-fixed+verified: safe-drop, IntegerMath,
+  MatrixDeterminant, subtype-keep (Blackbody/VolumePrincipled). Flagged-with-guidance:
+  Object/Collection Input, Import, Foreach zone, Hash, FindInString, GP conversions.

@@ -42,6 +42,16 @@ blender-4.4 -b --python repair/verify.py
 >   --in scene.blend --out scene_for_4.2.blend
 > ```
 
+## Flagged with guidance (intentionally not auto-fixed)
+Some nodes have no clean, safe reconstruction and are reported with actionable
+detail instead of a fragile auto-fix:
+
+| node | why manual | guidance given |
+|------|-----------|----------------|
+| Object / Collection Input | inlining an object/collection in the target needs a group-input socket + a modifier-level value (fragile, worse in nested groups) | names the referenced object/collection to recreate as a group input |
+| Import OBJ/PLY/STL | injecting constant geometry hits the same "no inline object reference" wall | reports the file path to re-import or realize |
+| For-Each zone, Hash, Find-in-String, Grease-Pencil conversions | genuinely no target equivalent | flagged for manual handling |
+
 ## Next fixers (planned, same verification bar)
 - Object / Collection Input → group-input socket (reconstruct)
 - Matrix Determinant → component arithmetic (reconstruct)

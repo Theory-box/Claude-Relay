@@ -66,14 +66,35 @@ def all_trees():
     return trees
 
 
+def _guidance(node):
+    """Helpful detail for nodes we intentionally leave manual."""
+    if hasattr(node, "object") and node.object:
+        return f"references object '{node.object.name}' — recreate as an Object group input set to it"
+    if hasattr(node, "collection") and node.collection:
+        return f"references collection '{node.collection.name}' — recreate as a Collection group input set to it"
+    p = node.inputs.get("Path") if hasattr(node.inputs, "get") else None
+    if p is not None and not p.is_linked:
+        return f"imports '{p.default_value}' — re-import or realize the geometry in the target"
+    return "no safe automatic reconstruction"
+
+
+MANUAL_MISSING = {
+    "GeometryNodeInputObject", "GeometryNodeInputCollection",
+    "GeometryNodeImportOBJ", "GeometryNodeImportPLY", "GeometryNodeImportSTL",
+}
+
+
 def main():
     out = parse_args()
     # collect (tree, node) first — fixers mutate the tree
     todo = []
+    manual = []
     for tree, where in all_trees():
         for node in list(tree.nodes):
             if node.bl_idname in fixers.FIXERS:
                 todo.append((tree, node, where))
+            elif node.bl_idname in MANUAL_MISSING:
+                manual.append((node, where))
 
     fixed, flagged = [], []
     for tree, node, where in todo:
@@ -89,12 +110,15 @@ def main():
             flagged.append(f"{label} -- no safe reconstruction, left in place")
 
     print("\n" + "=" * 64)
-    print(f" REPAIR: {len(fixed)} fixed, {len(flagged)} flagged for manual handling")
+    print(f" REPAIR: {len(fixed)} fixed, {len(flagged) + len(manual)} flagged for manual handling")
     print("=" * 64)
     for f in fixed:
         print("  [fixed] ", f)
     for f in flagged:
         print("  [manual]", f)
+    for node, where in manual:
+        print(f"  [manual] {node.bl_idname} ('{node.name}') at {where}")
+        print(f"             -> {_guidance(node)}")
 
     # blackbody: recommend the node-preserving two-stage tool rather than baking
     bb = [(t, n) for t, _ in all_trees() for n in t.nodes
