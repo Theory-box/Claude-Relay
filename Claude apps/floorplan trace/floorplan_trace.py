@@ -322,28 +322,8 @@ class MESH_OT_floorplan_trace(bpy.types.Operator):
         angle_locked = False
         locked_dir = None
 
-        # 2. extension guides: snap onto the infinite line of an existing edge
-        if s.use_extension:
-            best = float(s.align_px)
-            hit = None
-            for a, b in self._segments_uv(s):
-                seg = b - a
-                L = seg.length
-                if L < 1e-6:
-                    continue
-                sd = seg / L
-                proj = a + sd * (P - a).dot(sd)
-                perp = (P - proj).length * ppu
-                if perp < best:
-                    best = perp
-                    hit = (a, sd, proj)
-            if hit is not None:
-                a, sd, proj = hit
-                P = proj.copy()
-                res['ext'] = (a, sd)
-
-        # 3. angle snap: world axes plus (optionally) relative to the previous segment
-        if Lp is not None and s.use_angle_snap and res['ext'] is None:
+        # 2. angle snap: world axes plus (optionally) relative to the previous segment
+        if Lp is not None and s.use_angle_snap:
             d = P - Lp
             if d.length > 1e-6:
                 inc = radians(s.angle_increment)
@@ -368,65 +348,110 @@ class MESH_OT_floorplan_trace(bpy.types.Operator):
                         angle_locked = True
                         locked_dir = Vector((cos(best_ang), sin(best_ang)))
                         t = max(0.0, d.dot(locked_dir))
-                        if s.use_grid and s.grid_size > 0:
-                            t = round(t / s.grid_size) * s.grid_size
                         P = Lp + locked_dir * t
 
-        # extension supplies the direction for distance memory when the last point
-        # lies on the extension line (the collinear repeated-length case)
-        if res['ext'] is not None and Lp is not None and not angle_locked:
-            a_uv, sd = res['ext']
-            rel = Lp - a_uv
-            if (rel - sd * rel.dot(sd)).length * ppu <= s.align_px:
-                d = P - Lp
-                if d.length > 1e-6:
-                    locked_dir = sd if d.dot(sd) >= 0 else -sd
-                    angle_locked = True
-
-        # 4. alignment snap (only when the direction is free)
-        candidates = self.align_candidates(s) if self.use_alignment_enabled(s) else []
-        if candidates and not angle_locked and res['ext'] is None:
-            best_u = best_v = None
-            bud = bvd = s.align_px
-            gu_w = gv_w = None
-            for w in candidates:
-                w2 = self.to2d(w)
-                if w2 is None:
-                    continue
-                cu, cv = self.to_uv(w)
-                if abs(m.x - w2.x) < bud:
-                    bud = abs(m.x - w2.x); best_u = cu; gu_w = w
-                if abs(m.y - w2.y) < bvd:
-                    bvd = abs(m.y - w2.y); best_v = cv; gv_w = w
-            if best_u is not None:
-                P.x = best_u; res['guide'] = gu_w.copy()
-            if best_v is not None:
-                P.y = best_v; res['guide'] = gv_w.copy()
-            if s.use_grid and s.grid_size > 0:
-                if best_u is None:
-                    P.x = round(P.x / s.grid_size) * s.grid_size
-                if best_v is None:
-                    P.y = round(P.y / s.grid_size) * s.grid_size
-        elif not self.chain:
-            if s.use_grid and s.grid_size > 0:
-                P.x = round(P.x / s.grid_size) * s.grid_size
-                P.y = round(P.y / s.grid_size) * s.grid_size
-
-        # 5. distance memory: snap length along a locked direction
-        if (s.use_distance_memory and angle_locked and locked_dir is not None
-                and Lp is not None):
+        if angle_locked:
+            # LENGTH snapping along the lock ray: keep the direction square, snap only
+            # how far along it. Guideline crossings, remembered lengths, and grid all
+            # become candidate distances -> the corner lands on the guide AND stays square.
             cur_t = (P - Lp).dot(locked_dir)
-            if cur_t > 1e-6:
-                best = None
+            cands = []  # (t, tol_px, kind, data)
+            if s.use_extension:
+                for a, b in self._segments_uv(s):
+                    e = b - a
+                    L = e.length
+                    if L < 1e-6:
+                        continue
+                    e = e / L
+                    denom = locked_dir.x * e.y - locked_dir.y * e.x
+                    if abs(denom) < 1e-6:
+                        continue  # parallel: no crossing
+                    ao = a - Lp
+                    t = (ao.x * e.y - ao.y * e.x) / denom
+                    if t > 1e-6:
+                        cands.append((t, s.align_px, 'ext', (a, e)))
+            if self.use_alignment_enabled(s):
+                for w in self.align_candidates(s):
+                    pu, pv = self.to_uv(w)
+                    if abs(locked_dir.x) > 1e-6:
+                        t = (pu - Lp.x) / locked_dir.x
+                        if t > 1e-6:
+                            cands.append((t, s.align_px, 'align', w))
+                    if abs(locked_dir.y) > 1e-6:
+                        t = (pv - Lp.y) / locked_dir.y
+                        if t > 1e-6:
+                            cands.append((t, s.align_px, 'align', w))
+            if s.use_distance_memory:
                 for cd in self._distance_candidates(s, Lp, locked_dir, ppu):
-                    if abs(cur_t - cd) * ppu <= s.dist_px:
-                        if best is None or abs(cur_t - cd) < abs(cur_t - best):
-                            best = cd
-                if best is not None:
-                    P = Lp + locked_dir * best
-                    res['dist'] = best
+                    cands.append((cd, s.dist_px, 'dist', None))
+            if s.use_grid and s.grid_size > 0:
+                gt = round(cur_t / s.grid_size) * s.grid_size
+                if gt > 1e-6:
+                    cands.append((gt, s.align_px, 'grid', None))
+            best = None
+            for c in cands:
+                if abs(cur_t - c[0]) * ppu <= c[1]:
+                    if best is None or abs(cur_t - c[0]) < abs(cur_t - best[0]):
+                        best = c
+            if best is not None:
+                t, tol, kind, data = best
+                P = Lp + locked_dir * t
+                if kind == 'ext':
+                    res['ext'] = (data[0], data[1])
+                elif kind == 'align':
+                    res['guide'] = data.copy()
+                elif kind == 'dist':
+                    res['dist'] = t
                     res['dist_a'] = Lp.copy()
                     res['dist_b'] = P.copy()
+        else:
+            # not locked: project onto an edge extension, else free x/y alignment + grid
+            if s.use_extension:
+                best = float(s.align_px)
+                hit = None
+                for a, b in self._segments_uv(s):
+                    e = b - a
+                    L = e.length
+                    if L < 1e-6:
+                        continue
+                    e = e / L
+                    proj = a + e * (P - a).dot(e)
+                    perp = (P - proj).length * ppu
+                    if perp < best:
+                        best = perp
+                        hit = (a, e, proj)
+                if hit is not None:
+                    a, e, proj = hit
+                    P = proj.copy()
+                    res['ext'] = (a, e)
+            if res['ext'] is None:
+                candidates = self.align_candidates(s) if self.use_alignment_enabled(s) else []
+                if candidates:
+                    best_u = best_v = None
+                    bud = bvd = s.align_px
+                    gu_w = gv_w = None
+                    for w in candidates:
+                        w2 = self.to2d(w)
+                        if w2 is None:
+                            continue
+                        cu, cv = self.to_uv(w)
+                        if abs(m.x - w2.x) < bud:
+                            bud = abs(m.x - w2.x); best_u = cu; gu_w = w
+                        if abs(m.y - w2.y) < bvd:
+                            bvd = abs(m.y - w2.y); best_v = cv; gv_w = w
+                    if best_u is not None:
+                        P.x = best_u; res['guide'] = gu_w.copy()
+                    if best_v is not None:
+                        P.y = best_v; res['guide'] = gv_w.copy()
+                    if s.use_grid and s.grid_size > 0:
+                        if best_u is None:
+                            P.x = round(P.x / s.grid_size) * s.grid_size
+                        if best_v is None:
+                            P.y = round(P.y / s.grid_size) * s.grid_size
+                elif not self.chain:
+                    if s.use_grid and s.grid_size > 0:
+                        P.x = round(P.x / s.grid_size) * s.grid_size
+                        P.y = round(P.y / s.grid_size) * s.grid_size
 
         res['world'] = self.from_uv(P.x, P.y)
         res['angle'] = angle_locked

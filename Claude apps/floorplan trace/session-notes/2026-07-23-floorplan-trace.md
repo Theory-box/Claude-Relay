@@ -195,3 +195,15 @@ Verified in Blender 4.4.3 via `compute_target` driver:
 
 Still untested (needs a human in a live viewport): actual snap feel/tolerances, overlay rendering,
 whether guides trigger too eagerly. `dist_px`/`align_px` are the tuning knobs.
+
+---
+
+## Update — snapping priority fix: guideline crossings keep the axis lock (tested 4.4.3)
+
+Bump-out bug: drawing a horizontal segment toward an earlier line's vertical guideline, the extension
+snap reprojected the whole point onto that line, discarding the horizontal angle lock, so the corner
+wasn't square. Fix: `compute_target` now establishes the angle lock FIRST, and when locked, extension
+/ alignment / distance / grid become LENGTH candidates along the lock ray (each guideline intersected
+with the ray -> candidate distance t; nearest within tolerance wins). Direction stays square, length
+lands on the guideline crossing (CAD "intersection of two inferences"). Unlocked behaviour unchanged.
+Verified [E]: horizontal drag toward an earlier vertical line -> (0,-3): square AND on guideline.
