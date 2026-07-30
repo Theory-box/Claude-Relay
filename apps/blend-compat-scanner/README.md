@@ -34,14 +34,27 @@ blender-4.2 -b myfile.blend --python blend_compat_scanner.py
 ```
 
 It walks geometry-nodes modifiers, materials, worlds, the compositor, and every
-nested node group (cycle-safe). It **only reports** — nothing is edited or
+nested node group (cycle-safe), and in predict mode also checks non-node settings
+(EEVEE / render) that would be lost. It **only reports** — nothing is edited or
 deleted.
 
 ## What it found for 4.4 -> 4.2 (ground truth, from the binaries)
 
+Nodes:
 - **21 nodes** exist in 4.4 but not 4.2 → become `Undefined` (19 geometry/function, 2 shader).
 - **7 nodes** exist in both but changed sockets → may silently shift to old defaults.
-- **1 non-node** critical warning: Grease Pencil v3 (4.3+) files don't open in 4.2.
+
+Non-node (settings + types, also enumerated from the binaries):
+- **3 settings** exist in 4.4 but not 4.2 and are lost on downgrade: `SceneEEVEE.use_fast_gi`
+  (Fast GI), `RenderSettings.compositor_denoise_final_quality` / `..._preview_quality`.
+  The scanner only flags one when it is actually turned on in the file.
+- **1 critical** non-node warning: Grease Pencil v3 (4.3+) files don't open in 4.2.
+- **Confirmed stable (no break):** World / environment / HDRI settings are identical
+  between 4.2 and 4.4, and there are **no new object / modifier / constraint / light-probe
+  types** in 4.4. So for this pair the real risk is nodes + Grease Pencil v3, not world/render.
+
+Known limitation: a property present in both versions but with a *changed default* would
+shift silently and is not yet detected (would need a value-level, not existence-level, diff).
 
 Each missing node is tagged with a suggested strategy:
 

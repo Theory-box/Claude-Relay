@@ -244,5 +244,18 @@
       "severity": "critical",
       "detail": "Grease Pencil objects created/saved in 4.3+ use GP v3 and do not open correctly in 4.2 or earlier. No node-level fix; handle before downgrade."
     }
-  ]
+  ],
+  "settings_lost": {
+    "SceneEEVEE": [
+      "use_fast_gi"
+    ],
+    "RenderSettings": [
+      "compositor_denoise_final_quality",
+      "compositor_denoise_preview_quality"
+    ],
+    "Curves": [
+      "surface_collision_distance"
+    ]
+  },
+  "types_new": {}
 }

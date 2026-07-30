@@ -58,6 +58,22 @@ for i in ids(("ShaderNode",)):
     try:
         n=s.nodes.new(i); db["shader"][i]=sig(n); s.nodes.remove(n)
     except Exception as e: db["shader"][i]={"err":type(e).__name__}
+# settings structs + type enums (non-node compatibility surface)
+STRUCTS=["World","WorldLighting","SceneEEVEE","RenderSettings","Material",
+         "Object","SunLight","PointLight","AreaLight","Mesh","Curves"]
+db["structs"]={}
+for sn in STRUCTS:
+    t=getattr(bpy.types,sn,None)
+    if t is not None:
+        db["structs"][sn]=sorted(p.identifier for p in t.bl_rna.properties)
+db["enums"]={}
+for sn,pn in [("Modifier","type"),("Constraint","type"),
+              ("LightProbe","type"),("Object","type")]:
+    t=getattr(bpy.types,sn,None)
+    if t is not None:
+        p=t.bl_rna.properties.get(pn)
+        if p is not None and hasattr(p,"enum_items"):
+            db["enums"][pn]=sorted(e.identifier for e in p.enum_items)
 print("JSONSTART"+json.dumps(db)+"JSONEND")
 '''
 
@@ -132,6 +148,20 @@ def build(new, old, src_label, tgt_label):
                 if no - oo: delta["out_added"] = sorted([list(x) for x in no - oo])
                 if oo - no: delta["out_removed"] = sorted([list(x) for x in oo - no])
                 db["changed"][k] = {"node_category": cat, "action": "review", "delta": delta}
+
+    # non-node: settings properties present in source but missing in target
+    # (i.e. LOST when the file is opened/saved in the older target version)
+    db["settings_lost"] = {}
+    for sn, sprops in new.get("structs", {}).items():
+        lost = sorted(set(sprops) - set(old.get("structs", {}).get(sn, [])))
+        if lost:
+            db["settings_lost"][sn] = lost
+    # new object/modifier/constraint/probe types that don't exist in target
+    db["types_new"] = {}
+    for en, items in new.get("enums", {}).items():
+        added = sorted(set(items) - set(old.get("enums", {}).get(en, [])))
+        if added:
+            db["types_new"][en] = added
     return db
 
 

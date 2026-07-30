@@ -108,6 +108,53 @@ def collect_nodes():
 
 
 # --------------------------------------------------------------------------- #
+# non-node settings check (predict mode only; props only exist in the source
+# version, so this is naturally skipped when running in the older target)
+# --------------------------------------------------------------------------- #
+SETTINGS_ACCESSORS = {
+    "SceneEEVEE":     lambda: [(f"Scene '{s.name}' > EEVEE", s.eevee)
+                               for s in bpy.data.scenes if hasattr(s, "eevee")],
+    "RenderSettings": lambda: [(f"Scene '{s.name}' > Render", s.render)
+                               for s in bpy.data.scenes],
+    "World":          lambda: [(f"World '{w.name}'", w) for w in bpy.data.worlds],
+    "Material":       lambda: [(f"Material '{m.name}'", m) for m in bpy.data.materials],
+    "Object":         lambda: [(f"Object '{o.name}'", o) for o in bpy.data.objects],
+    "Curves":         lambda: [(f"Curves '{c.name}'", c)
+                               for c in getattr(bpy.data, "hair_curves", [])],
+    "Mesh":           lambda: [(f"Mesh '{me.name}'", me) for me in bpy.data.meshes],
+    "SunLight":       lambda: [(f"Light '{l.name}'", l) for l in bpy.data.lights if l.type == "SUN"],
+    "PointLight":     lambda: [(f"Light '{l.name}'", l) for l in bpy.data.lights if l.type == "POINT"],
+    "AreaLight":      lambda: [(f"Light '{l.name}'", l) for l in bpy.data.lights if l.type == "AREA"],
+}
+
+
+def check_settings(db):
+    """Flag lost settings only where they are actually set away from default."""
+    out = []
+    for struct, props in (db or {}).get("settings_lost", {}).items():
+        acc = SETTINGS_ACCESSORS.get(struct)
+        if not acc:
+            continue
+        try:
+            items = acc()
+        except Exception:
+            continue
+        for loc, obj in items:
+            for p in props:
+                if not hasattr(obj, p):
+                    continue
+                try:
+                    val = getattr(obj, p)
+                    default = obj.bl_rna.properties[p].default
+                except Exception:
+                    continue
+                if val != default:
+                    out.append({"location": loc, "setting": f"{struct}.{p}",
+                                "value": str(val)})
+    return out
+
+
+# --------------------------------------------------------------------------- #
 # analysis
 # --------------------------------------------------------------------------- #
 def analyse(nodes, db):
@@ -148,7 +195,7 @@ def analyse(nodes, db):
 # --------------------------------------------------------------------------- #
 # reporting
 # --------------------------------------------------------------------------- #
-def report(hits, db, opts):
+def report(hits, settings_hits, db, opts):
     running = bpy.app.version_string
     src = (db or {}).get("source", "?")
     tgt = opts["target"] or (db or {}).get("target", "?")
@@ -191,18 +238,26 @@ def report(hits, db, opts):
             for k, v in h["delta"].items():
                 print(f"        {k}: {v}")
 
+    if settings_hits:
+        print(f"\n SETTINGS LOST — {len(settings_hits)} non-default setting(s) "
+              f"with no target equivalent (revert to default):")
+        for h in settings_hits:
+            print(f"   -  {h['setting']} = {h['value']}")
+            print(f"        at {h['location']}")
+
     for w in (db or {}).get("non_node_warnings", []):
         print(f"\n [!] non-node warning ({w['severity']}): {w['id']}")
         print(f"     {w['detail']}")
 
-    total = len(u) + len(pm) + len(pc)
+    total = len(u) + len(pm) + len(pc) + len(settings_hits)
     print("\n" + line)
     print(f" SUMMARY: {len(u)} already-broken, {len(pm)} will-break, "
-          f"{len(pc)} may-shift  (total {total})")
+          f"{len(pc)} may-shift, {len(settings_hits)} settings-lost  (total {total})")
     print(line + "\n")
 
     if opts["json"]:
         payload = {"running": running, "source": src, "target": tgt, "hits": hits,
+                   "settings_lost": settings_hits,
                    "non_node_warnings": (db or {}).get("non_node_warnings", [])}
         json.dump(payload, open(opts["json"], "w"), indent=2)
         print(f"[json report written to {opts['json']}]")
@@ -218,7 +273,8 @@ def main():
               "(finds already-broken nodes; cannot predict).")
     nodes = collect_nodes()
     hits = analyse(nodes, db)
-    report(hits, db, opts)
+    settings_hits = check_settings(db)
+    report(hits, settings_hits, db, opts)
 
 
 if __name__ == "__main__":

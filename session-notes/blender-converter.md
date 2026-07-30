@@ -54,3 +54,17 @@ gabor, grease-pencil convert).
 - Do NOT merge to main without explicit user say-so.
 - Auto-repair stays off until each fixer is output-diff verified — a wrong fix
   silently corrupts, which is worse than a flagged break.
+
+## Update — non-node coverage added
+Extended the pipeline + scanner beyond nodes (user asked about world/HDRI/env/render):
+- `gen_compat_db.py` now also diffs settings structs (World, SceneEEVEE, RenderSettings,
+  Material, Object, lights, Mesh, Curves) and type enums (modifier/constraint/lightprobe/
+  object). DB gains `settings_lost` and `types_new`.
+- **4.4->4.2 non-node result:** only 3 settings lost (EEVEE `use_fast_gi`, 2 compositor
+  denoise-quality). World/WorldLighting IDENTICAL across versions (HDRI/env safe). No new
+  object/modifier/constraint/lightprobe types. So real risk for this pair = nodes + GP v3.
+- Scanner gained `check_settings()` (predict-mode only; props absent in target so it's
+  skipped there). Flags a lost setting ONLY when it's set away from default. Tested: a file
+  with `use_fast_gi=True` is flagged; detect-mode in 4.2 skips cleanly.
+- Known gap: changed DEFAULT values (prop exists in both) not detected — needs value-level
+  diff, not existence diff. Candidate for next pass.
