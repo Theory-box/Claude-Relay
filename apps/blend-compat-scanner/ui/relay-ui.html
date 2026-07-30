@@ -59,6 +59,12 @@
   .select::after{content:"▾"; position:absolute; right:11px; top:50%; transform:translateY(-50%); color:var(--dim); pointer-events:none; font-size:11px}
   .go{font-family:var(--disp); font-weight:600; font-size:13.5px; color:var(--accent-ink); background:var(--accent); padding:11px 18px; border-radius:9px; display:flex; align-items:center; gap:8px; transition:.15s}
   .go:hover{filter:brightness(1.08); box-shadow:0 6px 22px -8px var(--accent)}
+  .go.disabled{opacity:.4; box-shadow:none}
+  .go.disabled:hover{filter:none; box-shadow:none}
+  .tag.queued{color:var(--accent); background:#12262a}
+  .issue.staged{background:linear-gradient(90deg,#0f2429,var(--panel) 55%)}
+  .fix.staged{background:#0f2429; color:var(--accent); border:1px solid var(--accent-dim)}
+  .fix.staged:hover{background:#14313a; filter:none}
 
   .stats{display:flex; margin:0 2px 18px; border:1px solid var(--line); border-radius:var(--r2); overflow:hidden; background:var(--panel)}
   .stat{flex:1; padding:15px 18px; border-right:1px solid var(--line)}
@@ -189,7 +195,7 @@
             <div class="select"><select id="target"><option>4.2.23 LTS</option><option disabled>scanning installed builds…</option></select></div>
           </div>
         </div>
-        <button class="go" onclick="convert()"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M5 12h14m-6-6l6 6-6 6"/></svg>Convert &amp; save</button>
+        <button class="go" id="convertBtn" onclick="convert()"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M5 12h14m-6-6l6 6-6 6"/></svg><span id="convertLabel">Convert &amp; save</span></button>
       </div>
     </div>
 
@@ -242,7 +248,6 @@ const ISSUES = [
 ];
 const SEVRANK={break:0, shift:1, safe:2};
 const el=s=>document.querySelector(s);
-
 function catOf(it){
   if(it.type.includes('Blackbody')||it.type.includes('VolumePrincipled')) return 'subtype value-loss';
   if(it.type.includes('Import')||it.type.includes('InputObject')) return 'missing · needs object ref';
@@ -253,32 +258,35 @@ function catOf(it){
   if(it.type.includes('EEVEE')) return 'setting lost';
   return 'changed socket';
 }
+const stagedCount=()=>ISSUES.filter(i=>i.action==='fix' && i.state==='staged').length;
+
 function rowHTML(it,i){
-  const done = it.state==='done';
+  const s=it.state;
   let tag;
-  if(done) tag = it.action==='acknowledge' ? `<span class="tag ackd">◦ acknowledged</span>` : `<span class="tag fixed">✓ fixed</span>`;
-  else if(it.action==='fix') tag = it.sev==='safe'?`<span class="tag safe">auto · safe</span>`:`<span class="tag ${it.sev}">auto-fix</span>`;
-  else if(it.action==='acknowledge') tag = `<span class="tag review">review</span>`;
-  else tag = `<span class="tag manual">manual</span>`;
+  if(s==='done') tag = it.action==='acknowledge'?`<span class="tag ackd">◦ acknowledged</span>`:`<span class="tag fixed">✓ fixed</span>`;
+  else if(it.action==='fix') tag = s==='staged'?`<span class="tag queued">✓ will fix</span>`:(it.sev==='safe'?`<span class="tag safe">auto · safe</span>`:`<span class="tag ${it.sev}">auto-fix</span>`);
+  else if(it.action==='acknowledge') tag=`<span class="tag review">review</span>`;
+  else tag=`<span class="tag manual">manual</span>`;
 
   let action='';
-  if(done) action = `<div class="act"><span class="howfix"><b>${it.action==='acknowledge'?'Note':'Done'}:</b> ${it.how}</span></div>`;
+  if(s==='done') action=`<div class="act"><span class="howfix"><b>${it.action==='acknowledge'?'Note':'Done'}:</b> ${it.how}</span></div>`;
   else if(it.action==='fix'){
-    const sameType = ISSUES.filter(x=>x.type===it.type && x.action==='fix' && x.state==='todo').length;
-    const typeBtn = sameType>1 ? `<button class="fixtype" onclick="fixType('${it.type}',event)">Fix all ${sameType} of this type</button>` : '';
-    action = `<div class="act"><button class="fix" onclick="fixOne(${i},event)">Fix this</button>${typeBtn}<span class="howfix"><b>How:</b> ${it.how}</span></div>`;
+    if(s==='staged') action=`<div class="act"><button class="fix staged" onclick="stageOne(${i},event)">✓ Will fix — click to remove</button><span class="howfix"><b>Runs on convert:</b> ${it.how}</span></div>`;
+    else {
+      const sameType=ISSUES.filter(x=>x.type===it.type && x.action==='fix' && x.state==='todo').length;
+      const typeBtn=sameType>1?`<button class="fixtype" onclick="stageType('${it.type}',event)">Fix all ${sameType} of this type</button>`:'';
+      action=`<div class="act"><button class="fix" onclick="stageOne(${i},event)">Fix this</button>${typeBtn}<span class="howfix"><b>Will run:</b> ${it.how}</span></div>`;
+    }
   }
-  else if(it.action==='acknowledge')
-    action = `<div class="act"><button class="ack" onclick="fixOne(${i},event)">Acknowledge</button><span class="howfix"><b>Why:</b> ${it.how}</span></div>`;
-  else
-    action = `<div class="act"><span class="manual-note"><span class="i">△</span><span>${it.how}</span></span></div>`;
+  else if(it.action==='acknowledge') action=`<div class="act"><button class="ack" onclick="ackOne(${i},event)">Acknowledge</button><span class="howfix"><b>Why:</b> ${it.how}</span></div>`;
+  else action=`<div class="act"><span class="manual-note"><span class="i">△</span><span>${it.how}</span></span></div>`;
 
-  const cls = done ? (it.action==='acknowledge'?'ackd':'fixed') : it.sev;
+  const cls = s==='done'?(it.action==='acknowledge'?'ackd':'fixed'):(s==='staged'?'staged '+it.sev:it.sev);
   return `<div class="issue ${cls}" data-i="${i}">
     <div class="ihead" onclick="toggle(${i})">
       <span class="sock" style="background:var(${it.sock})"></span>
       <div class="ir"><div class="itype">${it.type}</div><div class="iloc"><span class="at">at</span> ${it.loc}</div></div>
-      ${tag}<span class="caret">▶</span>
+      ${tag}<span class="caret">\u25B6</span>
     </div>
     <div class="ibody"><div class="ibin">
       <div class="desc">${it.desc}</div>
@@ -288,40 +296,49 @@ function rowHTML(it,i){
 }
 function groupHTML(title, cls, badge, items, headExtra=''){
   if(!items.length) return '';
-  const rows = items.map(({it,i})=>rowHTML(it,i)).join('');
+  const rows=items.map(({it,i})=>rowHTML(it,i)).join('');
   return `<div class="group"><div class="ghead"><div class="gt ${cls}">${badge} ${title}<span class="c">${items.length}</span></div><div class="gline"></div>${headExtra}</div><div class="list">${rows}</div></div>`;
 }
 function render(){
-  const idx = ISSUES.map((it,i)=>({it,i}));
-  const bySeverity=(a,b)=>SEVRANK[a.it.sev]-SEVRANK[b.it.sev];
-  const fix = idx.filter(x=>x.it.action==='fix' && x.it.state==='todo').sort(bySeverity);
-  const ack = idx.filter(x=>x.it.action==='acknowledge' && x.it.state==='todo').sort(bySeverity);
-  const manual = idx.filter(x=>x.it.action==='manual' && x.it.state==='todo').sort(bySeverity);
-  const done = idx.filter(x=>x.it.state==='done');
-  const fixAllBtn = fix.length ? `<button class="fixall" onclick="fixAll('fix')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M20 6L9 17l-5-5"/></svg>Fix all ${fix.length} automatic</button>` : '';
-  const ackAllBtn = ack.length>1 ? `<button class="ackall" onclick="fixAll('acknowledge')">Acknowledge all ${ack.length}</button>` : '';
+  const idx=ISSUES.map((it,i)=>({it,i}));
+  const bySev=(a,b)=>SEVRANK[a.it.sev]-SEVRANK[b.it.sev];
+  const auto=idx.filter(x=>x.it.action==='fix' && x.it.state!=='done').sort((a,b)=>((b.it.state==='staged')-(a.it.state==='staged'))||bySev(a,b));
+  const ack=idx.filter(x=>x.it.action==='acknowledge' && x.it.state==='todo').sort(bySev);
+  const manual=idx.filter(x=>x.it.action==='manual' && x.it.state==='todo').sort(bySev);
+  const done=idx.filter(x=>x.it.state==='done');
+  const todoFix=auto.filter(x=>x.it.state==='todo').length;
+  const fixAllBtn=todoFix?`<button class="fixall" onclick="stageAll()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M20 6L9 17l-5-5"/></svg>Fix all ${todoFix} automatic</button>`:'';
+  const ackAllBtn=ack.length>1?`<button class="ackall" onclick="ackAll()">Acknowledge all ${ack.length}</button>`:'';
   el('#groups').innerHTML =
-      groupHTML('Automatic', 'badge-auto', '✦', fix, fixAllBtn)
-    + groupHTML('Review — will change, nothing to fix', 'badge-review', '◦', ack, ackAllBtn)
-    + groupHTML('Manual — you handle these', 'badge-manual', '△', manual)
-    + groupHTML('Done', 'badge-fixed', '✓', done);
+      groupHTML('Automatic', 'badge-auto', '\u2726', auto, fixAllBtn)
+    + groupHTML('Review \u2014 will change, nothing to fix','badge-review','\u25E6',ack,ackAllBtn)
+    + groupHTML('Manual \u2014 you handle these','badge-manual','\u25B3',manual)
+    + groupHTML('Done','badge-fixed','\u2713',done);
   el('#s-total').textContent=ISSUES.length;
   el('#s-break').textContent=ISSUES.filter(i=>i.sev==='break').length;
   el('#s-shift').textContent=ISSUES.filter(i=>i.sev==='shift').length;
   el('#s-auto').textContent=ISSUES.filter(i=>i.action==='fix').length;
+  const staged=stagedCount(), btn=el('#convertBtn');
+  btn.classList.toggle('disabled', staged===0);
+  el('#convertLabel').textContent = staged?`Convert & save \u00B7 ${staged} fix${staged>1?'es':''}`:'Convert & save';
 }
+function toast(t,sub){ el('#toast-t').textContent=t; el('#toast-s').textContent=sub; const x=el('#toast'); x.classList.add('show'); clearTimeout(window._tt); window._tt=setTimeout(()=>x.classList.remove('show'),4200); }
 function toggle(i){ const n=document.querySelector(`.issue[data-i="${i}"]`); if(n) n.classList.toggle('open'); }
-function fixOne(i,e){ e.stopPropagation(); ISSUES[i].state='done'; render(); }
-function fixType(t,e){ e.stopPropagation(); ISSUES.forEach(it=>{ if(it.type===t && it.action==='fix') it.state='done'; }); render(); }
-function fixAll(kind){ ISSUES.forEach(it=>{ if(it.action===kind) it.state='done'; }); render(); }
+function stageOne(i,e){ e.stopPropagation(); const it=ISSUES[i]; it.state = it.state==='staged'?'todo':'staged'; render(); }
+function stageType(t,e){ e.stopPropagation(); ISSUES.forEach(it=>{ if(it.type===t && it.action==='fix' && it.state==='todo') it.state='staged'; }); render(); }
+function stageAll(){ ISSUES.forEach(it=>{ if(it.action==='fix' && it.state==='todo') it.state='staged'; }); render(); }
+function ackOne(i,e){ e.stopPropagation(); ISSUES[i].state='done'; render(); }
+function ackAll(){ ISSUES.forEach(it=>{ if(it.action==='acknowledge' && it.state==='todo') it.state='done'; }); render(); }
 function loadFile(){ el('#empty').classList.add('hidden'); el('#scanned').classList.remove('hidden'); render(); }
 function reset(){ ISSUES.forEach(it=>it.state='todo'); el('#scanned').classList.add('hidden'); el('#empty').classList.remove('hidden'); }
 function convert(){
-  const a=ISSUES.filter(i=>i.action==='fix').length, k=ISSUES.filter(i=>i.action==='acknowledge').length, m=ISSUES.filter(i=>i.action==='manual').length;
-  ISSUES.forEach(it=>{ if(it.action==='fix'||it.action==='acknowledge') it.state='done'; }); render();
-  el('#toast-t').textContent='Saved lighting_test_for_4.2.blend';
-  el('#toast-s').textContent=`${a} fixed · ${k} acknowledged · ${m} left for manual`;
-  const t=el('#toast'); t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),4200);
+  const staged=stagedCount();
+  if(staged===0){ toast('Nothing to convert', 'No fixes selected \u2014 stage at least one fix, or converting only produces a broken file.'); return; }
+  const k=ISSUES.filter(i=>i.action==='acknowledge' && i.state!=='done').length;
+  const m=ISSUES.filter(i=>i.action==='manual').length;
+  ISSUES.forEach(it=>{ if(it.action==='fix' && it.state==='staged') it.state='done'; if(it.action==='acknowledge') it.state='done'; });
+  render();
+  toast('Saved lighting_test_for_4.2.blend', `${staged} fixed \u00B7 ${k} acknowledged \u00B7 ${m} left for manual`);
 }
 </script>
 </body>
