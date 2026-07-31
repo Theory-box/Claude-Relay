@@ -448,3 +448,13 @@ Splash re-scan consistent (9 issues); repair harness ALL PASS.
   entirely). convert_source --remove; engine/server plumb remove_modifiers; UI adds
   a "Remove modifier" button + "will remove" state (mutually exclusive with apply).
   Verified: removing the cabinet modifier -> object back to base 8 verts, modifier gone.
+
+## Update — Is Viewport check + Remove-modifier fix option
+- GeometryNodeIsViewport ("Is Viewport"): EXISTS in both 4.4 and 4.2 (also
+  GeometryNodeViewportTransform). Converts fine, no break. User's render/viewport
+  switching preserved.
+- NEW FIX OPTION — Remove modifier: for a broken GN modifier, in addition to
+  "Apply modifier (bake)" the user can now choose "Remove modifier" (delete it
+  entirely). convert_source --remove; engine/server plumb remove_modifiers; UI adds
+  a "Remove modifier" button + "will remove" state (mutually exclusive with apply).
+  Verified: removing the cabinet modifier -> object back to base 8 verts, modifier gone.
