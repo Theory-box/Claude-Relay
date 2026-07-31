@@ -139,6 +139,7 @@ def main():
             _refobj = bpy.data.objects.new("_relaymcref", bpy.data.meshes.new("_r"))
         return _refobj
     SKIP = ("panel","handle","identifier","warnings")   # UI/internal props, not user data
+    SKIP_PROPS = {"bake_target"}   # inconsequential (bake storage location; no scene effect)
     def _mc_default(kind, typ, prop):
         k=(kind,typ,prop)
         if k not in _mc_cache:
@@ -161,7 +162,7 @@ def main():
                     "This is a 4.4-only "+("modifier" if kind=="mods" else "constraint")+" type with no equivalent in 4.2.",
                     "new type","Rebuild or remove it in 4.2.","--sock-geo"); continue
             for p in info.get("props_added",[]):
-                if any(w in p for w in SKIP) or not hasattr(it,p): continue
+                if p in SKIP_PROPS or any(w in p for w in SKIP) or not hasattr(it,p): continue
                 pr=it.bl_rna.properties.get(p)
                 if pr is None or pr.is_readonly or pr.type=="COLLECTION": continue
                 cur=getattr(it,p); ref=_mc_default(kind, it.type, p)
