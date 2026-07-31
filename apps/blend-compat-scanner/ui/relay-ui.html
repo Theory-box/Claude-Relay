@@ -69,6 +69,10 @@
   .applybtn{font-family:var(--disp); font-weight:600; font-size:12.5px; color:#E0A63C; padding:8px 14px; border:1px solid #5a4a22; border-radius:8px}
   .applybtn:hover{background:#241f14}
   .applied-note{font-size:12px; color:var(--faint)} .applied-note b{color:#E0A63C; font-weight:500}
+  .tag.removeq{color:var(--break); background:var(--break-bg)}
+  .rmbtn{font-family:var(--disp); font-weight:600; font-size:12.5px; color:var(--break); padding:8px 14px; border:1px solid #5a2a2e; border-radius:8px}
+  .rmbtn:hover{background:#241417}
+  .removed-note{font-size:12px; color:var(--faint)} .removed-note b{color:var(--break); font-weight:500}
   .issue.staged{background:linear-gradient(90deg,#0f2429,var(--panel) 55%)}
   .fix.staged{background:#0f2429; color:var(--accent); border:1px solid var(--accent-dim)}
   .fix.staged:hover{background:#14313a; filter:none}
@@ -276,8 +280,12 @@ const stagedCount=()=>ISSUES.filter(i=>i.action==='fix' && i.state==='staged').l
 const APPLY=new Set();                    // "obj::mod" modifiers staged to apply/bake
 const modKey=it=>it.obj&&it.mod?it.obj+'::'+it.mod:null;
 const applyQueued=it=>{const k=modKey(it); return k&&APPLY.has(k);};
-function applyMod(i,e){ e.stopPropagation(); const k=modKey(ISSUES[i]); if(k) APPLY.add(k); render(); }
+function applyMod(i,e){ e.stopPropagation(); const k=modKey(ISSUES[i]); if(k){REMOVE.delete(k); APPLY.add(k);} render(); }
 function cancelApply(i,e){ e.stopPropagation(); const k=modKey(ISSUES[i]); if(k) APPLY.delete(k); render(); }
+const REMOVE=new Set();
+const removeQueued=it=>{const k=modKey(it); return k&&REMOVE.has(k);};
+function removeMod(i,e){ e.stopPropagation(); const k=modKey(ISSUES[i]); if(k){APPLY.delete(k); REMOVE.add(k);} render(); }
+function cancelRemove(i,e){ e.stopPropagation(); const k=modKey(ISSUES[i]); if(k) REMOVE.delete(k); render(); }
 
 function rowHTML(it,i){
   const s=it.state;
@@ -285,7 +293,7 @@ function rowHTML(it,i){
   if(s==='done') tag = it.action==='acknowledge'?`<span class="tag ackd">◦ acknowledged</span>`:`<span class="tag fixed">✓ fixed</span>`;
   else if(it.action==='fix') tag = s==='staged'?`<span class="tag queued">✓ will fix</span>`:(it.sev==='safe'?`<span class="tag safe">auto · safe</span>`:`<span class="tag ${it.sev}">auto-fix</span>`);
   else if(it.action==='acknowledge') tag=`<span class="tag review">review</span>`;
-  else tag = applyQueued(it)?`<span class="tag applyq">\u2713 will apply</span>`:`<span class="tag manual">manual</span>`;
+  else tag = applyQueued(it)?`<span class="tag applyq">\u2713 will apply</span>`:removeQueued(it)?`<span class="tag removeq">\u2713 will remove</span>`:`<span class="tag manual">manual</span>`;
 
   let action='';
   if(s==='done') action=`<div class="act"><span class="howfix"><b>${it.action==='acknowledge'?'Note':'Done'}:</b> ${it.how}</span></div>`;
@@ -337,7 +345,7 @@ function render(){
   el('#s-break').textContent=ISSUES.filter(i=>i.sev==='break').length;
   el('#s-shift').textContent=ISSUES.filter(i=>i.sev==='shift').length;
   el('#s-auto').textContent=ISSUES.filter(i=>i.action==='fix').length;
-  const staged=stagedCount()+APPLY.size, btn=el('#convertBtn');
+  const staged=stagedCount()+APPLY.size+REMOVE.size, btn=el('#convertBtn');
   btn.classList.toggle('disabled', staged===0);
   el('#convertLabel').textContent = staged?`Convert & save \u00B7 ${staged} fix${staged>1?'es':''}`:'Convert & save';
 }
@@ -373,27 +381,27 @@ async function loadFile(realPath){
   }
   el('#empty').classList.add('hidden'); el('#scanned').classList.remove('hidden'); render();
 }
-function reset(){ APPLY.clear(); ISSUES.forEach(it=>it.state='todo'); el('#scanned').classList.add('hidden'); el('#empty').classList.remove('hidden'); }
+function reset(){ APPLY.clear(); REMOVE.clear(); ISSUES.forEach(it=>it.state='todo'); el('#scanned').classList.add('hidden'); el('#empty').classList.remove('hidden'); }
 async function convert(){
   const staged=stagedCount();
   if(staged===0){ toast('Nothing to convert', 'No fixes selected \u2014 stage at least one fix, or converting only produces a broken file.'); return; }
   const k=ISSUES.filter(i=>i.action==='acknowledge' && i.state!=='done').length;
-  const a=APPLY.size;
-  const m=ISSUES.filter(i=>i.action==='manual' && !applyQueued(i)).length;
+  const a=APPLY.size, rmv=REMOVE.size;
+  const m=ISSUES.filter(i=>i.action==='manual' && !applyQueued(i) && !removeQueued(i)).length;
   const ids=ISSUES.filter(i=>i.action==='fix' && i.state==='staged').map(i=>i.id);
   if(CTX.path){
     try{
       const out=CTX.path.replace(/\.blend$/,'_for_'+el('#target').value.split(' ')[0]+'.blend');
-      const r=await fetch('/api/convert',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:CTX.path,selected:ids,detected:CTX.detected,target_version:el('#target').value,apply_modifiers:[...APPLY],purge_unused:(el('#purgeChk')?el('#purgeChk').checked:true),out})});
+      const r=await fetch('/api/convert',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:CTX.path,selected:ids,detected:CTX.detected,target_version:el('#target').value,apply_modifiers:[...APPLY],remove_modifiers:[...REMOVE],purge_unused:(el('#purgeChk')?el('#purgeChk').checked:true),out})});
       const d=await r.json(); if(d.error) throw new Error(d.error);
-      ISSUES.forEach(it=>{ if(it.action==='fix'&&it.state==='staged') it.state='done'; if(it.action==='acknowledge') it.state='done'; if(applyQueued(it)) it.state='done'; }); render();
+      ISSUES.forEach(it=>{ if(it.action==='fix'&&it.state==='staged') it.state='done'; if(it.action==='acknowledge') it.state='done'; if(applyQueued(it)||removeQueued(it)) it.state='done'; }); render();
       toast('Saved '+d.out.split(/[\\/]/).pop(), `${d.rebuilt+d.source_fixed} fixed \u00B7 ${k} acknowledged \u00B7 ${m} left for manual`);
     }catch(e){ toast('Convert failed', String(e.message||e)); }
     return;
   }
-  ISSUES.forEach(it=>{ if(it.action==='fix' && it.state==='staged') it.state='done'; if(it.action==='acknowledge') it.state='done'; if(applyQueued(it)) it.state='done'; });
+  ISSUES.forEach(it=>{ if(it.action==='fix' && it.state==='staged') it.state='done'; if(it.action==='acknowledge') it.state='done'; if(applyQueued(it)||removeQueued(it)) it.state='done'; });
   render();
-  toast('Saved lighting_test_for_4.2.blend', `${stagedCount()} fixed \u00B7 ${a} modifier(s) applied \u00B7 ${k} acknowledged \u00B7 ${m} left for manual`);
+  toast('Saved lighting_test_for_4.2.blend', `${stagedCount()} fixed \u00B7 ${a} applied \u00B7 ${rmv} removed \u00B7 ${k} acknowledged \u00B7 ${m} manual`);
 }
 </script>
 </body>

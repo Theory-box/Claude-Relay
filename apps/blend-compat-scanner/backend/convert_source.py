@@ -15,7 +15,14 @@ from subtype_keep import at_risk_map
 sel=set(json.load(open(arg("--select"))))
 db=json.load(open(arg("--db"))); risk=at_risk_map(db)
 apply_list=json.load(open(arg("--apply"))) if arg("--apply") else []
-manifest={}; fixed=0; applied=0
+remove_list=json.load(open(arg("--remove"))) if arg("--remove") else []
+manifest={}; fixed=0; applied=0; removed=0
+# remove chosen modifiers entirely (for broken modifiers the user would rather drop)
+for entry in remove_list:
+    obj_name, mod_name = entry.split("::",1)
+    obj=bpy.data.objects.get(obj_name)
+    if obj and obj.modifiers.get(mod_name):
+        obj.modifiers.remove(obj.modifiers[mod_name]); removed+=1
 # apply chosen modifiers first: bakes evaluated geometry into the mesh and removes
 # the modifier (and its unfixable nodes) entirely.
 for entry in apply_list:
@@ -58,4 +65,4 @@ if arg("--purge")=="1":
     after=sum(len(getattr(bpy.data,c)) for c in ("node_groups","meshes","materials","images","curves"))
     purged=max(0, before-after)
 bpy.ops.wm.save_as_mainfile(filepath=arg("--out"))
-print(f"SRC_OK fixed={fixed} keep_recorded={len(manifest)} applied={applied} packed={packed} purged={purged}")
+print(f"SRC_OK fixed={fixed} keep_recorded={len(manifest)} applied={applied} removed={removed} packed={packed} purged={purged}")
