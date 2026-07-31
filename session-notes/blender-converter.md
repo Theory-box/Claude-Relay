@@ -393,3 +393,19 @@ Volume Principled (keep_nodes_run.py two-stage); blackbody bake (opt-in).
   (was using geo tree -> would've silently not-flagged compositor changes).
 - VERIFIED on the 4.5 splash: its Glare (Maximum=10.0, non-default) is now flagged
   (acknowledge). Was completely invisible before.
+
+## Update — full node-tree coverage sweep (all categories audited)
+Complete inventory audit across ALL node-tree contexts (geometry, material/world/light
+shader, compositor, texture) in both binaries:
+- MISSING nodes: 21 total (4 Function, 15 Geometry, 2 Shader) — ALL covered by DB, 0 gaps.
+- World/light shader nodes: DO instantiate in a material tree, so they were never
+  skipped by the generator (verified, no gap).
+- Compositor: fixed previous turn (Glare rework etc.).
+- TEXTURE nodes (37 types): generator enumerated 0 of them. Added TextureNodeTree
+  enumeration to gen_compat_db + "texture" to the diff loop. Result: 0 missing, 0
+  changed, 0 prop changes -> legacy texture nodes are genuinely UNCHANGED 4.2<->4.4
+  (now verified, not skipped).
+- Scanner: collect_nodes now also walks bpy.data.textures node trees; scan_ui
+  ref_default handles all 4 tree types (shader/compositor/texture/geometry). Future
+  version pairs with texture changes will be caught.
+Splash re-scan consistent (9 issues); repair harness ALL PASS.

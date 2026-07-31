@@ -18,7 +18,7 @@ Two modes, auto-detected from what it finds:
              view.
 
 Both modes share one traversal that walks: geometry-nodes modifiers, materials,
-worlds, the scene compositor, and every nested node group (cycle-safe).
+worlds, the scene compositor, legacy texture nodes, and every nested node group.
 
 Usage (headless):
   blender -b file.blend --python blend_compat_scanner.py -- \
@@ -104,6 +104,9 @@ def collect_nodes():
     for sc in bpy.data.scenes:
         if sc.use_nodes and sc.node_tree:
             _walk_tree(sc.node_tree, f"Scene '{sc.name}' > Compositor", seen, out)
+    for tx in bpy.data.textures:
+        if getattr(tx, "use_nodes", False) and getattr(tx, "node_tree", None):
+            _walk_tree(tx.node_tree, f"Texture '{tx.name}'", seen, out)
     # any standalone node groups not reached above (unlinked assets etc.)
     for g in bpy.data.node_groups:
         _walk_tree(g, f"Node group '{g.name}' (unlinked)", seen, out)
