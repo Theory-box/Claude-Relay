@@ -130,6 +130,53 @@ def main():
             add(f"imagegen::{img.name}", "shift", "Image \u00b7 "+img.name, "generated image", "manual",
                 "Generated inside Blender with no file backing. It can't be packed and its pixels aren't saved in the .blend \u2014 procedural ones regenerate fine, but if an add-on painted or computed this, save it to a file in Blender before sending.",
                 f"{img.size[0]}x{img.size[1]}", "Save the image to a file in Blender (it can't be auto-packed).", "--sock-col")
+    # modifiers & constraints: 4.4-only types (break) or 4.4-only options in use (revert)
+    dbc = db.get("datablock_changes", {})
+    _refobj = None; _mc_cache = {}
+    def _refobj_get():
+        nonlocal _refobj
+        if _refobj is None:
+            _refobj = bpy.data.objects.new("_relaymcref", bpy.data.meshes.new("_r"))
+        return _refobj
+    SKIP = ("panel","handle","identifier","warnings")   # UI/internal props, not user data
+    def _mc_default(kind, typ, prop):
+        k=(kind,typ,prop)
+        if k not in _mc_cache:
+            _mc_cache[k]=None
+            try:
+                o=_refobj_get()
+                r=o.modifiers.new("_r",typ) if kind=="mods" else o.constraints.new(typ)
+                _mc_cache[k]=getattr(r, prop, None)
+                (o.modifiers.remove if kind=="mods" else o.constraints.remove)(r)
+            except Exception: pass
+        return _mc_cache[k]
+    def _check(items, kind, host):
+        changes = dbc.get(kind, {})
+        for it in items:
+            cls = it.bl_rna.identifier
+            if cls not in changes: continue
+            info = changes[cls]
+            if info.get("new_class"):
+                add(f"{kind}::{host}::{it.name}","break",cls,host,"manual",
+                    "This is a 4.4-only "+("modifier" if kind=="mods" else "constraint")+" type with no equivalent in 4.2.",
+                    "new type","Rebuild or remove it in 4.2.","--sock-geo"); continue
+            for p in info.get("props_added",[]):
+                if any(w in p for w in SKIP) or not hasattr(it,p): continue
+                pr=it.bl_rna.properties.get(p)
+                if pr is None or pr.is_readonly or pr.type=="COLLECTION": continue
+                cur=getattr(it,p); ref=_mc_default(kind, it.type, p)
+                used = (isinstance(cur,str) and cur!="" and cur!=ref) or \
+                       (isinstance(cur,bool) and cur!=(ref if isinstance(ref,bool) else False)) or \
+                       (isinstance(cur,(int,float)) and abs(cur-(ref if isinstance(ref,(int,float)) else 0))>1e-6) or \
+                       (cur is not None and not isinstance(cur,(str,bool,int,float)) and cur!=ref)
+                if used:
+                    add(f"{kind}::{host}::{it.name}::{p}","shift",cls,host,"acknowledge",
+                        f"Uses the 4.4-only '{p}' option, which doesn't exist in 4.2 and reverts to the old behaviour.",
+                        f"{p} = {cur if isinstance(cur,(str,int,float,bool)) else (getattr(cur,chr(110)+chr(97)+chr(109)+chr(101),None) or 'set')}","Reverts to 4.2 default.","--sock-geo")
+    for obj in bpy.data.objects:
+        _check(obj.modifiers, "mods", f"Object '{obj.name}'")
+        _check(obj.constraints, "cons", f"Object '{obj.name}'")
+
     # settings
     for h in sc.check_settings(db):
         add("setting::"+h["setting"],"shift","Scene · "+h["setting"].split(".")[0],h["location"],"acknowledge",

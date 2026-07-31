@@ -409,3 +409,16 @@ shader, compositor, texture) in both binaries:
   ref_default handles all 4 tree types (shader/compositor/texture/geometry). Future
   version pairs with texture changes will be caught.
 Splash re-scan consistent (9 issues); repair harness ALL PASS.
+
+## Update — modifier/constraint coverage (non-node surface, per user: skip physics/rig)
+- Audited modifiers + constraints:
+  * TYPES: types_new empty + no new modifier/constraint classes -> none go undefined. Clean.
+  * PROPERTIES (datablock_changes, real 4.4 additions): BevelModifier edge_weight/
+    vertex_weight (custom attr weight sources), NodesModifier bake_target, ActionConstraint
+    action_slot (slotted actions). Scanner did NOT check any of these -> gap.
+- Added modifier/constraint checker to scan_ui: walks every object's modifiers+constraints,
+  flags 4.4-only types (break/manual) and 4.4-only options actually in use (acknowledge,
+  compared to a reference default; skips UI/internal + read-only/collection props).
+- VERIFIED: Bevel with custom edge_weight attr + ActionConstraint with a slot both flagged;
+  computed action_suitable_slots correctly NOT flagged. Splash unchanged (9), harness ALL PASS.
+- (Per user request, physics/particles and rig/drivers deferred.)
