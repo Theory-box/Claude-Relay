@@ -9,6 +9,7 @@ datas = [
     (os.path.join(APPDIR, "compat_db_4.4_to_4.2.json"), "blend-compat-scanner"),
     (os.path.join(APPDIR, "backend"),                    "blend-compat-scanner/backend"),
     (os.path.join(APPDIR, "repair"),                     "blend-compat-scanner/repair"),
+    (os.path.join(APPDIR, "tools"),                      "blend-compat-scanner/tools"),
 ]
 binaries = []
 hiddenimports = ["engine", "server", "blender_manage"]

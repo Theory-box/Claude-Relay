@@ -30,7 +30,7 @@ class H(BaseHTTPRequestHandler):
         n=int(self.headers.get("Content-Length",0)); body=json.loads(self.rfile.read(n) or "{}")
         try:
             if self.path=="/api/scan":
-                self._send(200, json.dumps(engine.scan(body["path"])))
+                self._send(200, json.dumps(engine.scan(body["path"], body.get("target_version","4.2"))))
             elif self.path=="/api/convert":
                 res=engine.convert(body["path"], body["selected"], body.get("source_version") or body.get("detected"),
                                     body["target_version"], body["out"], body.get("apply_modifiers"), body.get("purge_unused", False))

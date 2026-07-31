@@ -422,3 +422,19 @@ Splash re-scan consistent (9 issues); repair harness ALL PASS.
 - VERIFIED: Bevel with custom edge_weight attr + ActionConstraint with a slot both flagged;
   computed action_suitable_slots correctly NOT flagged. Splash unchanged (9), harness ALL PASS.
 - (Per user request, physics/particles and rig/drivers deferred.)
+
+## Update — GENERALIZED to any version pair (user's vision)
+- The insight: gen_compat_db is already the general probe (enumerates a version's full
+  internal surface, diffs two builds). Only wiring was needed to make it on-demand.
+- gen_compat_db: exposed generate(src_bl, tgt_bl, labels, out) callable.
+- engine.get_db(source, target): uses bundled DB if present, else cached, else GENERATES
+  it from the two builds (blender_manage.ensure downloads any missing version). Cached in
+  Relay/dbs/. scan()/convert() are now target-aware (pair-specific DB); server passes
+  target_version. tools/ bundled into the PyInstaller app.
+- DEMONSTRATED on a version never touched: downloaded Blender 3.6.23, auto-generated the
+  4.4->3.6 map (79 missing / 58 changed vs 21/11 for 4.2 — the whole rotation/matrix node
+  family + Kuwahara etc. added since 3.6). Same splash file scanned: 9 issues vs 4.2, 3015
+  vs 3.6. Zero 3.6-specific code. Map auto-cached.
+- So DIAGNOSIS is fully general for any pair. FIXES: safe-drop, subtype-keep, apply-modifier,
+  texture-pack are DB-driven/general; reconstruct fixers (IntegerMath, MatrixDeterminant)
+  are node-specific. Even with no fix, any pair gets a full accurate diagnosis.

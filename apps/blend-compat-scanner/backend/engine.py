@@ -15,10 +15,35 @@ else:
 DB = next((os.path.join(APP, f) for f in sorted(os.listdir(APP))
            if f.startswith("compat_db_") and f.endswith(".json")), None)
 CFG = os.path.join(HERE, "blenders.json")   # dev override (ignored if absent)
+sys.path.insert(0, os.path.join(APP, "tools"))
 
 def _mm(v):  # "4.2.23 LTS" -> "4.2"
     parts = v.replace("LTS", "").strip().split(".")
     return ".".join(parts[:2])
+
+def _dbs_dir():
+    import blender_manage
+    d = os.path.join(os.path.dirname(blender_manage.relay_home()), "dbs")
+    os.makedirs(d, exist_ok=True)
+    return d
+
+def get_db(source_version, target_version):
+    """Resolve the compat DB for this version pair, generating it on demand.
+    This is what makes the tool general: any source->target pair works, because the
+    map is probed from the two Blender builds themselves rather than hardcoded."""
+    src, tgt = _mm(source_version), _mm(target_version)
+    name = f"compat_db_{src}_to_{tgt}.json"
+    bundled = os.path.join(APP, name)                 # ships with the app (e.g. 4.4->4.2)
+    if os.path.exists(bundled):
+        return bundled
+    cached = os.path.join(_dbs_dir(), name)           # previously generated
+    if os.path.exists(cached):
+        return cached
+    import blender_manage, gen_compat_db               # generate fresh from both builds
+    src_bl = blender_manage.ensure(src, CFG)
+    tgt_bl = blender_manage.ensure(tgt, CFG)
+    gen_compat_db.generate(src_bl, tgt_bl, src, tgt, cached)
+    return cached
 
 def detect_version(path):
     with open(path, "rb") as f: head = f.read(32)
@@ -44,16 +69,18 @@ def _run(blender, blendfile, script, extra):
     return subprocess.run([blender, "-b", blendfile, "--python", os.path.join(HERE, script), "--"] + extra,
                           capture_output=True, text=True, timeout=900)
 
-def scan(path):
+def scan(path, target_version="4.2"):
     ver = detect_version(path)
     if not ver: raise RuntimeError("not a .blend file (no version header)")
     src = _blender_for(ver)
+    db = get_db(ver, target_version)          # resolves/generates the map for this pair
     out = tempfile.mktemp(suffix=".json")
     try:
-        r = _run(src, path, "scan_ui.py", ["--db", DB, "--out", out])
+        r = _run(src, path, "scan_ui.py", ["--db", db, "--out", out])
         if "SCAN_OK" not in r.stdout: raise RuntimeError(r.stderr[-600:] or "scan failed")
         data = json.load(open(out))
         data["detected"] = ver
+        data["target"] = target_version
         data["blenders"] = blenders()
         return data
     finally:
@@ -62,6 +89,7 @@ def scan(path):
 def convert(path, selected_ids, source_version, target_version, out_path, apply_modifiers=None, purge_unused=False):
     src = _blender_for(source_version)
     tgt = _blender_for(target_version)     # auto-downloads target build if missing
+    db = get_db(source_version, target_version)
     work = tempfile.mkdtemp(prefix="relay_")
     src_copy = os.path.join(work, "source.blend")
     shutil.copy2(path, src_copy)                 # ORIGINAL is only ever READ, never opened for writing
@@ -70,9 +98,9 @@ def convert(path, selected_ids, source_version, target_version, out_path, apply_
     json.dump(selected_ids, open(sel, "w"))
     json.dump(apply_modifiers or [], open(apl, "w"))
     try:
-        r1 = _run(src, src_copy, "convert_source.py", ["--select", sel, "--apply", apl, "--db", DB, "--manifest", man, "--purge", "1" if purge_unused else "0", "--out", inter])
+        r1 = _run(src, src_copy, "convert_source.py", ["--select", sel, "--apply", apl, "--db", db, "--manifest", man, "--purge", "1" if purge_unused else "0", "--out", inter])
         if "SRC_OK" not in r1.stdout: raise RuntimeError(r1.stderr[-600:] or "source stage failed")
-        r2 = _run(tgt, inter, "convert_target.py", ["--select", sel, "--db", DB, "--manifest", man, "--out", out_path])
+        r2 = _run(tgt, inter, "convert_target.py", ["--select", sel, "--db", db, "--manifest", man, "--out", out_path])
         if "TGT_OK" not in r2.stdout: raise RuntimeError(r2.stderr[-600:] or "target stage failed")
         return {"out": out_path,
                 "source_fixed": int(r1.stdout.split("fixed=")[1].split()[0]),

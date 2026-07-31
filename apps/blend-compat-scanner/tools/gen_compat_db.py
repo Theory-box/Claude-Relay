@@ -312,6 +312,13 @@ def build(new, old, src_label, tgt_label):
     return db
 
 
+def generate(source_blender, target_blender, source_label, target_label, out):
+    """Probe both Blender builds, diff them, write a compat DB. Callable by the engine."""
+    db = build(dump(source_blender), dump(target_blender), source_label, target_label)
+    json.dump(db, open(out, "w"), indent=2)
+    return db
+
+
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--source-blender", required=True)
@@ -320,10 +327,7 @@ def main():
     p.add_argument("--target-label", required=True)
     p.add_argument("--out", required=True)
     a = p.parse_args()
-    new = dump(a.source_blender)
-    old = dump(a.target_blender)
-    db = build(new, old, a.source_label, a.target_label)
-    json.dump(db, open(a.out, "w"), indent=2)
+    db = generate(a.source_blender, a.target_blender, a.source_label, a.target_label, a.out)
     print(f"wrote {a.out}: {len(db['missing'])} missing, "
           f"{len(db['changed'])} changed, {len(db['non_node_warnings'])} non-node warnings")
 
