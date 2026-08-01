@@ -44,3 +44,27 @@ model so it *feels* smooth. Not aiming for IR-hardware absolute accuracy.
       floor for the user's specific camera (settles "is the data in the video").
 - [ ] **TEARDOWN when done:** user asked to remove the hosted tool afterward.
       Disable Pages (or delete `gh-pages` branch) once capture is finished.
+
+## Session 1 capture — analysis (session_2026-08-01)
+Camera 1280x720@30fps, all 6 phases, MediaPipe landmarks present. User held laptop
+throughout (not a problem — see below) and glanced away once (didn't register).
+
+Findings:
+- **Gaze signal is clearly present.** Uncalibrated corner-normalized iris-x vs target
+  during pursuit: r=0.957 horizontal, r=-0.924 vertical. >90% of gaze variance in a
+  single raw landmark, no model. "Is the data there" = settled yes.
+- **Noise floor low AND smooth.** Fixation jitter ~0.34px iris travel, lag-1
+  autocorr 0.99 (MediaPipe pre-smooths). The "shaky" in WebGazer-class tools is white
+  per-frame noise those tools have and MediaPipe largely doesn't.
+- **Correction to earlier plan:** temporal averaging is NOT the smoothness lever here.
+  Residual is drift, not white noise → 1s averaging bought only 1.2x. Head-pose
+  compensation (via M matrix) explained only 27% of fixation drift (another 1.2x).
+  Remaining wobble is mostly genuine fixational eye motion + detector drift.
+- **Holding the laptop was fine:** corner-normalization cut camera_pan motion from
+  240px raw to ~4.5px residual (~50x). Those phases are useful head-invariance data.
+- Per-frame precision maps to ~1 deg (eye's image-plane travel is only ~7px full range).
+
+Next levers (not filtering): (1) trained *personalized* mapping model over full
+landmark+headpose features — the r=0.95 proxy is crude, a model beats it; (2) raw-pixel
+sub-pixel iris estimation to probe below MediaPipe's 0.34px floor — REQUIRES video, so
+next capture flip "save raw video" ON for fixation+pursuit.
