@@ -96,8 +96,9 @@
         <li>Sit ~50–60&nbsp;cm away, camera near eye level, face lit from the front</li>
         <li>Whole run is about 80 seconds</li>
         <li>Output is one small landmark file (plus an optional raw video)</li>
+        <li>For the raw-video test: bright, even light on your face works best — dim rooms add sensor grain that hides the fine detail</li>
       </ul>
-      <label class="toggle"><input type="checkbox" id="keepVideo"><span>Also save the raw video (bigger file, lets me run my own detector)</span></label>
+      <label class="toggle"><input type="checkbox" id="keepVideo"><span>Also save the raw video of the fixation clip at high quality — for sub-pixel analysis (~25&nbsp;MB)</span></label>
       <label class="toggle"><input type="checkbox" id="useVoice" checked><span>Speak the prompts aloud</span></label>
       <div class="row"><button class="btn" id="startBtn">Enable camera</button><span id="setupMsg" class="note"></span></div>
     </div></div>
@@ -142,24 +143,27 @@ const show=id=>cards.forEach(c=>$("#"+c).classList.toggle("hidden",c!==id));
 const KEEP=[33,133,159,145,153,157,362,263,386,374,380,385,468,469,470,471,472,473,474,475,476,477];
 
 // guided phases — continuous session, target stays centered unless it moves
+// VIDEO_PHASES lists which phase ids the raw video should span (start..end).
+const VIDEO_START="fixation", VIDEO_END="fixation";
 const PHASES=[
   {id:"fixation",dur:14000,say:"Hold your gaze on the dot and stay as still as you can.",
    text:"Hold still on the dot",sub:"stay as still as you can",bright:false,track:()=>({x:.5,y:.5})},
+  {id:"pursuit",dur:16000,say:"Follow the moving dot smoothly with your eyes.",
+   text:"Follow the moving dot",sub:"let it lead, don't jump ahead",bright:false,
+   track:t=>{const s=t/1000; return s<8?{x:.5+.36*Math.sin(s/8*6.2832),y:.5}:{x:.5,y:.5+.30*Math.sin((s-8)/8*6.2832)};}},
   {id:"head_rotation",dur:16000,say:"Keep looking at the dot. Slowly turn your head left, then right, then tilt up, then down.",
    text:"Keep looking at the dot — slowly move your head",sub:"left · right · up · down",bright:false,track:()=>({x:.5,y:.5})},
   {id:"distance",dur:13000,say:"Keep looking at the dot. Lean back slowly, then lean in close.",
    text:"Keep looking — lean back, then lean in",sub:"change your distance to the screen",bright:false,track:()=>({x:.5,y:.5})},
   {id:"camera_pan",dur:13000,say:"Keep looking at the dot. Slide the laptop left, then right.",
    text:"Keep looking — slide the laptop left and right",sub:"move the camera, not your eyes",bright:false,track:()=>({x:.5,y:.5})},
-  {id:"pursuit",dur:16000,say:"Follow the moving dot smoothly with your eyes.",
-   text:"Follow the moving dot",sub:"let it lead, don't jump ahead",bright:false,
-   track:t=>{const s=t/1000; return s<8?{x:.5+.36*Math.sin(s/8*6.2832),y:.5}:{x:.5,y:.5+.30*Math.sin((s-8)/8*6.2832)};}},
   {id:"glint_dark",dur:14000,say:"Last one. If you can, dim the room. Hold your gaze on the dot.",
    text:"Dim the room · hold your gaze on the dot",sub:"bright screen throws a reflection in your eye",bright:true,track:()=>({x:.5,y:.5})},
 ];
 
 let stream=null,landmarker=null,recorder=null,chunks=[],state="idle";
 let queue=[],current=null,phaseStart=0,sessionStart=0,rafId=null,log=[],lastLogT=-1,faceOk=false;
+let videoBlob=null,recError="";
 
 function speak(t){ if(!$("#useVoice").checked||!window.speechSynthesis) return;
   try{ const u=new SpeechSynthesisUtterance(t); u.rate=1; speechSynthesis.cancel(); speechSynthesis.speak(u);}catch(e){} }
@@ -215,23 +219,36 @@ function framingLoop(){
 
 function beginSession(){
   queue=PHASES.slice(); log=[]; sessionStart=performance.now();
+  videoBlob=null; recError=""; state="running";   // stops framingLoop → single detector
   cards.forEach(c=>$("#"+c).classList.add("hidden"));
   preview.classList.add("mini");
-  if($("#keepVideo").checked) startRecorder();
   nextPhase();
 }
 function startRecorder(){
-  chunks=[]; let mime="video/webm;codecs=vp9";
+  chunks=[];
+  if(typeof MediaRecorder==="undefined"){ recError="This browser has no MediaRecorder — video can't be saved."; return; }
+  let mime="video/webm;codecs=vp9";
   if(!MediaRecorder.isTypeSupported(mime)) mime="video/webm;codecs=vp8";
   if(!MediaRecorder.isTypeSupported(mime)) mime="video/webm";
-  try{ recorder=new MediaRecorder(stream,{mimeType:mime,videoBitsPerSecond:5_000_000}); }
-  catch(e){ recorder=new MediaRecorder(stream); }
+  // high bitrate so the small eye region survives compression (sub-pixel signal)
+  try{ recorder=new MediaRecorder(stream,{mimeType:mime,videoBitsPerSecond:14_000_000}); }
+  catch(e){ try{ recorder=new MediaRecorder(stream); }catch(e2){ recError="Couldn't start recording: "+e2.message; return; } }
   recorder.ondataavailable=e=>{ if(e.data&&e.data.size) chunks.push(e.data); };
-  recorder.start(); recDot.classList.remove("hidden"); recTxt.textContent="recording video";
+  recorder.start(1000);   // flush a chunk each second so nothing is lost
+  recDot.classList.remove("hidden"); recTxt.textContent="recording (fixation clip)";
+}
+function stopAndCapture(){
+  if(!recorder || recorder.state==="inactive") return;
+  recorder.onstop=()=>{
+    videoBlob=new Blob(chunks,{type:(chunks[0]&&chunks[0].type)||"video/webm"});
+    recDot.classList.add("hidden"); recTxt.textContent="";
+  };
+  recorder.stop();
 }
 function nextPhase(){
   if(!queue.length){ return finish(); }
   current=queue.shift();
+  if($("#keepVideo").checked && current.id===VIDEO_START) startRecorder();
   stage.classList.toggle("bright",!!current.bright);
   prompt.innerHTML=current.text+`<span class="sub">${current.sub}</span>`;
   prompt.classList.remove("hidden"); count.classList.remove("hidden"); target.classList.remove("hidden");
@@ -262,7 +279,11 @@ function loop(){
     log.push(rec);
   }
   count.textContent=current.id.replace(/_/g," ")+" · "+Math.max(0,(current.dur-t)/1000).toFixed(1)+"s";
-  if(t>=current.dur){ target.classList.add("hidden"); prompt.classList.add("hidden"); setTimeout(nextPhase,350); return; }
+  if(t>=current.dur){
+    target.classList.add("hidden"); prompt.classList.add("hidden");
+    if($("#keepVideo").checked && current.id===VIDEO_END) stopAndCapture();
+    setTimeout(nextPhase,350); return;
+  }
   rafId=requestAnimationFrame(loop);
 }
 function place(pos){ target.style.left=(pos.x*stage.clientWidth)+"px"; target.style.top=(pos.y*stage.clientHeight)+"px"; }
@@ -277,9 +298,14 @@ function finish(){
     phases:PHASES.map(p=>({id:p.id,durationMs:p.dur})), samples:log };
   const fl=$("#fileList"); fl.innerHTML="";
   addFile(fl,`session_${stamp}.json`,new Blob([JSON.stringify(meta)],{type:"application/json"}),true);
-  if($("#keepVideo").checked && recorder){
-    recorder.onstop=()=>{ const b=new Blob(chunks,{type:(chunks[0]&&chunks[0].type)||"video/webm"}); addFile(fl,`session_${stamp}.webm`,b,false); };
-    recorder.stop();
+  if($("#keepVideo").checked){
+    // ensure the recorder has flushed (it stops at end of pursuit; give it a beat)
+    const attach=()=>{
+      if(videoBlob){ addFile(fl,`session_${stamp}.webm`,videoBlob,false); }
+      else if(recError){ const w=document.createElement("p"); w.className="note"; w.style.color="var(--bad)"; w.textContent=recError; fl.appendChild(w); }
+      else { setTimeout(attach,200); }
+    };
+    attach();
   }
   recDot.classList.add("hidden"); recTxt.textContent="";
   state="done"; show("done");
