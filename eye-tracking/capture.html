@@ -3,64 +3,71 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Eye Capture — guided session</title>
+<title>Eye Capture — stepped session</title>
 <style>
   :root{
-    --bg:#0d0f12; --panel:#141821; --line:#242a35;
-    --ink:#e6e8eb; --mut:#8a9099; --dim:#5b6270;
-    --signal:#4fd1c5; --rec:#e6a23c; --bad:#e06a5c; --good:#6fcf7f;
-    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
-    --sans:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+    --bg:#0d0f12;--panel:#141821;--line:#242a35;--ink:#e6e8eb;--mut:#8a9099;--dim:#5b6270;
+    --signal:#4fd1c5;--rec:#e6a23c;--bad:#e06a5c;--good:#6fcf7f;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;--sans:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
   }
-  *{box-sizing:border-box}
-  html,body{margin:0;height:100%}
+  *{box-sizing:border-box}html,body{margin:0;height:100%}
   body{background:var(--bg);color:var(--ink);font-family:var(--sans);-webkit-font-smoothing:antialiased;overflow:hidden}
   #app{position:fixed;inset:0;display:flex;flex-direction:column}
   .bar{display:flex;align-items:center;gap:16px;padding:11px 18px;border-bottom:1px solid var(--line);
     background:var(--panel);font-family:var(--mono);font-size:12px;letter-spacing:.04em;color:var(--mut);z-index:5}
-  .bar .tag{color:var(--signal);font-weight:600}
-  .bar .sp{flex:1}
+  .bar .tag{color:var(--signal);font-weight:600}.bar .sp{flex:1}
   .pill{display:inline-flex;align-items:center;gap:7px}
   .dot{width:8px;height:8px;border-radius:50%;background:var(--dim)}
   .dot.live{background:var(--rec);animation:pulse 1.1s infinite}
   @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(230,162,60,.55)}70%{box-shadow:0 0 0 7px rgba(230,162,60,0)}100%{box-shadow:0 0 0 0 rgba(230,162,60,0)}}
-  .stage{position:relative;flex:1;overflow:hidden;background:var(--bg);transition:background .25s}
+  .stage{position:relative;flex:1;overflow:hidden;background:var(--bg);transition:background .12s}
   .stage.bright{background:#f4f4f2}
   #target{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);pointer-events:none}
-  .ring{fill:none;stroke:var(--signal);stroke-width:1.5;opacity:.55}
-  .cross{stroke:var(--signal);stroke-width:1;opacity:.5}
-  .core{fill:var(--signal)}
-  .stage.bright .ring{stroke:#111}.stage.bright .cross{stroke:#111}.stage.bright .core{fill:#111}
-  #preview{position:absolute;right:16px;bottom:16px;width:190px;border-radius:10px;border:1px solid var(--line);
-    overflow:hidden;background:#000;z-index:4}
-  #preview.mini{width:104px;opacity:.6}
-  #preview video{display:block;width:100%;transform:scaleX(-1)}
-  #preview .cap{position:absolute;left:8px;bottom:6px;font-family:var(--mono);font-size:10px;letter-spacing:.05em}
-  #preview .cap.ok{color:var(--good)} #preview .cap.no{color:var(--bad)}
+  .ring{fill:none;stroke:var(--signal);stroke-width:1.5;opacity:.55}.cross{stroke:var(--signal);stroke-width:1;opacity:.5}.core{fill:var(--signal)}
+  .backing{display:none}.stage.flash .backing{display:inline}
+  .stage.bright .ring,.stage.flash .ring{stroke:#111}.stage.bright .cross,.stage.flash .cross{stroke:#111}.stage.bright .core,.stage.flash .core{fill:#111}
+  #preview{position:absolute;right:16px;bottom:16px;width:190px;border-radius:10px;border:1px solid var(--line);overflow:hidden;background:#000;z-index:4}
+  #preview.mini{width:104px;opacity:.6}#preview video{display:block;width:100%;transform:scaleX(-1)}
   .prompt{position:absolute;left:0;right:0;top:44px;text-align:center;z-index:3;font-size:19px;font-weight:600;color:var(--ink);pointer-events:none;padding:0 20px}
   .prompt .sub{display:block;font-family:var(--mono);font-size:13px;font-weight:400;color:var(--mut);margin-top:8px}
-  .stage.bright .prompt{color:#111}.stage.bright .prompt .sub{color:#555}
+  .stage.bright .prompt,.stage.flash .prompt{color:#111}.stage.bright .prompt .sub,.stage.flash .prompt .sub{color:#444}
   .count{position:absolute;left:50%;bottom:24px;transform:translateX(-50%);z-index:3;font-family:var(--mono);font-size:12px;color:var(--dim);letter-spacing:.08em}
-  .stage.bright .count{color:#666}
   .card{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:24px;z-index:6}
-  .box{width:min(560px,92vw);background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:26px}
+  .box{width:min(600px,92vw);background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:26px}
   .eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--signal)}
-  h1{font-size:22px;margin:.5em 0 .3em;font-weight:650;letter-spacing:-.01em}
+  h1{font-size:21px;margin:.5em 0 .3em;font-weight:650;letter-spacing:-.01em}
   p{color:var(--mut);font-size:13.5px;line-height:1.55;margin:.5em 0}
   .note{font-family:var(--mono);font-size:11.5px;color:var(--dim);line-height:1.5}
   ul{color:var(--mut);font-size:13px;line-height:1.6;padding-left:18px;margin:10px 0}
   .row{display:flex;gap:10px;align-items:center;margin-top:18px;flex-wrap:wrap}
-  .btn{appearance:none;border:1px solid var(--signal);background:var(--signal);color:#08201e;font-family:var(--sans);
-    font-size:14px;font-weight:650;padding:11px 20px;border-radius:9px;cursor:pointer}
-  .btn:hover{filter:brightness(1.08)} .btn.ghost{background:transparent;color:var(--signal)} .btn:disabled{opacity:.4;cursor:default}
-  .toggle{display:flex;align-items:center;gap:9px;font-size:12.5px;color:var(--mut);cursor:pointer;user-select:none;margin-top:6px}
+  .btn{appearance:none;border:1px solid var(--signal);background:var(--signal);color:#08201e;font-family:var(--sans);font-size:14px;font-weight:650;padding:11px 20px;border-radius:9px;cursor:pointer}
+  .btn:hover{filter:brightness(1.08)}.btn.ghost{background:transparent;color:var(--signal)}.btn:disabled{opacity:.35;cursor:default;filter:none}
+  .btn.small{font-size:12px;padding:8px 14px}
+  .toggle{display:flex;align-items:center;gap:9px;font-size:12.5px;color:var(--mut);cursor:pointer;user-select:none;margin-top:8px}
   .toggle input{accent-color:var(--signal);width:15px;height:15px}
-  .files{display:flex;flex-direction:column;gap:8px;margin:14px 0 4px}
-  .file{display:flex;align-items:center;gap:12px;padding:10px 12px;border:1px solid var(--line);border-radius:9px}
+  .link{background:none;border:none;color:var(--dim);font-family:var(--mono);font-size:11.5px;text-decoration:underline;cursor:pointer;padding:4px 0}
+  /* block setup */
+  .setuphead{display:flex;align-items:baseline;gap:10px}
+  .stepno{font-family:var(--mono);font-size:12px;color:var(--dim)}
+  .badge{display:inline-block;font-family:var(--mono);font-size:11px;padding:3px 8px;border-radius:6px;border:1px solid var(--line);color:var(--mut);margin-right:6px}
+  .badge.hold{border-color:var(--rec);color:var(--rec)}.badge.table{border-color:var(--signal);color:var(--signal)}
+  .checks{display:flex;flex-direction:column;gap:10px;margin:16px 0}
+  .chk{display:flex;align-items:center;gap:12px;font-size:13px}
+  .lamp{width:12px;height:12px;border-radius:50%;background:var(--dim);flex:0 0 auto;transition:background .2s}
+  .lamp.ok{background:var(--good)}.lamp.warn{background:var(--rec)}.lamp.bad{background:var(--bad)}
+  .meterwrap{flex:1}
+  .meter{height:8px;border-radius:5px;background:#0a0c10;border:1px solid var(--line);position:relative;overflow:hidden;margin-top:5px}
+  .meter .fill{position:absolute;top:0;bottom:0;left:0;background:var(--signal);width:0%;transition:width .15s,background .2s}
+  .chk .lbl{min-width:150px;font-family:var(--mono);font-size:11.5px;color:var(--mut)}
+  .chk .val{font-family:var(--mono);font-size:11.5px;color:var(--dim);min-width:66px;text-align:right}
+  .files{display:flex;flex-direction:column;gap:7px;margin:14px 0 4px;max-height:46vh;overflow:auto}
+  .file{display:flex;align-items:center;gap:12px;padding:9px 12px;border:1px solid var(--line);border-radius:9px}
   .file .nm{font-family:var(--mono);font-size:12px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .file .sz{font-family:var(--mono);font-size:11px;color:var(--dim)}
   .dl{font-family:var(--mono);font-size:11px;color:var(--signal);text-decoration:none;border:1px solid var(--signal);padding:5px 10px;border-radius:7px}
   .dl:hover{background:rgba(79,209,197,.1)}
+  .progress{position:absolute;top:0;left:0;right:0;height:2px;background:transparent;z-index:7}
+  .progress .b{height:100%;background:var(--signal);width:0%}
   .hidden{display:none!important}
   @media (prefers-reduced-motion:reduce){.dot.live{animation:none}}
 </style>
@@ -74,10 +81,12 @@
     <span class="pill"><span class="dot hidden" id="recDot"></span><span id="recTxt"></span></span>
     <span class="sp"></span><span id="res" class="note"></span>
   </div>
+  <div class="progress"><div class="b" id="progBar"></div></div>
 
   <div class="stage" id="stage">
     <div id="target" class="hidden">
       <svg width="120" height="120" viewBox="0 0 120 120">
+        <circle class="backing" cx="60" cy="60" r="44" fill="rgba(120,120,120,.55)"/>
         <circle class="ring" cx="60" cy="60" r="34"/><circle class="ring" cx="60" cy="60" r="18" opacity=".35"/>
         <line class="cross" x1="60" y1="16" x2="60" y2="44"/><line class="cross" x1="60" y1="76" x2="60" y2="104"/>
         <line class="cross" x1="16" y1="60" x2="44" y2="60"/><line class="cross" x1="76" y1="60" x2="104" y2="60"/>
@@ -86,87 +95,159 @@
     </div>
     <div class="prompt hidden" id="prompt"></div>
     <div class="count hidden" id="count"></div>
-    <div id="preview"><video id="vid" autoplay playsinline muted></video><span class="cap" id="prevCap">preview</span></div>
+    <div id="preview"><video id="vid" autoplay playsinline muted></video></div>
 
+    <!-- INTRO -->
     <div class="card" id="setup"><div class="box">
-      <div class="eyebrow">Guided capture</div>
-      <h1>One continuous eye-tracking session</h1>
-      <p>The tool talks you through it. Keep your eyes on the target the whole time; it tells you when to hold still, turn your head, lean, and slide the laptop. Runs on your device — nothing is sent until you upload the result.</p>
+      <div class="eyebrow">Stepped capture</div>
+      <h1>A guided session, one block at a time</h1>
+      <p>Each block has a setup screen: get into position, watch the light and tracking check turn green, then press <b>Ready</b> — recording starts only then, so you're never racing a countdown. You can redo any block.</p>
       <ul>
-        <li>Sit ~50–60&nbsp;cm away, camera near eye level, face lit from the front</li>
-        <li>Whole run is about 80 seconds</li>
-        <li>Output is one small landmark file (plus an optional raw video)</li>
-        <li>For the raw-video test: bright, even light on your face works best — dim rooms add sensor grain that hides the fine detail</li>
+        <li>Most blocks: <b>hold the laptop</b> naturally. A few say <b>set it on the table</b> — the screen will tell you which.</li>
+        <li>The light meter tells you if it's too dark (grainy) or too bright before you record.</li>
+        <li>Each block saves its own high-quality clip; RAR them together to send.</li>
       </ul>
-      <label class="toggle"><input type="checkbox" id="keepVideo"><span>Also save the raw video of the fixation clip at high quality — for sub-pixel analysis (~25&nbsp;MB)</span></label>
       <label class="toggle"><input type="checkbox" id="useVoice" checked><span>Speak the prompts aloud</span></label>
       <div class="row"><button class="btn" id="startBtn">Enable camera</button><span id="setupMsg" class="note"></span></div>
     </div></div>
 
+    <!-- ERROR -->
     <div class="card hidden" id="errCard"><div class="box">
       <div class="eyebrow" style="color:var(--bad)">Camera unavailable</div>
       <h1>Couldn't reach the webcam</h1>
-      <p id="errWhy"></p>
-      <p class="note" id="errDetail"></p>
+      <p id="errWhy"></p><p class="note" id="errDetail"></p>
       <div class="row"><button class="btn ghost" id="retryBtn">Try again</button></div>
     </div></div>
 
-    <div class="card hidden" id="ready"><div class="box">
-      <div class="eyebrow">Framing check</div>
-      <h1>Center your face, then begin</h1>
-      <p>Eyes in the upper third of the preview, whole face visible, no strong backlight. The preview corner turns green when your face is being tracked.</p>
-      <p class="note" id="readyRes"></p>
-      <div class="row"><button class="btn" id="beginBtn">Start session</button><button class="btn ghost" id="backBtn">Back</button></div>
+    <!-- BLOCK SETUP -->
+    <div class="card hidden" id="blockSetup"><div class="box">
+      <div class="setuphead"><span class="stepno" id="stepNo"></span></div>
+      <h1 id="blockTitle"></h1>
+      <p id="blockSetupText"></p>
+      <div id="blockBadges" style="margin:8px 0 4px"></div>
+      <div class="checks">
+        <div class="chk"><span class="lamp" id="faceLamp"></span><span class="lbl">face &amp; eyes</span>
+          <span class="meterwrap"><div class="meter"><div class="fill" id="faceFill"></div></div></span><span class="val" id="faceVal">—</span></div>
+        <div class="chk"><span class="lamp" id="lightLamp"></span><span class="lbl" id="lightLbl">lighting</span>
+          <span class="meterwrap"><div class="meter"><div class="fill" id="lightFill"></div></div></span><span class="val" id="lightVal">—</span></div>
+      </div>
+      <div class="row">
+        <button class="btn" id="readyBtn" disabled>Ready — start block</button>
+        <button class="link" id="anywayBtn">record anyway</button>
+        <span class="sp" style="flex:1"></span>
+        <button class="link" id="skipBtn">skip this block</button>
+      </div>
     </div></div>
 
+    <!-- BLOCK DONE -->
+    <div class="card hidden" id="blockDone"><div class="box">
+      <div class="eyebrow" style="color:var(--good)">Block recorded</div>
+      <h1 id="doneTitle"></h1>
+      <p class="note" id="doneInfo"></p>
+      <div class="row">
+        <button class="btn" id="nextBtn">Next block</button>
+        <button class="btn ghost" id="redoBtn">Redo this one</button>
+      </div>
+    </div></div>
+
+    <!-- FINISH -->
     <div class="card hidden" id="done"><div class="box">
       <div class="eyebrow" style="color:var(--good)">Session complete</div>
-      <h1>Download and upload this</h1>
-      <p>Grab the file(s) below and drop them into the chat.</p>
+      <h1>Download everything, then RAR it</h1>
+      <p>Grab the JSON and every clip below, put them in one folder, RAR it, and send it here.</p>
       <div class="files" id="fileList"></div>
-      <div class="row"><button class="btn ghost" id="againBtn">Run again</button></div>
+      <div class="row"><button class="btn ghost" id="againBtn">Start over</button></div>
     </div></div>
   </div>
 </div>
 
 <script type="module">
 import { FaceLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.18/vision_bundle.mjs";
-
 const $=s=>document.querySelector(s);
-const stage=$("#stage"),target=$("#target"),prompt=$("#prompt"),count=$("#count"),vid=$("#vid"),
-      preview=$("#preview"),prevCap=$("#prevCap"),resEl=$("#res");
-const camDot=$("#camDot"),camTxt=$("#camTxt"),mpDot=$("#mpDot"),mpTxt=$("#mpTxt"),recDot=$("#recDot"),recTxt=$("#recTxt");
-const cards=["setup","errCard","ready","done"];
+const stage=$("#stage"),target=$("#target"),prompt=$("#prompt"),count=$("#count"),vid=$("#vid"),preview=$("#preview"),resEl=$("#res");
+const camDot=$("#camDot"),camTxt=$("#camTxt"),mpDot=$("#mpDot"),mpTxt=$("#mpTxt"),recDot=$("#recDot"),recTxt=$("#recTxt"),progBar=$("#progBar");
+const cards=["setup","errCard","blockSetup","blockDone","done"];
 const show=id=>cards.forEach(c=>$("#"+c).classList.toggle("hidden",c!==id));
-
-// landmark indices we keep (compact record; everything else computed server-side)
 const KEEP=[33,133,159,145,153,157,362,263,386,374,380,385,468,469,470,471,472,473,474,475,476,477];
 
-// guided phases — continuous session, target stays centered unless it moves
-// VIDEO_PHASES lists which phase ids the raw video should span (start..end).
-const VIDEO_START="fixation", VIDEO_END="fixation";
-const PHASES=[
-  {id:"fixation",dur:14000,say:"Hold your gaze on the dot and stay as still as you can.",
-   text:"Hold still on the dot",sub:"stay as still as you can",bright:false,track:()=>({x:.5,y:.5})},
-  {id:"pursuit",dur:16000,say:"Follow the moving dot smoothly with your eyes.",
-   text:"Follow the moving dot",sub:"let it lead, don't jump ahead",bright:false,
-   track:t=>{const s=t/1000; return s<8?{x:.5+.36*Math.sin(s/8*6.2832),y:.5}:{x:.5,y:.5+.30*Math.sin((s-8)/8*6.2832)};}},
-  {id:"head_rotation",dur:16000,say:"Keep looking at the dot. Slowly turn your head left, then right, then tilt up, then down.",
-   text:"Keep looking at the dot — slowly move your head",sub:"left · right · up · down",bright:false,track:()=>({x:.5,y:.5})},
-  {id:"distance",dur:13000,say:"Keep looking at the dot. Lean back slowly, then lean in close.",
-   text:"Keep looking — lean back, then lean in",sub:"change your distance to the screen",bright:false,track:()=>({x:.5,y:.5})},
-  {id:"camera_pan",dur:13000,say:"Keep looking at the dot. Slide the laptop left, then right.",
-   text:"Keep looking — slide the laptop left and right",sub:"move the camera, not your eyes",bright:false,track:()=>({x:.5,y:.5})},
-  {id:"glint_dark",dur:14000,say:"Last one. If you can, dim the room. Hold your gaze on the dot.",
-   text:"Dim the room · hold your gaze on the dot",sub:"bright screen throws a reflection in your eye",bright:true,track:()=>({x:.5,y:.5})},
+// ---- tracks ----
+const centre=()=>({x:.5,y:.5});
+const pursuitT=t=>{const s=t/1000;return s<8?{x:.5+.36*Math.sin(s/8*6.2832),y:.5}:{x:.5,y:.5+.30*Math.sin((s-8)/8*6.2832)};};
+const saccadeT=t=>{const p=[[.15,.18],[.85,.82],[.85,.18],[.15,.82],[.5,.5]];return {x:p[Math.floor(t/1200)%p.length][0],y:p[Math.floor(t/1200)%p.length][1]};};
+const extremesT=t=>{const p=[[.5,.5],[.5,.04],[.96,.5],[.5,.96],[.04,.5],[.5,.5]];const i=Math.min(p.length-1,Math.floor(t/2600));return {x:p[i][0],y:p[i][1]};};
+
+// ---- blocks ----
+const BLOCKS=[
+ {id:"fixation_table",hold:"table",light:"bright",dur:14000,labeled:true,track:centre,
+  title:"Fixation — laptop on the table",
+  setup:"Set the laptop flat on the table, sit ~50–60 cm away, face lit evenly from the front. Hold as still as you can.",
+  say:"Set the laptop on the table. Hold your gaze on the dot and stay very still.",
+  text:"Hold still on the dot",sub:"stay as still as you can"},
+ {id:"fixation_handheld",hold:"hold",light:"bright",dur:14000,labeled:true,track:centre,
+  title:"Fixation — handheld",
+  setup:"Pick the laptop up and hold it the way you normally would. Don't force stillness — natural little hand movements are useful data.",
+  say:"Hold the laptop naturally. Keep your gaze on the dot.",
+  text:"Hold your gaze on the dot",sub:"natural handheld motion is fine"},
+ {id:"pursuit",hold:"hold",light:"bright",dur:16000,labeled:true,track:pursuitT,
+  title:"Smooth pursuit",
+  setup:"Hold or table, your choice. A dot will glide across the screen — follow it smoothly with your eyes.",
+  say:"Follow the moving dot smoothly with your eyes.",
+  text:"Follow the moving dot",sub:"let it lead, don't jump ahead"},
+ {id:"saccades",hold:"hold",light:"bright",dur:13000,labeled:true,track:saccadeT,
+  title:"Saccades",
+  setup:"The dot will jump between the corners. Snap your eyes straight to it each time, then hold until it moves.",
+  say:"Look straight at each dot the moment it jumps.",
+  text:"Snap to each dot, then hold",sub:"fast, then steady"},
+ {id:"head_rotation",hold:"hold",light:"bright",dur:16000,labeled:true,track:centre,
+  title:"Head rotation",
+  setup:"Keep your eyes locked on the dot the entire time while you slowly move your head.",
+  say:"Keep looking at the dot. Slowly turn your head left, right, then tilt up and down.",
+  text:"Keep looking — slowly move your head",sub:"left · right · up · down"},
+ {id:"distance",hold:"hold",light:"bright",dur:13000,labeled:true,track:centre,
+  title:"Distance sweep",
+  setup:"Hold the laptop. You'll change how far you are from it while keeping your gaze on the dot.",
+  say:"Keep looking at the dot. Lean back slowly, then lean in close.",
+  text:"Keep looking — lean back, then in",sub:"change your distance"},
+ {id:"camera_move",hold:"hold",light:"bright",dur:17000,labeled:true,track:centre,
+  title:"Camera pan + rotate",
+  setup:"Hold the laptop. You'll slide it side to side, then hand-tilt and rotate it. Clumsy, uneven motion is completely fine.",
+  say:"Keep your eyes on the dot. Slide the laptop left and right, then tilt and rotate it.",
+  text:"Keep looking — move the camera around",sub:"slide, tilt, rotate (not your eyes)"},
+ {id:"fixation_bright",hold:"table",light:"bright",dur:12000,labeled:true,track:centre,
+  title:"Fixation — bright room",
+  setup:"Get the brightest even light you can on your face (kitchen, lamp). Laptop on the table.",
+  say:"Bright light on your face. Hold your gaze on the dot.",
+  text:"Hold still on the dot",sub:"bright room"},
+ {id:"fixation_dark",hold:"table",light:"dark",dur:12000,labeled:true,track:centre,
+  title:"Fixation — dark room",
+  setup:"Turn the room lights off / go somewhere dark. The screen stays on — keep your face turned toward it so the camera can still see your eyes.",
+  say:"Lights off. Keep your face lit by the screen, gaze on the dot.",
+  text:"Hold still on the dot",sub:"dark room, face lit by screen"},
+ {id:"color_flash",hold:"table",light:"any",dur:15000,labeled:true,flash:true,track:centre,
+  title:"Color / brightness flashing",
+  setup:"Darker room is better here. The screen will cycle through colors and brightness levels to light your face from the front — just keep looking at the dot.",
+  say:"Keep your gaze on the dot while the screen changes color and brightness.",
+  text:"Keep your gaze on the dot",sub:"the screen is lighting your face"},
+ {id:"eye_extremes",hold:"table",light:"bright",dur:16000,labeled:false,track:extremesT,
+  title:"Eye range (extremes)",
+  setup:"Keep your head still and facing straight forward. Move ONLY your eyes, as far as they go toward each edge, even past the dot.",
+  say:"Head still. Move only your eyes as far as they go: up, right, down, left, then roll them in a circle.",
+  text:"Head still — push your eyes to the edges",sub:"up · right · down · left · circle"},
+ {id:"eyelid_sweep",hold:"table",light:"bright",dur:12000,labeled:true,track:centre,
+  title:"Eyelid sweep",
+  setup:"Keep looking at the dot. You'll open your eyes as wide as you can, then slowly close them, in one smooth cycle.",
+  say:"Keep looking at the dot. Slowly open your eyes wide, then close them.",
+  text:"Wide open → half → closed → open",sub:"one slow smooth cycle, gaze on the dot"},
 ];
+const FLASH=["#ffffff","#ff3b30","#34c759","#0a84ff","#ffd60a","#000000","#808080","#ffffff"];
 
 let stream=null,landmarker=null,recorder=null,chunks=[],state="idle";
-let queue=[],current=null,phaseStart=0,sessionStart=0,rafId=null,log=[],lastLogT=-1,faceOk=false;
-let videoBlob=null,recError="";
+let bi=0,current=null,phaseStart=0,sessionStart=0,rafId=null,meterId=null,log=[];
+let lastLogT=-1,videoBlob=null,recError="",lightOK=false,faceOK=false,forced=false;
+const meas=document.createElement("canvas"); meas.width=80; meas.height=60; const mctx=meas.getContext("2d",{willReadFrequently:true});
 
 function speak(t){ if(!$("#useVoice").checked||!window.speechSynthesis) return;
-  try{ const u=new SpeechSynthesisUtterance(t); u.rate=1; speechSynthesis.cancel(); speechSynthesis.speak(u);}catch(e){} }
+  try{ const u=new SpeechSynthesisUtterance(t); speechSynthesis.cancel(); speechSynthesis.speak(u);}catch(e){} }
 
 async function initLandmarker(){
   mpTxt.textContent="landmarks loading…";
@@ -176,138 +257,154 @@ async function initLandmarker(){
       baseOptions:{modelAssetPath:"https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task",delegate:"GPU"},
       runningMode:"VIDEO",numFaces:1,outputFacialTransformationMatrixes:true});
     mpDot.style.background="var(--good)"; mpTxt.textContent="landmarks on";
-  }catch(e){
-    landmarker=null; mpDot.style.background="var(--rec)"; mpTxt.textContent="landmarks off (video-only)";
-  }
+  }catch(e){ landmarker=null; mpDot.style.background="var(--rec)"; mpTxt.textContent="landmarks off (video-only)"; }
 }
 
 async function enableCamera(){
   $("#setupMsg").textContent="requesting camera…";
   if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia) return showError("This browser exposes no camera API.","");
-  try{
-    stream=await navigator.mediaDevices.getUserMedia({video:{width:{ideal:1280},height:{ideal:720},frameRate:{ideal:60},facingMode:"user"},audio:false});
-  }catch(err){
-    const why = /secure|https/i.test(err.message||"") || location.protocol==="file:"
-      ? "This page is running from a file, which browsers treat as insecure, so the camera stays blocked. Open the hosted link instead."
-      : "The browser blocked camera access. Check the camera permission for this site and try again.";
-    return showError(why, err.name+": "+(err.message||""));
+  try{ stream=await navigator.mediaDevices.getUserMedia({video:{width:{ideal:1280},height:{ideal:720},frameRate:{ideal:60},facingMode:"user"},audio:false}); }
+  catch(err){
+    const why=(/secure|https/i.test(err.message||"")||location.protocol==="file:")
+      ?"This page is running from a file, which browsers treat as insecure. Open the hosted https link instead."
+      :"The browser blocked camera access. In Brave, flip the Camera toggle on for this site (or drop Shields), then reload.";
+    return showError(why,err.name+": "+(err.message||""));
   }
   vid.srcObject=stream;
   const s=stream.getVideoTracks()[0].getSettings?.()||{};
-  const info=`${s.width||"?"}×${s.height||"?"} @ ${s.frameRate?Math.round(s.frameRate):"?"}fps`;
-  resEl.textContent=info; $("#readyRes").textContent="Capture resolution: "+info;
+  resEl.textContent=`${s.width||"?"}×${s.height||"?"} @ ${s.frameRate?Math.round(s.frameRate):"?"}fps`;
   camDot.style.background="var(--good)"; camTxt.textContent="camera on";
   await initLandmarker();
   await new Promise(r=>{ if(vid.readyState>=2) r(); else vid.onloadeddata=()=>r(); });
-  framingLoop();
-  show("ready"); state="ready";
+  sessionStart=performance.now(); log=[]; bi=0; openBlock();
 }
-function showError(why,detail){ camDot.style.background="var(--bad)"; camTxt.textContent="camera blocked";
-  $("#errWhy").textContent=why; $("#errDetail").textContent=detail; show("errCard"); }
+function showError(why,detail){ camDot.style.background="var(--bad)"; camTxt.textContent="camera blocked"; $("#errWhy").textContent=why; $("#errDetail").textContent=detail; show("errCard"); }
 
-// live framing feedback (face found?) while on the ready card
-function framingLoop(){
-  if(state!=="ready"){ return; }
-  if(landmarker){
-    try{ const r=landmarker.detectForVideo(vid,performance.now());
-      faceOk=r.faceLandmarks&&r.faceLandmarks.length>0;
-    }catch(e){ faceOk=false; }
-    prevCap.textContent=faceOk?"face tracked":"no face"; prevCap.className="cap "+(faceOk?"ok":"no");
-  }
-  requestAnimationFrame(framingLoop);
+// ---- block setup screen with live meters ----
+function openBlock(){
+  if(bi>=BLOCKS.length) return finish();
+  current=BLOCKS[bi]; forced=false; videoBlob=null; recError="";
+  progBar.style.width=(bi/BLOCKS.length*100)+"%";
+  $("#stepNo").textContent=`Block ${bi+1} of ${BLOCKS.length}`;
+  $("#blockTitle").textContent=current.title;
+  $("#blockSetupText").textContent=current.setup;
+  const hold=current.hold==="table"?'<span class="badge table">SET ON TABLE</span>':(current.hold==="hold"?'<span class="badge hold">HOLD THE LAPTOP</span>':'<span class="badge">HOLD OR TABLE</span>');
+  const lt=current.light==="dark"?'<span class="badge">DARK ROOM</span>':(current.light==="bright"?'<span class="badge">GOOD LIGHT</span>':'<span class="badge">ANY LIGHT</span>');
+  $("#blockBadges").innerHTML=hold+lt;
+  $("#lightLbl").textContent = current.light==="dark"?"darkness (face still visible)":(current.light==="any"?"lighting (not gated)":"lighting");
+  preview.classList.remove("mini");
+  show("blockSetup"); state="setup"; meterLoop();
+}
+function meterLoop(){
+  if(state!=="setup"){ return; }
+  // brightness on center region of the frame
+  try{ mctx.drawImage(vid,0,0,meas.width,meas.height);
+    const d=mctx.getImageData(20,12,40,36).data; let sum=0,dark=0,bright=0,n=d.length/4;
+    for(let i=0;i<d.length;i+=4){ const y=0.299*d[i]+0.587*d[i+1]+0.114*d[i+2]; sum+=y; if(y<16)dark++; if(y>240)bright++; }
+    const mean=sum/n, bclip=bright/n*100;
+    // face check
+    if(landmarker){ try{ const r=landmarker.detectForVideo(vid,performance.now()); faceOK=!!(r.faceLandmarks&&r.faceLandmarks.length); }catch(e){ faceOK=false; } }
+    else faceOK=true; // can't check; don't block
+    // evaluate light by intent
+    let ls="ok",lreason="good",lfill=Math.min(100,mean/255*100),lcol="var(--good)";
+    if(current.light==="bright"){
+      if(mean<70){ls="bad";lreason="too dark";lcol="var(--bad)";}
+      else if(mean>195||bclip>8){ls="warn";lreason="too bright";lcol="var(--rec)";}
+    } else if(current.light==="dark"){
+      if(!faceOK||mean<10){ls="bad";lreason="too dark to see face";lcol="var(--bad)";}
+      else if(mean>85){ls="warn";lreason="still too bright";lcol="var(--rec)";}
+    } else { ls="ok"; lreason="any"; }
+    lightOK=(ls==="ok");
+    $("#lightFill").style.width=lfill+"%"; $("#lightFill").style.background=lcol;
+    $("#lightVal").textContent=Math.round(mean)+" · "+lreason;
+    $("#lightLamp").className="lamp "+(ls==="ok"?"ok":ls);
+    $("#faceLamp").className="lamp "+(faceOK?"ok":"bad");
+    $("#faceFill").style.width=(faceOK?100:8)+"%"; $("#faceFill").style.background=faceOK?"var(--good)":"var(--bad)";
+    $("#faceVal").textContent=faceOK?"tracked":(landmarker?"not found":"n/a");
+    const ready=faceOK && (lightOK||current.light==="any");
+    $("#readyBtn").disabled=!ready;
+  }catch(e){}
+  meterId=requestAnimationFrame(meterLoop);
 }
 
-function beginSession(){
-  queue=PHASES.slice(); log=[]; sessionStart=performance.now();
-  videoBlob=null; recError=""; state="running";   // stops framingLoop → single detector
-  cards.forEach(c=>$("#"+c).classList.add("hidden"));
+function startBlock(force){
+  forced=!!force; state="running"; cancelAnimationFrame(meterId);
+  show(null); cards.forEach(c=>$("#"+c).classList.add("hidden"));
   preview.classList.add("mini");
-  nextPhase();
-}
-function startRecorder(){
-  chunks=[];
-  if(typeof MediaRecorder==="undefined"){ recError="This browser has no MediaRecorder — video can't be saved."; return; }
-  let mime="video/webm;codecs=vp9";
-  if(!MediaRecorder.isTypeSupported(mime)) mime="video/webm;codecs=vp8";
-  if(!MediaRecorder.isTypeSupported(mime)) mime="video/webm";
-  // high bitrate so the small eye region survives compression (sub-pixel signal)
-  try{ recorder=new MediaRecorder(stream,{mimeType:mime,videoBitsPerSecond:14_000_000}); }
-  catch(e){ try{ recorder=new MediaRecorder(stream); }catch(e2){ recError="Couldn't start recording: "+e2.message; return; } }
-  recorder.ondataavailable=e=>{ if(e.data&&e.data.size) chunks.push(e.data); };
-  recorder.start(1000);   // flush a chunk each second so nothing is lost
-  recDot.classList.remove("hidden"); recTxt.textContent="recording (fixation clip)";
-}
-function stopAndCapture(){
-  if(!recorder || recorder.state==="inactive") return;
-  recorder.onstop=()=>{
-    videoBlob=new Blob(chunks,{type:(chunks[0]&&chunks[0].type)||"video/webm"});
-    recDot.classList.add("hidden"); recTxt.textContent="";
-  };
-  recorder.stop();
-}
-function nextPhase(){
-  if(!queue.length){ return finish(); }
-  current=queue.shift();
-  if($("#keepVideo").checked && current.id===VIDEO_START) startRecorder();
-  stage.classList.toggle("bright",!!current.bright);
+  stage.classList.toggle("flash",!!current.flash);
   prompt.innerHTML=current.text+`<span class="sub">${current.sub}</span>`;
   prompt.classList.remove("hidden"); count.classList.remove("hidden"); target.classList.remove("hidden");
   speak(current.say);
   let c=3; count.textContent="starting in "+c;
-  const iv=setInterval(()=>{ c--; if(c>0) count.textContent="starting in "+c;
-    else{ clearInterval(iv); phaseStart=performance.now(); loop(); } },850);
+  const iv=setInterval(()=>{ c--; if(c>0) count.textContent="starting in "+c; else{ clearInterval(iv); record(); } },850);
   place(current.track(0));
 }
-function loop(){
+function record(){
+  chunks=[];
+  if(typeof MediaRecorder==="undefined"){ recError="No MediaRecorder in this browser."; }
+  else{
+    let mime="video/webm;codecs=vp9";
+    if(!MediaRecorder.isTypeSupported(mime)) mime="video/webm;codecs=vp8";
+    if(!MediaRecorder.isTypeSupported(mime)) mime="video/webm";
+    try{ recorder=new MediaRecorder(stream,{mimeType:mime,videoBitsPerSecond:24_000_000}); }
+    catch(e){ try{ recorder=new MediaRecorder(stream);}catch(e2){ recorder=null; recError="Couldn't start recording: "+e2.message; } }
+    if(recorder){ recorder.ondataavailable=e=>{ if(e.data&&e.data.size) chunks.push(e.data); }; recorder.start(1000);
+      recDot.classList.remove("hidden"); recTxt.textContent="recording · "+current.id; }
+  }
+  phaseStart=performance.now(); lastLogT=-1; guided();
+}
+function guided(){
   const t=performance.now()-phaseStart;
   const pos=current.track(t); place(pos);
-  // log at ~30 Hz
+  if(current.flash){ stage.style.background=FLASH[Math.floor(t/1600)%FLASH.length]; }
   const rel=performance.now()-sessionStart;
   if(rel-lastLogT>=32){
     lastLogT=rel;
-    const rec={t:+rel.toFixed(0),ph:current.id,tx:+pos.x.toFixed(4),ty:+pos.y.toFixed(4)};
-    if(landmarker){
-      try{ const r=landmarker.detectForVideo(vid,performance.now());
-        if(r.faceLandmarks&&r.faceLandmarks[0]){
-          const lm=r.faceLandmarks[0];
-          rec.p=KEEP.map(i=>[+lm[i].x.toFixed(5),+lm[i].y.toFixed(5),+lm[i].z.toFixed(5)]);
-          if(r.facialTransformationMatrixes&&r.facialTransformationMatrixes[0])
-            rec.M=Array.from(r.facialTransformationMatrixes[0].data).map(v=>+v.toFixed(4));
-        }
-      }catch(e){}
-    }
+    const rec={t:+rel.toFixed(0),blk:current.id,lab:current.labeled?1:0,tx:+pos.x.toFixed(4),ty:+pos.y.toFixed(4)};
+    if(current.flash) rec.fl=FLASH[Math.floor(t/1600)%FLASH.length];
+    if(landmarker){ try{ const r=landmarker.detectForVideo(vid,performance.now());
+      if(r.faceLandmarks&&r.faceLandmarks[0]){ const lm=r.faceLandmarks[0];
+        rec.p=KEEP.map(i=>[+lm[i].x.toFixed(5),+lm[i].y.toFixed(5),+lm[i].z.toFixed(5)]);
+        if(r.facialTransformationMatrixes&&r.facialTransformationMatrixes[0]) rec.M=Array.from(r.facialTransformationMatrixes[0].data).map(v=>+v.toFixed(4)); }
+    }catch(e){} }
     log.push(rec);
   }
   count.textContent=current.id.replace(/_/g," ")+" · "+Math.max(0,(current.dur-t)/1000).toFixed(1)+"s";
-  if(t>=current.dur){
-    target.classList.add("hidden"); prompt.classList.add("hidden");
-    if($("#keepVideo").checked && current.id===VIDEO_END) stopAndCapture();
-    setTimeout(nextPhase,350); return;
-  }
-  rafId=requestAnimationFrame(loop);
+  if(t>=current.dur){ endBlock(); return; }
+  rafId=requestAnimationFrame(guided);
 }
 function place(pos){ target.style.left=(pos.x*stage.clientWidth)+"px"; target.style.top=(pos.y*stage.clientHeight)+"px"; }
 
+function endBlock(){
+  cancelAnimationFrame(rafId); stage.style.background=""; stage.classList.remove("flash");
+  target.classList.add("hidden"); prompt.classList.add("hidden"); count.classList.add("hidden");
+  if(recorder && recorder.state!=="inactive"){
+    recorder.onstop=()=>{ videoBlob=new Blob(chunks,{type:(chunks[0]&&chunks[0].type)||"video/webm"});
+      recDot.classList.add("hidden"); recTxt.textContent=""; showBlockDone(); };
+    recorder.stop();
+  } else { showBlockDone(); }
+}
+function showBlockDone(){
+  const sz=videoBlob?(videoBlob.size/1048576).toFixed(1)+" MB":"—";
+  $("#doneTitle").textContent=current.title;
+  $("#doneInfo").textContent = recError ? recError : `clip ${sz}${forced?" · recorded with a warning":""}`;
+  current._blob=videoBlob; current._err=recError;
+  state="blockdone"; show("blockDone");
+}
+$("#nextBtn")?.addEventListener("click",()=>{ bi++; openBlock(); });
+$("#redoBtn")?.addEventListener("click",()=>{ openBlock(); });
+
 function finish(){
-  cancelAnimationFrame(rafId); stage.classList.remove("bright");
-  count.classList.add("hidden"); preview.classList.remove("mini"); speak("Done. Thank you.");
+  progBar.style.width="100%"; preview.classList.remove("mini");
   const stamp=new Date().toISOString().replace(/[:.]/g,"-").slice(0,19);
   const meta={ recordedAt:new Date().toISOString(), camera:resEl.textContent,
     screen:{w:stage.clientWidth,h:stage.clientHeight,dpr:window.devicePixelRatio||1},
-    landmarks:!!landmarker, keepIndices:KEEP,
-    phases:PHASES.map(p=>({id:p.id,durationMs:p.dur})), samples:log };
+    landmarks:!!landmarker, keepIndices:KEEP, flashColors:FLASH,
+    blocks:BLOCKS.map(b=>({id:b.id,durationMs:b.dur,labeled:b.labeled,hold:b.hold,light:b.light,flash:!!b.flash})),
+    samples:log };
   const fl=$("#fileList"); fl.innerHTML="";
   addFile(fl,`session_${stamp}.json`,new Blob([JSON.stringify(meta)],{type:"application/json"}),true);
-  if($("#keepVideo").checked){
-    // ensure the recorder has flushed (it stops at end of pursuit; give it a beat)
-    const attach=()=>{
-      if(videoBlob){ addFile(fl,`session_${stamp}.webm`,videoBlob,false); }
-      else if(recError){ const w=document.createElement("p"); w.className="note"; w.style.color="var(--bad)"; w.textContent=recError; fl.appendChild(w); }
-      else { setTimeout(attach,200); }
-    };
-    attach();
-  }
-  recDot.classList.add("hidden"); recTxt.textContent="";
+  BLOCKS.forEach((b,i)=>{ if(b._blob) addFile(fl,`${String(i+1).padStart(2,"0")}_${b.id}_${stamp}.webm`,b._blob,false); });
   state="done"; show("done");
 }
 function addFile(box,name,blob,primary){
@@ -315,15 +412,15 @@ function addFile(box,name,blob,primary){
   const kb=blob.size<1048576?(blob.size/1024).toFixed(0)+" KB":(blob.size/1048576).toFixed(1)+" MB";
   const row=document.createElement("div"); row.className="file";
   row.innerHTML=`<span class="nm">${primary?"★ ":""}${name}</span><span class="sz">${kb}</span>`;
-  const a=document.createElement("a"); a.className="dl"; a.href=url; a.download=name; a.textContent="download";
-  row.appendChild(a); box.appendChild(row);
+  const a=document.createElement("a"); a.className="dl"; a.href=url; a.download=name; a.textContent="download"; row.appendChild(a); box.appendChild(row);
 }
 
 $("#startBtn").onclick=enableCamera;
 $("#retryBtn").onclick=()=>show("setup");
-$("#beginBtn").onclick=beginSession;
-$("#backBtn").onclick=()=>show("setup");
-$("#againBtn").onclick=()=>{ log=[]; show("ready"); state="ready"; framingLoop(); };
+$("#readyBtn").onclick=()=>startBlock(false);
+$("#anywayBtn").onclick=()=>startBlock(true);
+$("#skipBtn").onclick=()=>{ bi++; openBlock(); };
+$("#againBtn").onclick=()=>{ BLOCKS.forEach(b=>{delete b._blob;delete b._err;}); log=[]; bi=0; sessionStart=performance.now(); openBlock(); };
 </script>
 </body>
 </html>
