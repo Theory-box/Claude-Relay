@@ -68,3 +68,18 @@ Next levers (not filtering): (1) trained *personalized* mapping model over full
 landmark+headpose features — the r=0.95 proxy is crude, a model beats it; (2) raw-pixel
 sub-pixel iris estimation to probe below MediaPipe's 0.34px floor — REQUIRES video, so
 next capture flip "save raw video" ON for fixation+pursuit.
+
+## Stepped capture tool (v2) — thorough data collection
+Replaced the auto-run tool with a stepped, per-block version (same URL).
+- Per-block "Ready" gating: setup screen per block with live **light meter** (mean
+  luminance, intent-aware: bright vs dark blocks) + **face/eyes tracked** lamp;
+  Ready enabled only when green, with "record anyway" override + "skip"/"redo".
+- Per-block HQ clips at **24 Mbps** (RAR to upload). One combined session JSON with
+  landmarks tagged by block id. Filenames NN_blockid_stamp.webm for ordered RAR.
+- 12 blocks: fixation_table, fixation_handheld, pursuit, saccades, head_rotation,
+  distance, camera_move (slide+tilt+rotate), fixation_bright, fixation_dark,
+  color_flash (screen cycles FLASH colors as active illumination; logged per frame),
+  eye_extremes (labeled:false — appearance data, gaze != target), eyelid_sweep.
+- Design intent: isolate ONE factor per block (light XOR motion XOR color) so labels
+  stay clean. Hold vs table specified per block (hold default; table for still baselines).
+- Teardown reminder still stands: disable Pages / delete gh-pages when capture done.
