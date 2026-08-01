@@ -83,3 +83,31 @@ Replaced the auto-run tool with a stepped, per-block version (same URL).
 - Design intent: isolate ONE factor per block (light XOR motion XOR color) so labels
   stay clean. Hold vs table specified per block (hold default; table for still baselines).
 - Teardown reminder still stands: disable Pages / delete gh-pages when capture done.
+
+## Session 2 capture — analysis (session_2026-08-01T04-17-10, 12 blocks + HQ video)
+Data quality: face tracked ~95-100% of frames (head_rotation 90%, color_flash 85% —
+expected). Framing horizontally centered (eyeX~0.50) but eyes rode LOW vertically
+(eyeY 0.55-0.71, worst on dark block). Usable; add an eyes-in-upper-third framing guide
+to the tool for next time. color_flash logged all 7 illumination colors per frame.
+
+### Sub-pixel test (the point of capturing pixels) — partly disconfirms the hope
+Ran MediaPipe tasks FaceLandmarker on fixation_table video + a dark-weighted centroid
+sub-pixel refinement, still-head clip.
+- Corner-normalized eye jitter (head motion removed): u=0.26px, v=0.16px of iris travel;
+  **85% is slow drift (real fixational eye motion + residual sway), only ~0.04px is
+  white noise.** MediaPipe is already white-noise-free (heavy temporal filtering).
+- Naive pixel-centroid matches MediaPipe (traj r=0.994) but does NOT beat it — slightly
+  noisier. So there is no big pool of easy sub-pixel detail MediaPipe is discarding for
+  iris-CENTER localization. Front-end is already near the floor.
+- Caveat keeping the intuition partly alive: MP's filtering could smooth away real fast
+  microsaccades (temporal-resolution question, niche for a cursor). Motion-magnification /
+  multi-frame super-res would need a fancier method AND wouldn't move the accuracy ceiling
+  much, since center noise is already ~0.04px.
+
+### Conclusion / redirect
+Bottleneck is NOT sub-pixel detection — it's the MAPPING (clean iris+head signal → screen
+coord across pose/distance/light). That's what personalization + calibration fix, and we
+now have labeled data across all those conditions. NEXT: build the personalized mapping
+model (features: iris + eye-corner + head cues; labels: pursuit/saccade/fixation targets;
+test head-invariance using the head/distance/pan blocks; measure deg accuracy).
+Tooling now in sandbox: mediapipe tasks API + face_landmarker.task (downloaded).
