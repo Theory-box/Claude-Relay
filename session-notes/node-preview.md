@@ -178,3 +178,16 @@ our own datablock churn doesn't self-trigger).
   clean new datablock. Guard unregisters cleanly.
 - During normal live preview the datablock is generated/pathless, so the guard
   never touches it.
+
+## v0.12 — replace always-on guard with an explicit Save button
+- Per user preference (nervous about a background watcher), REMOVED the
+  always-on _guard_preview_datablock timer.
+- ADDED "Save Preview to File" button: opens a native file browser, saves the
+  preview to the chosen path via a throwaway datablock (so it NEVER stamps a
+  path onto the live preview), reloads it as a normal FILE-backed packable
+  image, and (optional toggle) adds it as an image-texture node in the active
+  material. Because the preview datablock is never given a path, the loaded
+  file can't collapse back onto it.
+- Kept the lightweight render-time safeguard as a quiet net.
+- Verified headless: file written; independent FILE-backed packable datablock;
+  preview left generated/pathless (untouched); node added and pointing at it.

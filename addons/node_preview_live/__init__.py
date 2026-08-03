@@ -225,41 +225,6 @@ def _get_device_mode():
         return "AUTO"
 
 
-def _guard_preview_datablock():
-    """Always-on guard (~1s). If the user has SAVED the preview image (it gains a
-    file path / becomes FILE-sourced), release it: rename it to the file's own
-    name so it turns into a normal, packable, independent texture and frees the
-    'NodePreview_Result' name for a fresh preview. This is what lets the native
-    Save -> Open workflow work without the loaded file collapsing back onto the
-    live preview datablock.
-    """
-    try:
-        img = bpy.data.images.get(RESULT_IMAGE_NAME)
-        if img is not None and (img.filepath or img.source != "GENERATED"):
-            base = os.path.basename(img.filepath) if img.filepath else (RESULT_IMAGE_NAME + "_saved")
-            if base and img.name != base:
-                img.name = base
-    except Exception:
-        pass
-    return 1.0  # keep running
-
-
-def _install_guard():
-    try:
-        if not bpy.app.timers.is_registered(_guard_preview_datablock):
-            bpy.app.timers.register(_guard_preview_datablock, first_interval=1.0, persistent=True)
-    except Exception:
-        pass
-
-
-def _remove_guard():
-    try:
-        if bpy.app.timers.is_registered(_guard_preview_datablock):
-            bpy.app.timers.unregister(_guard_preview_datablock)
-    except Exception:
-        pass
-
-
 # --- Warm worker (live mode only) -----------------------------------------
 # A single persistent `blender -b --python worker --serve` process that stays
 # up between renders to skip startup/GPU-init cost. It CANNOT outlive us:
@@ -906,6 +871,98 @@ class NODEPREVIEW_OT_toggle_lock(bpy.types.Operator):
         return {"FINISHED"}
 
 
+class NODEPREVIEW_OT_save_image(bpy.types.Operator):
+    bl_idname = "nodepreview.save_image"
+    bl_label = "Save Preview to File"
+    bl_description = ("Save the current preview to an image file (you pick name/location) as an "
+                      "independent, packable texture, and optionally add it as an image-texture node")
+    bl_options = {"REGISTER", "UNDO"}
+
+    filepath: bpy.props.StringProperty(subtype="FILE_PATH")
+    filename: bpy.props.StringProperty(default="preview.png")
+    filter_glob: bpy.props.StringProperty(
+        default="*.png;*.jpg;*.jpeg;*.exr;*.tga;*.tif;*.tiff;*.bmp",
+        options={"HIDDEN"})
+    add_to_graph: bpy.props.BoolProperty(
+        name="Add as Image Texture node",
+        description="After saving, add the saved image as a new node in the active material",
+        default=True)
+
+    _FORMATS = {".png": "PNG", ".jpg": "JPEG", ".jpeg": "JPEG", ".exr": "OPEN_EXR",
+                ".tga": "TARGA", ".tif": "TIFF", ".tiff": "TIFF", ".bmp": "BMP"}
+
+    def invoke(self, context, event):
+        if bpy.data.images.get(RESULT_IMAGE_NAME) is None:
+            self.report({"WARNING"}, "No preview to save yet — render one first.")
+            return {"CANCELLED"}
+        if not self.filepath:
+            self.filepath = "//preview.png"
+        context.window_manager.fileselect_add(self)
+        return {"RUNNING_MODAL"}
+
+    def execute(self, context):
+        res = bpy.data.images.get(RESULT_IMAGE_NAME)
+        if res is None or res.size[0] == 0:
+            self.report({"WARNING"}, "No preview to save.")
+            return {"CANCELLED"}
+
+        path = bpy.path.abspath(self.filepath)
+        ext = os.path.splitext(path)[1].lower()
+        if ext not in self._FORMATS:
+            path += ".png"
+            ext = ".png"
+        fmt = self._FORMATS[ext]
+
+        # Write the preview's pixels to the file via a throwaway datablock, so we
+        # never stamp a file path onto the live preview (that's what caused the
+        # loaded file to collapse back onto the preview). Then load it fresh as a
+        # normal FILE-backed, packable image.
+        w, h = res.size
+        tmp = bpy.data.images.new("__np_export_tmp", w, h, alpha=True)
+        try:
+            buf = np.empty(w * h * 4, dtype=np.float32)
+            res.pixels.foreach_get(buf)
+            tmp.pixels.foreach_set(buf)
+            tmp.update()
+            tmp.filepath_raw = path
+            tmp.file_format = fmt
+            tmp.save()
+        except Exception as exc:
+            try:
+                bpy.data.images.remove(tmp)
+            except Exception:
+                pass
+            self.report({"ERROR"}, "Could not save: %s" % exc)
+            return {"CANCELLED"}
+        try:
+            bpy.data.images.remove(tmp)
+        except Exception:
+            pass
+
+        try:
+            saved = bpy.data.images.load(path, check_existing=True)
+        except Exception as exc:
+            self.report({"ERROR"}, "Saved, but could not reload: %s" % exc)
+            return {"CANCELLED"}
+
+        added = 0
+        if self.add_to_graph:
+            obj = getattr(context, "object", None)
+            mat = obj.active_material if obj is not None else None
+            if mat is not None and mat.node_tree is not None:
+                nt = mat.node_tree
+                node = nt.nodes.new("ShaderNodeTexImage")
+                node.image = saved
+                active = nt.nodes.active
+                if active is not None:
+                    node.location = (active.location.x, active.location.y - 320)
+                added = 1
+
+        self.report({"INFO"}, "Saved '%s'%s." %
+                    (os.path.basename(path), " and added to node graph" if added else ""))
+        return {"FINISHED"}
+
+
 class NODEPREVIEW_PT_panel(bpy.types.Panel):
     bl_idname = "NODEPREVIEW_PT_panel"
     bl_label = "Node Preview"
@@ -948,6 +1005,9 @@ class NODEPREVIEW_PT_panel(bpy.types.Panel):
         else:
             row.operator("nodepreview.toggle_lock", text="Lock to Node", icon="UNLOCKED")
 
+        layout.separator()
+        layout.operator("nodepreview.save_image", icon="FILE_TICK")
+
         box = layout.box()
         if rendering:
             box.label(text="Rendering preview...", icon="SORTTIME")
@@ -986,6 +1046,7 @@ _classes = (
     NODEPREVIEW_OT_refresh,
     NODEPREVIEW_OT_toggle_live,
     NODEPREVIEW_OT_toggle_lock,
+    NODEPREVIEW_OT_save_image,
     NODEPREVIEW_PT_panel,
 )
 
@@ -1010,12 +1071,9 @@ def register():
     for cls in _classes:
         bpy.utils.register_class(cls)
 
-    _install_guard()
-
 
 def unregister():
     _state["live_on"] = False
-    _remove_guard()
     _remove_handler()
     job = _state["job"]
     if job is not None:
