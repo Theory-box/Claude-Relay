@@ -225,6 +225,41 @@ def _get_device_mode():
         return "AUTO"
 
 
+def _guard_preview_datablock():
+    """Always-on guard (~1s). If the user has SAVED the preview image (it gains a
+    file path / becomes FILE-sourced), release it: rename it to the file's own
+    name so it turns into a normal, packable, independent texture and frees the
+    'NodePreview_Result' name for a fresh preview. This is what lets the native
+    Save -> Open workflow work without the loaded file collapsing back onto the
+    live preview datablock.
+    """
+    try:
+        img = bpy.data.images.get(RESULT_IMAGE_NAME)
+        if img is not None and (img.filepath or img.source != "GENERATED"):
+            base = os.path.basename(img.filepath) if img.filepath else (RESULT_IMAGE_NAME + "_saved")
+            if base and img.name != base:
+                img.name = base
+    except Exception:
+        pass
+    return 1.0  # keep running
+
+
+def _install_guard():
+    try:
+        if not bpy.app.timers.is_registered(_guard_preview_datablock):
+            bpy.app.timers.register(_guard_preview_datablock, first_interval=1.0, persistent=True)
+    except Exception:
+        pass
+
+
+def _remove_guard():
+    try:
+        if bpy.app.timers.is_registered(_guard_preview_datablock):
+            bpy.app.timers.unregister(_guard_preview_datablock)
+    except Exception:
+        pass
+
+
 # --- Warm worker (live mode only) -----------------------------------------
 # A single persistent `blender -b --python worker --serve` process that stays
 # up between renders to skip startup/GPU-init cost. It CANNOT outlive us:
@@ -975,9 +1010,12 @@ def register():
     for cls in _classes:
         bpy.utils.register_class(cls)
 
+    _install_guard()
+
 
 def unregister():
     _state["live_on"] = False
+    _remove_guard()
     _remove_handler()
     job = _state["job"]
     if job is not None:

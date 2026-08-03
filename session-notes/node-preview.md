@@ -163,3 +163,18 @@ our own datablock churn doesn't self-trigger).
   [0,1,0] (was [0.43,0.77,0.32]); manual + warm paths.
 - Note: user mentioned "Medium Contrast" but that Look ADDS grading; used Look =
   None to actually eliminate grading. Switch to Medium Contrast only if desired.
+
+## v0.11 — always-on guard fixes native save/load of the preview
+- PROBLEM (persisted): Save As on the preview stamps the file path onto the
+  NodePreview_Result datablock; opening that file then REUSES the preview
+  datablock (Blender reuse-by-filepath), so the node collapses back to the
+  preview and the image can't be packed. v0.7's in-_store_result safeguard only
+  ran on the NEXT render, so save+open-without-render still broke.
+- FIX: always-on timer (_guard_preview_datablock, ~1s, persistent) that, the
+  moment the preview gains a file path (user saved it), renames it to the file's
+  basename -> it becomes a normal, packable, file-backed texture and frees the
+  'NodePreview_Result' name for a fresh preview. Verified end-to-end: save ->
+  guard releases -> open gives the user's packable texture -> next preview is a
+  clean new datablock. Guard unregisters cleanly.
+- During normal live preview the datablock is generated/pathless, so the guard
+  never touches it.
