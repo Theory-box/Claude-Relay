@@ -776,6 +776,43 @@ def _remove_handler():
         h.remove(_on_depsgraph_update)
 
 
+@bpy.app.handlers.persistent
+def _on_load_post(*args):
+    """A new .blend was loaded: non-persistent timers were dropped and any job
+    state refers to the old file. Reset cleanly to Live-off so the panel is
+    accurate and no stale worker/job lingers."""
+    try:
+        job = _state["job"]
+        if job is not None:
+            proc = job.get("proc")
+            if proc is not None:
+                try:
+                    proc.kill(); proc.wait(timeout=3)
+                except Exception:
+                    pass
+            _cleanup_job_files(job)
+    except Exception:
+        pass
+    _state["job"] = None
+    _state["live_on"] = False
+    _state["locked"] = False
+    _state["dirty"] = False
+    _state["busy"] = False
+    _state["timer_registered"] = False
+    _remove_handler()
+    _stop_warm_worker()
+
+
+def _install_load_handler():
+    if _on_load_post not in bpy.app.handlers.load_post:
+        bpy.app.handlers.load_post.append(_on_load_post)
+
+
+def _remove_load_handler():
+    if _on_load_post in bpy.app.handlers.load_post:
+        bpy.app.handlers.load_post.remove(_on_load_post)
+
+
 # ---------------------------------------------------------------------------
 # Operators
 # ---------------------------------------------------------------------------
@@ -944,6 +981,10 @@ class NODEPREVIEW_OT_save_image(bpy.types.Operator):
         except Exception as exc:
             self.report({"ERROR"}, "Saved, but could not reload: %s" % exc)
             return {"CANCELLED"}
+        try:
+            saved.reload()   # ensure fresh pixels if this path was already loaded
+        except Exception:
+            pass
 
         added = 0
         if self.add_to_graph:
@@ -951,11 +992,11 @@ class NODEPREVIEW_OT_save_image(bpy.types.Operator):
             mat = obj.active_material if obj is not None else None
             if mat is not None and mat.node_tree is not None:
                 nt = mat.node_tree
+                anchor = nt.nodes.active          # capture BEFORE adding the new node
                 node = nt.nodes.new("ShaderNodeTexImage")
                 node.image = saved
-                active = nt.nodes.active
-                if active is not None:
-                    node.location = (active.location.x, active.location.y - 320)
+                if anchor is not None and anchor != node:
+                    node.location = (anchor.location.x, anchor.location.y - 320)
                 added = 1
 
         self.report({"INFO"}, "Saved '%s'%s." %
@@ -1071,9 +1112,12 @@ def register():
     for cls in _classes:
         bpy.utils.register_class(cls)
 
+    _install_load_handler()
+
 
 def unregister():
     _state["live_on"] = False
+    _remove_load_handler()
     _remove_handler()
     job = _state["job"]
     if job is not None:

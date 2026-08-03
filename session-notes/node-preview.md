@@ -191,3 +191,14 @@ our own datablock churn doesn't self-trigger).
 - Kept the lightweight render-time safeguard as a quiet net.
 - Verified headless: file written; independent FILE-backed packable datablock;
   preview left generated/pathless (untouched); node added and pointing at it.
+
+## v0.13 — audit pass fixes
+- Save button: capture the anchor node BEFORE creating the new node (was
+  positioning the new node relative to itself).
+- Save button: reload() after load(check_existing=True) so re-saving to the
+  same filename shows fresh pixels, not the cached datablock's stale ones.
+- Robustness: persistent load_post handler resets to Live-off (clears job,
+  stops warm worker, drops timer flag) when a .blend is opened — otherwise a
+  file load silently killed the timer while state still said "live on".
+- Verified: node placement correct, re-save fresh, load resets cleanly; full
+  regression (warm live/manual, save button, multi-object safeguard) green.
