@@ -289,3 +289,15 @@ as normal Trace), so you can trace several openings (windows + door) into the on
 (or Space) then knife-projects them ALL at once; Esc cancels. Removed the close->finish path and the
 _finish_requested flag. Verified live (xvfb 4.4.3): a cutter with 3 separate loops cuts the wall face
 1 -> 5 in a single pass. Registration 13/13.
+
+---
+
+## Update — face-limited cutting (selected faces only)
+
+Both Cut Trace and Project Cut now respect a face selection on the target: if any of the target
+ mesh faces are selected when you cut, the cut is limited to just those faces; if none are selected,
+it cuts the whole thing as before. Implemented in the shared _do_knife_project by replicating the
+manual Shift+H workflow behind the scenes -- detect selected faces (target.data.polygons[*].select
+after the object-mode flush), and if any, mesh.hide(unselected=True) before knife_project and
+mesh.reveal(select=False) after. Verified live (xvfb 4.4.3) on a 4x4 grid wall + a full-width cutter:
+no-selection added 7 faces, 4-faces-selected added only 2, and nothing was left hidden. Reg 13/13.

@@ -171,6 +171,16 @@ def _do_knife_project(context, cutter, target, cut_through, keep_cutter):
             bpy.ops.object.mode_set(mode='OBJECT')
         except Exception:
             pass
+
+    # if the target has selected faces, limit the cut to just those (hide the rest
+    # during the knife, then reveal) -- otherwise cut the whole thing as usual
+    restrict = False
+    try:
+        restrict = (target.type == 'MESH'
+                    and any(p.select for p in target.data.polygons))
+    except Exception:
+        restrict = False
+
     win = context.window
     # prefer the viewport the tool was invoked from, else the first 3D view
     area = context.area if (context.area and context.area.type == 'VIEW_3D') else None
@@ -204,9 +214,32 @@ def _do_knife_project(context, cutter, target, cut_through, keep_cutter):
         if area is not None and region is not None and space is not None:
             with context.temp_override(window=win, area=area, region=region,
                                        space_data=space):
+                if restrict:
+                    try:
+                        bpy.ops.mesh.hide(unselected=True)
+                    except Exception:
+                        restrict = False
                 bpy.ops.mesh.knife_project(cut_through=cut_through)
+                if restrict:
+                    try:
+                        bpy.ops.mesh.reveal(select=False)
+                    except Exception:
+                        try:
+                            bpy.ops.mesh.reveal()
+                        except Exception:
+                            pass
         else:
+            if restrict:
+                try:
+                    bpy.ops.mesh.hide(unselected=True)
+                except Exception:
+                    restrict = False
             bpy.ops.mesh.knife_project(cut_through=cut_through)
+            if restrict:
+                try:
+                    bpy.ops.mesh.reveal(select=False)
+                except Exception:
+                    pass
         ok = True
     except Exception as e:
         ok = False
