@@ -131,53 +131,103 @@ def get_prefs(context):
         return None
 
 
+def _move_cutter_in_front(rv3d, cutter, target):
+    """knife_project only cuts a target that sits *behind* the cutter along the view.
+    Slide the cutter along the view axis (toward the camera) until it clears the
+    target's front. Moving purely along the view axis leaves the projected outline
+    unchanged, so the cut still lands exactly where it was drawn.
+    Returns the delta vector applied (to undo later if the cutter is kept)."""
+    if rv3d is None:
+        return None
+    fwd = (rv3d.view_rotation @ Vector((0.0, 0.0, -1.0))).normalized()
+
+    def proj_range(o):
+        corners = [o.matrix_world @ Vector(c) for c in o.bound_box]
+        ps = [w.dot(fwd) for w in corners]
+        return min(ps), max(ps)
+
+    try:
+        t_min, _t_max = proj_range(target)
+        c_min, c_max = proj_range(cutter)
+    except Exception:
+        return None
+    span = max(abs(_t_max - t_min), abs(c_max - c_min), 1.0)
+    margin = span * 0.5 + 0.1
+    # want the whole cutter in front of the target's nearest face
+    delta = (t_min - margin) - c_max
+    move = fwd * delta
+    cutter.location = cutter.location + move
+    return move
+
+
 def _do_knife_project(context, cutter, target, cut_through, keep_cutter):
     """Shared core: knife-project `cutter` onto `target` from the current view.
-    Leaves the target in Object Mode; deletes the cutter unless keep_cutter."""
+    Returns (ok, message). Leaves the target in Object Mode; deletes the cutter
+    unless keep_cutter."""
     if cutter is None or target is None or cutter == target:
-        return False
+        return False, "cutter and target must be two different objects"
     if context.mode != 'OBJECT':
         try:
             bpy.ops.object.mode_set(mode='OBJECT')
         except Exception:
             pass
     win = context.window
-    area = None
-    region = None
-    if win is not None:
+    # prefer the viewport the tool was invoked from, else the first 3D view
+    area = context.area if (context.area and context.area.type == 'VIEW_3D') else None
+    if area is None and win is not None:
         area = next((a for a in win.screen.areas if a.type == 'VIEW_3D'), None)
-        if area is not None:
-            region = next((r for r in area.regions if r.type == 'WINDOW'), None)
+    region = space = rv3d = None
+    if area is not None:
+        region = next((r for r in area.regions if r.type == 'WINDOW'), None)
+        space = area.spaces.active
+        rv3d = space.region_3d if space else None
+
+    # make sure the cutter sits in front of the target along the view axis
+    moved = _move_cutter_in_front(rv3d, cutter, target)
+
+    # Order matters (per Blender's own knife_project docs): select the TARGET, enter
+    # edit mode on it, and only THEN select the cutter -- then refresh the depsgraph.
+    # knife_project reads the cutter's *evaluated* mesh; selecting the cutter before
+    # edit mode or skipping this update leaves that evaluated mesh empty, which is what
+    # produces the misleading "No other selected objects have wire or boundary edges".
     for o in list(context.view_layer.objects.selected):
         o.select_set(False)
-    cutter.select_set(True)
     target.select_set(True)
     context.view_layer.objects.active = target
+
     ok = False
+    msg = ""
     try:
         bpy.ops.object.mode_set(mode='EDIT')
-        if area is not None and region is not None:
+        cutter.select_set(True)
+        context.view_layer.update()
+        if area is not None and region is not None and space is not None:
             with context.temp_override(window=win, area=area, region=region,
-                                       active_object=target,
-                                       edit_object=target,
-                                       selected_objects=[cutter, target],
-                                       selected_editable_objects=[cutter, target]):
+                                       space_data=space):
                 bpy.ops.mesh.knife_project(cut_through=cut_through)
         else:
             bpy.ops.mesh.knife_project(cut_through=cut_through)
         ok = True
-    except Exception:
+    except Exception as e:
         ok = False
+        msg = str(e)
     try:
         bpy.ops.object.mode_set(mode='OBJECT')
     except Exception:
         pass
+
     if not keep_cutter:
         try:
             bpy.data.objects.remove(cutter, do_unlink=True)
         except Exception:
             pass
-    return ok
+    elif moved is not None:
+        # restore the kept cutter to where the user had it
+        try:
+            cutter.location = cutter.location - moved
+        except Exception:
+            pass
+    return ok, msg
 
 
 # ------------------------------------------------------------------ settings
@@ -722,8 +772,11 @@ class MESH_OT_floorplan_trace(bpy.types.Operator):
                 has_geo = False
             s = context.scene.floorplan_trace
             if cut and has_geo and target is not None:
-                _do_knife_project(context, cutter, target, s.cut_through,
-                                  keep_cutter=False)
+                ok, msg = _do_knife_project(context, cutter, target, s.cut_through,
+                                            keep_cutter=False)
+                if not ok:
+                    self.report({'WARNING'}, "Cut failed: " +
+                                (msg or "knife_project found nothing to cut"))
             else:
                 # cancelled or nothing drawn: discard the temp cutter
                 try:
@@ -1322,7 +1375,7 @@ class OBJECT_OT_floorplan_project_cut(bpy.types.Operator):
         if cutter == target:
             self.report({'WARNING'}, "Cutter and target must be different objects")
             return {'CANCELLED'}
-        ok = _do_knife_project(context, cutter, target, s.cut_through, keep_cutter=True)
+        ok, msg = _do_knife_project(context, cutter, target, s.cut_through, keep_cutter=True)
         # return to edit mode on the target
         try:
             for o in list(context.view_layer.objects.selected):
@@ -1333,8 +1386,8 @@ class OBJECT_OT_floorplan_project_cut(bpy.types.Operator):
         except Exception:
             pass
         if not ok:
-            self.report({'WARNING'},
-                        "Knife project failed - look head-on at the mesh and try again")
+            self.report({'WARNING'}, "Cut failed: " +
+                        (msg or "knife_project found nothing to cut"))
         return {'FINISHED'}
 
 

@@ -247,3 +247,35 @@ correctly is the one unverified piece - needs a real-Blender test pass. Everythi
 
 Known future work discussed: non-destructive/editable cuts would need a boolean-modifier approach
 (cutter stays live) rather than knife_project (bakes the result); object-mode cutting; keep-curve option.
+
+---
+
+## Update — KNIFE PROJECT NOW ACTUALLY CUTS (root cause found + verified live)
+
+The cut had never worked (Cut Trace and Project Cut both gave "No other selected objects have wire
+or boundary edges to use for projection"). I had wrongly written this off as a headless-only
+artifact. Got a LIVE Blender running under xvfb (LIBGL_ALWAYS_SOFTWARE=1, build meshes from data /
+edit-mode bmesh to avoid the GL-op segfault, defer the test via bpy.app.timers, flush stdout) and
+reproduced + fixed it.
+
+ROOT CAUSE: knife_project reads the cutters *depsgraph-evaluated* mesh. Our old flow selected
+cutter+target BEFORE entering edit mode and never refreshed the depsgraph, so the evaluated cutter
+mesh was EMPTY (0 edges) at cut time -> the operator honestly reported "no wire/boundary edges."
+The error message is misleading; it is not about selection or GPU.
+
+FIX (in _do_knife_project), matching Blenders own documented knife_project order:
+  1. deselect all; select the TARGET; make it active
+  2. enter edit mode on the target
+  3. THEN select the cutter (after edit mode)
+  4. context.view_layer.update()  <-- refreshes the depsgraph so the evaluated cutter is populated
+  5. knife_project with a minimal temp_override (window/area/region/space_data)
+Also keeps the earlier _move_cutter_in_front fix (slides cutter along the view axis so it sits in
+front of the target; silhouette preserved so the cut lands where drawn) and now returns (ok, msg)
+so the real error surfaces instead of a generic warning.
+
+VERIFIED LIVE (xvfb, Blender 4.4.3), faces increase on the target in every case:
+  cutter in front / behind / coplanar, and cut_through=True -> all WORK. Registration 13/13.
+
+HARD-WON LESSON: to test viewport/GPU operators (knife_project, anything projecting from the view),
+run Blender NON-background under xvfb with software GL, build geometry from data (not primitive ops,
+which segfault on llvmpipe), defer via a timer, and flush prints. --background cannot test these.
