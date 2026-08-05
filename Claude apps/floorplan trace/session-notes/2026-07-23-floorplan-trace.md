@@ -326,3 +326,37 @@ thickness is honoured on macOS/Metal (which caps GPU line width at 1px). New set
 
 Verified live/headless (4.4.3): target verts/edges feed snapping; vertex snap exact; inference [A]-[E]
 unchanged; TRIS quad batch builds + offscreen-draws OK; new settings register; reg 13/13.
+
+---
+
+## Update — Cut Trace: Confirm / Edit / Cancel dialog + edit-before-cut
+
+Cut Trace no longer cuts on Enter. It now stashes the outline (_pending_cut global: cutter/target/
+cut_through) and opens a deferred dialog (via bpy.app.timers, since dialogs-from-modals are unreliable)
+with three choices:
+  - Apply Cut  -> knife-project now
+  - Edit Outline -> drop into edit mode on the cutter to refine it with native tools, then Apply
+  - Cancel -> discard, no cut
+
+While a cut is pending, the N-panel shows a red Cut Pending box with Apply Cut / Cancel buttons that
+are ALWAYS available (poll = _pending_cutter_valid) -- this is the reliable backbone; you can never get
+stuck. Safety net: an msgbus subscription to (bpy.types.Object, mode) watches for leaving edit mode
+with a cut pending and pops an Apply/Edit/Cancel prompt. If msgbus does not fire, the panel buttons
+still resolve it. Validity guard (_pending_cutter_valid) clears state + unsubscribes if the cutter
+object gets deleted (no ReferenceError crash). Cleaned up on unregister.
+
+Operators added: MESH_OT_floorplan_cut_dialog (stage INITIAL/LEAVE, action CONFIRM/EDIT/CANCEL),
+MESH_OT_floorplan_apply_cut, MESH_OT_floorplan_cancel_cut. Shared helpers _apply_pending_cut /
+_cancel_pending_cut / _enter_cut_edit / _watch_cut_mode.
+
+Because knife_project accepts CURVES (verified: bezier-circle cutter cuts fine) and subdivided-edge
+meshes, the Edit step gives true curves + bevels for free via Blenders native tools -- convert the
+cutter to a curve, adjust handles, Apply.
+
+Verified live (xvfb 4.4.3): Apply cuts (faces 1->3) + clears pending; Cancel removes cutter unchanged;
+Edit enters edit-on-cutter; leave-edit watcher resets state; msgbus (Object,mode) key valid; validity
+guard handles deleted cutter. Registration 13/13; inference [A]/[E] unchanged.
+
+NOTED FOR LATER (user request, not built): distance-memory guides that remember lengths across
+*parallel* guidelines (same horizontal/vertical length even when not collinear), and optionally a mode
+that remembers ALL lengths regardless of direction.

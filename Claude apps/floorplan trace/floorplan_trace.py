@@ -29,6 +29,8 @@ _pan_kmis = []
 _nav_kmis = []
 _msgbus_owner = object()
 _pending_scale = {}
+_pending_cut = {}
+_cut_watch_owner = object()
 
 
 def _launch_scale_dialog():
@@ -37,6 +39,123 @@ def _launch_scale_dialog():
     except Exception:
         pass
     return None
+
+
+def _launch_cut_dialog(stage='INITIAL'):
+    try:
+        bpy.ops.mesh.floorplan_cut_dialog('INVOKE_DEFAULT', stage=stage)
+    except Exception:
+        pass
+    return None
+
+
+def _reenter_target_obj(context, target):
+    try:
+        if context.mode != 'OBJECT':
+            bpy.ops.object.mode_set(mode='OBJECT')
+        for o in list(context.view_layer.objects.selected):
+            o.select_set(False)
+        if target is not None:
+            target.select_set(True)
+            context.view_layer.objects.active = target
+            bpy.ops.object.mode_set(mode='EDIT')
+    except Exception:
+        pass
+
+
+def _apply_pending_cut(context):
+    _unsubscribe_cut_watch()
+    pc = dict(_pending_cut)
+    _pending_cut.clear()
+    cutter = pc.get('cutter')
+    target = pc.get('target')
+    if cutter is None or target is None:
+        return False, "nothing pending"
+    ok, msg = _do_knife_project(context, cutter, target,
+                                pc.get('cut_through', False), keep_cutter=False)
+    _reenter_target_obj(context, target)
+    return ok, msg
+
+
+def _cancel_pending_cut(context):
+    _unsubscribe_cut_watch()
+    pc = dict(_pending_cut)
+    _pending_cut.clear()
+    cutter = pc.get('cutter')
+    target = pc.get('target')
+    try:
+        if context.mode != 'OBJECT':
+            bpy.ops.object.mode_set(mode='OBJECT')
+        if cutter is not None:
+            bpy.data.objects.remove(cutter, do_unlink=True)
+    except Exception:
+        pass
+    _reenter_target_obj(context, target)
+
+
+def _enter_cut_edit(context):
+    """Drop into edit mode on the pending cutter so it can be refined with native tools."""
+    cutter = _pending_cut.get('cutter')
+    if cutter is None:
+        return
+    try:
+        if context.mode != 'OBJECT':
+            bpy.ops.object.mode_set(mode='OBJECT')
+        for o in list(context.view_layer.objects.selected):
+            o.select_set(False)
+        cutter.select_set(True)
+        context.view_layer.objects.active = cutter
+        bpy.ops.object.mode_set(mode='EDIT')
+    except Exception:
+        pass
+    _pending_cut['editing'] = True
+    _subscribe_cut_watch()
+
+
+def _watch_cut_mode(*args):
+    # fired on any object mode change; if a cut is pending and being edited and the
+    # user has left edit mode, prompt to apply or cancel (panel buttons also remain)
+    if not _pending_cut.get('cutter') or not _pending_cut.get('editing'):
+        return
+    try:
+        left = bpy.context.mode != 'EDIT_MESH'
+    except Exception:
+        return
+    if left:
+        _pending_cut['editing'] = False
+        _unsubscribe_cut_watch()
+        bpy.app.timers.register(lambda: _launch_cut_dialog('LEAVE'),
+                                first_interval=0.05)
+
+
+def _subscribe_cut_watch():
+    try:
+        bpy.msgbus.clear_by_owner(_cut_watch_owner)
+        bpy.msgbus.subscribe_rna(
+            key=(bpy.types.Object, "mode"),
+            owner=_cut_watch_owner, args=(), notify=_watch_cut_mode)
+    except Exception:
+        pass
+
+
+def _unsubscribe_cut_watch():
+    try:
+        bpy.msgbus.clear_by_owner(_cut_watch_owner)
+    except Exception:
+        pass
+
+
+def _pending_cutter_valid():
+    c = _pending_cut.get('cutter')
+    if c is None:
+        return False
+    try:
+        _ = c.name  # raises ReferenceError if the object was removed
+        return True
+    except ReferenceError:
+        _pending_cut.clear()
+        _unsubscribe_cut_watch()
+        return False
 
 
 # ------------------------------------------------------------------ prefs
@@ -870,20 +989,26 @@ class MESH_OT_floorplan_trace(bpy.types.Operator):
                 has_geo = False
             s = context.scene.floorplan_trace
             if cut and has_geo and target is not None:
-                ok, msg = _do_knife_project(context, cutter, target, s.cut_through,
-                                            keep_cutter=False)
-                if not ok:
-                    self.report({'WARNING'}, "Cut failed: " +
-                                (msg or "knife_project found nothing to cut"))
+                # don't cut yet -- stash it and open the Confirm/Edit/Cancel dialog
+                try:
+                    if context.mode != 'OBJECT':
+                        bpy.ops.object.mode_set(mode='OBJECT')
+                except Exception:
+                    pass
+                _pending_cut.clear()
+                _pending_cut.update(cutter=cutter, target=target,
+                                    cut_through=s.cut_through, editing=False)
+                bpy.app.timers.register(lambda: _launch_cut_dialog('INITIAL'),
+                                        first_interval=0.05)
             else:
-                # cancelled or nothing drawn: discard the temp cutter
+                # cancelled or nothing drawn: discard the temp cutter, back to target
                 try:
                     if context.mode != 'OBJECT':
                         bpy.ops.object.mode_set(mode='OBJECT')
                     bpy.data.objects.remove(cutter, do_unlink=True)
                 except Exception:
                     pass
-            self._reenter_target(context)
+                self._reenter_target(context)
         elif getattr(self, "created_object", False):
             # discard an auto-created trace object that never got any geometry
             try:
@@ -1498,6 +1623,89 @@ class OBJECT_OT_floorplan_project_cut(bpy.types.Operator):
         return {'FINISHED'}
 
 
+class MESH_OT_floorplan_cut_dialog(bpy.types.Operator):
+    """Choose what to do with the traced cut outline"""
+    bl_idname = "mesh.floorplan_cut_dialog"
+    bl_label = "Finish Cut"
+    bl_options = {'INTERNAL'}
+
+    stage: bpy.props.EnumProperty(
+        items=[('INITIAL', "Initial", ""), ('LEAVE', "Leave", "")],
+        default='INITIAL', options={'SKIP_SAVE'})
+    action: bpy.props.EnumProperty(
+        name="",
+        items=[('CONFIRM', "Apply Cut", "Knife-project the outline now"),
+               ('EDIT', "Edit Outline", "Go to Edit Mode to refine the outline first"),
+               ('CANCEL', "Cancel", "Discard the outline, no cut")],
+        default='CONFIRM', options={'SKIP_SAVE'})
+
+    def invoke(self, context, event):
+        if not _pending_cutter_valid():
+            return {'CANCELLED'}
+        return context.window_manager.invoke_props_dialog(self, width=290)
+
+    def draw(self, context):
+        col = self.layout.column()
+        if self.stage == 'LEAVE':
+            col.label(text="A cut is still pending.", icon='ERROR')
+            col.label(text="Apply it, keep editing, or cancel?")
+        else:
+            col.label(text="Outline traced. What next?", icon='MOD_BOOLEAN')
+        col.separator()
+        col.prop(self, "action", expand=True)
+
+    def execute(self, context):
+        if self.action == 'CONFIRM':
+            ok, msg = _apply_pending_cut(context)
+            if not ok:
+                self.report({'WARNING'}, "Cut failed: " +
+                            (msg or "knife_project found nothing to cut"))
+        elif self.action == 'EDIT':
+            _enter_cut_edit(context)
+            self.report({'INFO'},
+                        "Refine the outline, then use Apply Cut in the N-panel")
+        else:
+            _cancel_pending_cut(context)
+        return {'FINISHED'}
+
+    def cancel(self, context):
+        # dialog dismissed without a choice -> leave it pending; panel buttons resolve it
+        return None
+
+
+class MESH_OT_floorplan_apply_cut(bpy.types.Operator):
+    """Knife-project the pending cut outline onto its target mesh"""
+    bl_idname = "mesh.floorplan_apply_cut"
+    bl_label = "Apply Cut"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    @classmethod
+    def poll(cls, context):
+        return _pending_cutter_valid()
+
+    def execute(self, context):
+        ok, msg = _apply_pending_cut(context)
+        if not ok:
+            self.report({'WARNING'}, "Cut failed: " +
+                        (msg or "knife_project found nothing to cut"))
+        return {'FINISHED'}
+
+
+class MESH_OT_floorplan_cancel_cut(bpy.types.Operator):
+    """Discard the pending cut outline without cutting"""
+    bl_idname = "mesh.floorplan_cancel_cut"
+    bl_label = "Cancel Cut"
+    bl_options = {'REGISTER'}
+
+    @classmethod
+    def poll(cls, context):
+        return _pending_cutter_valid()
+
+    def execute(self, context):
+        _cancel_pending_cut(context)
+        return {'FINISHED'}
+
+
 class OBJECT_OT_floorplan_calibrate(bpy.types.Operator):
     """Scale selected objects to a known measurement.\nClick the two ends of a measured line, then type its real length"""
     bl_idname = "object.floorplan_calibrate"
@@ -1757,6 +1965,17 @@ class VIEW3D_PT_floorplan_trace(bpy.types.Panel):
         else:
             col.label(text="Enter Object or Edit Mode", icon='INFO')
 
+        # Pending cut (shown whenever a cut outline is waiting to be applied)
+        if _pending_cutter_valid():
+            pc = layout.box()
+            pc.alert = True
+            pc.label(text="Cut Pending", icon='MOD_BOOLEAN')
+            pc.label(text="Refine the outline in Edit Mode, then:")
+            row = pc.row(align=True)
+            row.scale_y = 1.4
+            row.operator("mesh.floorplan_apply_cut", text="Apply Cut", icon='CHECKMARK')
+            row.operator("mesh.floorplan_cancel_cut", text="Cancel", icon='X')
+
         # Cut tools (only while editing a mesh)
         if in_edit:
             cut = layout.box()
@@ -1872,6 +2091,9 @@ classes = (
     VIEW3D_OT_floorplan_rts_pan,
     VIEW3D_OT_floorplan_look,
     OBJECT_OT_floorplan_project_cut,
+    MESH_OT_floorplan_cut_dialog,
+    MESH_OT_floorplan_apply_cut,
+    MESH_OT_floorplan_cancel_cut,
     OBJECT_OT_floorplan_calibrate,
     OBJECT_OT_floorplan_apply_scale,
     VIEW3D_PT_floorplan_trace,
@@ -1975,6 +2197,8 @@ def unregister():
         bpy.msgbus.clear_by_owner(_msgbus_owner)
     except Exception:
         pass
+    _unsubscribe_cut_watch()
+    _pending_cut.clear()
     if _on_load in bpy.app.handlers.load_post:
         bpy.app.handlers.load_post.remove(_on_load)
     _unregister_keymaps()
