@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Relay — blend compatibility</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#101318; --panel:#171B22; --panel2:#1D222B; --panel3:#232935;
+    --line:#2A313D; --line2:#333B49;
+    --text:#E7EAF0; --dim:#909AA9; --faint:#5C6675;
+    --break:#F26069; --shift:#E4A73C; --safe:#3FC28A;
+    --break-bg:#2A1A1E; --shift-bg:#2A2418; --safe-bg:#16271F;
+    --accent:#54C7D6; --accent-dim:#2E5A62; --accent-ink:#08181B;
+    --sock-geo:#63C763; --sock-val:#9AA3B0; --sock-col:#E4C15A; --sock-vec:#8C7BE0;
+    --r:10px; --r2:14px;
+    --mono:'JetBrains Mono',ui-monospace,Menlo,monospace;
+    --disp:'Space Grotesk',system-ui,sans-serif;
+    --body:'Inter',system-ui,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{background:radial-gradient(1200px 600px at 82% -10%, #17222b 0%, transparent 55%), var(--bg);
+    color:var(--text); font-family:var(--body); font-size:14px; line-height:1.45; -webkit-font-smoothing:antialiased;}
+  ::selection{background:var(--accent-dim); color:#fff}
+  button{font-family:inherit; cursor:pointer; border:none; background:none; color:inherit}
+  .mono{font-family:var(--mono)}
+  .app{max-width:1180px; margin:0 auto; min-height:100%; display:flex; flex-direction:column; padding:0 26px}
+
+  .top{display:flex; align-items:center; gap:16px; padding:20px 2px 18px}
+  .brand{display:flex; align-items:center; gap:11px}
+  .mark{width:30px;height:30px;flex:none}
+  .brand h1{font-family:var(--disp); font-size:19px; font-weight:700; letter-spacing:-.01em; margin:0}
+  .brand .sub{font-size:11px; color:var(--faint); letter-spacing:.14em; text-transform:uppercase; margin-top:1px}
+  .top .spacer{flex:1}
+  .ghost{font-family:var(--disp); font-size:12.5px; color:var(--dim); letter-spacing:.02em; padding:8px 13px; border:1px solid var(--line); border-radius:8px; transition:.15s}
+  .ghost:hover{color:var(--text); border-color:var(--line2)}
+
+  .rig{display:flex; align-items:stretch; gap:12px; margin:2px 2px 20px; flex-wrap:wrap}
+  .card{background:var(--panel); border:1px solid var(--line); border-radius:var(--r2)}
+  .file{flex:1; min-width:300px; display:flex; align-items:center; gap:14px; padding:14px 16px}
+  .fico{width:38px;height:38px;border-radius:9px;flex:none;display:grid;place-items:center; background:linear-gradient(160deg,#20303a,#1a222c); border:1px solid var(--line2)}
+  .fname{font-family:var(--mono); font-weight:500; font-size:14px}
+  .fmeta{font-size:12px; color:var(--dim); margin-top:2px}
+  .detected{color:var(--safe)}
+  .swap-file{margin-left:auto; font-size:12px; color:var(--faint); padding:6px 10px; border:1px solid var(--line); border-radius:7px}
+  .swap-file:hover{color:var(--dim)}
+  .conv{display:flex; align-items:center; gap:14px; padding:12px 14px}
+  .verpick{display:flex; flex-direction:column; gap:5px}
+  .verpick label{font-size:10.5px; letter-spacing:.13em; text-transform:uppercase; color:var(--faint)}
+  .flow{display:flex; align-items:center; gap:10px}
+  .vfrom{font-family:var(--mono); font-size:13px; color:var(--dim); padding:7px 11px; border:1px dashed var(--line2); border-radius:8px; white-space:nowrap}
+  .arrow{color:var(--faint)}
+  .select{position:relative}
+  .select select{appearance:none; font-family:var(--mono); font-size:13px; color:var(--text); background:var(--panel3); border:1px solid var(--line2); border-radius:8px; padding:7px 30px 7px 11px; cursor:pointer}
+  .select::after{content:"▾"; position:absolute; right:11px; top:50%; transform:translateY(-50%); color:var(--dim); pointer-events:none; font-size:11px}
+  .go{font-family:var(--disp); font-weight:600; font-size:13.5px; color:var(--accent-ink); background:var(--accent); padding:11px 18px; border-radius:9px; display:flex; align-items:center; gap:8px; transition:.15s}
+  .go:hover{filter:brightness(1.08); box-shadow:0 6px 22px -8px var(--accent)}
+  .go.disabled{opacity:.4; box-shadow:none}
+  .conv-actions{display:flex; flex-direction:column; gap:8px; align-items:flex-start}
+  .purge-toggle{display:flex; align-items:center; gap:7px; font-size:11.5px; color:var(--dim); cursor:pointer; user-select:none}
+  .purge-toggle input{accent-color:var(--accent); cursor:pointer}
+  .go.disabled:hover{filter:none; box-shadow:none}
+  .tag.queued{color:var(--accent); background:#12262a}
+  .tag.applyq{color:#E0A63C; background:#2A2418}
+  .applybtn{font-family:var(--disp); font-weight:600; font-size:12.5px; color:#E0A63C; padding:8px 14px; border:1px solid #5a4a22; border-radius:8px}
+  .applybtn:hover{background:#241f14}
+  .applied-note{font-size:12px; color:var(--faint)} .applied-note b{color:#E0A63C; font-weight:500}
+  .tag.removeq{color:var(--break); background:var(--break-bg)}
+  .rmbtn{font-family:var(--disp); font-weight:600; font-size:12.5px; color:var(--break); padding:8px 14px; border:1px solid #5a2a2e; border-radius:8px}
+  .rmbtn:hover{background:#241417}
+  .removed-note{font-size:12px; color:var(--faint)} .removed-note b{color:var(--break); font-weight:500}
+  .issue.staged{background:linear-gradient(90deg,#0f2429,var(--panel) 55%)}
+  .fix.staged{background:#0f2429; color:var(--accent); border:1px solid var(--accent-dim)}
+  .fix.staged:hover{background:#14313a; filter:none}
+
+  .stats{display:flex; margin:0 2px 18px; border:1px solid var(--line); border-radius:var(--r2); overflow:hidden; background:var(--panel)}
+  .stat{flex:1; padding:15px 18px; border-right:1px solid var(--line)}
+  .stat:last-child{border-right:none}
+  .stat .n{font-family:var(--disp); font-size:26px; font-weight:600; letter-spacing:-.02em; line-height:1}
+  .stat .l{font-size:11.5px; color:var(--dim); margin-top:6px}
+  .stat.br .n{color:var(--break)} .stat.sh .n{color:var(--shift)} .stat.sf .n{color:var(--safe)}
+
+  /* group headers */
+  .group{margin:0 2px}
+  .ghead{display:flex; align-items:center; gap:12px; padding:20px 2px 11px}
+  .ghead .gt{font-family:var(--disp); font-size:13px; font-weight:600; letter-spacing:.02em; display:flex; align-items:center; gap:9px}
+  .ghead .gt .c{font-family:var(--mono); font-size:12px; color:var(--faint); font-weight:500}
+  .ghead .gline{flex:1; height:1px; background:var(--line)}
+  .badge-auto{color:var(--accent)} .badge-manual{color:var(--shift)} .badge-fixed{color:var(--safe)}
+
+  /* prominent fix-all */
+  .fixall{font-family:var(--disp); font-size:13px; font-weight:600; color:var(--accent-ink); background:var(--accent);
+    padding:9px 16px; border-radius:9px; display:flex; align-items:center; gap:8px; transition:.15s; box-shadow:0 4px 16px -6px var(--accent)}
+  .fixall:hover{filter:brightness(1.09); box-shadow:0 8px 22px -6px var(--accent)}
+  .fixall svg{width:15px;height:15px}
+
+  .list{display:flex; flex-direction:column; gap:8px}
+  .issue{background:var(--panel); border:1px solid var(--line); border-radius:var(--r); overflow:hidden; transition:border-color .15s, opacity .3s}
+  .issue:hover{border-color:var(--line2)}
+  .issue.break{border-left:3px solid var(--break)}
+  .issue.shift{border-left:3px solid var(--shift)}
+  .issue.safe{border-left:3px solid var(--safe)}
+  .issue.fixed{border-left:3px solid var(--safe); background:linear-gradient(90deg, var(--safe-bg), var(--panel) 60%)}
+  .ihead{display:flex; align-items:center; gap:14px; padding:14px 16px; cursor:pointer; user-select:none}
+  .sock{width:12px;height:12px;border-radius:50%; flex:none; border:2px solid #0c0f14}
+  .fixed .sock{background:var(--safe)!important}
+  .ir{flex:1; min-width:0}
+  .itype{font-family:var(--mono); font-size:13.5px; font-weight:500}
+  .fixed .itype{color:var(--dim); text-decoration:line-through; text-decoration-color:var(--faint)}
+  .iloc{font-size:12px; color:var(--dim); margin-top:3px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+  .iloc .at{color:var(--faint)}
+  .tag{font-size:10.5px; letter-spacing:.06em; text-transform:uppercase; padding:4px 9px; border-radius:6px; font-weight:600; white-space:nowrap; flex:none}
+  .tag.break{color:var(--break); background:var(--break-bg)}
+  .tag.shift{color:var(--shift); background:var(--shift-bg)}
+  .tag.safe{color:var(--safe); background:var(--safe-bg)}
+  .tag.manual{color:var(--dim); background:var(--panel3)}
+  .tag.fixed{color:var(--safe); background:var(--safe-bg); display:flex; align-items:center; gap:5px}
+  .tag.review{color:#8CA6C0; background:#1B2530}
+  .tag.ackd{color:var(--dim); background:var(--panel3); display:flex; align-items:center; gap:5px}
+  .ack{font-family:var(--disp); font-weight:600; font-size:12.5px; color:#A9BAC9; padding:8px 15px; border:1px solid var(--line2); border-radius:8px; transition:.15s}
+  .ack:hover{background:var(--panel3); color:var(--text)}
+  .ackall{font-family:var(--disp); font-size:13px; font-weight:600; color:#A9BAC9; padding:9px 16px; border:1px solid var(--line2); border-radius:9px}
+  .ackall:hover{background:var(--panel3); color:var(--text)}
+  .issue.ackd{border-left:3px solid #4A5A6B; background:var(--panel)}
+  .issue.ackd .itype{color:var(--dim)}
+  .badge-review{color:#8CA6C0}
+  .caret{color:var(--faint); font-size:12px; transition:transform .2s; flex:none; width:14px; text-align:center}
+  .issue.open .caret{transform:rotate(90deg)}
+  .ibody{max-height:0; overflow:hidden; transition:max-height .25s ease}
+  .issue.open .ibody{max-height:360px}
+  .ibin{padding:2px 16px 16px 42px; border-top:1px solid var(--line)}
+  .issue.open .ibin{padding-top:14px}
+  .desc{color:var(--dim); font-size:13px; max-width:70ch}
+  .kv{display:flex; gap:26px; margin-top:12px; flex-wrap:wrap}
+  .kv div{display:flex; flex-direction:column; gap:3px}
+  .kv .k{font-size:10.5px; letter-spacing:.1em; text-transform:uppercase; color:var(--faint)}
+  .kv .v{font-family:var(--mono); font-size:13px; color:var(--text)}
+  .kv .v.risk{color:var(--break)}
+  .act{display:flex; align-items:center; gap:12px; margin-top:16px; flex-wrap:wrap}
+  .fix{font-family:var(--disp); font-weight:600; font-size:12.5px; color:var(--accent-ink); background:var(--accent); padding:8px 15px; border-radius:8px; transition:.15s}
+  .fix:hover{filter:brightness(1.08)}
+  .fixtype{font-family:var(--disp); font-weight:600; font-size:12.5px; color:var(--accent); padding:8px 14px; border:1px solid var(--accent-dim); border-radius:8px; transition:.15s}
+  .fixtype:hover{background:#12262a}
+  .howfix{font-size:12px; color:var(--faint)} .howfix b{color:var(--dim); font-weight:500}
+  .manual-note{font-size:12.5px; color:var(--shift); display:flex; gap:8px; align-items:flex-start}
+  .manual-note .i{flex:none; margin-top:1px}
+
+  .empty{flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; padding:60px 20px 90px}
+  .drop{width:min(560px,90%); border:1.5px dashed var(--line2); border-radius:20px; padding:54px 40px; background:var(--panel); transition:.2s; cursor:pointer}
+  .drop:hover{border-color:var(--accent-dim); background:var(--panel2)}
+  .drop h2{font-family:var(--disp); font-size:21px; font-weight:600; margin:20px 0 8px}
+  .drop p{color:var(--dim); margin:0 0 24px; font-size:13.5px}
+  .load{font-family:var(--disp); font-weight:600; font-size:13.5px; color:var(--accent-ink); background:var(--accent); padding:11px 22px; border-radius:9px}
+  .empty .hint{margin-top:22px; font-size:12px; color:var(--faint)}
+  .empty .hint .mono{color:var(--dim)}
+  .footnote{color:var(--faint); font-size:11.5px; text-align:center; padding:26px 0}
+  .hidden{display:none !important}
+
+  .toast{position:fixed; left:50%; bottom:28px; transform:translateX(-50%) translateY(20px); background:var(--panel3); border:1px solid var(--line2); border-radius:12px; padding:14px 20px; display:flex; align-items:center; gap:14px; opacity:0; pointer-events:none; transition:.3s; box-shadow:0 20px 50px -20px #000}
+  .toast.show{opacity:1; transform:translateX(-50%) translateY(0)}
+  .toast .tick{width:26px;height:26px;border-radius:50%;background:var(--safe-bg);color:var(--safe); display:grid;place-items:center;flex:none;font-weight:700}
+  .toast .tt{font-family:var(--disp); font-weight:600; font-size:13.5px}
+  .toast .ts{font-size:12px; color:var(--dim); font-family:var(--mono)}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="top">
+    <div class="brand">
+      <svg class="mark" viewBox="0 0 32 32" fill="none">
+        <rect x="1.5" y="1.5" width="29" height="29" rx="8" stroke="#2A313D" stroke-width="1.5"/>
+        <circle cx="9" cy="11" r="3" fill="#F26069"/><circle cx="9" cy="21" r="3" fill="#E4A73C"/>
+        <path d="M12 11 H20 a3 3 0 0 1 3 3 v0 a3 3 0 0 1-3 3 H12" stroke="#54C7D6" stroke-width="1.6"/>
+        <path d="M12 21 H23" stroke="#333B49" stroke-width="1.6"/><circle cx="23" cy="16" r="3" fill="#3FC28A"/>
+      </svg>
+      <div><h1>Relay</h1><div class="sub">blend compatibility</div></div>
+    </div>
+    <div class="spacer"></div>
+    <button class="ghost" onclick="reset()">Reset demo</button>
+  </div>
+
+  <div id="empty" class="empty">
+    <div class="drop" onclick="loadFile()">
+      <svg width="52" height="52" viewBox="0 0 24 24" fill="none" stroke="#54C7D6" stroke-width="1.4"><path d="M12 16V4m0 0L8 8m4-4l4 4"/><path d="M4 15v3a2 2 0 002 2h12a2 2 0 002-2v-3"/></svg>
+      <h2>Drop a .blend file</h2>
+      <p>Relay detects the version it was saved in and shows exactly what will<br>break in an older Blender — then fixes what it can.</p>
+      <button class="load">Load .blend</button>
+      <div class="hint">for this demo, loads a sample scene &nbsp;·&nbsp; <span class="mono">lighting_test.blend</span></div>
+    </div>
+  </div>
+
+  <div id="scanned" class="hidden">
+    <div class="rig">
+      <div class="card file">
+        <div class="fico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#8CA0B0" stroke-width="1.5"><path d="M13 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V9z"/><path d="M13 2v7h7"/></svg></div>
+        <div><div class="fname">lighting_test.blend</div><div class="fmeta">saved in <span class="detected mono">Blender 4.4.3</span> · auto-detected · 3.2 MB</div></div>
+        <button class="swap-file" onclick="reset()">Change file</button>
+      </div>
+      <div class="card conv">
+        <div class="verpick"><label>Convert to</label>
+          <div class="flow"><span class="vfrom">4.4.3</span><span class="arrow">→</span>
+            <div class="select"><select id="target"><option>4.2.23 LTS</option><option disabled>scanning installed builds…</option></select></div>
+          </div>
+        </div>
+        <div class="conv-actions">
+          <button class="go" id="convertBtn" onclick="convert()"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M5 12h14m-6-6l6 6-6 6"/></svg><span id="convertLabel">Convert &amp; save</span></button>
+          <label class="purge-toggle"><input type="checkbox" id="purgeChk" checked> Remove unused data after fixing</label>
+        </div>
+      </div>
+    </div>
+
+    <div class="stats">
+      <div class="stat"><div class="n" id="s-total">0</div><div class="l">compatibility issues</div></div>
+      <div class="stat br"><div class="n" id="s-break">0</div><div class="l">will break / lose data</div></div>
+      <div class="stat sh"><div class="n" id="s-shift">0</div><div class="l">may shift · needs review</div></div>
+      <div class="stat sf"><div class="n" id="s-auto">0</div><div class="l">fixable automatically</div></div>
+    </div>
+
+    <div id="groups"></div>
+    <div class="footnote">Prototype UI · issue data is the real 4.4 → 4.2 result set · fixes here are simulated</div>
+  </div>
+</div>
+
+<div class="toast" id="toast"><div class="tick">✓</div><div><div class="tt" id="toast-t">Saved</div><div class="ts" id="toast-s"></div></div></div>
+
+<script>
+const ISSUES = [
+  {sev:'break', sock:'--sock-col', type:'ShaderNodeBlackbody', loc:"Light 'KeyLight'", state:'todo', action:'fix',
+   desc:"Temperature socket uses a subtype (NodeSocketFloatColorTemperature) that 4.2 doesn't have, so the value is dropped — the light renders the wrong colour.", risk:'Temperature = 6000 K', how:'Rebuilt as a native 4.2 Blackbody node with the same temperature (node kept).'},
+  {sev:'break', sock:'--sock-col', type:'ShaderNodeBlackbody', loc:"Material 'Lava'", state:'todo', action:'fix',
+   desc:"Same as above — the temperature value is lost on load in 4.2.", risk:'Temperature = 4000 K', how:'Rebuilt as a native 4.2 Blackbody node with the same temperature.'},
+  {sev:'break', sock:'--sock-col', type:'ShaderNodeBlackbody', loc:"Material 'Embers'", state:'todo', action:'fix',
+   desc:"Same subtype value-loss on the Temperature socket.", risk:'Temperature = 1800 K', how:'Rebuilt as a native 4.2 Blackbody node with the same temperature.'},
+  {sev:'break', sock:'--sock-col', type:'ShaderNodeVolumePrincipled', loc:"Material 'Smoke'", state:'todo', action:'fix',
+   desc:"Temperature socket has the same missing subtype. Other inputs (Density, Colour…) are unaffected and preserved.", risk:'Temperature = 5500 K', how:'Rebuilt fresh, preserving all other sockets and links.'},
+  {sev:'break', sock:'--sock-val', type:'FunctionNodeIntegerMath', loc:"Geometry Nodes 'Scatter'", state:'todo', action:'fix',
+   desc:"This node doesn't exist in 4.2 and becomes an Undefined node, breaking the graph.", risk:'operation = MULTIPLY', how:'Reconstructed with a Math node + rounding (exact-equal output).'},
+  {sev:'break', sock:'--sock-val', type:'FunctionNodeMatrixDeterminant', loc:"Geometry Nodes 'Align'", state:'todo', action:'fix',
+   desc:"Missing in 4.2. Becomes Undefined.", risk:'—', how:'Reconstructed from Separate Matrix + cofactor expansion (matches native determinant).'},
+  {sev:'safe', sock:'--sock-geo', type:'GeometryNodeSetGeometryName', loc:"Geometry Nodes 'Prep'", state:'todo', action:'fix',
+   desc:"Missing in 4.2, but only sets a name — no effect on the evaluated geometry.", risk:'cosmetic', how:'Removed; geometry passthrough reconnected (output identical).'},
+  {sev:'safe', sock:'--sock-vec', type:'GeometryNodeGizmoDial', loc:"Geometry Nodes 'Rig'", state:'todo', action:'fix',
+   desc:"An authoring gizmo with no effect on output geometry.", risk:'cosmetic', how:'Safely dropped.'},
+  {sev:'shift', sock:'--sock-val', type:'Scene · EEVEE', loc:'Scene', state:'todo', action:'acknowledge',
+   desc:"Fast GI is a 4.3+ setting with no equivalent in 4.2. There's nothing to fix — it simply reverts to standard GI. Just be aware the look may differ.", risk:'use_fast_gi = on', how:'No 4.2 equivalent — reverts to standard GI on open.'},
+  {sev:'shift', sock:'--sock-col', type:'Image \u00b7 brick_wall', loc:'external texture', id:'image::brick_wall', fixLabel:'Pack', optional:true, state:'todo', action:'fix',
+   desc:"This texture is linked from disk and isn't packed \u2014 the client won't see it unless you also send the file. Easy to forget before sending.", risk:'path: //textures/brick.png', how:'Pack the texture into the .blend.'},
+  {sev:'shift', sock:'--sock-col', type:'Image \u00b7 NodePreview', loc:'generated image', id:'imagegen::NodePreview', state:'todo', action:'manual',
+   desc:"Generated inside Blender with no file backing. It can't be packed and its pixels aren't saved in the .blend \u2014 if an add-on painted or computed it, save it to a file in Blender before sending.", risk:'512x512', how:'Save the image to a file in Blender (it can\'t be auto-packed).'},
+  {sev:'shift', sock:'--sock-val', type:'ShaderNodeBsdfPrincipled', loc:"Material 'Skin'", state:'todo', action:'acknowledge',
+   desc:"The 4.4 Diffuse Roughness input doesn't exist in 4.2. Nothing to reconstruct — the value is simply dropped and reverts to 4.2 behaviour.", risk:'Diffuse Roughness = 0.3', how:'Added socket dropped on open; reverts to 4.2 default (minor).'},
+  {sev:'break', sock:'--sock-geo', type:'GeometryNodeForeachGeometryElementInput', loc:"Geometry Nodes 'PerIsland'", state:'todo', action:'manual',
+   desc:"The For-Each Element zone is new control flow with no 4.2 equivalent. It can't be reconstructed automatically.", risk:'zone · 2 nodes', how:'Restructure or remove the zone manually.'},
+  {sev:'break', sock:'--sock-val', type:'FunctionNodeIntegerMath', loc:"Geometry Nodes 'Hash'", state:'todo', action:'manual',
+   desc:"Missing node, and its GCD operation has no Math-node equivalent, so it can't be reconstructed.", risk:'operation = GCD', how:'No Math equivalent — rebuild by hand if needed.'},
+  {sev:'break', sock:'--sock-geo', type:'Grease Pencil v3', loc:"whole file", state:'todo', action:'manual',
+   desc:"Grease Pencil objects saved in 4.3+ use GP v3 and will not open correctly in 4.2. This is a file-level change, not a node.", risk:'non-node · critical', how:'Handle Grease Pencil objects before downgrading.'},
+  {sev:'shift', sock:'--sock-geo', type:'GeometryNodeImportSTL', loc:"Object 'Prop' > GN modifier 'Load'", obj:'Prop', mod:'Load', can_apply:true, state:'todo', action:'manual',
+   desc:"Missing in 4.2. Becomes Undefined. Its imported geometry can't be injected as a constant in 4.2.", risk:"path: /models/part.stl", how:'Re-import in 4.2, or apply the modifier to bake the imported geometry in.'},
+  {sev:'shift', sock:'--sock-geo', type:'GeometryNodeInputObject', loc:"Geometry Nodes 'Ref'", state:'todo', action:'manual',
+   desc:"Missing in 4.2 — there's no way to inline a constant object reference there.", risk:"references object 'TargetObj'", how:"Recreate as an Object group input set to 'TargetObj'."},
+];
+const SEVRANK={break:0, shift:1, safe:2};
+const el=s=>document.querySelector(s);
+function catOf(it){
+  if(it.type.includes('Blackbody')||it.type.includes('VolumePrincipled')) return 'subtype value-loss';
+  if(it.type.includes('Import')||it.type.includes('InputObject')) return 'missing · needs object ref';
+  if(it.type.includes('Foreach')) return 'missing · control flow';
+  if(it.type.includes('IntegerMath')||it.type.includes('Determinant')) return 'missing · reconstructable';
+  if(it.type.includes('Gizmo')||it.type.includes('SetGeometryName')) return 'missing · cosmetic';
+  if(it.type.includes('Grease')) return 'non-node · file format';
+  if(it.type.includes('EEVEE')) return 'setting lost';
+  return 'changed socket';
+}
+const stagedCount=()=>ISSUES.filter(i=>i.action==='fix' && i.state==='staged').length;
+const APPLY=new Set();                    // "obj::mod" modifiers staged to apply/bake
+const modKey=it=>it.obj&&it.mod?it.obj+'::'+it.mod:null;
+const applyQueued=it=>{const k=modKey(it); return k&&APPLY.has(k);};
+function applyMod(i,e){ e.stopPropagation(); const k=modKey(ISSUES[i]); if(k){REMOVE.delete(k); APPLY.add(k);} render(); }
+function cancelApply(i,e){ e.stopPropagation(); const k=modKey(ISSUES[i]); if(k) APPLY.delete(k); render(); }
+const REMOVE=new Set();
+const removeQueued=it=>{const k=modKey(it); return k&&REMOVE.has(k);};
+function removeMod(i,e){ e.stopPropagation(); const k=modKey(ISSUES[i]); if(k){APPLY.delete(k); REMOVE.add(k);} render(); }
+function cancelRemove(i,e){ e.stopPropagation(); const k=modKey(ISSUES[i]); if(k) REMOVE.delete(k); render(); }
+
+function rowHTML(it,i){
+  const s=it.state;
+  let tag;
+  if(s==='done') tag = it.action==='acknowledge'?`<span class="tag ackd">◦ acknowledged</span>`:`<span class="tag fixed">✓ fixed</span>`;
+  else if(it.action==='fix') tag = s==='staged'?`<span class="tag queued">✓ will fix</span>`:(it.sev==='safe'?`<span class="tag safe">auto · safe</span>`:`<span class="tag ${it.sev}">auto-fix</span>`);
+  else if(it.action==='acknowledge') tag=`<span class="tag review">review</span>`;
+  else tag = applyQueued(it)?`<span class="tag applyq">\u2713 will apply</span>`:removeQueued(it)?`<span class="tag removeq">\u2713 will remove</span>`:`<span class="tag manual">manual</span>`;
+
+  let action='';
+  if(s==='done') action=`<div class="act"><span class="howfix"><b>${it.action==='acknowledge'?'Note':'Done'}:</b> ${it.how}</span></div>`;
+  else if(it.action==='fix'){
+    if(s==='staged') action=`<div class="act"><button class="fix staged" onclick="stageOne(${i},event)">✓ Will fix — click to remove</button><span class="howfix"><b>Runs on convert:</b> ${it.how}</span></div>`;
+    else {
+      const sameType=ISSUES.filter(x=>x.type===it.type && x.action==='fix' && x.state==='todo').length;
+      const typeBtn=sameType>1?`<button class="fixtype" onclick="stageType('${it.type}',event)">Fix all ${sameType} of this type</button>`:'';
+      action=`<div class="act"><button class="fix" onclick="stageOne(${i},event)">Fix this</button>${typeBtn}<span class="howfix"><b>Will run:</b> ${it.how}</span></div>`;
+    }
+  }
+  else if(it.action==='acknowledge') action=`<div class="act"><button class="ack" onclick="ackOne(${i},event)">Acknowledge</button><span class="howfix"><b>Why:</b> ${it.how}</span></div>`;
+  else action=`<div class="act"><span class="manual-note"><span class="i">△</span><span>${it.how}</span></span></div>`;
+
+  const cls = s==='done'?(it.action==='acknowledge'?'ackd':'fixed'):(s==='staged'?'staged '+it.sev:it.sev);
+  return `<div class="issue ${cls}" data-i="${i}">
+    <div class="ihead" onclick="toggle(${i})">
+      <span class="sock" style="background:var(${it.sock})"></span>
+      <div class="ir"><div class="itype">${it.type}</div><div class="iloc"><span class="at">at</span> ${it.loc}</div></div>
+      ${tag}<span class="caret">\u25B6</span>
+    </div>
+    <div class="ibody"><div class="ibin">
+      <div class="desc">${it.desc}</div>
+      <div class="kv"><div><span class="k">At risk</span><span class="v risk">${it.risk}</span></div><div><span class="k">Category</span><span class="v">${catOf(it)}</span></div></div>
+      ${action}
+    </div></div></div>`;
+}
+function groupHTML(title, cls, badge, items, headExtra=''){
+  if(!items.length) return '';
+  const rows=items.map(({it,i})=>rowHTML(it,i)).join('');
+  return `<div class="group"><div class="ghead"><div class="gt ${cls}">${badge} ${title}<span class="c">${items.length}</span></div><div class="gline"></div>${headExtra}</div><div class="list">${rows}</div></div>`;
+}
+function render(){
+  const idx=ISSUES.map((it,i)=>({it,i}));
+  const bySev=(a,b)=>SEVRANK[a.it.sev]-SEVRANK[b.it.sev];
+  const auto=idx.filter(x=>x.it.action==='fix' && x.it.state!=='done').sort((a,b)=>((b.it.state==='staged')-(a.it.state==='staged'))||bySev(a,b));
+  const ack=idx.filter(x=>x.it.action==='acknowledge' && x.it.state==='todo').sort(bySev);
+  const manual=idx.filter(x=>x.it.action==='manual' && x.it.state==='todo').sort(bySev);
+  const done=idx.filter(x=>x.it.state==='done');
+  const todoFix=auto.filter(x=>x.it.state==='todo').length;
+  const fixAllBtn=todoFix?`<button class="fixall" onclick="stageAll()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M20 6L9 17l-5-5"/></svg>Fix all ${todoFix} automatic</button>`:'';
+  const ackAllBtn=ack.length>1?`<button class="ackall" onclick="ackAll()">Acknowledge all ${ack.length}</button>`:'';
+  el('#groups').innerHTML =
+      groupHTML('Automatic', 'badge-auto', '\u2726', auto, fixAllBtn)
+    + groupHTML('Review \u2014 will change, nothing to fix','badge-review','\u25E6',ack,ackAllBtn)
+    + groupHTML('Manual \u2014 you handle these','badge-manual','\u25B3',manual)
+    + groupHTML('Done','badge-fixed','\u2713',done);
+  el('#s-total').textContent=ISSUES.length;
+  el('#s-break').textContent=ISSUES.filter(i=>i.sev==='break').length;
+  el('#s-shift').textContent=ISSUES.filter(i=>i.sev==='shift').length;
+  el('#s-auto').textContent=ISSUES.filter(i=>i.action==='fix').length;
+  const staged=stagedCount()+APPLY.size+REMOVE.size, btn=el('#convertBtn');
+  btn.classList.toggle('disabled', staged===0);
+  el('#convertLabel').textContent = staged?`Convert & save \u00B7 ${staged} fix${staged>1?'es':''}`:'Convert & save';
+}
+function toast(t,sub){ el('#toast-t').textContent=t; el('#toast-s').textContent=sub; const x=el('#toast'); x.classList.add('show'); clearTimeout(window._tt); window._tt=setTimeout(()=>x.classList.remove('show'),4200); }
+function toggle(i){ const n=document.querySelector(`.issue[data-i="${i}"]`); if(n) n.classList.toggle('open'); }
+function stageOne(i,e){ e.stopPropagation(); const it=ISSUES[i]; it.state = it.state==='staged'?'todo':'staged'; render(); }
+function stageType(t,e){ e.stopPropagation(); ISSUES.forEach(it=>{ if(it.type===t && it.action==='fix' && it.state==='todo') it.state='staged'; }); render(); }
+function stageAll(){ ISSUES.forEach(it=>{ if(it.action==='fix' && it.state==='todo') it.state='staged'; }); render(); }
+function ackOne(i,e){ e.stopPropagation(); ISSUES[i].state='done'; render(); }
+function ackAll(){ ISSUES.forEach(it=>{ if(it.action==='acknowledge' && it.state==='todo') it.state='done'; }); render(); }
+let CTX={path:null, source:null, blenders:{}};
+async function loadFile(realPath){
+  // App mode: native file picker. Static preview: no path -> demo data.
+  let path = realPath;
+  if(!path){
+    if(window.pywebview && window.pywebview.api){ path = await window.pywebview.api.pick_blend(); if(!path) return; }
+    else {
+      let backend=false; try{ backend=(await fetch('/api/ping')).ok; }catch(e){}
+      if(backend){ path = prompt('Path to your .blend file:'); if(!path) return; }
+    }
+  }
+  if(path){
+    try{
+      const r=await fetch('/api/scan',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path})});
+      if(!r.ok) throw new Error('scan failed');
+      const d=await r.json();
+      ISSUES.length=0; d.issues.forEach(it=>ISSUES.push(Object.assign({state:'todo'},it)));
+      CTX={path, detected:d.detected, blenders:d.blenders||{}};
+      const fn=document.querySelector('.fname'); if(fn) fn.textContent=path.split(/[\\/]/).pop();
+      const dv=document.querySelector('.detected'); if(dv&&d.detected) dv.textContent='Blender '+d.detected;
+      const sel=el('#target'); if(sel&&d.blenders){ sel.innerHTML=Object.keys(d.blenders).map(v=>`<option>${v}</option>`).join(''); }
+    }catch(e){ /* fall through to demo data already in ISSUES */ }
+  }
+  el('#empty').classList.add('hidden'); el('#scanned').classList.remove('hidden'); render();
+}
+function reset(){ APPLY.clear(); REMOVE.clear(); ISSUES.forEach(it=>it.state='todo'); el('#scanned').classList.add('hidden'); el('#empty').classList.remove('hidden'); }
+async function convert(){
+  const staged=stagedCount();
+  if(staged===0){ toast('Nothing to convert', 'No fixes selected \u2014 stage at least one fix, or converting only produces a broken file.'); return; }
+  const k=ISSUES.filter(i=>i.action==='acknowledge' && i.state!=='done').length;
+  const a=APPLY.size, rmv=REMOVE.size;
+  const m=ISSUES.filter(i=>i.action==='manual' && !applyQueued(i) && !removeQueued(i)).length;
+  const ids=ISSUES.filter(i=>i.action==='fix' && i.state==='staged').map(i=>i.id);
+  if(CTX.path){
+    try{
+      const out=CTX.path.replace(/\.blend$/,'_for_'+el('#target').value.split(' ')[0]+'.blend');
+      const r=await fetch('/api/convert',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:CTX.path,selected:ids,detected:CTX.detected,target_version:el('#target').value,apply_modifiers:[...APPLY],remove_modifiers:[...REMOVE],purge_unused:(el('#purgeChk')?el('#purgeChk').checked:true),out})});
+      const d=await r.json(); if(d.error) throw new Error(d.error);
+      ISSUES.forEach(it=>{ if(it.action==='fix'&&it.state==='staged') it.state='done'; if(it.action==='acknowledge') it.state='done'; if(applyQueued(it)||removeQueued(it)) it.state='done'; }); render();
+      toast('Saved '+d.out.split(/[\\/]/).pop(), `${d.rebuilt+d.source_fixed} fixed \u00B7 ${k} acknowledged \u00B7 ${m} left for manual`);
+    }catch(e){ toast('Convert failed', String(e.message||e)); }
+    return;
+  }
+  ISSUES.forEach(it=>{ if(it.action==='fix' && it.state==='staged') it.state='done'; if(it.action==='acknowledge') it.state='done'; if(applyQueued(it)||removeQueued(it)) it.state='done'; });
+  render();
+  toast('Saved lighting_test_for_4.2.blend', `${stagedCount()} fixed \u00B7 ${a} applied \u00B7 ${rmv} removed \u00B7 ${k} acknowledged \u00B7 ${m} manual`);
+}
+</script>
+</body>
+</html>

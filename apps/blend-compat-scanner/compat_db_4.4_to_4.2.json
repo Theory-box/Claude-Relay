@@ -1,0 +1,612 @@
+{
+  "source": "4.4",
+  "target": "4.2",
+  "note": "Node lists are EMPIRICAL (enumerated from both binaries). Actions are suggested strategies.",
+  "missing": {
+    "FunctionNodeFindInString": {
+      "node_category": "geometry",
+      "class": "function",
+      "action": "manual",
+      "note": "String nodes limited in older versions; likely manual."
+    },
+    "FunctionNodeHashValue": {
+      "node_category": "geometry",
+      "class": "function",
+      "action": "manual",
+      "note": "No clean equivalent; approximate or remove."
+    },
+    "FunctionNodeIntegerMath": {
+      "node_category": "geometry",
+      "class": "function",
+      "action": "reconstruct",
+      "note": "Rebuild with float Math + rounding (large-int precision)."
+    },
+    "FunctionNodeMatrixDeterminant": {
+      "node_category": "geometry",
+      "class": "function",
+      "action": "reconstruct",
+      "note": "Rebuild from matrix component extraction + arithmetic."
+    },
+    "GeometryNodeCurvesToGreasePencil": {
+      "node_category": "geometry",
+      "class": "grease-pencil",
+      "action": "manual",
+      "note": "Grease Pencil v3 dependent; manual."
+    },
+    "GeometryNodeForeachGeometryElementInput": {
+      "node_category": "geometry",
+      "class": "control-flow",
+      "action": "manual",
+      "note": "For-Each zone: no equivalent. User must restructure or remove."
+    },
+    "GeometryNodeForeachGeometryElementOutput": {
+      "node_category": "geometry",
+      "class": "control-flow",
+      "action": "manual",
+      "note": "For-Each zone: no equivalent. User must restructure or remove."
+    },
+    "GeometryNodeGizmoDial": {
+      "node_category": "geometry",
+      "class": "cosmetic",
+      "action": "safe-drop",
+      "note": "Authoring gizmo; no effect on output geometry."
+    },
+    "GeometryNodeGizmoLinear": {
+      "node_category": "geometry",
+      "class": "cosmetic",
+      "action": "safe-drop",
+      "note": "Authoring gizmo; no effect on output geometry."
+    },
+    "GeometryNodeGizmoTransform": {
+      "node_category": "geometry",
+      "class": "cosmetic",
+      "action": "safe-drop",
+      "note": "Authoring gizmo; no effect on output geometry."
+    },
+    "GeometryNodeGreasePencilToCurves": {
+      "node_category": "geometry",
+      "class": "grease-pencil",
+      "action": "manual",
+      "note": "Grease Pencil v3 dependent; manual."
+    },
+    "GeometryNodeImportOBJ": {
+      "node_category": "geometry",
+      "class": "import",
+      "action": "bake",
+      "note": "Realize imported geometry into stored mesh before downgrade."
+    },
+    "GeometryNodeImportPLY": {
+      "node_category": "geometry",
+      "class": "import",
+      "action": "bake",
+      "note": "Realize imported geometry into stored mesh before downgrade."
+    },
+    "GeometryNodeImportSTL": {
+      "node_category": "geometry",
+      "class": "import",
+      "action": "bake",
+      "note": "Realize imported geometry into stored mesh before downgrade."
+    },
+    "GeometryNodeInputCollection": {
+      "node_category": "geometry",
+      "class": "input",
+      "action": "reconstruct",
+      "note": "Replace with a Collection group-input socket."
+    },
+    "GeometryNodeInputObject": {
+      "node_category": "geometry",
+      "class": "input",
+      "action": "reconstruct",
+      "note": "Replace with an Object group-input socket."
+    },
+    "GeometryNodeMergeLayers": {
+      "node_category": "geometry",
+      "class": "grease-pencil",
+      "action": "manual",
+      "note": "Grease Pencil v3 dependent; manual."
+    },
+    "GeometryNodeSetGeometryName": {
+      "node_category": "geometry",
+      "class": "cosmetic",
+      "action": "safe-drop",
+      "note": "Sets a name string; cosmetic."
+    },
+    "GeometryNodeWarning": {
+      "node_category": "geometry",
+      "class": "cosmetic",
+      "action": "safe-drop",
+      "note": "Only emits editor warnings; no geometry effect."
+    },
+    "ShaderNodeBsdfMetallic": {
+      "node_category": "shader",
+      "class": "shader-bsdf",
+      "action": "reconstruct",
+      "note": "Approximate with Principled/Glossy BSDF (visual check)."
+    },
+    "ShaderNodeTexGabor": {
+      "node_category": "shader",
+      "class": "shader-texture",
+      "action": "manual",
+      "note": "No equivalent; approximate with Noise/Wave (visual)."
+    }
+  },
+  "changed": {
+    "GeometryNodePoints": {
+      "node_category": "geometry",
+      "action": "review",
+      "delta": {
+        "in_subtype_changed": [
+          [
+            "Position",
+            "NodeSocketVector",
+            "NodeSocketVectorTranslation"
+          ]
+        ]
+      }
+    },
+    "GeometryNodeRepeatInput": {
+      "node_category": "geometry",
+      "action": "review",
+      "delta": {
+        "out_added": [
+          [
+            "Iteration",
+            "INT"
+          ]
+        ]
+      }
+    },
+    "GeometryNodeSubdivisionSurface": {
+      "node_category": "geometry",
+      "action": "review",
+      "delta": {
+        "in_added": [
+          [
+            "Limit Surface",
+            "BOOLEAN"
+          ]
+        ]
+      }
+    },
+    "GeometryNodeToolSelection": {
+      "node_category": "geometry",
+      "action": "review",
+      "delta": {
+        "out_added": [
+          [
+            "Boolean",
+            "BOOLEAN"
+          ],
+          [
+            "Float",
+            "VALUE"
+          ]
+        ],
+        "out_removed": [
+          [
+            "Selection",
+            "BOOLEAN"
+          ]
+        ]
+      }
+    },
+    "GeometryNodeTriangulate": {
+      "node_category": "geometry",
+      "action": "review",
+      "delta": {
+        "in_removed": [
+          [
+            "Minimum Vertices",
+            "INT"
+          ]
+        ]
+      }
+    },
+    "ShaderNodeBlackbody": {
+      "node_category": "shader",
+      "action": "review",
+      "delta": {
+        "in_subtype_changed": [
+          [
+            "Temperature",
+            "NodeSocketFloat",
+            "NodeSocketFloatColorTemperature"
+          ]
+        ]
+      }
+    },
+    "ShaderNodeBsdfPrincipled": {
+      "node_category": "shader",
+      "action": "review",
+      "delta": {
+        "in_added": [
+          [
+            "Diffuse Roughness",
+            "VALUE"
+          ]
+        ]
+      }
+    },
+    "ShaderNodeBump": {
+      "node_category": "shader",
+      "action": "review",
+      "delta": {
+        "in_added": [
+          [
+            "Filter Width",
+            "VALUE"
+          ]
+        ]
+      }
+    },
+    "ShaderNodeVolumePrincipled": {
+      "node_category": "shader",
+      "action": "review",
+      "delta": {
+        "in_subtype_changed": [
+          [
+            "Temperature",
+            "NodeSocketFloat",
+            "NodeSocketFloatColorTemperature"
+          ]
+        ]
+      }
+    },
+    "ShaderNodeVolumeScatter": {
+      "node_category": "shader",
+      "action": "review",
+      "delta": {
+        "in_added": [
+          [
+            "Alpha",
+            "VALUE"
+          ],
+          [
+            "Backscatter",
+            "VALUE"
+          ],
+          [
+            "Diameter",
+            "VALUE"
+          ],
+          [
+            "IOR",
+            "VALUE"
+          ]
+        ]
+      }
+    },
+    "CompositorNodeGlare": {
+      "node_category": "compositor",
+      "action": "review",
+      "delta": {
+        "in_added": [
+          [
+            "Color Modulation",
+            "VALUE"
+          ],
+          [
+            "Fade",
+            "VALUE"
+          ],
+          [
+            "Iterations",
+            "INT"
+          ],
+          [
+            "Maximum",
+            "VALUE"
+          ],
+          [
+            "Saturation",
+            "VALUE"
+          ],
+          [
+            "Size",
+            "VALUE"
+          ],
+          [
+            "Smoothness",
+            "VALUE"
+          ],
+          [
+            "Streaks",
+            "INT"
+          ],
+          [
+            "Streaks Angle",
+            "VALUE"
+          ],
+          [
+            "Strength",
+            "VALUE"
+          ],
+          [
+            "Threshold",
+            "VALUE"
+          ],
+          [
+            "Tint",
+            "RGBA"
+          ]
+        ],
+        "out_added": [
+          [
+            "Glare",
+            "RGBA"
+          ],
+          [
+            "Highlights",
+            "RGBA"
+          ]
+        ]
+      }
+    }
+  },
+  "prop_changed": {
+    "FunctionNodeRandomValue": {
+      "node_category": "geometry",
+      "enum_values_added": {
+        "data_type": [
+          "INT16_2D"
+        ]
+      }
+    },
+    "FunctionNodeValueToString": {
+      "node_category": "geometry",
+      "added": [
+        "data_type"
+      ]
+    },
+    "GeometryNodeAttributeDomainSize": {
+      "node_category": "geometry",
+      "enum_values_added": {
+        "component": [
+          "GREASEPENCIL"
+        ]
+      }
+    },
+    "GeometryNodeAttributeStatistic": {
+      "node_category": "geometry",
+      "enum_values_added": {
+        "data_type": [
+          "INT16_2D"
+        ]
+      }
+    },
+    "GeometryNodeBlurAttribute": {
+      "node_category": "geometry",
+      "enum_values_added": {
+        "data_type": [
+          "INT16_2D"
+        ]
+      }
+    },
+    "GeometryNodeDuplicateElements": {
+      "node_category": "geometry",
+      "enum_values_added": {
+        "domain": [
+          "LAYER"
+        ]
+      }
+    },
+    "GeometryNodeFieldAtIndex": {
+      "node_category": "geometry",
+      "enum_values_added": {
+        "data_type": [
+          "INT16_2D"
+        ]
+      }
+    },
+    "GeometryNodeFieldOnDomain": {
+      "node_category": "geometry",
+      "enum_values_added": {
+        "data_type": [
+          "INT16_2D"
+        ]
+      }
+    },
+    "GeometryNodeInputNamedAttribute": {
+      "node_category": "geometry",
+      "enum_values_added": {
+        "data_type": [
+          "INT16_2D"
+        ]
+      }
+    },
+    "GeometryNodeInputNormal": {
+      "node_category": "geometry",
+      "added": [
+        "legacy_corner_normals"
+      ]
+    },
+    "GeometryNodeRaycast": {
+      "node_category": "geometry",
+      "enum_values_added": {
+        "data_type": [
+          "INT16_2D"
+        ]
+      }
+    },
+    "GeometryNodeResampleCurve": {
+      "node_category": "geometry",
+      "added": [
+        "keep_last_segment"
+      ]
+    },
+    "GeometryNodeSampleCurve": {
+      "node_category": "geometry",
+      "enum_values_added": {
+        "data_type": [
+          "INT16_2D"
+        ]
+      }
+    },
+    "GeometryNodeSampleIndex": {
+      "node_category": "geometry",
+      "enum_values_added": {
+        "data_type": [
+          "INT16_2D"
+        ]
+      }
+    },
+    "GeometryNodeSampleNearestSurface": {
+      "node_category": "geometry",
+      "enum_values_added": {
+        "data_type": [
+          "INT16_2D"
+        ]
+      }
+    },
+    "GeometryNodeSampleUVSurface": {
+      "node_category": "geometry",
+      "enum_values_added": {
+        "data_type": [
+          "INT16_2D"
+        ]
+      }
+    },
+    "GeometryNodeStoreNamedAttribute": {
+      "node_category": "geometry",
+      "enum_values_added": {
+        "data_type": [
+          "INT16_2D"
+        ]
+      }
+    },
+    "GeometryNodeStoreNamedGrid": {
+      "node_category": "geometry",
+      "enum_values_added": {
+        "data_type": [
+          "INT16_2D"
+        ]
+      }
+    },
+    "GeometryNodeToolSetSelection": {
+      "node_category": "geometry",
+      "added": [
+        "selection_type"
+      ]
+    },
+    "GeometryNodeViewer": {
+      "node_category": "geometry",
+      "enum_values_added": {
+        "data_type": [
+          "INT16_2D"
+        ]
+      }
+    },
+    "ShaderNodeVolumeScatter": {
+      "node_category": "shader",
+      "added": [
+        "phase"
+      ]
+    },
+    "CompositorNodeColorBalance": {
+      "node_category": "compositor",
+      "added": [
+        "input_temperature",
+        "input_tint",
+        "input_whitepoint",
+        "output_temperature",
+        "output_tint",
+        "output_whitepoint"
+      ],
+      "enum_values_added": {
+        "correction_method": [
+          "WHITEPOINT"
+        ]
+      }
+    },
+    "CompositorNodeDenoise": {
+      "node_category": "compositor",
+      "added": [
+        "quality"
+      ]
+    },
+    "CompositorNodeOutputFile": {
+      "node_category": "compositor",
+      "added": [
+        "save_as_render"
+      ]
+    },
+    "CompositorNodeTranslate": {
+      "node_category": "compositor",
+      "enum_values_added": {
+        "interpolation": [
+          "BICUBIC",
+          "BILINEAR",
+          "NEAREST"
+        ]
+      }
+    },
+    "CompositorNodeViewer": {
+      "node_category": "compositor",
+      "added": [
+        "ui_shortcut"
+      ]
+    }
+  },
+  "non_node_warnings": [
+    {
+      "id": "grease_pencil_v3",
+      "severity": "critical",
+      "detail": "Grease Pencil objects created/saved in 4.3+ use GP v3 and do not open correctly in 4.2 or earlier. No node-level fix; handle before downgrade."
+    },
+    {
+      "id": "slotted_actions",
+      "severity": "moderate",
+      "detail": "4.4 introduced the slotted-actions animation system (action slots). Slot links on actions/constraints (e.g. ActionConstraint.action_slot) have no 4.2 equivalent and are lost on downgrade; action assignment may need to be re-linked in 4.2."
+    }
+  ],
+  "settings_lost": {
+    "SceneEEVEE": [
+      "use_fast_gi"
+    ],
+    "RenderSettings": [
+      "compositor_denoise_final_quality",
+      "compositor_denoise_preview_quality"
+    ],
+    "Curves": [
+      "surface_collision_distance"
+    ]
+  },
+  "types_new": {},
+  "socket_types_new": [
+    "NodeSocketFloatColorTemperature",
+    "NodeSocketFloatFrequency",
+    "NodeSocketStringFilePath"
+  ],
+  "datablock_changes": {
+    "mods": {
+      "BevelModifier": {
+        "props_added": [
+          "edge_weight",
+          "vertex_weight"
+        ]
+      },
+      "GreasePencilSimplifyModifier": {
+        "props_added": [
+          "open_influence_panel"
+        ]
+      },
+      "NodesModifier": {
+        "props_added": [
+          "bake_target",
+          "node_warnings",
+          "open_warnings_panel"
+        ]
+      }
+    },
+    "cons": {
+      "ActionConstraint": {
+        "props_added": [
+          "action_slot",
+          "action_slot_handle",
+          "action_suitable_slots",
+          "last_slot_identifier"
+        ]
+      }
+    }
+  }
+}
