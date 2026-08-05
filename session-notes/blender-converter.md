@@ -469,3 +469,15 @@ Splash re-scan consistent (9 issues); repair harness ALL PASS.
   same node group (_shared_targets). Re-convert: applied=2, purged=8, 4.2 output
   0 undefined (Cube.049 64v + Cube.050 224v baked). scan_ui now also reports
   "shared by N objects" so the scope is visible.
+
+## Update — synthetic coverage test (systematic, not luck-based)
+- Discussed autonomy: the tool finds unknown/future features because it PROBES each
+  build's self-reported inventory and DIFFS (no hardcoded list). Auto-discovers new
+  INSTANCES of known categories; only genuinely new CATEGORIES need a new enum pass
+  (why the compositor/texture sweeps mattered). Proof: 3.6 rotation nodes + Glare
+  rework were both found without being told about them.
+- Built tools/synth_coverage.py: constructs a .blend placing EVERY missing node (in a
+  GN group on an object + a material) and every changed node with a non-default added
+  socket, then scans and asserts all are flagged.
+- RESULT (4.4->4.2): 21/21 missing caught (7 fix, 14 manual), 4/4 changed caught,
+  ZERO gaps. Confirms scanner coverage within categories is complete.
