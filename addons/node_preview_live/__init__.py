@@ -58,40 +58,52 @@ _WORKER_NAME = "np_worker.py"
 # It targets the scene by name and renders it to the given path.
 _WORKER_SRC = '''import bpy, sys, os
 
-def _setup_and_render(scene_name, out_path, samples, mode):
+def _setup_and_render(scene_name, out_path, samples, mode, engine):
     scene = bpy.data.scenes[scene_name]
-    dev = "CPU"; backend = ""
+    dev = "?"
     try:
-        scene.render.engine = "CYCLES"
-        scene.cycles.samples = samples
-        scene.cycles.use_denoising = False
-        if mode != "CPU":
+        engs = [i.identifier for i in bpy.types.RenderSettings.bl_rna.properties["engine"].enum_items]
+        if engine == "EEVEE":
+            eid = "BLENDER_EEVEE_NEXT" if "BLENDER_EEVEE_NEXT" in engs else "BLENDER_EEVEE"
+            scene.render.engine = eid
             try:
-                prefs = bpy.context.preferences.addons["cycles"].preferences
-                pref_type = getattr(prefs, "compute_device_type", "NONE")
-                if pref_type and pref_type != "NONE":
-                    candidates = [pref_type]
-                else:
-                    candidates = ["OPTIX", "CUDA", "HIP", "METAL", "ONEAPI"]
-                for dtype in candidates:
-                    try:
-                        prefs.compute_device_type = dtype
-                    except TypeError:
-                        continue
-                    try:
-                        prefs.refresh_devices()
-                    except Exception:
-                        pass
-                    gpus = [d for d in prefs.devices if getattr(d, "type", "") == dtype]
-                    if gpus:
-                        for d in prefs.devices:
-                            if getattr(d, "type", "") == dtype:
-                                d.use = True
-                        dev = "GPU"; backend = dtype
-                        break
+                scene.eevee.taa_render_samples = max(1, samples)
             except Exception:
-                dev = "CPU"
-        scene.cycles.device = dev
+                pass
+            dev = "EEVEE"
+        else:
+            scene.render.engine = "CYCLES"
+            scene.cycles.samples = samples
+            scene.cycles.use_denoising = False
+            dev = "CPU"; backend = ""
+            if mode != "CPU":
+                try:
+                    prefs = bpy.context.preferences.addons["cycles"].preferences
+                    pref_type = getattr(prefs, "compute_device_type", "NONE")
+                    if pref_type and pref_type != "NONE":
+                        candidates = [pref_type]
+                    else:
+                        candidates = ["OPTIX", "CUDA", "HIP", "METAL", "ONEAPI"]
+                    for dtype in candidates:
+                        try:
+                            prefs.compute_device_type = dtype
+                        except TypeError:
+                            continue
+                        try:
+                            prefs.refresh_devices()
+                        except Exception:
+                            pass
+                        gpus = [d for d in prefs.devices if getattr(d, "type", "") == dtype]
+                        if gpus:
+                            for d in prefs.devices:
+                                if getattr(d, "type", "") == dtype:
+                                    d.use = True
+                            dev = "GPU"; backend = dtype
+                            break
+                except Exception:
+                    dev = "CPU"
+            scene.cycles.device = dev
+            dev = dev + ((":" + backend) if backend else "")
     except Exception:
         pass
     scene.render.filepath = out_path
@@ -100,7 +112,7 @@ def _setup_and_render(scene_name, out_path, samples, mode):
     scene.render.image_settings.color_mode = "RGBA"
     with bpy.context.temp_override(scene=scene):
         bpy.ops.render.render(write_still=True)
-    return dev + ((":" + backend) if backend else "")
+    return dev
 
 argv = sys.argv[sys.argv.index("--") + 1:]
 
@@ -149,13 +161,13 @@ if argv and argv[0] == "--serve":
         if not line or line == "QUIT":
             break
         parts = line.split(TAB)
-        if len(parts) < 6 or parts[0] != "RENDER":
+        if len(parts) < 7 or parts[0] != "RENDER":
             continue
-        _, blend, scene_name, out_path, samples, mode = parts[:6]
+        _, blend, scene_name, out_path, samples, mode, engine = parts[:7]
         done = out_path + ".done"
         try:
             bpy.ops.wm.open_mainfile(filepath=blend)
-            dev = _setup_and_render(scene_name, out_path, int(samples), mode)
+            dev = _setup_and_render(scene_name, out_path, int(samples), mode, engine)
             with open(done, "w") as f:
                 f.write(dev)
         except Exception as e:
@@ -168,8 +180,9 @@ if argv and argv[0] == "--serve":
 else:
     # One-shot (manual refresh): the job .blend is already loaded via the
     # command line, so render directly and write a status sidecar.
-    scene_name, out_path, samples, mode, status_path = argv[0], argv[1], int(argv[2]), argv[3], argv[4]
-    dev = _setup_and_render(scene_name, out_path, samples, mode)
+    scene_name, out_path, samples, mode, engine, status_path = (
+        argv[0], argv[1], int(argv[2]), argv[3], argv[4], argv[5])
+    dev = _setup_and_render(scene_name, out_path, samples, mode, engine)
     try:
         with open(status_path, "w") as f:
             f.write(dev)
@@ -258,12 +271,12 @@ def _ensure_warm_worker():
         _state["worker"] = None
         return None
 
-def _send_warm_job(blend, scene, out, samples, mode):
+def _send_warm_job(blend, scene, out, samples, mode, engine):
     p = _ensure_warm_worker()
     if p is None or p.poll() is not None:
         return False
     try:
-        p.stdin.write("RENDER\t%s\t%s\t%s\t%s\t%s\n" % (blend, scene, out, samples, mode))
+        p.stdin.write("RENDER\t%s\t%s\t%s\t%s\t%s\t%s\n" % (blend, scene, out, samples, mode, engine))
         p.stdin.flush()
         return True
     except Exception:
@@ -476,6 +489,7 @@ def start_job(context, warm=False):
     tiling = int(context.scene.np_tiling)
     samples = int(context.scene.np_samples)
     mode = _get_device_mode()
+    engine = getattr(context.scene, "np_engine", "CYCLES")
     _state["last_target_key"] = (mat.name, node.name)
 
     _state["busy"] = True
@@ -510,7 +524,7 @@ def start_job(context, warm=False):
                 os.remove(done)
         except Exception:
             pass
-        if _send_warm_job(blend, JOB_SCENE_NAME, png, samples, mode):
+        if _send_warm_job(blend, JOB_SCENE_NAME, png, samples, mode, engine):
             _state["job"] = {"warm": True, "blend": blend, "png": png, "done": done,
                              "tiling": tiling, "started": time.time()}
             _state["busy"] = False
@@ -528,7 +542,7 @@ def start_job(context, warm=False):
             kwargs["creationflags"] = 0x08000000  # CREATE_NO_WINDOW
         proc = subprocess.Popen(
             [exe, "-b", blend, "--python", worker, "--",
-             JOB_SCENE_NAME, png, str(samples), mode, status],
+             JOB_SCENE_NAME, png, str(samples), mode, engine, status],
             **kwargs
         )
     except Exception as exc:
@@ -1021,6 +1035,7 @@ class NODEPREVIEW_PT_panel(bpy.types.Panel):
         scene = context.scene
 
         col = layout.column(align=True)
+        col.prop(scene, "np_engine")
         col.prop(scene, "np_resolution")
         col.prop(scene, "np_samples")
         col.prop(scene, "np_tiling")
@@ -1070,7 +1085,9 @@ class NODEPREVIEW_PT_panel(bpy.types.Panel):
 
         dev = _state["last_device"]
         if dev:
-            if dev.startswith("GPU"):
+            if dev == "EEVEE":
+                layout.label(text="Rendered on: EEVEE (GPU)", icon="CHECKMARK")
+            elif dev.startswith("GPU"):
                 pretty = "GPU" + (" (%s)" % dev.split(":", 1)[1] if ":" in dev else "")
                 layout.label(text="Rendered on: " + pretty, icon="CHECKMARK")
             else:
@@ -1093,6 +1110,16 @@ _classes = (
 
 
 def register():
+    bpy.types.Scene.np_engine = bpy.props.EnumProperty(
+        name="Engine",
+        description="Render engine for the preview. EEVEE is usually much faster on a GPU; "
+                    "Cycles is the safe fallback and works on CPU too",
+        items=[
+            ("CYCLES", "Cycles", "Path tracer — reliable on CPU or GPU"),
+            ("EEVEE", "EEVEE", "Rasteriser — usually much faster on a GPU (needs a GPU to be quick)"),
+        ],
+        default="CYCLES",
+    )
     bpy.types.Scene.np_resolution = bpy.props.IntProperty(
         name="Resolution", description="Pixel size of the 0..1 swatch (per tile)",
         default=256, min=32, max=4096,
@@ -1144,7 +1171,7 @@ def unregister():
             bpy.utils.unregister_class(cls)
         except Exception:
             pass
-    for prop in ("np_resolution", "np_samples", "np_tiling", "np_debounce"):
+    for prop in ("np_engine", "np_resolution", "np_samples", "np_tiling", "np_debounce"):
         if hasattr(bpy.types.Scene, prop):
             delattr(bpy.types.Scene, prop)
 

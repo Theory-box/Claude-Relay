@@ -202,3 +202,15 @@ our own datablock churn doesn't self-trigger).
   file load silently killed the timer while state still said "live on".
 - Verified: node placement correct, re-save fresh, load resets cleanly; full
   regression (warm live/manual, save button, multi-object safeguard) green.
+
+## v0.14 — engine dropdown (Cycles / EEVEE)
+- Added "Engine" dropdown (Scene prop np_engine) in the side panel: Cycles or
+  EEVEE. Default Cycles (safe on CPU/GPU); EEVEE is usually much faster on a GPU
+  and needs fewer samples for flat emission.
+- Worker _setup_and_render now takes an engine arg: EEVEE -> BLENDER_EEVEE_NEXT
+  (fallback BLENDER_EEVEE) with eevee.taa_render_samples; Cycles unchanged.
+  Engine passed through both one-shot args and the warm RENDER protocol (now 7
+  fields). Device readout shows "EEVEE (GPU)" for EEVEE.
+- Verified on 4.4 (no GPU box): both engines render correct identical swatch via
+  manual AND warm paths. EEVEE ~6.6s here in software; will be fast on the user's
+  GPU. Note: the Auto/GPU/CPU device pref only affects Cycles (EEVEE always GPU).
