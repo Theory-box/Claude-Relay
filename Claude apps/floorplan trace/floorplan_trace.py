@@ -585,12 +585,8 @@ class MESH_OT_floorplan_trace(bpy.types.Operator):
                 except ValueError:
                     pass
             bmesh.update_edit_mesh(self.me)
-            # loop closed
-            if self.cut_mode:
-                # in cut mode a closed loop confirms the cut
-                self._finish_requested = True
-                return
-            # normal trace: start a new polyline on next click
+            # loop closed -> start a new polyline on next click. In cut mode this lets
+            # you trace several openings; Enter then cuts them all at once.
             self.chain = []
             self.created = set()
             self.refresh_anchors()
@@ -694,7 +690,6 @@ class MESH_OT_floorplan_trace(bpy.types.Operator):
         self.created = set()
         self.current = None
         self.free_active = False
-        self._finish_requested = False
 
         # drawing-plane basis from the current view (plans in Top, elevations in Front/Side)
         rot = self.rv3d.view_rotation
@@ -724,7 +719,7 @@ class MESH_OT_floorplan_trace(bpy.types.Operator):
             _draw_callback, (self,), 'WINDOW', 'POST_PIXEL')
         if self.cut_mode:
             context.area.header_text_set(
-                "CUT: LMB place  |  click start to close  |  Enter: cut into mesh  |  Esc: cancel")
+                "CUT: LMB place  |  close loops for multiple openings  |  Enter: cut all  |  Esc: cancel")
         else:
             context.area.header_text_set(
                 "LMB place  |  hold free-key: no snap  |  Backspace: remove point  "
@@ -865,8 +860,6 @@ class MESH_OT_floorplan_trace(bpy.types.Operator):
                      event.mouse_y - self.win_region.y)
             self.current = self.compute_target(context, coord)
             self.place(context)
-            if self._finish_requested:
-                return self.finish(context, cut=True)
             return {'RUNNING_MODAL'}
 
         if event.type in {'BACK_SPACE', 'DEL'} and event.value == 'PRESS':

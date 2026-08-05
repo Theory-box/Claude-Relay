@@ -279,3 +279,13 @@ VERIFIED LIVE (xvfb, Blender 4.4.3), faces increase on the target in every case:
 HARD-WON LESSON: to test viewport/GPU operators (knife_project, anything projecting from the view),
 run Blender NON-background under xvfb with software GL, build geometry from data (not primitive ops,
 which segfault on llvmpipe), defer via a timer, and flush prints. --background cannot test these.
+
+---
+
+## Update — Cut Trace: multiple outlines, one confirm
+
+Cut Trace no longer cuts on the first closed loop. Closing a loop now starts a fresh outline (same
+as normal Trace), so you can trace several openings (windows + door) into the one temp cutter. Enter
+(or Space) then knife-projects them ALL at once; Esc cancels. Removed the close->finish path and the
+_finish_requested flag. Verified live (xvfb 4.4.3): a cutter with 3 separate loops cuts the wall face
+1 -> 5 in a single pass. Registration 13/13.
