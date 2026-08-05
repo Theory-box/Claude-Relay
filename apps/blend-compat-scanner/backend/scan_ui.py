@@ -203,6 +203,14 @@ def main():
             m=re.match(r"Object '([^']+)' > GN modifier '([^']+)'", it["loc"])
             if m:
                 it["obj"], it["mod"], it["can_apply"] = m.group(1), m.group(2), True
+                o=bpy.data.objects.get(m.group(1))
+                md=o.modifiers.get(m.group(2)) if o else None
+                grp=getattr(md,"node_group",None)
+                if grp:
+                    users=sum(1 for ob in bpy.data.objects for x in ob.modifiers if getattr(x,"node_group",None) is grp)
+                    it["shared"]=users
+                    if users>1:
+                        it["desc"]+=f" This modifier's node group is shared by {users} objects \u2014 fixing it covers all of them."
     out = arg("--out")
     payload = {"source": bpy.app.version_string, "file": bpy.data.filepath, "issues": issues}
     if out: json.dump(payload, open(out,"w"), indent=1)

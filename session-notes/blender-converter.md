@@ -458,3 +458,14 @@ Splash re-scan consistent (9 issues); repair harness ALL PASS.
   entirely). convert_source --remove; engine/server plumb remove_modifiers; UI adds
   a "Remove modifier" button + "will remove" state (mutually exclusive with apply).
   Verified: removing the cabinet modifier -> object back to base 8 verts, modifier gone.
+
+## Update — SHARED NODE GROUP bug (found via Tiger Point Place real file)
+- Real 4.4 file (113MB): 7 issues — CT Cabinet Door For-Each zones (Cube.049) + Fast GI.
+- BUG: the CT Cabinet Door node group is SHARED by 2 objects (Cube.049 + Cube.050).
+  Scanner dedups trees by pointer so it reports the group once (on Cube.049), but
+  apply/remove was per-object -> applying on Cube.049 left Cube.050's modifier ->
+  the shared group's foreach nodes stayed undefined (6 undefined in 4.2 output).
+- FIX: convert_source apply/remove now expand to EVERY object whose modifier uses the
+  same node group (_shared_targets). Re-convert: applied=2, purged=8, 4.2 output
+  0 undefined (Cube.049 64v + Cube.050 224v baked). scan_ui now also reports
+  "shared by N objects" so the scope is visible.

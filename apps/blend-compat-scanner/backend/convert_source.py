@@ -17,24 +17,40 @@ db=json.load(open(arg("--db"))); risk=at_risk_map(db)
 apply_list=json.load(open(arg("--apply"))) if arg("--apply") else []
 remove_list=json.load(open(arg("--remove"))) if arg("--remove") else []
 manifest={}; fixed=0; applied=0; removed=0
-# remove chosen modifiers entirely (for broken modifiers the user would rather drop)
+def _shared_targets(obj, mod_name):
+    """All (object, modifier_name) pairs using the same node group as obj.mod_name."""
+    m0 = obj.modifiers.get(mod_name)
+    grp = getattr(m0, "node_group", None)
+    targets = [(obj, mod_name)]
+    if grp:
+        for o in bpy.data.objects:
+            for m in o.modifiers:
+                if getattr(m, "node_group", None) is grp and (o.name, m.name) != (obj.name, mod_name):
+                    targets.append((o, m.name))
+    return targets
+
+# remove chosen modifiers entirely, across every object sharing the group
 for entry in remove_list:
     obj_name, mod_name = entry.split("::",1)
     obj=bpy.data.objects.get(obj_name)
-    if obj and obj.modifiers.get(mod_name):
-        obj.modifiers.remove(obj.modifiers[mod_name]); removed+=1
+    if not (obj and obj.modifiers.get(mod_name)): continue
+    for o, mn in _shared_targets(obj, mod_name):
+        if o.modifiers.get(mn):
+            o.modifiers.remove(o.modifiers[mn]); removed+=1
 # apply chosen modifiers first: bakes evaluated geometry into the mesh and removes
 # the modifier (and its unfixable nodes) entirely.
 for entry in apply_list:
     obj_name, mod_name = entry.split("::",1)
     obj=bpy.data.objects.get(obj_name)
-    if obj and obj.modifiers.get(mod_name):
+    if not (obj and obj.modifiers.get(mod_name)): continue
+    for o, mn in _shared_targets(obj, mod_name):
+        if not o.modifiers.get(mn): continue
         try:
-            with bpy.context.temp_override(object=obj, active_object=obj, selected_objects=[obj]):
-                bpy.ops.object.modifier_apply(modifier=mod_name)
+            with bpy.context.temp_override(object=o, active_object=o, selected_objects=[o]):
+                bpy.ops.object.modifier_apply(modifier=mn)
             applied+=1
         except Exception as e:
-            print("APPLY_WARN", obj_name, mod_name, e)
+            print("APPLY_WARN", o.name, mn, e)
 for n,where in list(sc.collect_nodes()):
     iid=f"{where}::{n.name}"
     if iid not in sel: continue
