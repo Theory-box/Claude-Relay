@@ -131,6 +131,55 @@ def get_prefs(context):
         return None
 
 
+def _do_knife_project(context, cutter, target, cut_through, keep_cutter):
+    """Shared core: knife-project `cutter` onto `target` from the current view.
+    Leaves the target in Object Mode; deletes the cutter unless keep_cutter."""
+    if cutter is None or target is None or cutter == target:
+        return False
+    if context.mode != 'OBJECT':
+        try:
+            bpy.ops.object.mode_set(mode='OBJECT')
+        except Exception:
+            pass
+    win = context.window
+    area = None
+    region = None
+    if win is not None:
+        area = next((a for a in win.screen.areas if a.type == 'VIEW_3D'), None)
+        if area is not None:
+            region = next((r for r in area.regions if r.type == 'WINDOW'), None)
+    for o in list(context.view_layer.objects.selected):
+        o.select_set(False)
+    cutter.select_set(True)
+    target.select_set(True)
+    context.view_layer.objects.active = target
+    ok = False
+    try:
+        bpy.ops.object.mode_set(mode='EDIT')
+        if area is not None and region is not None:
+            with context.temp_override(window=win, area=area, region=region,
+                                       active_object=target,
+                                       edit_object=target,
+                                       selected_objects=[cutter, target],
+                                       selected_editable_objects=[cutter, target]):
+                bpy.ops.mesh.knife_project(cut_through=cut_through)
+        else:
+            bpy.ops.mesh.knife_project(cut_through=cut_through)
+        ok = True
+    except Exception:
+        ok = False
+    try:
+        bpy.ops.object.mode_set(mode='OBJECT')
+    except Exception:
+        pass
+    if not keep_cutter:
+        try:
+            bpy.data.objects.remove(cutter, do_unlink=True)
+        except Exception:
+            pass
+    return ok
+
+
 # ------------------------------------------------------------------ settings
 class FT_Settings(bpy.types.PropertyGroup):
     use_angle_snap: bpy.props.BoolProperty(name="Angle Snap", default=True)
@@ -169,6 +218,12 @@ class FT_Settings(bpy.types.PropertyGroup):
         name="MMB Pans When Locked", default=True,
         description="While view rotation is locked, plain middle-mouse / two-finger pans instead of orbiting",
         update=lambda self, ctx: _resync_pan())
+    cut_through: bpy.props.BoolProperty(
+        name="Cut Through", default=False,
+        description="Cut both sides of the mesh (project through it) instead of just the front face")
+    project_cutter: bpy.props.PointerProperty(
+        name="Cutter", type=bpy.types.Object,
+        description="Object to knife-project onto the mesh you're editing")
 
 
 # ------------------------------------------------------------------ operator
@@ -177,6 +232,8 @@ class MESH_OT_floorplan_trace(bpy.types.Operator):
     bl_idname = "mesh.floorplan_trace"
     bl_label = "Trace"
     bl_options = {'REGISTER'}
+
+    cut_mode: bpy.props.BoolProperty(default=False, options={'SKIP_SAVE'})
 
     @classmethod
     def poll(cls, context):
@@ -478,7 +535,12 @@ class MESH_OT_floorplan_trace(bpy.types.Operator):
                 except ValueError:
                     pass
             bmesh.update_edit_mesh(self.me)
-            # loop closed -> start a new polyline on next click
+            # loop closed
+            if self.cut_mode:
+                # in cut mode a closed loop confirms the cut
+                self._finish_requested = True
+                return
+            # normal trace: start a new polyline on next click
             self.chain = []
             self.created = set()
             self.refresh_anchors()
@@ -522,8 +584,33 @@ class MESH_OT_floorplan_trace(bpy.types.Operator):
             return {'CANCELLED'}
 
         self.created_object = False
+        self.cut_target = None
         obj = context.edit_object
-        if obj is None or obj.type != 'MESH':
+
+        if self.cut_mode:
+            # Cut Trace: target is the mesh being edited; trace into a temp cutter object
+            if obj is None or obj.type != 'MESH':
+                self.report({'WARNING'}, "Enter Edit Mode on the mesh you want to cut")
+                return {'CANCELLED'}
+            self.cut_target = obj
+            bpy.ops.object.mode_set(mode='OBJECT')
+            mesh = bpy.data.meshes.new("CutTrace")
+            cutter = bpy.data.objects.new("CutTrace", mesh)
+            context.collection.objects.link(cutter)
+            for o in list(context.selected_objects):
+                o.select_set(False)
+            cutter.select_set(True)
+            context.view_layer.objects.active = cutter
+            try:
+                bpy.ops.object.mode_set(mode='EDIT')
+            except RuntimeError:
+                bpy.data.objects.remove(cutter, do_unlink=True)
+                self._reenter_target(context)
+                self.report({'WARNING'}, "Could not enter Edit Mode")
+                return {'CANCELLED'}
+            self.created_object = True
+            obj = cutter
+        elif obj is None or obj.type != 'MESH':
             # Object Mode: spawn a fresh empty mesh object and edit it
             if context.mode != 'OBJECT':
                 self.report({'WARNING'}, "Enter Edit Mode on a mesh first")
@@ -557,6 +644,7 @@ class MESH_OT_floorplan_trace(bpy.types.Operator):
         self.created = set()
         self.current = None
         self.free_active = False
+        self._finish_requested = False
 
         # drawing-plane basis from the current view (plans in Top, elevations in Front/Side)
         rot = self.rv3d.view_rotation
@@ -584,14 +672,33 @@ class MESH_OT_floorplan_trace(bpy.types.Operator):
 
         self._handle = bpy.types.SpaceView3D.draw_handler_add(
             _draw_callback, (self,), 'WINDOW', 'POST_PIXEL')
-        context.area.header_text_set(
-            "LMB place  |  hold free-key: no snap  |  Backspace: remove point  "
-            "|  click start: close  |  Enter/Esc: finish")
+        if self.cut_mode:
+            context.area.header_text_set(
+                "CUT: LMB place  |  click start to close  |  Enter: cut into mesh  |  Esc: cancel")
+        else:
+            context.area.header_text_set(
+                "LMB place  |  hold free-key: no snap  |  Backspace: remove point  "
+                "|  click start: close  |  Enter/Esc: finish")
         context.window_manager.modal_handler_add(self)
         context.area.tag_redraw()
         return {'RUNNING_MODAL'}
 
-    def finish(self, context):
+    def _reenter_target(self, context):
+        target = getattr(self, "cut_target", None)
+        if target is None:
+            return
+        try:
+            if context.mode != 'OBJECT':
+                bpy.ops.object.mode_set(mode='OBJECT')
+            for o in list(context.view_layer.objects.selected):
+                o.select_set(False)
+            target.select_set(True)
+            context.view_layer.objects.active = target
+            bpy.ops.object.mode_set(mode='EDIT')
+        except Exception:
+            pass
+
+    def finish(self, context, cut=True):
         global _running, _stop_request
         _running = False
         _stop_request = False
@@ -605,8 +712,29 @@ class MESH_OT_floorplan_trace(bpy.types.Operator):
             except Exception:
                 pass
             self._handle = None
-        # discard an auto-created object that never got any geometry
-        if getattr(self, "created_object", False):
+
+        if self.cut_mode:
+            cutter = self.obj
+            target = self.cut_target
+            try:
+                has_geo = self.bm is not None and len(self.bm.verts) >= 2
+            except Exception:
+                has_geo = False
+            s = context.scene.floorplan_trace
+            if cut and has_geo and target is not None:
+                _do_knife_project(context, cutter, target, s.cut_through,
+                                  keep_cutter=False)
+            else:
+                # cancelled or nothing drawn: discard the temp cutter
+                try:
+                    if context.mode != 'OBJECT':
+                        bpy.ops.object.mode_set(mode='OBJECT')
+                    bpy.data.objects.remove(cutter, do_unlink=True)
+                except Exception:
+                    pass
+            self._reenter_target(context)
+        elif getattr(self, "created_object", False):
+            # discard an auto-created trace object that never got any geometry
             try:
                 empty = self.bm is not None and len(self.bm.verts) == 0
             except Exception:
@@ -617,6 +745,7 @@ class MESH_OT_floorplan_trace(bpy.types.Operator):
                     bpy.data.objects.remove(self.obj, do_unlink=True)
                 except Exception:
                     pass
+
         if context.area:
             context.area.header_text_set(None)
             context.area.tag_redraw()
@@ -683,14 +812,18 @@ class MESH_OT_floorplan_trace(bpy.types.Operator):
                      event.mouse_y - self.win_region.y)
             self.current = self.compute_target(context, coord)
             self.place(context)
+            if self._finish_requested:
+                return self.finish(context, cut=True)
             return {'RUNNING_MODAL'}
 
         if event.type in {'BACK_SPACE', 'DEL'} and event.value == 'PRESS':
             self.remove_last(context)
             return {'RUNNING_MODAL'}
 
-        if event.type in {'RET', 'NUMPAD_ENTER', 'SPACE', 'ESC'} and event.value == 'PRESS':
-            return self.finish(context)
+        if event.type in {'RET', 'NUMPAD_ENTER', 'SPACE'} and event.value == 'PRESS':
+            return self.finish(context, cut=True)
+        if event.type == 'ESC' and event.value == 'PRESS':
+            return self.finish(context, cut=False)
 
         return {'RUNNING_MODAL'}
 
@@ -1168,6 +1301,43 @@ def _calib_draw(self):
         pass
 
 
+class OBJECT_OT_floorplan_project_cut(bpy.types.Operator):
+    """Knife-project the chosen cutter object onto the mesh you're editing"""
+    bl_idname = "object.floorplan_project_cut"
+    bl_label = "Project Cut"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    @classmethod
+    def poll(cls, context):
+        o = context.edit_object
+        return o is not None and o.type == 'MESH'
+
+    def execute(self, context):
+        s = context.scene.floorplan_trace
+        target = context.edit_object
+        cutter = s.project_cutter
+        if cutter is None or cutter.type not in {'MESH', 'CURVE'}:
+            self.report({'WARNING'}, "Pick a mesh or curve object to project")
+            return {'CANCELLED'}
+        if cutter == target:
+            self.report({'WARNING'}, "Cutter and target must be different objects")
+            return {'CANCELLED'}
+        ok = _do_knife_project(context, cutter, target, s.cut_through, keep_cutter=True)
+        # return to edit mode on the target
+        try:
+            for o in list(context.view_layer.objects.selected):
+                o.select_set(False)
+            target.select_set(True)
+            context.view_layer.objects.active = target
+            bpy.ops.object.mode_set(mode='EDIT')
+        except Exception:
+            pass
+        if not ok:
+            self.report({'WARNING'},
+                        "Knife project failed - look head-on at the mesh and try again")
+        return {'FINISHED'}
+
+
 class OBJECT_OT_floorplan_calibrate(bpy.types.Operator):
     """Scale selected objects to a known measurement.\nClick the two ends of a measured line, then type its real length"""
     bl_idname = "object.floorplan_calibrate"
@@ -1420,12 +1590,25 @@ class VIEW3D_PT_floorplan_trace(bpy.types.Panel):
             col.scale_y = 1.4
             col.operator("mesh.floorplan_trace",
                          text="Tracing ON" if wm.floorplan_trace_active else "Trace",
-                         depress=wm.floorplan_trace_active, icon='GREASEPENCIL')
+                         depress=wm.floorplan_trace_active, icon='GREASEPENCIL').cut_mode = False
             layout.label(text="Right-click button to assign a shortcut", icon='INFO')
             if not in_edit:
                 layout.label(text="Object Mode: starts a new object", icon='ADD')
         else:
             col.label(text="Enter Object or Edit Mode", icon='INFO')
+
+        # Cut tools (only while editing a mesh)
+        if in_edit:
+            cut = layout.box()
+            cut.label(text="Cut Into This Mesh", icon='MOD_BOOLEAN')
+            c = cut.column()
+            c.scale_y = 1.3
+            c.operator("mesh.floorplan_trace", text="Cut Trace",
+                       icon='GREASEPENCIL').cut_mode = True
+            cut.prop(s, "cut_through")
+            row = cut.row(align=True)
+            row.prop(s, "project_cutter", text="")
+            row.operator("object.floorplan_project_cut", text="Project Cut")
 
         rv = context.space_data.region_3d if context.space_data else None
         if rv is not None and hasattr(rv, "lock_rotation"):
@@ -1516,6 +1699,7 @@ classes = (
     VIEW3D_OT_floorplan_view,
     VIEW3D_OT_floorplan_rts_pan,
     VIEW3D_OT_floorplan_look,
+    OBJECT_OT_floorplan_project_cut,
     OBJECT_OT_floorplan_calibrate,
     OBJECT_OT_floorplan_apply_scale,
     VIEW3D_PT_floorplan_trace,

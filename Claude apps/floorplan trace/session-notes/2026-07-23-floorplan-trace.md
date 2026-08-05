@@ -219,3 +219,31 @@ pan restored as `VIEW3D_OT_floorplan_rts_pan` (per-gesture, hybrid `_do_pan`: gr
 perspective, in-plane pan in ortho so elevations still pan). Added to the custom-nav prefs section
 as the "RTS Pan" modifier row (default Ctrl+Shift on two-finger) plus RTS invert X/Y in the feel box.
 Verified in 4.4.3: zoom operator absent, rts_pan bound to Ctrl+Shift+TRACKPADPAN, pan/orbit/look/lock-pan intact.
+
+---
+
+## Update — Cut / Project Cut (knife_project), built modular (4.4.3 plumbing tested)
+
+Added surface-cutting via a shared core `_do_knife_project(context, cutter, target, cut_through,
+keep_cutter)` that selects cutter+target, edits the target, runs `mesh.knife_project` from the
+current view with a region override, then restores mode and (optionally) deletes the cutter.
+
+Three thin wrappers:
+- **Trace** (existing) - polyline into a new/active object (cut_mode=False).
+- **Cut Trace** - `mesh.floorplan_trace` with cut_mode=True: appears in edit mode on a mesh; traces
+  into a temp CutTrace object, and on confirm (Enter or close-loop) knife-projects onto the edited
+  mesh, deletes the temp cutter, and re-enters edit mode on the target. Esc cancels (no cut).
+- **Project Cut** - `object.floorplan_project_cut`: an object-picker (project_cutter PointerProperty)
+  + button; projects the chosen object onto the edited mesh, keeps the cutter.
+
+Settings: `cut_through` toggle (front-face vs both sides). Panel: "Cut Into This Mesh" box shown
+only while editing a mesh.
+
+TESTED in 4.4.3 headless: registration clean (13/13), cut_mode property + cut_through +
+project_cutter + project_cut op all register, `_do_knife_project` runs without crashing and keeps/
+deletes the cutter as asked. NOT testable here: the actual knife_project cut needs a GPU viewport
+(confirmed: --background has no GPU, and GUI-under-xvfb segfaults on software GL). So the cut firing
+correctly is the one unverified piece - needs a real-Blender test pass. Everything around it is solid.
+
+Known future work discussed: non-destructive/editable cuts would need a boolean-modifier approach
+(cutter stays live) rather than knife_project (bakes the result); object-mode cutting; keep-curve option.
