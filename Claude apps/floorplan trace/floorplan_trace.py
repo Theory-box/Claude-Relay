@@ -361,7 +361,7 @@ class MESH_OT_floorplan_trace(bpy.types.Operator):
         if raw is None:
             return None
         res = {'world': raw.copy(), 'close': False, 'guide': None, 'angle': False,
-               'ext': None, 'dist': None, 'dist_a': None, 'dist_b': None}
+               'ext': None, 'dist': None, 'dist_a': None, 'dist_b': None, 'dir': None}
 
         if self.free_active:
             return res
