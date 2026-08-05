@@ -301,3 +301,28 @@ manual Shift+H workflow behind the scenes -- detect selected faces (target.data.
 after the object-mode flush), and if any, mesh.hide(unselected=True) before knife_project and
 mesh.reveal(select=False) after. Verified live (xvfb 4.4.3) on a 4x4 grid wall + a full-width cutter:
 no-selection added 7 faces, 4-faces-selected added only 2, and nothing was left hidden. Reg 13/13.
+
+---
+
+## Update — snap to target geometry while cutting + vertex/edge snap + guide visuals
+
+Three things:
+
+1. Snap to the mesh youre cutting into. In cut mode the target walls verts/edges are now fed into
+the same guide system as tracing. Cached at invoke into _target_verts_world / _target_segs_uv and
+appended in align_candidates() / _segments_uv(). If the target has selected faces, only those faces
+verts/edges are used (matches the face-limited cut and keeps the candidate set small); else the whole
+target. Setting: use_target_guides (default True).
+
+2. Explicit VERTEX snap (Blender-like). New step 1b in compute_target: within align_px of an existing
+candidate point (target geom, object verts, earlier trace points -- but not the point youre drawing
+from), land exactly on it (res[vert]) with top priority after close. Edge snapping continues via the
+extension guide. Verified: near a vertex snaps exactly to it; along an edge snaps to the edge line.
+
+3. Guide visuals. All snap options consolidated under a Guides panel section (Angle / Alignment+Vertex
+/ Inference / Grid / Cutting / Appearance). Guide lines now drawn as filled quads (thick() helper) so
+thickness is honoured on macOS/Metal (which caps GPU line width at 1px). New settings guide_line_width
+(default 2.5) and guide_marker_size. Cyan diamond marks a vertex snap.
+
+Verified live/headless (4.4.3): target verts/edges feed snapping; vertex snap exact; inference [A]-[E]
+unchanged; TRIS quad batch builds + offscreen-draws OK; new settings register; reg 13/13.

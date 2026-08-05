@@ -307,6 +307,16 @@ class FT_Settings(bpy.types.PropertyGroup):
     project_cutter: bpy.props.PointerProperty(
         name="Cutter", type=bpy.types.Object,
         description="Object to knife-project onto the mesh you're editing")
+    use_target_guides: bpy.props.BoolProperty(
+        name="Snap to Target Geometry", default=True,
+        description="While cutting, treat the mesh you're cutting into as guides -- snap "
+                    "to its vertices and edges (uses selected faces only, if any are selected)")
+    guide_line_width: bpy.props.FloatProperty(
+        name="Guide Thickness", default=2.5, min=1.0, max=10.0,
+        description="Thickness of the snapping guide lines")
+    guide_marker_size: bpy.props.FloatProperty(
+        name="Marker Size", default=1.0, min=0.4, max=4.0,
+        description="Size multiplier for point markers, ticks, and rings")
 
 
 # ------------------------------------------------------------------ operator
@@ -358,10 +368,14 @@ class MESH_OT_floorplan_trace(bpy.types.Operator):
     def align_candidates(self, s):
         if not self.chain:
             # first point of a fresh line: allow aligning to existing geometry
-            return [self.mw @ v.co for v in self.bm.verts]
-        if s.snap_scope == 'OBJECT':
-            return [self.mw @ v.co for v in self.bm.verts]
-        return self.chain_world()
+            cands = [self.mw @ v.co for v in self.bm.verts]
+        elif s.snap_scope == 'OBJECT':
+            cands = [self.mw @ v.co for v in self.bm.verts]
+        else:
+            cands = self.chain_world()
+        if getattr(self, "_target_verts_world", None):
+            cands = cands + self._target_verts_world
+        return cands
 
     def plane_point(self, coord):
         origin = region_2d_to_origin_3d(self.win_region, self.rv3d, coord)
@@ -401,6 +415,8 @@ class MESH_OT_floorplan_trace(bpy.types.Operator):
                 a = Vector(self.to_uv(self.mw @ e.verts[0].co))
                 b = Vector(self.to_uv(self.mw @ e.verts[1].co))
                 segs.append((a, b))
+        if getattr(self, "_target_segs_uv", None):
+            segs = segs + self._target_segs_uv
         return segs
 
     def _distance_candidates(self, s, Lp, d, ppu):
@@ -444,7 +460,8 @@ class MESH_OT_floorplan_trace(bpy.types.Operator):
         if raw is None:
             return None
         res = {'world': raw.copy(), 'close': False, 'guide': None, 'angle': False,
-               'ext': None, 'dist': None, 'dist_a': None, 'dist_b': None, 'dir': None}
+               'ext': None, 'dist': None, 'dist_a': None, 'dist_b': None, 'dir': None,
+               'vert': None}
 
         if self.free_active:
             return res
@@ -458,6 +475,28 @@ class MESH_OT_floorplan_trace(bpy.types.Operator):
             if s2 is not None and (m - Vector((s2.x, s2.y))).length <= s.close_px:
                 res['world'] = self.start_world.copy()
                 res['close'] = True
+                return res
+
+        # 1b. vertex snap: land exactly on a nearby existing point (target geometry
+        # while cutting, the object's own verts, or earlier trace points). Highest
+        # priority after close, mirroring Blender's vertex snap
+        if s.use_alignment:
+            best_w = None
+            best_d = float(s.align_px)
+            for w in self.align_candidates(s):
+                if (self.last_world is not None
+                        and (w - self.last_world).length < 1e-6):
+                    continue  # don't snap back onto the point we're drawing from
+                w2 = self.to2d(w)
+                if w2 is None:
+                    continue
+                dpx = (m - Vector((w2.x, w2.y))).length
+                if dpx < best_d:
+                    best_d = dpx
+                    best_w = w
+            if best_w is not None:
+                res['world'] = best_w.copy()
+                res['vert'] = best_w.copy()
                 return res
 
         # work in the drawing plane's (u, v) coordinates; P is the running target
@@ -740,6 +779,37 @@ class MESH_OT_floorplan_trace(bpy.types.Operator):
             self.plane_origin = context.scene.cursor.location.copy()
         self.refresh_anchors()
 
+        # cut mode: cache the target mesh's geometry as snapping guides (verts + edges).
+        # If the target has selected faces, use only those (matches the face-limited cut
+        # and keeps the candidate set small); otherwise use the whole target.
+        self._target_verts_world = []
+        self._target_segs_uv = []
+        s = context.scene.floorplan_trace
+        tgt = getattr(self, "cut_target", None)
+        if (self.cut_mode and tgt is not None and tgt.type == 'MESH'
+                and getattr(s, "use_target_guides", True)):
+            md = tgt.data
+            tw = tgt.matrix_world
+            sel_polys = [p for p in md.polygons if p.select]
+            if sel_polys:
+                vidx = set()
+                ekeys = set()
+                for p in sel_polys:
+                    vidx.update(p.vertices)
+                    ekeys.update(p.edge_keys)
+                vw = {i: tw @ md.vertices[i].co for i in vidx}
+                self._target_verts_world = list(vw.values())
+                self._target_segs_uv = [
+                    (Vector(self.to_uv(vw[a])), Vector(self.to_uv(vw[b])))
+                    for (a, b) in ekeys]
+            else:
+                vw = [tw @ v.co for v in md.vertices]
+                self._target_verts_world = vw
+                self._target_segs_uv = [
+                    (Vector(self.to_uv(vw[e.vertices[0]])),
+                     Vector(self.to_uv(vw[e.vertices[1]])))
+                    for e in md.edges]
+
         self.toggle_keys = self.gather_toggle_keys(context)
         # arm keyboard-toggle only once the launch key is released
         self.armed = event.type not in self.toggle_keys
@@ -928,7 +998,30 @@ def _draw_callback(self):
             shader = gpu.shader.from_builtin('2D_UNIFORM_COLOR')
 
         gpu.state.blend_set('ALPHA')
-        gpu.state.line_width_set(1.6)
+        try:
+            st = bpy.context.scene.floorplan_trace
+            lw = float(st.guide_line_width)
+            ms = float(st.guide_marker_size)
+        except Exception:
+            lw, ms = 2.5, 1.0
+        gpu.state.line_width_set(lw)
+
+        def thick(p1, p2, w, color):
+            # draw a line as a filled quad so width is honoured on all platforms
+            # (macOS/Metal caps GPU line width at 1px)
+            a = Vector((p1[0], p1[1]))
+            bb = Vector((p2[0], p2[1]))
+            dd = bb - a
+            if dd.length < 1e-6:
+                return
+            n = Vector((-dd.y, dd.x)).normalized() * (w * 0.5)
+            verts = [(a.x - n.x, a.y - n.y), (a.x + n.x, a.y + n.y),
+                     (bb.x + n.x, bb.y + n.y), (bb.x - n.x, bb.y - n.y)]
+            batch = batch_for_shader(shader, 'TRIS', {"pos": verts},
+                                     indices=[(0, 1, 2), (0, 2, 3)])
+            shader.bind()
+            shader.uniform_float("color", color)
+            batch.draw(shader)
 
         tgt = s(d['world'])
 
@@ -936,10 +1029,7 @@ def _draw_callback(self):
         if self.last_world is not None and tgt:
             a = s(self.last_world)
             if a:
-                b = batch_for_shader(shader, 'LINES', {"pos": [a, tgt]})
-                shader.bind()
-                shader.uniform_float("color", (0.20, 0.90, 0.45, 1.0))
-                b.draw(shader)
+                thick(a, tgt, lw, (0.20, 0.90, 0.45, 1.0))
 
         # extension guide: a long line through the target along the edge's direction
         if d.get('ext') is not None and tgt:
@@ -950,12 +1040,8 @@ def _draw_callback(self):
                 sd = Vector((sb[0] - sa[0], sb[1] - sa[1]))
                 if sd.length > 1e-6:
                     sd = sd.normalized() * 3000.0
-                    p1 = (tgt[0] - sd.x, tgt[1] - sd.y)
-                    p2 = (tgt[0] + sd.x, tgt[1] + sd.y)
-                    b = batch_for_shader(shader, 'LINES', {"pos": [p1, p2]})
-                    shader.bind()
-                    shader.uniform_float("color", (0.3, 0.7, 1.0, 0.55))
-                    b.draw(shader)
+                    thick((tgt[0] - sd.x, tgt[1] - sd.y),
+                          (tgt[0] + sd.x, tgt[1] + sd.y), lw, (0.3, 0.7, 1.0, 0.6))
 
         # angle-lock guide: faint ray from the last point through the target
         if (d.get('dir') is not None and self.last_world is not None and tgt
@@ -965,60 +1051,55 @@ def _draw_callback(self):
                 sd = Vector((tgt[0] - la[0], tgt[1] - la[1]))
                 if sd.length > 1e-6:
                     sd = sd.normalized() * 3000.0
-                    p1 = (la[0] - sd.x, la[1] - sd.y)
-                    p2 = (la[0] + sd.x, la[1] + sd.y)
-                    b = batch_for_shader(shader, 'LINES', {"pos": [p1, p2]})
-                    shader.bind()
-                    shader.uniform_float("color", (0.55, 0.9, 0.55, 0.4))
-                    b.draw(shader)
+                    thick((la[0] - sd.x, la[1] - sd.y),
+                          (la[0] + sd.x, la[1] + sd.y),
+                          max(lw * 0.8, 1.0), (0.55, 0.9, 0.55, 0.45))
 
         # distance-memory: highlight the matched span and a tick at the target
         if d.get('dist') is not None and d.get('dist_a') is not None and tgt:
             a_uv = d['dist_a']
             aw = s(self.from_uv(a_uv.x, a_uv.y))
             if aw:
-                b = batch_for_shader(shader, 'LINES', {"pos": [aw, tgt]})
-                shader.bind()
-                shader.uniform_float("color", (1.0, 0.85, 0.2, 0.9))
-                b.draw(shader)
-                # small perpendicular tick at the target
-                r = 7.0
-                tick = [(tgt[0] - r, tgt[1] - r), (tgt[0] + r, tgt[1] + r)]
-                b = batch_for_shader(shader, 'LINES', {"pos": tick})
-                shader.bind()
-                shader.uniform_float("color", (1.0, 0.85, 0.2, 1.0))
-                b.draw(shader)
+                thick(aw, tgt, lw, (1.0, 0.85, 0.2, 0.9))
+                r = 7.0 * ms
+                thick((tgt[0] - r, tgt[1] - r), (tgt[0] + r, tgt[1] + r),
+                      lw, (1.0, 0.85, 0.2, 1.0))
 
         # alignment guide
         if d.get('guide') is not None and tgt:
             g2 = s(d['guide'])
             if g2:
-                b = batch_for_shader(shader, 'LINES', {"pos": [g2, tgt]})
-                shader.bind()
-                shader.uniform_float("color", (1.0, 0.35, 0.7, 0.85))
-                b.draw(shader)
+                thick(g2, tgt, lw, (1.0, 0.35, 0.7, 0.85))
 
-        # target marker (small square)
-        if tgt:
-            r = 5.0
-            sq = [(tgt[0]-r, tgt[1]-r), (tgt[0]+r, tgt[1]-r),
-                  (tgt[0]+r, tgt[1]+r), (tgt[0]-r, tgt[1]+r), (tgt[0]-r, tgt[1]-r)]
+        # vertex-snap marker (bold cyan diamond) when landing exactly on a vertex
+        if d.get('vert') is not None and tgt:
+            r = 8.0 * ms
+            diamond = [(tgt[0], tgt[1] - r), (tgt[0] + r, tgt[1]),
+                       (tgt[0], tgt[1] + r), (tgt[0] - r, tgt[1]),
+                       (tgt[0], tgt[1] - r)]
+            for i in range(4):
+                thick(diamond[i], diamond[i + 1], max(lw, 2.0), (0.1, 1.0, 0.9, 1.0))
+
+        # target marker (small square) -- hidden when the vertex diamond is shown
+        if tgt and d.get('vert') is None:
+            r = 5.0 * ms
             col = (1.0, 0.8, 0.1, 1.0) if d['close'] else (1.0, 1.0, 1.0, 1.0)
-            b = batch_for_shader(shader, 'LINE_STRIP', {"pos": sq})
-            shader.bind()
-            shader.uniform_float("color", col)
-            b.draw(shader)
+            edges = [((tgt[0]-r, tgt[1]-r), (tgt[0]+r, tgt[1]-r)),
+                     ((tgt[0]+r, tgt[1]-r), (tgt[0]+r, tgt[1]+r)),
+                     ((tgt[0]+r, tgt[1]+r), (tgt[0]-r, tgt[1]+r)),
+                     ((tgt[0]-r, tgt[1]+r), (tgt[0]-r, tgt[1]-r))]
+            for p1, p2 in edges:
+                thick(p1, p2, max(lw * 0.8, 1.5), col)
 
         # close ring
         if d['close'] and self.start_world is not None:
             c2 = s(self.start_world)
             if c2:
-                ring = [(c2[0] + cos(i * pi / 8) * 10.0,
-                         c2[1] + sin(i * pi / 8) * 10.0) for i in range(17)]
-                b = batch_for_shader(shader, 'LINE_STRIP', {"pos": ring})
-                shader.bind()
-                shader.uniform_float("color", (1.0, 0.8, 0.1, 1.0))
-                b.draw(shader)
+                rr = 10.0 * ms
+                ring = [(c2[0] + cos(i * pi / 8) * rr,
+                         c2[1] + sin(i * pi / 8) * rr) for i in range(17)]
+                for i in range(16):
+                    thick(ring[i], ring[i + 1], max(lw, 2.0), (1.0, 0.8, 0.1, 1.0))
 
         # distance-memory length label
         if d.get('dist') is not None and tgt:
@@ -1735,7 +1816,10 @@ class VIEW3D_PT_floorplan_trace(bpy.types.Panel):
         else:
             cal.label(text="Select object(s) in Object Mode", icon='INFO')
 
-        box = layout.box()
+        guides = layout.box()
+        guides.label(text="Guides", icon='SNAP_INCREMENT')
+
+        box = guides.box()
         box.label(text="Angle")
         box.prop(s, "use_angle_snap")
         r = box.column()
@@ -1744,8 +1828,8 @@ class VIEW3D_PT_floorplan_trace(bpy.types.Panel):
         r.prop(s, "angle_tolerance")
         r.prop(s, "use_relative_angle")
 
-        box = layout.box()
-        box.label(text="Alignment")
+        box = guides.box()
+        box.label(text="Alignment / Vertex")
         box.prop(s, "use_alignment")
         sub = box.column()
         sub.enabled = s.use_alignment
@@ -1753,7 +1837,7 @@ class VIEW3D_PT_floorplan_trace(bpy.types.Panel):
         sub.prop(s, "align_px")
         box.prop(s, "close_px")
 
-        box = layout.box()
+        box = guides.box()
         box.label(text="Inference")
         box.prop(s, "use_extension")
         box.prop(s, "use_distance_memory")
@@ -1761,12 +1845,21 @@ class VIEW3D_PT_floorplan_trace(bpy.types.Panel):
         row.enabled = s.use_distance_memory
         row.prop(s, "dist_px")
 
-        box = layout.box()
+        box = guides.box()
         box.label(text="Grid")
         box.prop(s, "use_grid")
         row = box.row()
         row.enabled = s.use_grid
         row.prop(s, "grid_size")
+
+        box = guides.box()
+        box.label(text="Cutting")
+        box.prop(s, "use_target_guides")
+
+        box = guides.box()
+        box.label(text="Appearance")
+        box.prop(s, "guide_line_width")
+        box.prop(s, "guide_marker_size")
 
 
 # ------------------------------------------------------------------ register
