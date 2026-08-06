@@ -226,3 +226,15 @@ Overlay slider (0-100, default 0) active in Warp view. 0 = pure displacement.
 un-warped frame from shiftBuf, added overlayAmt*gain*band) on top of the warped
 image. lumaS/lumaF buffers seeded in seed(); updated every warp frame so toggling
 doesn't jump. Integrated into the warp remap loop (no extra pass).
+
+## Warp: per-pixel optical flow (replaces block warp)
+
+Replaced coarse block-match warp with dense Lucas-Kanade per-pixel flow: luma ->
+temporal band-pass (lumaS/lumaF) = It (also feeds overlay); spatial grads Ix/Iy;
+structure-tensor products sxx/syy/sxy/sxt/syt, box-blurred (window = 2+denoiseR);
+per-pixel 2x2 solve d = M^-1(-[Ixt;Iyt]) with reg=30, clamp d +-3px; warp =
+(gain-1)*d clamped 10%; bilinear remap from copy + optional overlay (overlayAmt*
+gain*It). Smooth/fine vs the old blocks. Old block warp buffers (refWarp, wfx/wfy,
+bSX.. , WC/WR) and helpers blockSadRef/fieldAt now unused (left in, harmless).
+Beta: reg / clamp / gain-scale may need tuning; aperture-problem regions rely on
+the window smoothing.

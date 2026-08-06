@@ -208,6 +208,7 @@
   let lowSlow = null, lowFast = null;  // linear temporal bandpass (RGB)
   let mBuf = null, mTmp = null, bgModel = null; // motion signal + scratch + background model (RGB)
   let lumaS = null, lumaF = null;               // warp overlay: luma temporal bandpass
+  let sxx=null, syy=null, sxy=null, sxt=null, syt=null; // warp: Lucas-Kanade structure tensor
   let stabilize=false, stabReady=false, sw=0, sh=0;
   let curS=null, prevS=null, shiftBuf=null, smallCnt=null;
   let accX=0, accY=0, slowX=0, slowY=0, stabStrength=0.868;
@@ -295,6 +296,8 @@
     mTmp = new Float32Array(n*3);
     bgModel = new Float32Array(n*3);
     lumaS = new Float32Array(n); lumaF = new Float32Array(n);
+    sxx=new Float32Array(n); syy=new Float32Array(n); sxy=new Float32Array(n);
+    sxt=new Float32Array(n); syt=new Float32Array(n);
     sw = 120; sh = Math.max(24, Math.round(sw * procH / procW));
     curS = new Float32Array(sw*sh); prevS = new Float32Array(sw*sh);
     smallCnt = new Float32Array(sw*sh);
@@ -715,47 +718,53 @@
     const b=fld[y1*WC+x0]+(fld[y1*WC+x1]-fld[y1*WC+x0])*tx;
     return a+(b-a)*ty;
   }
-  // ---- WARP (beta): estimate motion field vs a rest reference, amplify it, physically displace the image ----
+  // ---- WARP (beta): per-pixel optical flow (Lucas-Kanade), amplified, physically displaces the image ----
   function warpFrame(d, n, aSlow, aFast){
-    buildSmall(d);
-    if(!warpReady){ refWarp.set(curS); const nb=WC*WR; for(let i=0;i<nb;i++){bSX[i]=bFX[i]=bSY[i]=bFY[i]=0;} warpReady=true; return; }
-    const aRef=0.05;
-    for(let i=0;i<sw*sh;i++) refWarp[i]+=aRef*(curS[i]-refWarp[i]);
-    const S=6, f=procW/sw, g=gain, lim=procW*0.12;
-    for(let r=0;r<WR;r++){
-      const by0=(r*sh/WR)|0, by1=(r===WR-1? sh : ((r+1)*sh/WR)|0);
-      for(let c=0;c<WC;c++){
-        const bx0=(c*sw/WC)|0, bx1=(c===WC-1? sw : ((c+1)*sw/WC)|0);
-        let bx=0,by=0,best=1e18;
-        for(let dy=-S;dy<=S;dy++) for(let dx=-S;dx<=S;dx++){
-          const s=blockSadRef(bx0,by0,bx1,by1,dx,dy); if(s<best){best=s;bx=dx;by=dy;} }
-        const Ddx=-bx, Ddy=-by, k=r*WC+c;
-        const sX=bSX[k]+aSlow*(Ddx-bSX[k]); bSX[k]=sX; const fX=bFX[k]+aFast*(Ddx-bFX[k]); bFX[k]=fX;
-        const sY=bSY[k]+aSlow*(Ddy-bSY[k]); bSY[k]=sY; const fY=bFY[k]+aFast*(Ddy-bFY[k]); bFY[k]=fY;
-        let wx=(g-1)*(fX-sX)*f, wy=(g-1)*(fY-sY)*f;
-        if(wx>lim)wx=lim; else if(wx<-lim)wx=-lim;
-        if(wy>lim)wy=lim; else if(wy<-lim)wy=-lim;
-        wfx[k]=wx; wfy[k]=wy;
-      }
+    const g=gain, w=procW, h=procH;
+    // luminance
+    for(let p=0;p<n;p++){ const i4=p<<2; Yb[p]=0.299*d[i4]+0.587*d[i4+1]+0.114*d[i4+2]; }
+    // temporal band-pass -> It (the moving part), via luma EMAs (also feeds the overlay)
+    for(let p=0;p<n;p++){ const y=Yb[p];
+      const ls=lumaS[p]+aSlow*(y-lumaS[p]); lumaS[p]=ls;
+      const lf=lumaF[p]+aFast*(y-lumaF[p]); lumaF[p]=lf;
+      Ab[p]=lf-ls; }
+    // spatial gradients Ix (Bb), Iy (R1)
+    for(let y=0;y<h;y++){ const row=y*w;
+      for(let x=0;x<w;x++){ const xl=x>0?x-1:0,xr=x<w-1?x+1:w-1,yu=y>0?y-1:0,yd=y<h-1?y+1:h-1;
+        Bb[row+x]=0.5*(Yb[row+xr]-Yb[row+xl]);
+        R1[row+x]=0.5*(Yb[yd*w+x]-Yb[yu*w+x]); } }
+    // structure-tensor products, then window-average (box blur) for a smooth flow field
+    for(let p=0;p<n;p++){ const ix=Bb[p], iy=R1[p], it=Ab[p];
+      sxx[p]=ix*ix; syy[p]=iy*iy; sxy[p]=ix*iy; sxt[p]=ix*it; syt[p]=iy*it; }
+    const wr=2+(denoiseR>0?denoiseR:1);
+    blurGray(sxx,gTmp,w,h,wr); blurGray(syy,gTmp,w,h,wr); blurGray(sxy,gTmp,w,h,wr);
+    blurGray(sxt,gTmp,w,h,wr); blurGray(syt,gTmp,w,h,wr);
+    // solve 2x2 per pixel -> displacement; amplify -> warp field (R2=Wx, gTmp2=Wy)
+    const reg=30, lim=w*0.1;
+    for(let p=0;p<n;p++){
+      const a=sxx[p], b=sxy[p], c=syy[p];
+      const det=a*c-b*b+reg;
+      let dx=(-c*sxt[p]+b*syt[p])/det, dy=(b*sxt[p]-a*syt[p])/det;
+      if(dx>3)dx=3; else if(dx<-3)dx=-3;
+      if(dy>3)dy=3; else if(dy<-3)dy=-3;
+      let wx=(g-1)*dx, wy=(g-1)*dy;
+      if(wx>lim)wx=lim; else if(wx<-lim)wx=-lim;
+      if(wy>lim)wy=lim; else if(wy<-lim)wy=-lim;
+      R2[p]=wx; gTmp2[p]=wy;
     }
+    // remap (bilinear) from a copy, plus optional brightness overlay
     shiftBuf.set(d);
-    for(let y=0;y<procH;y++){ const gy=y*WR/procH-0.5;
-      for(let x=0;x<procW;x++){ const gx=x*WC/procW-0.5;
-        let fxp=x-fieldAt(wfx,gx,gy), fyp=y-fieldAt(wfy,gx,gy);
-        if(fxp<0)fxp=0; else if(fxp>procW-1)fxp=procW-1;
-        if(fyp<0)fyp=0; else if(fyp>procH-1)fyp=procH-1;
-        const x0=fxp|0,y0=fyp|0,x1=x0<procW-1?x0+1:x0,y1=y0<procH-1?y0+1:y0,tx=fxp-x0,ty=fyp-y0;
-        const i00=(y0*procW+x0)<<2,i10=(y0*procW+x1)<<2,i01=(y1*procW+x0)<<2,i11=(y1*procW+x1)<<2,di=(y*procW+x)<<2;
-        const wa0=shiftBuf[i00]+(shiftBuf[i10]-shiftBuf[i00])*tx, wb0=shiftBuf[i01]+(shiftBuf[i11]-shiftBuf[i01])*tx;
-        const wa1=shiftBuf[i00+1]+(shiftBuf[i10+1]-shiftBuf[i00+1])*tx, wb1=shiftBuf[i01+1]+(shiftBuf[i11+1]-shiftBuf[i01+1])*tx;
-        const wa2=shiftBuf[i00+2]+(shiftBuf[i10+2]-shiftBuf[i00+2])*tx, wb2=shiftBuf[i01+2]+(shiftBuf[i11+2]-shiftBuf[i01+2])*tx;
-        let o0=wa0+(wb0-wa0)*ty, o1=wa1+(wb1-wa1)*ty, o2=wa2+(wb2-wa2)*ty;
-        // brightness-motion overlay, from the original (un-warped) pixel over time
-        const pp=y*procW+x;
-        const Y0=0.299*shiftBuf[di]+0.587*shiftBuf[di+1]+0.114*shiftBuf[di+2];
-        const ls=lumaS[pp]+aSlow*(Y0-lumaS[pp]); lumaS[pp]=ls;
-        const lf=lumaF[pp]+aFast*(Y0-lumaF[pp]); lumaF[pp]=lf;
-        if(overlayAmt>0){ const add=overlayAmt*g*(lf-ls); o0+=add; o1+=add; o2+=add; }
+    for(let y=0;y<h;y++){ const row=y*w;
+      for(let x=0;x<w;x++){ const p=row+x;
+        let fxp=x-R2[p], fyp=y-gTmp2[p];
+        if(fxp<0)fxp=0; else if(fxp>w-1)fxp=w-1;
+        if(fyp<0)fyp=0; else if(fyp>h-1)fyp=h-1;
+        const x0=fxp|0,y0=fyp|0,x1=x0<w-1?x0+1:x0,y1=y0<h-1?y0+1:y0,tx=fxp-x0,ty=fyp-y0;
+        const i00=(y0*w+x0)<<2,i10=(y0*w+x1)<<2,i01=(y1*w+x0)<<2,i11=(y1*w+x1)<<2,di=p<<2;
+        const add = overlayAmt>0 ? overlayAmt*g*Ab[p] : 0;
+        let o0=shiftBuf[i00]+(shiftBuf[i10]-shiftBuf[i00])*tx;   o0+=((shiftBuf[i01]+(shiftBuf[i11]-shiftBuf[i01])*tx)-o0)*ty+add;
+        let o1=shiftBuf[i00+1]+(shiftBuf[i10+1]-shiftBuf[i00+1])*tx; o1+=((shiftBuf[i01+1]+(shiftBuf[i11+1]-shiftBuf[i01+1])*tx)-o1)*ty+add;
+        let o2=shiftBuf[i00+2]+(shiftBuf[i10+2]-shiftBuf[i00+2])*tx; o2+=((shiftBuf[i01+2]+(shiftBuf[i11+2]-shiftBuf[i01+2])*tx)-o2)*ty+add;
         d[di]  =o0<0?0:(o0>255?255:o0);
         d[di+1]=o1<0?0:(o1>255?255:o1);
         d[di+2]=o2<0?0:(o2>255?255:o2);
