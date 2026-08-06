@@ -116,3 +116,28 @@ and the gain->radian scaling (currently reuses the linear gain slider, clamped t
 ±1.4 rad). A signed phase (project Riesz onto a stable orientation) would fix
 direction artifacts. A 2–3 level phase pyramid would add coarse-motion support.
 Consider WebGL if plain-JS phase can't hold frame rate at useful resolution.
+
+## Phase method rewrite (bug fix)
+
+First phase attempt was fundamentally wrong: it used intra-frame
+psi = atan2(|Riesz|, B), which encodes edge-ness (static), not motion. Symptom
+reported by user: mostly grey, faint static outlines, motion (hand wave) barely
+visible — i.e. amplified term ~0.
+
+Rewrote using the correct inter-frame quaternion phase difference:
+  qRe = B*Bp + R1*R1p + R2*R2p
+  qI  = R1*Bp - B*R1p ;  qJ = R2*Bp - B*R2p
+  phi = atan2(|(qI,qJ)|, qRe) ; orientation (cx,cy) = (qI,qJ)/|.|
+  motion (mx,my) = phi*(cx,cy)
+Then per-axis two-EMA temporal bandpass -> amplitude-weighted blur
+(blur(A*m)/blur(A)) -> amplified shift (sx,sy), clamp |shift|<=1.2 rad ->
+phase-shift band: bNew = B*cos(psi) - (R1*ux+R2*uy)*sin(psi) -> add luma delta.
+Keeps previous-frame monogenic in Bprev/R1p/R2p (also reused as blur scratch,
+then overwritten with current at end). First frame stores reference, emits none.
+
+Expectation set with user: phase is for SMALL sub-pixel motion (pulse, vibration,
+breathing), NOT large motion like hand waves or birds — that's Linear's domain.
+Still single-scale, still beta, still blind (not visually verified). If it's still
+weak: check gain->radian scaling and whether a 2-3 level pyramid is needed for
+coarser motion. Direction now handled via oriented (qI,qJ), so the grey-out bug
+should be gone.

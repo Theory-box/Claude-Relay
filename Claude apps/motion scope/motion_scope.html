@@ -188,7 +188,10 @@
   let lowSlow = null, lowFast = null;  // linear temporal bandpass (RGB)
   let mBuf = null, mTmp = null;        // motion signal + scratch (RGB)
   let Yb=null, Lo=null, Bb=null, R1=null, R2=null, Ab=null; // phase (gray)
-  let phSlow=null, phFast=null, gTmp=null, gTmp2=null;      // phase temporal + scratch (gray)
+  let Bprev=null, R1p=null, R2p=null;                       // previous-frame monogenic (also blur scratch)
+  let pxS=null, pxF=null, pyS=null, pyF=null;               // per-axis phase temporal state
+  let gTmp=null, gTmp2=null;                                // gray scratch / motion field
+  let phaseReady=false;
 
   // --- controls ---
   const $ = id => document.getElementById(id);
@@ -219,7 +222,7 @@
   mLinear.onclick = () => setMethod('linear');
   mPhase.onclick = () => setMethod('phase');
   function setMethod(m){
-    method = m; initialized = false;
+    method = m; initialized = false; phaseReady = false;
     mLinear.setAttribute('aria-pressed', m==='linear');
     mPhase.setAttribute('aria-pressed', m==='phase');
     colorField.classList.toggle('dim', m!=='linear');
@@ -230,7 +233,7 @@
   modeMotion.onclick = () => setMode('motion');
   function setMode(m){ mode=m; modeAmp.setAttribute('aria-pressed', m==='amp'); modeMotion.setAttribute('aria-pressed', m==='motion'); }
 
-  $('resetBtn').onclick = () => { initialized = false; };
+  $('resetBtn').onclick = () => { initialized = false; phaseReady = false; };
 
   // --- buffers ---
   function allocBuffers(){
@@ -250,8 +253,11 @@
     mTmp = new Float32Array(n*3);
     Yb = new Float32Array(n); Lo = new Float32Array(n); Bb = new Float32Array(n);
     R1 = new Float32Array(n); R2 = new Float32Array(n); Ab = new Float32Array(n);
-    phSlow = new Float32Array(n); phFast = new Float32Array(n);
+    Bprev = new Float32Array(n); R1p = new Float32Array(n); R2p = new Float32Array(n);
+    pxS = new Float32Array(n); pxF = new Float32Array(n);
+    pyS = new Float32Array(n); pyF = new Float32Array(n);
     gTmp = new Float32Array(n); gTmp2 = new Float32Array(n);
+    phaseReady = false;
     initialized = false;
   }
 
@@ -389,7 +395,7 @@
       lowSlow[i3+1]=lowFast[i3+1]=d[i4+1];
       lowSlow[i3+2]=lowFast[i3+2]=d[i4+2];
       const y = 0.299*d[i4]+0.587*d[i4+1]+0.114*d[i4+2];
-      Yb[p]=y; phSlow[p]=phFast[p]=0;
+      Yb[p]=y;
     }
   }
 
@@ -428,53 +434,69 @@
     energy = e/n;
   }
 
-  // ---- PHASE (single-scale Riesz, beta): amplify displacement, not brightness ----
+  // ---- PHASE (single-scale Riesz, beta): amplify displacement via inter-frame phase difference ----
   function phaseFrame(d, n, aSlow, aFast){
     const g=gain, amp=(mode==='amp'), w=procW, h=procH;
-    // luminance
+    // luminance of the (already temporally-denoised) frame
     for (let p=0;p<n;p++){ const i4=p<<2; Yb[p]=0.299*d[i4]+0.587*d[i4+1]+0.114*d[i4+2]; }
-    // lowpass -> bandpass B = Y - Lo
+    // bandpass level: B = Y - lowpass(Y)
     Lo.set(Yb); blurGray(Lo, gTmp, w, h, 2);
     for (let p=0;p<n;p++) Bb[p]=Yb[p]-Lo[p];
-    // Riesz transform (3-tap central difference)
+    // Riesz transform of the band (central-difference approximation)
     for (let y=0;y<h;y++){ const row=y*w;
       for (let x=0;x<w;x++){
-        const xl=x>0?x-1:0, xr=x<w-1?x+1:w-1;
-        const yu=y>0?y-1:0, yd=y<h-1?y+1:h-1;
+        const xl=x>0?x-1:0, xr=x<w-1?x+1:w-1, yu=y>0?y-1:0, yd=y<h-1?y+1:h-1;
         R1[row+x]=0.5*(Bb[row+xr]-Bb[row+xl]);
         R2[row+x]=0.5*(Bb[yd*w+x]-Bb[yu*w+x]);
       } }
-    // local phase psi = atan2(|Riesz|, B); amplitude A
+    // first phase frame: just store the reference, emit nothing
+    if (!phaseReady){
+      Bprev.set(Bb); R1p.set(R1); R2p.set(R2);
+      for (let p=0;p<n;p++){ pxS[p]=pxF[p]=pyS[p]=pyF[p]=0; }
+      phaseReady = true;
+      return;
+    }
+    // inter-frame quaternion phase difference -> local motion (mx,my), plus amplitude weight A
     let e=0;
     for (let p=0;p<n;p++){
       const b=Bb[p], r1=R1[p], r2=R2[p];
-      const s=Math.sqrt(r1*r1+r2*r2);
-      const A=Math.sqrt(b*b+s*s);
+      const bp=Bprev[p], r1p=R1p[p], r2p=R2p[p];
+      const qRe = b*bp + r1*r1p + r2*r2p;      // real part of q * conj(q_prev)
+      const qI  = r1*bp - b*r1p;               // imaginary (oriented) parts
+      const qJ  = r2*bp - b*r2p;
+      const im  = Math.sqrt(qI*qI + qJ*qJ);
+      const phi = Math.atan2(im, qRe);          // phase-difference magnitude (this frame's motion)
+      let cx=0, cy=0; if (im>1e-4){ cx=qI/im; cy=qJ/im; }
+      const mx = phi*cx, my = phi*cy;           // motion vector along local orientation
+      // temporal bandpass each axis
+      const sx=pxS[p]+aSlow*(mx-pxS[p]); pxS[p]=sx;
+      const fx=pxF[p]+aFast*(mx-pxF[p]); pxF[p]=fx;
+      const sy=pyS[p]+aSlow*(my-pyS[p]); pyS[p]=sy;
+      const fy=pyF[p]+aFast*(my-pyF[p]); pyF[p]=fy;
+      const bx=fx-sx, by=fy-sy;
+      const A=Math.sqrt(b*b+r1*r1+r2*r2);       // amplitude = confidence there's real structure
       Ab[p]=A;
-      const psi=Math.atan2(s, b);
-      const sl=phSlow[p]+aSlow*(psi-phSlow[p]); phSlow[p]=sl;
-      const fa=phFast[p]+aFast*(psi-phFast[p]); phFast[p]=fa;
-      const band=fa-sl;
-      gTmp[p]=band;             // raw phase-change signal
-      e += band<0?-band:band;
+      gTmp[p]  = bx*A;                          // amplitude-weighted motion field (x)
+      gTmp2[p] = by*A;                          // (y)
+      e += (bx<0?-bx:bx) + (by<0?-by:by);
     }
-    // amplitude-weighted spatial smoothing of the phase change (denoise where structure is weak)
-    for (let p=0;p<n;p++) gTmp2[p]=Ab[p]*gTmp[p];
+    // amplitude-weighted spatial smoothing (Bprev/R1p/R2p are free now, reused as blur scratch)
     const r = denoiseR>0?denoiseR:1;
-    blurGray(gTmp2, gTmp, w, h, r);   // note: gTmp used as scratch, then overwritten below
-    const Ablur = mTmp;               // borrow mTmp (Float32, big enough) for blurred amplitude
-    for (let p=0;p<n;p++) Ablur[p]=Ab[p];
-    blurGray(Ablur, R1, w, h, r);     // R1 no longer needed as scratch here
-    // reconstruct phase-shifted band and add luma motion to all channels
+    blurGray(gTmp, Bprev, w, h, r);
+    blurGray(gTmp2, R1p, w, h, r);
+    const Ablur = mTmp;                          // borrow big RGB scratch (length 3n)
+    Ablur.set(Ab.subarray(0,n));
+    blurGray(Ablur, R2p, w, h, r);
+    // reconstruct: phase-shift the band along the amplified motion orientation
     for (let p=0;p<n;p++){
-      const A=Ab[p];
-      let dPhi = gTmp2[p]/(Ablur[p]+1e-3);   // amplitude-weighted, smoothed phase change
-      dPhi *= g;
-      if (dPhi>1.4) dPhi=1.4; else if (dPhi<-1.4) dPhi=-1.4;   // clamp to avoid inversion
-      const b=Bb[p];
-      const s=Math.sqrt(A*A - b*b > 0 ? A*A-b*b : 0); // |Riesz| = sqrt(A^2 - B^2)
-      const bNew = b*Math.cos(dPhi) - s*Math.sin(dPhi);
-      const mLuma = (Lo[p]+bNew) - Yb[p];   // change in luminance from the phase shift
+      const inv = 1/(Ablur[p]+1e-3);
+      let sx = g*gTmp[p]*inv, sy = g*gTmp2[p]*inv;   // amplified shift vector
+      let psi = Math.sqrt(sx*sx+sy*sy);
+      if (psi>1.2){ const k=1.2/psi; sx*=k; sy*=k; psi=1.2; }   // clamp to avoid inversion
+      let proj = 0;
+      if (psi>1e-4){ const ux=sx/psi, uy=sy/psi; proj = R1[p]*ux + R2[p]*uy; }
+      const bNew = Bb[p]*Math.cos(psi) - proj*Math.sin(psi);
+      const mLuma = bNew - Bb[p];               // luminance change from the phase shift
       const i4=p<<2;
       if (amp){
         let o0=d[i4]+mLuma, o1=d[i4+1]+mLuma, o2=d[i4+2]+mLuma;
@@ -482,10 +504,12 @@
         d[i4+1]=o1<0?0:(o1>255?255:o1);
         d[i4+2]=o2<0?0:(o2>255?255:o2);
       } else {
-        let v=128+mLuma*1.4; v=v<0?0:(v>255?255:v);
+        let v=128+mLuma*3; v=v<0?0:(v>255?255:v);
         d[i4]=v; d[i4+1]=v; d[i4+2]=v;
       }
     }
+    // current frame becomes the reference for the next
+    Bprev.set(Bb); R1p.set(R1); R2p.set(R2);
     energy = e/n;
   }
 
