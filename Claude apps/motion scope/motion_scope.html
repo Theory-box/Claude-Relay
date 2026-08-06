@@ -204,7 +204,7 @@
   let mBuf = null, mTmp = null, bgModel = null; // motion signal + scratch + background model (RGB)
   let stabilize=false, stabReady=false, sw=0, sh=0;
   let curS=null, prevS=null, shiftBuf=null;
-  let accX=0, accY=0, slowX=0, slowY=0, stabStrength=0.08;
+  let accX=0, accY=0, slowX=0, slowY=0, stabStrength=0.868;
   let Yb=null, Lo=null, Bb=null, R1=null, R2=null, Ab=null; // phase (gray)
   let Bprev=null, R1p=null, R2p=null;                       // previous-frame monogenic (also blur scratch)
   let pxS=null, pxF=null, pyS=null, pyF=null, Pxa=null, Pya=null; // per-axis phase state + accumulators
@@ -261,7 +261,7 @@
   function setStab(on){ stabilize=on; accX=accY=slowX=slowY=0; stabReady=false;
     stabOn.setAttribute('aria-pressed', on); stabOff.setAttribute('aria-pressed', !on); }
   const stabStrEl=$('stabStr'), stabStrVal=$('stabStrVal');
-  stabStrEl.oninput = () => { const v=+stabStrEl.value; stabStrength = 0.25 - (v/100)*0.24; stabStrVal.textContent = v; };
+  stabStrEl.oninput = () => { const v=+stabStrEl.value; stabStrength = 0.70 + (v/100)*0.24; stabStrVal.textContent = v; };
 
   $('resetBtn').onclick = () => { initialized = false; phaseReady = false; };
 
@@ -446,13 +446,13 @@
     buildSmall(d);
     if (stabReady){
       const s = estimateShift(); const f = procW/sw;
-      accX -= s[0]*f; accY -= s[1]*f;   // s is (current≈prev+s); true displacement is -s
-      slowX += stabStrength*(accX-slowX); slowY += stabStrength*(accY-slowY);
-      let shx=accX-slowX, shy=accY-slowY;
-      const lim=procW*0.15;
-      if(shx>lim)shx=lim; else if(shx<-lim)shx=-lim;
-      if(shy>lim)shy=lim; else if(shy<-lim)shy=-lim;
-      shiftFrame(d, -shx, -shy);
+      // leaky integrator: cancels jitter but always relaxes back to centre (no wander)
+      accX = accX*stabStrength + s[0]*f;
+      accY = accY*stabStrength + s[1]*f;
+      const lim=procW*0.12;
+      if(accX>lim)accX=lim; else if(accX<-lim)accX=-lim;
+      if(accY>lim)accY=lim; else if(accY<-lim)accY=-lim;
+      shiftFrame(d, accX, accY);
     }
     prevS.set(curS); stabReady=true;
   }

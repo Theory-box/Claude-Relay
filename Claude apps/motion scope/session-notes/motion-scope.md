@@ -189,3 +189,11 @@ default 70 (~0.082, matches old behaviour). Targets medium-small jitter.
 Accumulation sign was inverted: estimateShift returns s where current(x)=prev(x+s),
 so true displacement is -s. Was doing acc += s (=-P), making the counter-shift add
 the shake instead of cancelling it (user: "enhances motion"). Changed to acc -= s.
+
+## Stabilize: return-to-centre (drift fix)
+
+Replaced acc/slow high-pass with a single leaky integrator on the applied offset:
+accX = accX*decay + s*f, shiftFrame(d, accX). At rest it relaxes to 0 so the frame
+re-centres (no wander / edge-replication). Strength now maps to decay 0.70..0.94
+(default 70 -> 0.868); higher holds correction longer (cancels slower drift, mild
+wander), lower recentres faster. Clamp tightened to 12% width.
