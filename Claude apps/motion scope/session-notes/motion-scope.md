@@ -141,3 +141,17 @@ Still single-scale, still beta, still blind (not visually verified). If it's sti
 weak: check gain->radian scaling and whether a 2-3 level pyramid is needed for
 coarser motion. Direction now handled via oriented (qI,qJ), so the grey-out bug
 should be gone.
+
+## Phase fix #2 — accumulate phase before band-pass
+
+Root cause of "grey / looks like a static high-pass, no visible amplification":
+we band-passed the per-frame phase DIFFERENCE (mx,my) directly. That difference
+is the temporal derivative of phase, so band-passing it applied an extra d/dt,
+attenuating the slow subtle motion the method targets and leaving only faint
+high-freq edge noise. Fix: accumulate Pxa+=mx, Pya+=my into a running phase, then
+two-EMA band-pass the accumulated phase. Slow-EMA removes accumulator drift, so
+no unwrapping needed. Added Pxa/Pya buffers, zeroed on phase init.
+
+Decision point set with user: if a deliberate small vibration (flicked ruler
+clamped to desk, table tap, or face-held-still pulse) still shows nothing, we drop
+phase — Linear + temporal denoise already covers the actual porch/birds use case.

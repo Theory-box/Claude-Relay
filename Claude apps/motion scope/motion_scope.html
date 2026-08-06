@@ -189,7 +189,7 @@
   let mBuf = null, mTmp = null;        // motion signal + scratch (RGB)
   let Yb=null, Lo=null, Bb=null, R1=null, R2=null, Ab=null; // phase (gray)
   let Bprev=null, R1p=null, R2p=null;                       // previous-frame monogenic (also blur scratch)
-  let pxS=null, pxF=null, pyS=null, pyF=null;               // per-axis phase temporal state
+  let pxS=null, pxF=null, pyS=null, pyF=null, Pxa=null, Pya=null; // per-axis phase state + accumulators
   let gTmp=null, gTmp2=null;                                // gray scratch / motion field
   let phaseReady=false;
 
@@ -256,6 +256,7 @@
     Bprev = new Float32Array(n); R1p = new Float32Array(n); R2p = new Float32Array(n);
     pxS = new Float32Array(n); pxF = new Float32Array(n);
     pyS = new Float32Array(n); pyF = new Float32Array(n);
+    Pxa = new Float32Array(n); Pya = new Float32Array(n);
     gTmp = new Float32Array(n); gTmp2 = new Float32Array(n);
     phaseReady = false;
     initialized = false;
@@ -452,7 +453,7 @@
     // first phase frame: just store the reference, emit nothing
     if (!phaseReady){
       Bprev.set(Bb); R1p.set(R1); R2p.set(R2);
-      for (let p=0;p<n;p++){ pxS[p]=pxF[p]=pyS[p]=pyF[p]=0; }
+      for (let p=0;p<n;p++){ pxS[p]=pxF[p]=pyS[p]=pyF[p]=0; Pxa[p]=Pya[p]=0; }
       phaseReady = true;
       return;
     }
@@ -467,12 +468,14 @@
       const im  = Math.sqrt(qI*qI + qJ*qJ);
       const phi = Math.atan2(im, qRe);          // phase-difference magnitude (this frame's motion)
       let cx=0, cy=0; if (im>1e-4){ cx=qI/im; cy=qJ/im; }
-      const mx = phi*cx, my = phi*cy;           // motion vector along local orientation
-      // temporal bandpass each axis
-      const sx=pxS[p]+aSlow*(mx-pxS[p]); pxS[p]=sx;
-      const fx=pxF[p]+aFast*(mx-pxF[p]); pxF[p]=fx;
-      const sy=pyS[p]+aSlow*(my-pyS[p]); pyS[p]=sy;
-      const fy=pyF[p]+aFast*(my-pyF[p]); pyF[p]=fy;
+      const mx = phi*cx, my = phi*cy;           // per-frame phase change along orientation
+      // accumulate into a running phase, then band-pass the PHASE itself (not its rate)
+      const px = Pxa[p] + mx; Pxa[p] = px;
+      const py = Pya[p] + my; Pya[p] = py;
+      const sx=pxS[p]+aSlow*(px-pxS[p]); pxS[p]=sx;
+      const fx=pxF[p]+aFast*(px-pxF[p]); pxF[p]=fx;
+      const sy=pyS[p]+aSlow*(py-pyS[p]); pyS[p]=sy;
+      const fy=pyF[p]+aFast*(py-pyF[p]); pyF[p]=fy;
       const bx=fx-sx, by=fy-sy;
       const A=Math.sqrt(b*b+r1*r1+r2*r2);       // amplitude = confidence there's real structure
       Ab[p]=A;
