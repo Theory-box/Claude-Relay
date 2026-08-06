@@ -155,3 +155,12 @@ no unwrapping needed. Added Pxa/Pya buffers, zeroed on phase init.
 Decision point set with user: if a deliberate small vibration (flicked ruler
 clamped to desk, table tap, or face-held-still pulse) still shows nothing, we drop
 phase — Linear + temporal denoise already covers the actual porch/birds use case.
+
+## Isolate view (added)
+
+Third View option "Isolate": slow per-pixel background EMA (aBg=0.03) learns the
+static scene; output = gain*|current - bg| clamped, on black. Reuses spatial
+scale + smoothing for denoise, and the Amplification slider for brightness.
+Bypasses Linear/Phase when active. bgModel buffer seeded in seed(); re-converges
+~1s after switching in. Limitation (told user): lingering smoke slowly bakes into
+bg and fades; frame-difference shows presence/edges, not flow direction.

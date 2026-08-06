@@ -105,6 +105,7 @@
       <div class="seg" role="group" aria-label="View mode">
         <button id="modeAmp" aria-pressed="true">Amplified</button>
         <button id="modeMotion" aria-pressed="false">Motion only</button>
+        <button id="modeIsolate" aria-pressed="false">Isolate</button>
       </div>
     </div>
 
@@ -186,7 +187,7 @@
   // buffers
   let tnrState = null;                 // recursive temporal-denoise estimate (RGB)
   let lowSlow = null, lowFast = null;  // linear temporal bandpass (RGB)
-  let mBuf = null, mTmp = null;        // motion signal + scratch (RGB)
+  let mBuf = null, mTmp = null, bgModel = null; // motion signal + scratch + background model (RGB)
   let Yb=null, Lo=null, Bb=null, R1=null, R2=null, Ab=null; // phase (gray)
   let Bprev=null, R1p=null, R2p=null;                       // previous-frame monogenic (also blur scratch)
   let pxS=null, pxF=null, pyS=null, pyF=null, Pxa=null, Pya=null; // per-axis phase state + accumulators
@@ -228,10 +229,14 @@
     colorField.classList.toggle('dim', m!=='linear');
   }
 
-  const modeAmp=$('modeAmp'), modeMotion=$('modeMotion');
+  const modeAmp=$('modeAmp'), modeMotion=$('modeMotion'), modeIsolate=$('modeIsolate');
   modeAmp.onclick = () => setMode('amp');
   modeMotion.onclick = () => setMode('motion');
-  function setMode(m){ mode=m; modeAmp.setAttribute('aria-pressed', m==='amp'); modeMotion.setAttribute('aria-pressed', m==='motion'); }
+  modeIsolate.onclick = () => setMode('isolate');
+  function setMode(m){ mode=m;
+    modeAmp.setAttribute('aria-pressed', m==='amp');
+    modeMotion.setAttribute('aria-pressed', m==='motion');
+    modeIsolate.setAttribute('aria-pressed', m==='isolate'); }
 
   $('resetBtn').onclick = () => { initialized = false; phaseReady = false; };
 
@@ -251,6 +256,7 @@
     lowFast = new Float32Array(n*3);
     mBuf = new Float32Array(n*3);
     mTmp = new Float32Array(n*3);
+    bgModel = new Float32Array(n*3);
     Yb = new Float32Array(n); Lo = new Float32Array(n); Bb = new Float32Array(n);
     R1 = new Float32Array(n); R2 = new Float32Array(n); Ab = new Float32Array(n);
     Bprev = new Float32Array(n); R1p = new Float32Array(n); R2p = new Float32Array(n);
@@ -380,7 +386,8 @@
     if (!initialized){ seed(d, n); initialized = true; }
     temporalDenoise(d, n);
 
-    if (method === 'phase') phaseFrame(d, n, aSlow, aFast);
+    if (mode === 'isolate') isolateFrame(d, n);
+    else if (method === 'phase') phaseFrame(d, n, aSlow, aFast);
     else linearFrame(d, n, aSlow, aFast);
 
     pctx.putImageData(img, 0, 0);
@@ -392,6 +399,7 @@
     for (let p=0;p<n;p++){
       const i4=p<<2, i3=p*3;
       tnrState[i3]=d[i4]; tnrState[i3+1]=d[i4+1]; tnrState[i3+2]=d[i4+2];
+      bgModel[i3]=d[i4]; bgModel[i3+1]=d[i4+1]; bgModel[i3+2]=d[i4+2];
       lowSlow[i3]=lowFast[i3]=d[i4];
       lowSlow[i3+1]=lowFast[i3+1]=d[i4+1];
       lowSlow[i3+2]=lowFast[i3+2]=d[i4+2];
@@ -514,6 +522,32 @@
     // current frame becomes the reference for the next
     Bprev.set(Bb); R1p.set(R1); R2p.set(R2);
     energy = e/n;
+  }
+
+  // ---- ISOLATE: learn the static scene, show only what differs from it (smoke/motion on black) ----
+  function isolateFrame(d, n){
+    const g=gain, aBg=0.03;   // slow background adaptation -> converges to the static scene
+    let e=0;
+    for (let p=0;p<n;p++){
+      const i4=p<<2, i3=p*3;
+      for (let c=0;c<3;c++){
+        const x=d[i4+c];
+        const bg=bgModel[i3+c]+aBg*(x-bgModel[i3+c]); bgModel[i3+c]=bg;
+        let dv=x-bg; if(dv<0)dv=-dv;   // |current - background|
+        e+=dv;
+        mBuf[i3+c]=g*dv;
+      }
+    }
+    if (scaleLv>0) coarsenRGB(mBuf, procW, procH, scaleLv);
+    if (denoiseR>0) blurRGB(mBuf, mTmp, procW, procH, denoiseR);
+    for (let p=0;p<n;p++){
+      const i4=p<<2, i3=p*3;
+      let o0=mBuf[i3], o1=mBuf[i3+1], o2=mBuf[i3+2];
+      d[i4]  =o0>255?255:o0;
+      d[i4+1]=o1>255?255:o1;
+      d[i4+2]=o2>255?255:o2;
+    }
+    energy=e/(n*3);
   }
 
   function drawReadout(){
