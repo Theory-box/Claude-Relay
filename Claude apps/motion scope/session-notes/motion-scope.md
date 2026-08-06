@@ -197,3 +197,12 @@ accX = accX*decay + s*f, shiftFrame(d, accX). At rest it relaxes to 0 so the fra
 re-centres (no wander / edge-replication). Strength now maps to decay 0.70..0.94
 (default 70 -> 0.868); higher holds correction longer (cancels slower drift, mild
 wander), lower recentres faster. Clamp tightened to 12% width.
+
+## Stabilize: robust block-median estimation
+
+Replaced single global SAD match with per-block estimation over a 5x4 grid; drop
+flat blocks (texture < 0.5x mean horizontal-gradient), take component-wise median
+of the rest -> background outvotes a moving object (the straw). Falls back to the
+global estimateShift() if <3 textured blocks. Also switched buildSmall to an
+averaged box downsample (added smallCnt buffer) for a steadier estimate. Global
+estimateShift/sadAt kept as fallback. Cost ~ same as before (same pixels, tiled).

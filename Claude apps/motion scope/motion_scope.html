@@ -203,7 +203,7 @@
   let lowSlow = null, lowFast = null;  // linear temporal bandpass (RGB)
   let mBuf = null, mTmp = null, bgModel = null; // motion signal + scratch + background model (RGB)
   let stabilize=false, stabReady=false, sw=0, sh=0;
-  let curS=null, prevS=null, shiftBuf=null;
+  let curS=null, prevS=null, shiftBuf=null, smallCnt=null;
   let accX=0, accY=0, slowX=0, slowY=0, stabStrength=0.868;
   let Yb=null, Lo=null, Bb=null, R1=null, R2=null, Ab=null; // phase (gray)
   let Bprev=null, R1p=null, R2p=null;                       // previous-frame monogenic (also blur scratch)
@@ -284,6 +284,7 @@
     bgModel = new Float32Array(n*3);
     sw = 120; sh = Math.max(24, Math.round(sw * procH / procW));
     curS = new Float32Array(sw*sh); prevS = new Float32Array(sw*sh);
+    smallCnt = new Float32Array(sw*sh);
     shiftBuf = new Uint8ClampedArray(n*4);
     accX=accY=slowX=slowY=0; stabReady=false;
     Yb = new Float32Array(n); Lo = new Float32Array(n); Bb = new Float32Array(n);
@@ -397,10 +398,13 @@
 
   // --- stabilization: whole-frame shift estimate + counter-shift ---
   function buildSmall(d){
-    const rx=procW/sw, ry=procH/sh;
-    for (let y=0;y<sh;y++){ const py=Math.min(procH-1,(y*ry)|0)*procW;
-      for (let x=0;x<sw;x++){ const i4=(py+Math.min(procW-1,(x*rx)|0))<<2;
-        curS[y*sw+x]=0.299*d[i4]+0.587*d[i4+1]+0.114*d[i4+2]; } }
+    for (let i=0;i<sw*sh;i++){ curS[i]=0; smallCnt[i]=0; }
+    const rx=sw/procW, ry=sh/procH;
+    for (let y=0;y<procH;y++){ const by=Math.min(sh-1,(y*ry)|0)*sw, drow=y*procW;
+      for (let x=0;x<procW;x++){ const i4=(drow+x)<<2;
+        const bi=by+Math.min(sw-1,(x*rx)|0);
+        curS[bi]+=0.299*d[i4]+0.587*d[i4+1]+0.114*d[i4+2]; smallCnt[bi]++; } }
+    for (let i=0;i<sw*sh;i++){ if(smallCnt[i]>0) curS[i]/=smallCnt[i]; }
   }
   function sadAt(dx,dy){
     let sad=0,cnt=0;
@@ -420,6 +424,41 @@
     const denx=l-2*c+r; if (Math.abs(denx)>1e-6){ sxp=0.5*(l-r)/denx; if(sxp>0.5)sxp=0.5; else if(sxp<-0.5)sxp=-0.5; }
     const deny=u-2*c+dn; if (Math.abs(deny)>1e-6){ syp=0.5*(u-dn)/deny; if(syp>0.5)syp=0.5; else if(syp<-0.5)syp=-0.5; }
     return [bx+sxp, by+syp];
+  }
+  function blockSad(bx0,by0,bx1,by1,dx,dy){
+    let sad=0,cnt=0;
+    for (let y=by0;y<by1;y++){ const yy=y+dy; if(yy<0||yy>=sh) continue; const cr=y*sw, pr=yy*sw;
+      for (let x=bx0;x<bx1;x++){ const xx=x+dx; if(xx<0||xx>=sw) continue; let df=curS[cr+x]-prevS[pr+xx]; if(df<0)df=-df; sad+=df; cnt++; } }
+    return cnt>0 ? sad/cnt : 1e18;
+  }
+  function median(a){ a.sort((p,q)=>p-q); const m=a.length>>1; return a.length%2 ? a[m] : 0.5*(a[m-1]+a[m]); }
+  // robust: estimate a shift per grid block, drop flat blocks, take the median (moving objects get outvoted)
+  function estimateShiftRobust(){
+    const cols=5, rows=4, S=8;
+    const px=[], py=[], tex=[];
+    for (let r=0;r<rows;r++){
+      const by0=(r*sh/rows)|0, by1=(r===rows-1? sh : ((r+1)*sh/rows)|0);
+      for (let c=0;c<cols;c++){
+        const bx0=(c*sw/cols)|0, bx1=(c===cols-1? sw : ((c+1)*sw/cols)|0);
+        let t=0,tc=0;
+        for (let y=by0;y<by1;y++){ const cr=y*sw;
+          for (let x=bx0;x<bx1-1;x++){ let g=curS[cr+x+1]-curS[cr+x]; if(g<0)g=-g; t+=g; tc++; } }
+        let bx=0,by=0,best=1e18;
+        for (let dy=-S;dy<=S;dy++) for (let dx=-S;dx<=S;dx++){
+          const s=blockSad(bx0,by0,bx1,by1,dx,dy); if(s<best){best=s;bx=dx;by=dy;} }
+        const l=blockSad(bx0,by0,bx1,by1,bx-1,by), rr=blockSad(bx0,by0,bx1,by1,bx+1,by);
+        const u=blockSad(bx0,by0,bx1,by1,bx,by-1), dn=blockSad(bx0,by0,bx1,by1,bx,by+1);
+        let sxp=0,syp=0; const dnx=l-2*best+rr, dny=u-2*best+dn;
+        if(Math.abs(dnx)>1e-6){ sxp=0.5*(l-rr)/dnx; if(sxp>0.5)sxp=0.5; else if(sxp<-0.5)sxp=-0.5; }
+        if(Math.abs(dny)>1e-6){ syp=0.5*(u-dn)/dny; if(syp>0.5)syp=0.5; else if(syp<-0.5)syp=-0.5; }
+        px.push(bx+sxp); py.push(by+syp); tex.push(tc>0? t/tc : 0);
+      }
+    }
+    let mt=0; for (let i=0;i<tex.length;i++) mt+=tex[i]; mt/=tex.length;
+    const thr=mt*0.5, xs=[], ys=[];
+    for (let i=0;i<px.length;i++){ if(tex[i]>=thr){ xs.push(px[i]); ys.push(py[i]); } }
+    if (xs.length<3) return estimateShift();   // scene too flat -> global fallback
+    return [median(xs), median(ys)];
   }
   function shiftFrame(d, sx, sy){   // fractional shift, bilinear, edge-clamped
     if (Math.abs(sx)<0.01 && Math.abs(sy)<0.01) return;
@@ -445,7 +484,7 @@
   function stabilizeFrame(d){
     buildSmall(d);
     if (stabReady){
-      const s = estimateShift(); const f = procW/sw;
+      const s = estimateShiftRobust(); const f = procW/sw;
       // leaky integrator: cancels jitter but always relaxes back to centre (no wander)
       accX = accX*stabStrength + s[0]*f;
       accY = accY*stabStrength + s[1]*f;
