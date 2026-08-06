@@ -248,3 +248,10 @@ Clean plate: plateBuf = slow RGB EMA (aPlate=0.12) of the frame; when on, warp
 samples the denoised still instead of the live frame (low noise; mild ghosting at
 fast motion). plateBuf/fdX/fdY seeded on first warp frame (warpReady). Method
 (Linear/Phase) does NOT affect Warp - separate flow engine.
+
+## Compare view (input/output split)
+
+Header "Compare" toggle. sizeView() sets view canvas height to 2x frame height
+when compare on. Draw step: top half = raw video (drawImage(video)), bottom half
+= processed proc; INPUT/OUTPUT labels + phosphor divider. Off = single output as
+before. Raw top reflects true camera (shows shake even when output stabilized).

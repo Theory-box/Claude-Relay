@@ -17,6 +17,10 @@
   header{display:flex;align-items:baseline;gap:.6rem;flex-wrap:wrap;padding:.75rem 1rem;border-bottom:1px solid var(--line)}
   header .mark{font-family:var(--mono);font-weight:600;letter-spacing:.06em;color:var(--phosphor);font-size:.95rem}
   header .sub{color:var(--muted);font-size:.8rem;font-family:var(--mono)}
+  header .hbtn{margin-left:auto;padding:.35rem .7rem;border-radius:7px;border:1px solid var(--line);background:var(--panel-2);color:var(--ink);font-size:.78rem;cursor:pointer;transition:background .12s,border-color .12s}
+  header .hbtn:hover{border-color:var(--phosphor)}
+  header .hbtn[aria-pressed=true]{background:var(--phosphor);color:#04120e;border-color:var(--phosphor);font-weight:600}
+  header .hbtn:focus-visible{outline:2px solid var(--phosphor);outline-offset:2px}
   .wrap{flex:1;display:grid;grid-template-columns:1fr 340px;gap:1px;background:var(--line);min-height:0}
   .stage{background:#000;position:relative;display:flex;align-items:center;justify-content:center;overflow:hidden;min-height:320px}
   canvas#view{max-width:100%;max-height:100%;display:block;background:#000}
@@ -64,6 +68,7 @@
 <header>
   <span class="mark">◉ MOTION SCOPE</span>
   <span class="sub">live motion magnification</span>
+  <button id="cmpBtn" class="hbtn" aria-pressed="false">Compare</button>
 </header>
 
 <div class="wrap">
@@ -211,7 +216,7 @@
   // state
   let stream = null, running = false, raf = 0;
   let procW = 0, procH = 0, initialized = false;
-  let method = 'linear', mode = 'amp';
+  let method = 'linear', mode = 'amp', compare = false;
   let gain = 18, loHz = 0.5, hiHz = 6, targetH = 384;
   let chromaAmt = 0.2, denoiseR = 1, scaleLv = 0, tnr = 0.4, overlayAmt = 0;
   let fps = 30, lastT = 0, energy = 0;
@@ -297,17 +302,23 @@
   function setCP(on){ cleanPlate=on; cpOn.setAttribute('aria-pressed',on); cpOff.setAttribute('aria-pressed',!on); }
 
   $('resetBtn').onclick = () => { initialized = false; phaseReady = false; warpReady = false; };
+  const cmpBtn=$('cmpBtn');
+  cmpBtn.onclick = () => { compare=!compare; sizeView(); cmpBtn.setAttribute('aria-pressed', compare); };
 
   // --- buffers ---
+  function sizeView(){
+    if(!procW) return;
+    const ar=procW/procH, fh=540;
+    view.width=Math.round(fh*ar);
+    view.height=compare ? fh*2 : fh;
+  }
   function allocBuffers(){
     if (!video.videoWidth) return;
     const ar = video.videoWidth / video.videoHeight;
     procH = Math.round(targetH);
     procW = Math.round(procH * ar);
     proc.width = procW; proc.height = procH;
-    const dispH = 540;
-    view.width = Math.round(dispH * ar);
-    view.height = dispH;
+    sizeView();
     const n = procW * procH;
     tnrState = new Float32Array(n*3);
     lowSlow = new Float32Array(n*3);
@@ -567,7 +578,17 @@
 
     pctx.putImageData(img, 0, 0);
     dctx.imageSmoothingEnabled = true;
-    dctx.drawImage(proc, 0, 0, procW, procH, 0, 0, view.width, view.height);
+    if(compare){
+      const hh=view.height/2, vw=view.width;
+      dctx.drawImage(video, 0, 0, vw, hh);
+      dctx.drawImage(proc, 0, 0, procW, procH, 0, hh, vw, hh);
+      dctx.fillStyle='rgba(6,10,14,.6)'; dctx.fillRect(0,0,70,20); dctx.fillRect(0,hh,80,20);
+      dctx.fillStyle='#39e6c4'; dctx.font='12px ui-monospace,monospace';
+      dctx.fillText('INPUT',7,14); dctx.fillText('OUTPUT',7,hh+14);
+      dctx.strokeStyle='#39e6c4'; dctx.lineWidth=2; dctx.beginPath(); dctx.moveTo(0,hh); dctx.lineTo(vw,hh); dctx.stroke();
+    } else {
+      dctx.drawImage(proc, 0, 0, procW, procH, 0, 0, view.width, view.height);
+    }
   }
 
   function seed(d, n){
