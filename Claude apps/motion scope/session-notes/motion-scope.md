@@ -164,3 +164,13 @@ scale + smoothing for denoise, and the Amplification slider for brightness.
 Bypasses Linear/Phase when active. bgModel buffer seeded in seed(); re-converges
 ~1s after switching in. Limitation (told user): lingering smoke slowly bakes into
 bg and fades; frame-difference shows presence/edges, not flow direction.
+
+## Stabilize toggle (added)
+
+Global (translation-only) stabilization, runs first in processFrame before seed/
+denoise/magnify. Estimates whole-frame shift via SAD block-match on an 80px-wide
+gray downsample (search +-8 small px), scales to proc px, accumulates, slow-EMA
+(0.08) splits intended pan (low-freq) from shake (high-freq), counter-shifts the
+frame by -shake (edge-replicate, clamped to 15% of width). Buffers: curS/prevS
+(small gray), shiftBuf (Uint8 n*4). Off by default. Known: translation only (no
+rotation/rolling-shutter); slight false-motion rim in Isolate mode after shifting.
