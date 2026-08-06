@@ -3,134 +3,67 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Motion Scope — live Eulerian magnification</title>
+<title>Motion Scope — live motion magnification</title>
 <style>
   :root{
-    --bg:#0b0f14;
-    --panel:#131a22;
-    --panel-2:#1b2430;
-    --line:#26313f;
-    --ink:#e8eef4;
-    --muted:#8ea0b2;
-    --phosphor:#39e6c4;   /* signal */
-    --amber:#f2a63b;      /* gain */
-    --hot:#ff5d73;        /* alerts / stop */
+    --bg:#0b0f14; --panel:#131a22; --panel-2:#1b2430; --line:#26313f;
+    --ink:#e8eef4; --muted:#8ea0b2; --phosphor:#39e6c4; --amber:#f2a63b; --hot:#ff5d73;
     --font:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
     --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
   }
   *{box-sizing:border-box}
   html,body{margin:0;height:100%}
-  body{
-    background:var(--bg);color:var(--ink);font-family:var(--font);
-    display:flex;flex-direction:column;min-height:100%;
-  }
-  header{
-    display:flex;align-items:baseline;gap:.6rem;flex-wrap:wrap;
-    padding:.75rem 1rem;border-bottom:1px solid var(--line);
-  }
-  header .mark{
-    font-family:var(--mono);font-weight:600;letter-spacing:.06em;
-    color:var(--phosphor);font-size:.95rem;
-  }
+  body{background:var(--bg);color:var(--ink);font-family:var(--font);display:flex;flex-direction:column;min-height:100%}
+  header{display:flex;align-items:baseline;gap:.6rem;flex-wrap:wrap;padding:.75rem 1rem;border-bottom:1px solid var(--line)}
+  header .mark{font-family:var(--mono);font-weight:600;letter-spacing:.06em;color:var(--phosphor);font-size:.95rem}
   header .sub{color:var(--muted);font-size:.8rem;font-family:var(--mono)}
-  .wrap{
-    flex:1;display:grid;grid-template-columns:1fr 320px;gap:1px;
-    background:var(--line);min-height:0;
-  }
-  .stage{
-    background:#000;position:relative;display:flex;align-items:center;justify-content:center;
-    overflow:hidden;min-height:320px;
-  }
+  .wrap{flex:1;display:grid;grid-template-columns:1fr 340px;gap:1px;background:var(--line);min-height:0}
+  .stage{background:#000;position:relative;display:flex;align-items:center;justify-content:center;overflow:hidden;min-height:320px}
   canvas#view{max-width:100%;max-height:100%;display:block;background:#000}
   video#src{display:none}
-  .stage .overlay{
-    position:absolute;inset:0;pointer-events:none;
-    display:flex;flex-direction:column;justify-content:space-between;padding:.6rem .75rem;
-  }
-  .readout{
-    align-self:flex-start;font-family:var(--mono);font-size:.72rem;
-    color:var(--muted);background:rgba(6,10,14,.55);border:1px solid var(--line);
-    border-radius:6px;padding:.3rem .5rem;line-height:1.5;backdrop-filter:blur(4px);
-  }
+  .stage .overlay{position:absolute;inset:0;pointer-events:none;display:flex;flex-direction:column;justify-content:space-between;padding:.6rem .75rem}
+  .readout{align-self:flex-start;font-family:var(--mono);font-size:.72rem;color:var(--muted);background:rgba(6,10,14,.55);border:1px solid var(--line);border-radius:6px;padding:.3rem .5rem;line-height:1.5;backdrop-filter:blur(4px)}
   .readout b{color:var(--ink);font-weight:600}
-  .energy{
-    align-self:flex-end;width:100%;max-width:280px;
-    font-family:var(--mono);font-size:.68rem;color:var(--muted);
-  }
-  .energy .bar{
-    height:6px;border-radius:3px;background:var(--panel-2);overflow:hidden;margin-top:.25rem;
-    border:1px solid var(--line);
-  }
-  .energy .bar > i{
-    display:block;height:100%;width:0%;
-    background:linear-gradient(90deg,var(--phosphor),var(--amber));
-  }
-  .empty{
-    position:absolute;inset:0;display:flex;flex-direction:column;gap:.8rem;
-    align-items:center;justify-content:center;text-align:center;padding:2rem;color:var(--muted);
-  }
+  .energy{align-self:flex-end;width:100%;max-width:280px;font-family:var(--mono);font-size:.68rem;color:var(--muted)}
+  .energy .bar{height:6px;border-radius:3px;background:var(--panel-2);overflow:hidden;margin-top:.25rem;border:1px solid var(--line)}
+  .energy .bar > i{display:block;height:100%;width:0%;background:linear-gradient(90deg,var(--phosphor),var(--amber))}
+  .empty{position:absolute;inset:0;display:flex;flex-direction:column;gap:.8rem;align-items:center;justify-content:center;text-align:center;padding:2rem;color:var(--muted)}
   .empty h2{margin:0;color:var(--ink);font-size:1.05rem;font-weight:600}
   .empty p{margin:0;max-width:34ch;font-size:.85rem;line-height:1.5}
-  .rail{
-    background:var(--panel);overflow-y:auto;padding:1rem;display:flex;flex-direction:column;gap:1.1rem;
-  }
+  .rail{background:var(--panel);overflow-y:auto;padding:1rem;display:flex;flex-direction:column;gap:1.1rem}
   .group{display:flex;flex-direction:column;gap:.55rem}
-  .group h3{
-    margin:0;font-size:.7rem;text-transform:uppercase;letter-spacing:.12em;
-    color:var(--muted);font-weight:600;
-  }
+  .group h3{margin:0;font-size:.7rem;text-transform:uppercase;letter-spacing:.12em;color:var(--muted);font-weight:600}
   label.field{display:flex;flex-direction:column;gap:.3rem;font-size:.8rem}
+  label.field.dim{opacity:.4}
   label.field .row{display:flex;justify-content:space-between;align-items:baseline}
   label.field .val{font-family:var(--mono);color:var(--phosphor);font-size:.78rem}
-  input[type=range]{
-    -webkit-appearance:none;appearance:none;width:100%;height:4px;border-radius:2px;
-    background:var(--panel-2);outline:none;
-  }
-  input[type=range]::-webkit-slider-thumb{
-    -webkit-appearance:none;width:16px;height:16px;border-radius:50%;
-    background:var(--ink);border:2px solid var(--phosphor);cursor:pointer;
-  }
-  input[type=range]::-moz-range-thumb{
-    width:16px;height:16px;border-radius:50%;background:var(--ink);
-    border:2px solid var(--phosphor);cursor:pointer;
-  }
+  input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:4px;border-radius:2px;background:var(--panel-2);outline:none}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:16px;height:16px;border-radius:50%;background:var(--ink);border:2px solid var(--phosphor);cursor:pointer}
+  input[type=range]::-moz-range-thumb{width:16px;height:16px;border-radius:50%;background:var(--ink);border:2px solid var(--phosphor);cursor:pointer}
   input[type=range]:focus-visible{box-shadow:0 0 0 2px var(--phosphor)}
   select,button{font-family:var(--font);font-size:.82rem}
-  select{
-    width:100%;padding:.5rem;border-radius:8px;background:var(--panel-2);
-    color:var(--ink);border:1px solid var(--line);
-  }
+  select{width:100%;padding:.5rem;border-radius:8px;background:var(--panel-2);color:var(--ink);border:1px solid var(--line)}
   .seg{display:flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
-  .seg button{
-    flex:1;background:var(--panel-2);color:var(--muted);border:none;padding:.5rem;
-    cursor:pointer;transition:background .12s,color .12s;
-  }
+  .seg button{flex:1;background:var(--panel-2);color:var(--muted);border:none;padding:.5rem;cursor:pointer;transition:background .12s,color .12s}
   .seg button[aria-pressed=true]{background:var(--phosphor);color:#04120e;font-weight:600}
   .btns{display:flex;gap:.5rem}
-  button.act{
-    flex:1;padding:.6rem;border-radius:8px;border:1px solid var(--line);
-    background:var(--panel-2);color:var(--ink);cursor:pointer;transition:background .12s,border-color .12s;
-  }
+  button.act{flex:1;padding:.6rem;border-radius:8px;border:1px solid var(--line);background:var(--panel-2);color:var(--ink);cursor:pointer;transition:background .12s,border-color .12s}
   button.act:hover{border-color:var(--phosphor)}
   button.act.primary{background:var(--phosphor);color:#04120e;border-color:var(--phosphor);font-weight:600}
   button.act.stop{border-color:var(--hot);color:var(--hot)}
   button.act:disabled{opacity:.4;cursor:not-allowed}
-  button.act:focus-visible,.seg button:focus-visible,select:focus-visible{
-    outline:2px solid var(--phosphor);outline-offset:2px;
-  }
+  button.act:focus-visible,.seg button:focus-visible,select:focus-visible{outline:2px solid var(--phosphor);outline-offset:2px}
   .note{font-size:.72rem;color:var(--muted);line-height:1.5}
+  .beta{display:inline-block;font-family:var(--mono);font-size:.6rem;letter-spacing:.08em;color:var(--amber);border:1px solid var(--amber);border-radius:4px;padding:0 .3rem;margin-left:.35rem;vertical-align:middle}
   .err{color:var(--hot);font-size:.78rem;line-height:1.5;display:none}
-  @media (max-width:820px){
-    .wrap{grid-template-columns:1fr;grid-template-rows:minmax(280px,1fr) auto}
-    .rail{max-height:46vh}
-  }
+  @media (max-width:860px){.wrap{grid-template-columns:1fr;grid-template-rows:minmax(280px,1fr) auto}.rail{max-height:48vh}}
   @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
 </head>
 <body>
 <header>
   <span class="mark">◉ MOTION SCOPE</span>
-  <span class="sub">live eulerian magnification</span>
+  <span class="sub">live motion magnification</span>
 </header>
 
 <div class="wrap">
@@ -139,14 +72,11 @@
     <canvas id="view" width="960" height="540"></canvas>
     <div class="overlay" id="overlay" hidden>
       <div class="readout" id="readout"></div>
-      <div class="energy">
-        motion energy
-        <div class="bar"><i id="energyBar"></i></div>
-      </div>
+      <div class="energy">motion energy<div class="bar"><i id="energyBar"></i></div></div>
     </div>
     <div class="empty" id="empty">
       <h2>No camera running</h2>
-      <p>Pick a source and press <b>Start</b>. Point a tripod-mounted camera at something nearly still — trees, a face, a resting insect — and turn amplification up.</p>
+      <p>Pick a source and press <b>Start</b>. Point a tripod-mounted camera at something nearly still and turn amplification up.</p>
       <p class="err" id="err"></p>
     </div>
   </div>
@@ -159,6 +89,15 @@
         <button class="act primary" id="startBtn">Start</button>
         <button class="act stop" id="stopBtn" disabled>Stop</button>
       </div>
+    </div>
+
+    <div class="group">
+      <h3>Method</h3>
+      <div class="seg" role="group" aria-label="Magnification method">
+        <button id="mLinear" aria-pressed="true">Linear</button>
+        <button id="mPhase" aria-pressed="false">Phase<span class="beta">BETA</span></button>
+      </div>
+      <p class="note" id="methodNote">Linear amplifies brightness change — simple, but amplifies noise. Phase amplifies displacement instead, so brightness noise is largely left alone.</p>
     </div>
 
     <div class="group">
@@ -183,20 +122,30 @@
         <span class="row"><span>High cutoff</span><span class="val" id="hiVal">6.0 Hz</span></span>
         <input type="range" id="hi" min="0.5" max="15" step="0.1" value="6">
       </label>
-      <p class="note">Only motion whose rhythm falls between the two cutoffs gets amplified. Slow sway ≈ low Hz, wingbeats/vibration ≈ high Hz.</p>
+      <p class="note">Only motion whose rhythm falls between the two cutoffs gets amplified. Slow sway ≈ low Hz, wingbeats ≈ high Hz.</p>
     </div>
 
     <div class="group">
-      <h3>Noise</h3>
+      <h3>Noise control</h3>
       <label class="field">
-        <span class="row"><span>Color</span><span class="val" id="colorVal">20%</span></span>
-        <input type="range" id="color" min="0" max="100" step="5" value="20">
+        <span class="row"><span>Temporal denoise</span><span class="val" id="tnrVal">40%</span></span>
+        <input type="range" id="tnr" min="0" max="100" step="5" value="40">
       </label>
+      <p class="note">Cleans the feed before magnifying: averages each pixel over time where it's still, but passes through where something actually moves, so the static background de-noises without smearing motion.</p>
+      <label class="field">
+        <span class="row"><span>Spatial scale</span><span class="val" id="scaleVal">0</span></span>
+        <input type="range" id="scale" min="0" max="3" step="1" value="0">
+      </label>
+      <p class="note">Amplifies coarser spatial detail (a pyramid level). Higher = less fine-grained noise, but only larger motion survives.</p>
       <label class="field">
         <span class="row"><span>Smoothing</span><span class="val" id="denoiseVal">1 px</span></span>
         <input type="range" id="denoise" min="0" max="4" step="1" value="1">
       </label>
-      <p class="note">Lower <b>Color</b> removes the coloured speckle by driving motion from brightness. <b>Smoothing</b> blurs only the amplified motion to cut grain — raise it if noise is heavy, drop to 0 to keep the finest detail.</p>
+      <label class="field" id="colorField">
+        <span class="row"><span>Color</span><span class="val" id="colorVal">20%</span></span>
+        <input type="range" id="color" min="0" max="100" step="5" value="20">
+      </label>
+      <p class="note" id="colorNote">Lower Color removes the coloured speckle (Linear only — Phase is already brightness-driven).</p>
     </div>
 
     <div class="group">
@@ -205,10 +154,8 @@
         <span class="row"><span>Detail</span><span class="val" id="resVal">384p</span></span>
         <input type="range" id="res" min="192" max="640" step="64" value="384">
       </label>
-      <div class="btns">
-        <button class="act" id="resetBtn">Reset baseline</button>
-      </div>
-      <p class="note">Lower detail = smoother, less noise, faster. Reset the baseline after the camera or scene settles.</p>
+      <div class="btns"><button class="act" id="resetBtn">Reset baseline</button></div>
+      <p class="note">Lower detail = smoother, less noise, faster. Phase mode is heavier — drop this if the frame rate falls.</p>
     </div>
   </div>
 </div>
@@ -225,32 +172,31 @@
   const energyBar = document.getElementById('energyBar');
   const deviceSel = document.getElementById('devices');
 
-  // offscreen processing canvas
   const proc = document.createElement('canvas');
   const pctx = proc.getContext('2d', { willReadFrequently: true });
 
   // state
   let stream = null, running = false, raf = 0;
-  let procW = 0, procH = 0;
-  let lowSlow = null, lowFast = null, mBuf = null, mTmp = null, initialized = false;
-  let mode = 'amp';
+  let procW = 0, procH = 0, initialized = false;
+  let method = 'linear', mode = 'amp';
   let gain = 18, loHz = 0.5, hiHz = 6, targetH = 384;
-  let chromaAmt = 0.2, denoiseR = 1;
+  let chromaAmt = 0.2, denoiseR = 1, scaleLv = 0, tnr = 0.4;
   let fps = 30, lastT = 0, energy = 0;
 
+  // buffers
+  let tnrState = null;                 // recursive temporal-denoise estimate (RGB)
+  let lowSlow = null, lowFast = null;  // linear temporal bandpass (RGB)
+  let mBuf = null, mTmp = null;        // motion signal + scratch (RGB)
+  let Yb=null, Lo=null, Bb=null, R1=null, R2=null, Ab=null; // phase (gray)
+  let phSlow=null, phFast=null, gTmp=null, gTmp2=null;      // phase temporal + scratch (gray)
+
   // --- controls ---
-  const gainEl = document.getElementById('gain');
-  const loEl = document.getElementById('lo');
-  const hiEl = document.getElementById('hi');
-  const resEl = document.getElementById('res');
-  const gainVal = document.getElementById('gainVal');
-  const loVal = document.getElementById('loVal');
-  const hiVal = document.getElementById('hiVal');
-  const resVal = document.getElementById('resVal');
-  const colorEl = document.getElementById('color');
-  const colorVal = document.getElementById('colorVal');
-  const denoiseEl = document.getElementById('denoise');
-  const denoiseVal = document.getElementById('denoiseVal');
+  const $ = id => document.getElementById(id);
+  const gainEl=$('gain'), loEl=$('lo'), hiEl=$('hi'), resEl=$('res');
+  const tnrEl=$('tnr'), scaleEl=$('scale'), denoiseEl=$('denoise'), colorEl=$('color');
+  const gainVal=$('gainVal'), loVal=$('loVal'), hiVal=$('hiVal'), resVal=$('resVal');
+  const tnrVal=$('tnrVal'), scaleVal=$('scaleVal'), denoiseVal=$('denoiseVal'), colorVal=$('colorVal');
+  const colorField=$('colorField');
 
   gainEl.oninput = () => { gain = +gainEl.value; gainVal.textContent = gain + '×'; };
   loEl.oninput = () => {
@@ -263,24 +209,28 @@
     if (hiHz <= loHz) { loHz = Math.max(0.1, hiHz - 0.5); loEl.value = loHz; loVal.textContent = loHz.toFixed(1)+' Hz'; }
     hiVal.textContent = hiHz.toFixed(1)+' Hz';
   };
-  resEl.oninput = () => {
-    targetH = +resEl.value; resVal.textContent = targetH + 'p';
-    if (running) allocBuffers();
-  };
-  colorEl.oninput = () => { chromaAmt = +colorEl.value / 100; colorVal.textContent = colorEl.value + '%'; };
+  resEl.oninput = () => { targetH = +resEl.value; resVal.textContent = targetH + 'p'; if (running) allocBuffers(); };
+  tnrEl.oninput = () => { tnr = +tnrEl.value/100; tnrVal.textContent = tnrEl.value + '%'; };
+  scaleEl.oninput = () => { scaleLv = +scaleEl.value; scaleVal.textContent = scaleLv; };
   denoiseEl.oninput = () => { denoiseR = +denoiseEl.value; denoiseVal.textContent = denoiseR + ' px'; };
+  colorEl.oninput = () => { chromaAmt = +colorEl.value/100; colorVal.textContent = colorEl.value + '%'; };
 
-  const modeAmp = document.getElementById('modeAmp');
-  const modeMotion = document.getElementById('modeMotion');
-  modeAmp.onclick = () => setMode('amp');
-  modeMotion.onclick = () => setMode('motion');
-  function setMode(m){
-    mode = m;
-    modeAmp.setAttribute('aria-pressed', m==='amp');
-    modeMotion.setAttribute('aria-pressed', m==='motion');
+  const mLinear=$('mLinear'), mPhase=$('mPhase');
+  mLinear.onclick = () => setMethod('linear');
+  mPhase.onclick = () => setMethod('phase');
+  function setMethod(m){
+    method = m; initialized = false;
+    mLinear.setAttribute('aria-pressed', m==='linear');
+    mPhase.setAttribute('aria-pressed', m==='phase');
+    colorField.classList.toggle('dim', m!=='linear');
   }
 
-  document.getElementById('resetBtn').onclick = () => { initialized = false; };
+  const modeAmp=$('modeAmp'), modeMotion=$('modeMotion');
+  modeAmp.onclick = () => setMode('amp');
+  modeMotion.onclick = () => setMode('motion');
+  function setMode(m){ mode=m; modeAmp.setAttribute('aria-pressed', m==='amp'); modeMotion.setAttribute('aria-pressed', m==='motion'); }
+
+  $('resetBtn').onclick = () => { initialized = false; };
 
   // --- buffers ---
   function allocBuffers(){
@@ -289,14 +239,19 @@
     procH = Math.round(targetH);
     procW = Math.round(procH * ar);
     proc.width = procW; proc.height = procH;
-    // display canvas keeps camera aspect
     const dispH = 540;
     view.width = Math.round(dispH * ar);
     view.height = dispH;
-    lowSlow = new Float32Array(procW * procH * 3);
-    lowFast = new Float32Array(procW * procH * 3);
-    mBuf = new Float32Array(procW * procH * 3);
-    mTmp = new Float32Array(procW * procH * 3);
+    const n = procW * procH;
+    tnrState = new Float32Array(n*3);
+    lowSlow = new Float32Array(n*3);
+    lowFast = new Float32Array(n*3);
+    mBuf = new Float32Array(n*3);
+    mTmp = new Float32Array(n*3);
+    Yb = new Float32Array(n); Lo = new Float32Array(n); Bb = new Float32Array(n);
+    R1 = new Float32Array(n); R2 = new Float32Array(n); Ab = new Float32Array(n);
+    phSlow = new Float32Array(n); phFast = new Float32Array(n);
+    gTmp = new Float32Array(n); gTmp2 = new Float32Array(n);
     initialized = false;
   }
 
@@ -307,192 +262,244 @@
       const cams = devs.filter(d => d.kind === 'videoinput');
       const cur = deviceSel.value;
       deviceSel.innerHTML = '<option value="">Default camera</option>';
-      cams.forEach((c,i) => {
-        const o = document.createElement('option');
-        o.value = c.deviceId;
-        o.textContent = c.label || ('Camera ' + (i+1));
-        deviceSel.appendChild(o);
-      });
+      cams.forEach((c,i) => { const o=document.createElement('option'); o.value=c.deviceId; o.textContent=c.label||('Camera '+(i+1)); deviceSel.appendChild(o); });
       deviceSel.value = cur;
-    }catch(e){ /* labels need permission first */ }
+    }catch(e){}
   }
-
   async function start(){
-    stop();
-    errEl.style.display = 'none';
+    stop(); errEl.style.display='none';
     const id = deviceSel.value;
-    const constraints = {
-      video: id
-        ? { deviceId: { exact: id }, width:{ideal:1280}, height:{ideal:720} }
-        : { width:{ideal:1280}, height:{ideal:720} },
-      audio: false
-    };
+    const constraints = { video: id ? { deviceId:{exact:id}, width:{ideal:1280}, height:{ideal:720} } : { width:{ideal:1280}, height:{ideal:720} }, audio:false };
     try{
       stream = await navigator.mediaDevices.getUserMedia(constraints);
-      video.srcObject = stream;
-      await video.play();
-      await listDevices();
-      allocBuffers();
-      running = true;
-      empty.hidden = true;
-      overlay.hidden = false;
-      document.getElementById('startBtn').disabled = true;
-      document.getElementById('stopBtn').disabled = false;
-      lastT = performance.now();
-      loop();
-    }catch(e){
-      showError(e);
+      video.srcObject = stream; await video.play(); await listDevices(); allocBuffers();
+      running=true; empty.hidden=true; overlay.hidden=false;
+      $('startBtn').disabled=true; $('stopBtn').disabled=false;
+      lastT = performance.now(); loop();
+    }catch(e){ showError(e); }
+  }
+  function stop(){
+    running=false; cancelAnimationFrame(raf);
+    if (stream){ stream.getTracks().forEach(t=>t.stop()); stream=null; }
+    video.srcObject=null; overlay.hidden=true; empty.hidden=false;
+    $('startBtn').disabled=false; $('stopBtn').disabled=true;
+  }
+  function showError(e){
+    let msg='Could not open the camera.';
+    if (e&&e.name==='NotAllowedError') msg='Camera permission was blocked. Allow it and try again.';
+    else if (e&&e.name==='NotFoundError') msg='No camera found. Plug in the camera (as a webcam device) and reload.';
+    else if (e&&e.name==='NotReadableError') msg='The camera is in use by another app. Close it and try again.';
+    else if (e&&e.message) msg+=' ('+e.message+')';
+    errEl.textContent=msg; errEl.style.display='block';
+  }
+  $('startBtn').onclick = start;
+  $('stopBtn').onclick = stop;
+  deviceSel.onchange = () => { if (running) start(); };
+
+  // --- helpers ---
+  // separable box blur on a single-channel Float32 buffer, edge-clamped
+  function blurGray(buf, tmp, w, h, r){
+    if (r<=0) return;
+    for (let y=0;y<h;y++){ const row=y*w;
+      for (let x=0;x<w;x++){ let s=0,c=0;
+        for (let k=-r;k<=r;k++){ let xx=x+k; if(xx<0)xx=0; else if(xx>=w)xx=w-1; s+=buf[row+xx]; c++; }
+        tmp[row+x]=s/c; } }
+    for (let y=0;y<h;y++){
+      for (let x=0;x<w;x++){ let s=0,c=0;
+        for (let k=-r;k<=r;k++){ let yy=y+k; if(yy<0)yy=0; else if(yy>=h)yy=h-1; s+=tmp[yy*w+x]; c++; }
+        buf[y*w+x]=s/c; } }
+  }
+  // block-average an RGB motion buffer to a coarse pyramid level (2^lv blocks)
+  function coarsenRGB(buf, w, h, lv){
+    if (lv<=0) return;
+    const b = 1<<lv;
+    for (let by=0;by<h;by+=b){ const ey=Math.min(by+b,h);
+      for (let bx=0;bx<w;bx+=b){ const ex=Math.min(bx+b,w);
+        let sr=0,sg=0,sb=0,cnt=0;
+        for (let y=by;y<ey;y++) for (let x=bx;x<ex;x++){ const i=(y*w+x)*3; sr+=buf[i]; sg+=buf[i+1]; sb+=buf[i+2]; cnt++; }
+        sr/=cnt; sg/=cnt; sb/=cnt;
+        for (let y=by;y<ey;y++) for (let x=bx;x<ex;x++){ const i=(y*w+x)*3; buf[i]=sr; buf[i+1]=sg; buf[i+2]=sb; }
+      } }
+  }
+  // box blur RGB (reuses mTmp)
+  function blurRGB(buf, tmp, w, h, r){
+    if (r<=0) return;
+    for (let y=0;y<h;y++){ const row=y*w;
+      for (let x=0;x<w;x++){ let sr=0,sg=0,sb=0,c=0;
+        for (let k=-r;k<=r;k++){ let xx=x+k; if(xx<0)xx=0; else if(xx>=w)xx=w-1; const i=(row+xx)*3; sr+=buf[i]; sg+=buf[i+1]; sb+=buf[i+2]; c++; }
+        const o=(row+x)*3; tmp[o]=sr/c; tmp[o+1]=sg/c; tmp[o+2]=sb/c; } }
+    for (let y=0;y<h;y++){
+      for (let x=0;x<w;x++){ let sr=0,sg=0,sb=0,c=0;
+        for (let k=-r;k<=r;k++){ let yy=y+k; if(yy<0)yy=0; else if(yy>=h)yy=h-1; const i=(yy*w+x)*3; sr+=tmp[i]; sg+=tmp[i+1]; sb+=tmp[i+2]; c++; }
+        const o=(y*w+x)*3; buf[o]=sr/c; buf[o+1]=sg/c; buf[o+2]=sb/c; } }
+  }
+
+  // motion-adaptive recursive temporal denoise, in place on d (RGB Uint8ClampedArray)
+  function temporalDenoise(d, n){
+    if (tnr<=0) return;
+    const kStatic = 1 - 0.92*tnr;   // small update where static -> heavy averaging
+    const thresh = 10;              // per-channel motion threshold (0..255)
+    for (let p=0;p<n;p++){
+      const i4=p<<2, i3=p*3;
+      for (let c=0;c<3;c++){
+        const x = d[i4+c], prev = tnrState[i3+c];
+        const diff = x>prev ? x-prev : prev-x;
+        let w = diff/thresh; if (w>1) w=1;         // 0 = still (denoise), 1 = moving (pass)
+        const k = kStatic + w*(1-kStatic);
+        const v = prev + k*(x-prev);
+        tnrState[i3+c] = v;
+        d[i4+c] = v<0?0:(v>255?255:v);             // denoised frame feeds both base + magnifier
+      }
     }
   }
-
-  function stop(){
-    running = false;
-    cancelAnimationFrame(raf);
-    if (stream){ stream.getTracks().forEach(t => t.stop()); stream = null; }
-    video.srcObject = null;
-    overlay.hidden = true;
-    empty.hidden = false;
-    document.getElementById('startBtn').disabled = false;
-    document.getElementById('stopBtn').disabled = true;
-  }
-
-  function showError(e){
-    let msg = 'Could not open the camera.';
-    if (e && e.name === 'NotAllowedError') msg = 'Camera permission was blocked. Allow it and try again — or run this as a standalone file if you\'re inside a sandboxed frame.';
-    else if (e && e.name === 'NotFoundError') msg = 'No camera found. Plug in the DSLR (as a webcam device) and reload.';
-    else if (e && e.name === 'NotReadableError') msg = 'The camera is in use by another app. Close it and try again.';
-    else if (e && e.message) msg += ' (' + e.message + ')';
-    errEl.textContent = msg;
-    errEl.style.display = 'block';
-  }
-
-  document.getElementById('startBtn').onclick = start;
-  document.getElementById('stopBtn').onclick = stop;
-  deviceSel.onchange = () => { if (running) start(); };
 
   // --- main loop ---
   function loop(){
     if (!running) return;
-    const now = performance.now();
-    const dt = now - lastT; lastT = now;
-    if (dt > 0){ const inst = 1000/dt; fps += (inst - fps) * 0.1; }
-
-    if (video.readyState >= 2 && procW){
-      processFrame();
-      drawReadout();
-    }
+    const now = performance.now(); const dt = now-lastT; lastT = now;
+    if (dt>0){ const inst=1000/dt; fps += (inst-fps)*0.1; }
+    if (video.readyState>=2 && procW){ processFrame(); drawReadout(); }
     raf = requestAnimationFrame(loop);
   }
 
-  // separable box blur over interleaved RGB, edge-clamped — denoises the motion signal
-  function boxBlur(buf, tmp, w, h, r){
-    for (let y=0; y<h; y++){
-      const row = y*w;
-      for (let x=0; x<w; x++){
-        let sr=0,sg=0,sb=0,cnt=0;
-        for (let k=-r; k<=r; k++){
-          let xx = x+k; if (xx<0) xx=0; else if (xx>=w) xx=w-1;
-          const i=(row+xx)*3; sr+=buf[i]; sg+=buf[i+1]; sb+=buf[i+2]; cnt++;
-        }
-        const o=(row+x)*3; tmp[o]=sr/cnt; tmp[o+1]=sg/cnt; tmp[o+2]=sb/cnt;
-      }
-    }
-    for (let y=0; y<h; y++){
-      for (let x=0; x<w; x++){
-        let sr=0,sg=0,sb=0,cnt=0;
-        for (let k=-r; k<=r; k++){
-          let yy = y+k; if (yy<0) yy=0; else if (yy>=h) yy=h-1;
-          const i=(yy*w+x)*3; sr+=tmp[i]; sg+=tmp[i+1]; sb+=tmp[i+2]; cnt++;
-        }
-        const o=(y*w+x)*3; buf[o]=sr/cnt; buf[o+1]=sg/cnt; buf[o+2]=sb/cnt;
-      }
-    }
-  }
-
   function processFrame(){
-    // temporal-bandpass alphas from cutoff freqs and live fps
     const f = Math.max(5, Math.min(120, fps));
     const aSlow = 1 - Math.exp(-2*Math.PI*loHz / f);
     const aFast = 1 - Math.exp(-2*Math.PI*hiHz / f);
-
     pctx.drawImage(video, 0, 0, procW, procH);
     const img = pctx.getImageData(0, 0, procW, procH);
-    const d = img.data;
-    const n = procW * procH;
-    const g = gain, amp = (mode === 'amp');
+    const d = img.data; const n = procW*procH;
 
-    if (!initialized){
-      for (let p=0; p<n; p++){
-        const i4 = p<<2, i3 = p*3;
-        lowSlow[i3]=lowFast[i3]=d[i4];
-        lowSlow[i3+1]=lowFast[i3+1]=d[i4+1];
-        lowSlow[i3+2]=lowFast[i3+2]=d[i4+2];
-      }
-      initialized = true;
-    }
+    if (!initialized){ seed(d, n); initialized = true; }
+    temporalDenoise(d, n);
 
-    const chroma = chromaAmt, r = denoiseR | 0;
-    let e = 0;
-
-    // pass 1 — per-channel temporal bandpass, blended toward luma, into mBuf
-    for (let p=0; p<n; p++){
-      const i4 = p<<2, i3 = p*3;
-      const xr = d[i4], xg = d[i4+1], xb = d[i4+2];
-      const sr = lowSlow[i3]   + aSlow*(xr - lowSlow[i3]);   lowSlow[i3]   = sr;
-      const sg = lowSlow[i3+1] + aSlow*(xg - lowSlow[i3+1]); lowSlow[i3+1] = sg;
-      const sb = lowSlow[i3+2] + aSlow*(xb - lowSlow[i3+2]); lowSlow[i3+2] = sb;
-      const fr = lowFast[i3]   + aFast*(xr - lowFast[i3]);   lowFast[i3]   = fr;
-      const fg = lowFast[i3+1] + aFast*(xg - lowFast[i3+1]); lowFast[i3+1] = fg;
-      const fb = lowFast[i3+2] + aFast*(xb - lowFast[i3+2]); lowFast[i3+2] = fb;
-      const bR = fr - sr, bG = fg - sg, bB = fb - sb;
-      // luma motion: when chroma = 0 all channels move together, so no colour speckle
-      const bY = 0.299*bR + 0.587*bG + 0.114*bB;
-      mBuf[i3]   = g*(chroma*bR + (1-chroma)*bY);
-      mBuf[i3+1] = g*(chroma*bG + (1-chroma)*bY);
-      mBuf[i3+2] = g*(chroma*bB + (1-chroma)*bY);
-      e += bY < 0 ? -bY : bY;
-    }
-
-    // pass 2 — spatially blur only the amplified motion (leaves the base image sharp)
-    if (r > 0) boxBlur(mBuf, mTmp, procW, procH, r);
-
-    // pass 3 — recombine
-    for (let p=0; p<n; p++){
-      const i4 = p<<2, i3 = p*3;
-      const base0 = amp ? d[i4]   : 128, m0 = amp ? mBuf[i3]   : mBuf[i3]*1.4;
-      const base1 = amp ? d[i4+1] : 128, m1 = amp ? mBuf[i3+1] : mBuf[i3+1]*1.4;
-      const base2 = amp ? d[i4+2] : 128, m2 = amp ? mBuf[i3+2] : mBuf[i3+2]*1.4;
-      let o0 = base0 + m0, o1 = base1 + m1, o2 = base2 + m2;
-      d[i4]   = o0<0?0:(o0>255?255:o0);
-      d[i4+1] = o1<0?0:(o1>255?255:o1);
-      d[i4+2] = o2<0?0:(o2>255?255:o2);
-    }
+    if (method === 'phase') phaseFrame(d, n, aSlow, aFast);
+    else linearFrame(d, n, aSlow, aFast);
 
     pctx.putImageData(img, 0, 0);
     dctx.imageSmoothingEnabled = true;
     dctx.drawImage(proc, 0, 0, procW, procH, 0, 0, view.width, view.height);
+  }
 
-    energy = e / n;
+  function seed(d, n){
+    for (let p=0;p<n;p++){
+      const i4=p<<2, i3=p*3;
+      tnrState[i3]=d[i4]; tnrState[i3+1]=d[i4+1]; tnrState[i3+2]=d[i4+2];
+      lowSlow[i3]=lowFast[i3]=d[i4];
+      lowSlow[i3+1]=lowFast[i3+1]=d[i4+1];
+      lowSlow[i3+2]=lowFast[i3+2]=d[i4+2];
+      const y = 0.299*d[i4]+0.587*d[i4+1]+0.114*d[i4+2];
+      Yb[p]=y; phSlow[p]=phFast[p]=0;
+    }
+  }
+
+  // ---- LINEAR (intensity) with luma-blend, temporal bandpass, pyramid scale, smoothing ----
+  function linearFrame(d, n, aSlow, aFast){
+    const g=gain, chroma=chromaAmt, amp=(mode==='amp');
+    let e=0;
+    for (let p=0;p<n;p++){
+      const i4=p<<2, i3=p*3;
+      const xr=d[i4], xg=d[i4+1], xb=d[i4+2];
+      const sr=lowSlow[i3]  +aSlow*(xr-lowSlow[i3]);   lowSlow[i3]=sr;
+      const sg=lowSlow[i3+1]+aSlow*(xg-lowSlow[i3+1]); lowSlow[i3+1]=sg;
+      const sb=lowSlow[i3+2]+aSlow*(xb-lowSlow[i3+2]); lowSlow[i3+2]=sb;
+      const fr=lowFast[i3]  +aFast*(xr-lowFast[i3]);   lowFast[i3]=fr;
+      const fg=lowFast[i3+1]+aFast*(xg-lowFast[i3+1]); lowFast[i3+1]=fg;
+      const fb=lowFast[i3+2]+aFast*(xb-lowFast[i3+2]); lowFast[i3+2]=fb;
+      const bR=fr-sr, bG=fg-sg, bB=fb-sb;
+      const bY=0.299*bR+0.587*bG+0.114*bB;
+      mBuf[i3]  =g*(chroma*bR+(1-chroma)*bY);
+      mBuf[i3+1]=g*(chroma*bG+(1-chroma)*bY);
+      mBuf[i3+2]=g*(chroma*bB+(1-chroma)*bY);
+      e += bY<0?-bY:bY;
+    }
+    if (scaleLv>0) coarsenRGB(mBuf, procW, procH, scaleLv);
+    if (denoiseR>0) blurRGB(mBuf, mTmp, procW, procH, denoiseR);
+    for (let p=0;p<n;p++){
+      const i4=p<<2, i3=p*3;
+      const b0=amp?d[i4]:128,   m0=amp?mBuf[i3]  :mBuf[i3]*1.4;
+      const b1=amp?d[i4+1]:128, m1=amp?mBuf[i3+1]:mBuf[i3+1]*1.4;
+      const b2=amp?d[i4+2]:128, m2=amp?mBuf[i3+2]:mBuf[i3+2]*1.4;
+      let o0=b0+m0,o1=b1+m1,o2=b2+m2;
+      d[i4]  =o0<0?0:(o0>255?255:o0);
+      d[i4+1]=o1<0?0:(o1>255?255:o1);
+      d[i4+2]=o2<0?0:(o2>255?255:o2);
+    }
+    energy = e/n;
+  }
+
+  // ---- PHASE (single-scale Riesz, beta): amplify displacement, not brightness ----
+  function phaseFrame(d, n, aSlow, aFast){
+    const g=gain, amp=(mode==='amp'), w=procW, h=procH;
+    // luminance
+    for (let p=0;p<n;p++){ const i4=p<<2; Yb[p]=0.299*d[i4]+0.587*d[i4+1]+0.114*d[i4+2]; }
+    // lowpass -> bandpass B = Y - Lo
+    Lo.set(Yb); blurGray(Lo, gTmp, w, h, 2);
+    for (let p=0;p<n;p++) Bb[p]=Yb[p]-Lo[p];
+    // Riesz transform (3-tap central difference)
+    for (let y=0;y<h;y++){ const row=y*w;
+      for (let x=0;x<w;x++){
+        const xl=x>0?x-1:0, xr=x<w-1?x+1:w-1;
+        const yu=y>0?y-1:0, yd=y<h-1?y+1:h-1;
+        R1[row+x]=0.5*(Bb[row+xr]-Bb[row+xl]);
+        R2[row+x]=0.5*(Bb[yd*w+x]-Bb[yu*w+x]);
+      } }
+    // local phase psi = atan2(|Riesz|, B); amplitude A
+    let e=0;
+    for (let p=0;p<n;p++){
+      const b=Bb[p], r1=R1[p], r2=R2[p];
+      const s=Math.sqrt(r1*r1+r2*r2);
+      const A=Math.sqrt(b*b+s*s);
+      Ab[p]=A;
+      const psi=Math.atan2(s, b);
+      const sl=phSlow[p]+aSlow*(psi-phSlow[p]); phSlow[p]=sl;
+      const fa=phFast[p]+aFast*(psi-phFast[p]); phFast[p]=fa;
+      const band=fa-sl;
+      gTmp[p]=band;             // raw phase-change signal
+      e += band<0?-band:band;
+    }
+    // amplitude-weighted spatial smoothing of the phase change (denoise where structure is weak)
+    for (let p=0;p<n;p++) gTmp2[p]=Ab[p]*gTmp[p];
+    const r = denoiseR>0?denoiseR:1;
+    blurGray(gTmp2, gTmp, w, h, r);   // note: gTmp used as scratch, then overwritten below
+    const Ablur = mTmp;               // borrow mTmp (Float32, big enough) for blurred amplitude
+    for (let p=0;p<n;p++) Ablur[p]=Ab[p];
+    blurGray(Ablur, R1, w, h, r);     // R1 no longer needed as scratch here
+    // reconstruct phase-shifted band and add luma motion to all channels
+    for (let p=0;p<n;p++){
+      const A=Ab[p];
+      let dPhi = gTmp2[p]/(Ablur[p]+1e-3);   // amplitude-weighted, smoothed phase change
+      dPhi *= g;
+      if (dPhi>1.4) dPhi=1.4; else if (dPhi<-1.4) dPhi=-1.4;   // clamp to avoid inversion
+      const b=Bb[p];
+      const s=Math.sqrt(A*A - b*b > 0 ? A*A-b*b : 0); // |Riesz| = sqrt(A^2 - B^2)
+      const bNew = b*Math.cos(dPhi) - s*Math.sin(dPhi);
+      const mLuma = (Lo[p]+bNew) - Yb[p];   // change in luminance from the phase shift
+      const i4=p<<2;
+      if (amp){
+        let o0=d[i4]+mLuma, o1=d[i4+1]+mLuma, o2=d[i4+2]+mLuma;
+        d[i4]  =o0<0?0:(o0>255?255:o0);
+        d[i4+1]=o1<0?0:(o1>255?255:o1);
+        d[i4+2]=o2<0?0:(o2>255?255:o2);
+      } else {
+        let v=128+mLuma*1.4; v=v<0?0:(v>255?255:v);
+        d[i4]=v; d[i4+1]=v; d[i4+2]=v;
+      }
+    }
+    energy = e/n;
   }
 
   function drawReadout(){
     readout.innerHTML =
-      `<b>${fps.toFixed(0)}</b> fps &nbsp; ` +
-      `<b>${procW}×${procH}</b> &nbsp; ` +
-      `band <b>${loHz.toFixed(1)}–${hiHz.toFixed(1)}</b> Hz &nbsp; ` +
-      `gain <b>${gain}×</b>`;
-    const pct = Math.min(100, energy * 8);
+      `<b>${method==='phase'?'PHASE':'LINEAR'}</b> &nbsp; ` +
+      `<b>${fps.toFixed(0)}</b> fps &nbsp; <b>${procW}×${procH}</b> &nbsp; ` +
+      `band <b>${loHz.toFixed(1)}–${hiHz.toFixed(1)}</b> Hz &nbsp; gain <b>${gain}×</b>`;
+    const pct = Math.min(100, energy * (method==='phase'?400:8));
     energyBar.style.width = pct.toFixed(0) + '%';
   }
 
-  // populate device list on load (labels appear after first grant)
-  if (navigator.mediaDevices) {
-    navigator.mediaDevices.addEventListener?.('devicechange', listDevices);
-    listDevices();
-  } else {
-    errEl.textContent = 'This browser has no camera API available here.';
-    errEl.style.display = 'block';
-  }
+  if (navigator.mediaDevices){ navigator.mediaDevices.addEventListener?.('devicechange', listDevices); listDevices(); }
+  else { errEl.textContent='This browser has no camera API available here.'; errEl.style.display='block'; }
 })();
 </script>
 </body>

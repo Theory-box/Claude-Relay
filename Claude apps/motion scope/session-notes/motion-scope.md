@@ -81,3 +81,38 @@ is being handled in a separate conversation.
 - Record or snapshot the amplified output.
 - Region-of-interest mask so only a selected patch is amplified (isolate one
   branch or one insect, ignore background wind).
+
+## Multi-method pass (added)
+
+Added three noise/method options at user request (phase-based, temporal denoise,
+spatial pyramid). Neural-net magnification explicitly deferred.
+
+- **Temporal denoise** — motion-adaptive recursive IIR NR on the input, in place
+  on the frame before magnifying. `kStatic = 1 - 0.92*strength`; per-channel
+  motion weight `w = clamp(|x-state|/thresh)`, `k = kStatic + w*(1-kStatic)`.
+  Not true motion-*compensated* (no optical flow) — motion-*adaptive*, which is
+  the right fit for a tripod (mostly-static frame). Denoised frame feeds both
+  base image and magnifier. High confidence.
+- **Spatial scale** — genuine pyramid coarsening via 2^level block-average of the
+  motion buffer, then optional Smoothing to de-block. Amplifies coarse scale =
+  drops fine sensor noise. High confidence.
+- **Phase (beta)** — single-scale Riesz. Y -> lowpass -> band B=Y-Lo -> Riesz
+  R1,R2 (3-tap central diff) -> local phase psi=atan2(|Riesz|,B), amplitude A ->
+  two-EMA temporal bandpass of psi -> amplitude-weighted spatial smoothing
+  (blur(A*band)/blur(A)) -> clamp -> phase-shift reconstruct
+  B'=B cos(dPhi) - |Riesz| sin(dPhi) -> add luma delta to all channels.
+  Confidence first-try-correct ~50%; can't verify visually here. Labelled BETA
+  in UI. Known simplifications: single scale (favours fine motion); psi is
+  unsigned [0,pi] so motion-direction sign can be imperfect; brief transient on
+  method switch (phase state seeds to 0). Likely needs a tuning round with user.
+
+Buffers added in allocBuffers: tnrState (RGB), Yb/Lo/Bb/R1/R2/Ab/phSlow/phFast/
+gTmp/gTmp2 (gray). Color field dims in UI when Phase selected. JS syntax-checked.
+
+## For next session
+
+If Phase looks wrong/janky: first suspects are the psi sign/orientation handling
+and the gain->radian scaling (currently reuses the linear gain slider, clamped to
+±1.4 rad). A signed phase (project Riesz onto a stable orientation) would fix
+direction artifacts. A 2–3 level phase pyramid would add coarse-motion support.
+Consider WebGL if plain-JS phase can't hold frame rate at useful resolution.

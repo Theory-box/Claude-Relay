@@ -1,9 +1,8 @@
 # Motion Scope
 
-Real-time **Eulerian Video Magnification** (motion magnification) in the browser.
-Reads a webcam or a DSLR-as-webcam feed and exaggerates subtle motion live, so
-small movements — a swaying branch, a pulse, machine vibration, insect wingbeats
-— become visible to the eye.
+Real-time motion magnification in the browser. Reads a webcam or a
+DSLR-as-webcam feed and exaggerates subtle motion live, so small movements — a
+swaying branch, a pulse, machine vibration, insect wingbeats — become visible.
 
 Single self-contained HTML file. No build step, no dependencies.
 
@@ -11,77 +10,62 @@ Single self-contained HTML file. No build step, no dependencies.
 
 - A modern browser with camera access (`getUserMedia`).
 - Served over `https://` or opened as an artifact. `file://` blocks the camera
-  in Chrome — use a local server (`python -m http.server`) if opening the file
-  directly, or run it as a Claude artifact.
-- A tripod. The method assumes a fixed camera; any shake is amplified as much as
-  the subject.
+  in Chrome — use a local server (`python -m http.server`) if opening directly.
+- A tripod. The method assumes a fixed camera; any shake is amplified too.
 
-## Install / Run
+## Run
 
 1. Open `motion_scope.html` in a browser (or as an artifact).
-2. Pick a source from the **Source** dropdown and press **Start**.
-3. Grant camera permission. If the first attempt is blocked, press **Start**
-   again once the permission is granted.
+2. Pick a source, press **Start**, grant camera permission (retry once if the
+   first attempt is blocked while the prompt is still up).
 
-## How it works
+## Methods
 
-Per pixel, the app keeps two exponential temporal filters — a slow one and a
-fast one — and amplifies the difference between them. That difference is a
-**temporal bandpass**: only motion whose rhythm falls between the two cutoff
-frequencies gets boosted, everything else is left alone. This is the linear
-(amplitude-based) Eulerian approach: no motion tracking, just per-pixel temporal
-filtering and gain, recombined with the original frame.
-
-Filter coefficients are derived live from the cutoff sliders and the measured
-frame rate: `alpha = 1 - exp(-2*pi*fc/fps)`.
+- **Linear** (default) — amplifies per-pixel brightness change. Simple and
+  responsive, but amplifies brightness noise along with the motion.
+- **Phase (beta)** — a single-scale Riesz-pyramid method that amplifies local
+  *displacement* rather than brightness, so brightness noise is largely left
+  alone. Includes amplitude-weighted smoothing, which only shifts pixels sitting
+  on real structure and ignores flat/noisy regions. Heavier than Linear; drop
+  **Detail** if the frame rate falls. Single-scale, so it favours fine-detail
+  motion — still experimental and may need tuning.
 
 ## Controls
 
 | Control | Meaning |
 | --- | --- |
-| **Amplified / Motion only** | Overlay boosted motion on the real image, or show just the motion field on grey |
-| **Amplification** | Gain applied to the bandpassed signal (1–80×) |
-| **Low cutoff** | Lower edge of the motion band, in Hz (slow sway ≈ low) |
-| **High cutoff** | Upper edge of the motion band, in Hz (wingbeats / vibration ≈ high) |
-| **Color** | 0% drives motion from brightness only (removes coloured speckle); 100% amplifies each RGB channel independently (full-colour, noisier) |
-| **Smoothing** | Spatial blur radius applied to the amplified motion only. 0 = off. Higher cuts grain, softens fine motion detail |
+| **Method** | Linear (brightness) or Phase (displacement, beta) |
+| **Amplified / Motion only** | Overlay boosted motion on the image, or show just the motion field |
+| **Amplification** | Gain applied to the motion signal |
+| **Low / High cutoff** | Temporal band (Hz) that gets amplified — sway ≈ low, wingbeats ≈ high |
+| **Temporal denoise** | Motion-adaptive recursive averaging on the feed *before* magnifying: de-noises static regions, passes moving ones through |
+| **Spatial scale** | Amplifies a coarser pyramid level (block size 2^level). Higher = less fine noise, only larger motion |
+| **Smoothing** | Fine spatial blur of the motion signal (also the amplitude-blur radius in Phase mode) |
+| **Color** | Linear only: 0% drives motion from brightness (no colour speckle), 100% amplifies each RGB channel |
 | **Detail** | Processing resolution. Lower = smoother, less noise, faster |
-| **Reset baseline** | Re-seed the temporal filters after the scene or camera settles |
+| **Reset baseline** | Re-seed the temporal filters after the scene settles |
 
 ## Noise handling
 
-Two controls target the two kinds of amplified noise:
+The three noise controls attack different sources:
 
-- **Coloured speckle (confetti)** comes from amplifying each RGB channel
-  independently — the per-channel sensor noise mismatches become random hue
-  shifts. **Color** blends the motion signal toward luminance, so channels move
-  together and the colour speckle disappears, leaving only grey grain.
-- **Grey grain** is spatially random, while real motion is spatially coherent.
-  **Smoothing** blurs only the amplified motion signal (not the base frame), so
-  the noise averages toward zero while the moving edges survive, and the static
-  background stays sharp.
+- **Temporal denoise** is the biggest win for a tripod scene. It keeps a running
+  per-pixel estimate of the "true" value and averages toward it where the pixel
+  is still, but hands the raw value straight through where motion exceeds a
+  threshold — so the static background de-noises without smearing the movers.
+  The denoised frame feeds both the base image and the magnifier.
+- **Spatial scale** amplifies coarse spatial detail, where signal-to-noise is
+  higher; fine-grained sensor noise lives at the finest scale and is dropped.
+- **Color** removes the coloured confetti in Linear mode by driving motion from
+  luminance so channels move together.
+- **Phase mode** is itself a noise strategy: amplifying displacement instead of
+  brightness means brightness noise isn't amplified linearly.
 
-Most of the remaining noise originates in the camera's live feed, which is
-lower-resolution and less denoised than its recorded video. Better light (lower
-ISO) and a cleaner capture path reduce it at the source, upstream of anything the
-app does.
-
-## Behaviour notes
-
-- Whole-frame motion (wind moving a plant, camera shake) amplifies too — that is
-  correct behaviour, not a bug. A tripod isolates the subject.
-- Slow global light changes (clouds) can flicker; the bandpass rejects most
-  drift below the low cutoff.
-- Very small / distant subjects can sit below the noise floor at low detail —
-  raise **Detail** if the frame rate allows.
-- Camera device labels only populate after the first permission grant.
-
-## Tuning starting points
-
-- **Branch sway / breathing:** low 0.2 Hz, high 2 Hz, gain 15–25.
-- **Wingbeats / fast vibration:** low 3 Hz, high 12 Hz, gain 20–40.
+Most remaining noise originates in the camera's live feed (lower-res, compressed,
+reduced in-camera NR, high ISO in dim scenes). Lower ISO / more light beats any
+in-app fix.
 
 ## Status
 
-Working. Confirmed live camera access inside the Claude artifact sandbox (first
-`getUserMedia` call may need a retry after the permission prompt).
+Linear + temporal denoise + spatial scale: working, syntax-checked.
+Phase mode: beta, single-scale, needs live tuning.
