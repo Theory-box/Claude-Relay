@@ -446,7 +446,7 @@
     buildSmall(d);
     if (stabReady){
       const s = estimateShift(); const f = procW/sw;
-      accX += s[0]*f; accY += s[1]*f;
+      accX -= s[0]*f; accY -= s[1]*f;   // s is (current≈prev+s); true displacement is -s
       slowX += stabStrength*(accX-slowX); slowY += stabStrength*(accY-slowY);
       let shx=accX-slowX, shy=accY-slowY;
       const lim=procW*0.15;

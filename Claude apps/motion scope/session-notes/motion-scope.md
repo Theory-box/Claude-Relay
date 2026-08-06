@@ -183,3 +183,9 @@ fractional (dx,dy). shiftFrame now bilinear + edge-clamp for fractional
 counter-shift. Accumulation fractional (no round). Strength slider maps 0-100 ->
 EMA alpha 0.25..0.01 (higher = slower pan reference = more drift cancelled),
 default 70 (~0.082, matches old behaviour). Targets medium-small jitter.
+
+## Stabilize sign fix
+
+Accumulation sign was inverted: estimateShift returns s where current(x)=prev(x+s),
+so true displacement is -s. Was doing acc += s (=-P), making the counter-shift add
+the shake instead of cancelling it (user: "enhances motion"). Changed to acc -= s.
