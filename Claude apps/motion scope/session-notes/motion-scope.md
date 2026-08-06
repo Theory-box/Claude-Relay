@@ -218,3 +218,11 @@ full res, remap d (bilinear, sample from shiftBuf copy). Amplification slider =
 warp strength (1 = none). Buffers: refWarp, wfx/wfy, per-block bSX/bFX/bSY/bFY.
 Stacks after stabilize (warps residual real motion). Beta: coarse field, blind-
 untested; may need block count / gain-scale tuning. Reuses cutoffs + stabilize.
+
+## Warp overlay control
+
+Overlay slider (0-100, default 0) active in Warp view. 0 = pure displacement.
+>0 layers a luma brightness-motion overlay (per-pixel two-EMA bandpass on the
+un-warped frame from shiftBuf, added overlayAmt*gain*band) on top of the warped
+image. lumaS/lumaF buffers seeded in seed(); updated every warp frame so toggling
+doesn't jump. Integrated into the warp remap loop (no extra pass).

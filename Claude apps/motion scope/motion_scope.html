@@ -138,6 +138,10 @@
         <span class="row"><span>High cutoff</span><span class="val" id="hiVal">6.0 Hz</span></span>
         <input type="range" id="hi" min="0.5" max="15" step="0.1" value="6">
       </label>
+      <label class="field">
+        <span class="row"><span>Overlay (Warp)</span><span class="val" id="overlayVal">0%</span></span>
+        <input type="range" id="overlay" min="0" max="100" step="5" value="0">
+      </label>
       <p class="note">Only motion whose rhythm falls between the two cutoffs gets amplified. Slow sway ≈ low Hz, wingbeats ≈ high Hz.</p>
     </div>
 
@@ -196,13 +200,14 @@
   let procW = 0, procH = 0, initialized = false;
   let method = 'linear', mode = 'amp';
   let gain = 18, loHz = 0.5, hiHz = 6, targetH = 384;
-  let chromaAmt = 0.2, denoiseR = 1, scaleLv = 0, tnr = 0.4;
+  let chromaAmt = 0.2, denoiseR = 1, scaleLv = 0, tnr = 0.4, overlayAmt = 0;
   let fps = 30, lastT = 0, energy = 0;
 
   // buffers
   let tnrState = null;                 // recursive temporal-denoise estimate (RGB)
   let lowSlow = null, lowFast = null;  // linear temporal bandpass (RGB)
   let mBuf = null, mTmp = null, bgModel = null; // motion signal + scratch + background model (RGB)
+  let lumaS = null, lumaF = null;               // warp overlay: luma temporal bandpass
   let stabilize=false, stabReady=false, sw=0, sh=0;
   let curS=null, prevS=null, shiftBuf=null, smallCnt=null;
   let accX=0, accY=0, slowX=0, slowY=0, stabStrength=0.868;
@@ -238,6 +243,8 @@
   scaleEl.oninput = () => { scaleLv = +scaleEl.value; scaleVal.textContent = scaleLv; };
   denoiseEl.oninput = () => { denoiseR = +denoiseEl.value; denoiseVal.textContent = denoiseR + ' px'; };
   colorEl.oninput = () => { chromaAmt = +colorEl.value/100; colorVal.textContent = colorEl.value + '%'; };
+  const overlayEl=$('overlay'), overlayVal=$('overlayVal');
+  overlayEl.oninput = () => { overlayAmt = +overlayEl.value/100; overlayVal.textContent = overlayEl.value + '%'; };
 
   const mLinear=$('mLinear'), mPhase=$('mPhase');
   mLinear.onclick = () => setMethod('linear');
@@ -287,6 +294,7 @@
     mBuf = new Float32Array(n*3);
     mTmp = new Float32Array(n*3);
     bgModel = new Float32Array(n*3);
+    lumaS = new Float32Array(n); lumaF = new Float32Array(n);
     sw = 120; sh = Math.max(24, Math.round(sw * procH / procW));
     curS = new Float32Array(sw*sh); prevS = new Float32Array(sw*sh);
     smallCnt = new Float32Array(sw*sh);
@@ -547,7 +555,7 @@
       lowSlow[i3+1]=lowFast[i3+1]=d[i4+1];
       lowSlow[i3+2]=lowFast[i3+2]=d[i4+2];
       const y = 0.299*d[i4]+0.587*d[i4+1]+0.114*d[i4+2];
-      Yb[p]=y;
+      Yb[p]=y; lumaS[p]=lumaF[p]=y;
     }
   }
 
@@ -738,11 +746,19 @@
         if(fyp<0)fyp=0; else if(fyp>procH-1)fyp=procH-1;
         const x0=fxp|0,y0=fyp|0,x1=x0<procW-1?x0+1:x0,y1=y0<procH-1?y0+1:y0,tx=fxp-x0,ty=fyp-y0;
         const i00=(y0*procW+x0)<<2,i10=(y0*procW+x1)<<2,i01=(y1*procW+x0)<<2,i11=(y1*procW+x1)<<2,di=(y*procW+x)<<2;
-        for(let ch=0;ch<3;ch++){
-          const a=shiftBuf[i00+ch]+(shiftBuf[i10+ch]-shiftBuf[i00+ch])*tx;
-          const b=shiftBuf[i01+ch]+(shiftBuf[i11+ch]-shiftBuf[i01+ch])*tx;
-          d[di+ch]=a+(b-a)*ty;
-        }
+        const wa0=shiftBuf[i00]+(shiftBuf[i10]-shiftBuf[i00])*tx, wb0=shiftBuf[i01]+(shiftBuf[i11]-shiftBuf[i01])*tx;
+        const wa1=shiftBuf[i00+1]+(shiftBuf[i10+1]-shiftBuf[i00+1])*tx, wb1=shiftBuf[i01+1]+(shiftBuf[i11+1]-shiftBuf[i01+1])*tx;
+        const wa2=shiftBuf[i00+2]+(shiftBuf[i10+2]-shiftBuf[i00+2])*tx, wb2=shiftBuf[i01+2]+(shiftBuf[i11+2]-shiftBuf[i01+2])*tx;
+        let o0=wa0+(wb0-wa0)*ty, o1=wa1+(wb1-wa1)*ty, o2=wa2+(wb2-wa2)*ty;
+        // brightness-motion overlay, from the original (un-warped) pixel over time
+        const pp=y*procW+x;
+        const Y0=0.299*shiftBuf[di]+0.587*shiftBuf[di+1]+0.114*shiftBuf[di+2];
+        const ls=lumaS[pp]+aSlow*(Y0-lumaS[pp]); lumaS[pp]=ls;
+        const lf=lumaF[pp]+aFast*(Y0-lumaF[pp]); lumaF[pp]=lf;
+        if(overlayAmt>0){ const add=overlayAmt*g*(lf-ls); o0+=add; o1+=add; o2+=add; }
+        d[di]  =o0<0?0:(o0>255?255:o0);
+        d[di+1]=o1<0?0:(o1>255?255:o1);
+        d[di+2]=o2<0?0:(o2>255?255:o2);
         d[di+3]=255;
       }
     }
