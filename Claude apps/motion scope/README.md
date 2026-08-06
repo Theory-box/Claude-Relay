@@ -43,8 +43,28 @@ frame rate: `alpha = 1 - exp(-2*pi*fc/fps)`.
 | **Amplification** | Gain applied to the bandpassed signal (1–80×) |
 | **Low cutoff** | Lower edge of the motion band, in Hz (slow sway ≈ low) |
 | **High cutoff** | Upper edge of the motion band, in Hz (wingbeats / vibration ≈ high) |
+| **Color** | 0% drives motion from brightness only (removes coloured speckle); 100% amplifies each RGB channel independently (full-colour, noisier) |
+| **Smoothing** | Spatial blur radius applied to the amplified motion only. 0 = off. Higher cuts grain, softens fine motion detail |
 | **Detail** | Processing resolution. Lower = smoother, less noise, faster |
 | **Reset baseline** | Re-seed the temporal filters after the scene or camera settles |
+
+## Noise handling
+
+Two controls target the two kinds of amplified noise:
+
+- **Coloured speckle (confetti)** comes from amplifying each RGB channel
+  independently — the per-channel sensor noise mismatches become random hue
+  shifts. **Color** blends the motion signal toward luminance, so channels move
+  together and the colour speckle disappears, leaving only grey grain.
+- **Grey grain** is spatially random, while real motion is spatially coherent.
+  **Smoothing** blurs only the amplified motion signal (not the base frame), so
+  the noise averages toward zero while the moving edges survive, and the static
+  background stays sharp.
+
+Most of the remaining noise originates in the camera's live feed, which is
+lower-resolution and less denoised than its recorded video. Better light (lower
+ISO) and a cleaner capture path reduce it at the source, upstream of anything the
+app does.
 
 ## Behaviour notes
 

@@ -42,6 +42,38 @@ insects. Curiosity / play project.
   that the sandbox iframe might block `getUserMedia` did not hold — user
   confirmed live use. First call may need one retry after the permission prompt.
 
+## Noise reduction pass (added)
+
+User reported heavy noise, especially coloured confetti, on an a6500 in remote/
+webcam mode. Diagnosis: most noise is real and enters via the camera's live feed
+(downscaled, compressed, reduced in-camera NR, likely high ISO in a shaded
+scene). Our linear/intensity EVM then amplifies in-band temporal noise with the
+same gain as signal — expected, not a bug.
+
+Two standard, low-risk controls added (both slider-controlled, non-destructive):
+
+- **Color (chroma) slider, default 20%.** Motion signal blended toward luma
+  (`0.299R+0.587G+0.114B`); at 0% all channels share one brightness-driven motion
+  term, so no hue shifts → coloured confetti gone. 100% = old per-channel
+  behaviour. Kept 3-channel filter state so full-colour is still available.
+- **Smoothing (spatial denoise) slider, default 1 px.** Separable edge-clamped
+  box blur applied to the amplified-motion buffer only, before recombining, so
+  the static base image stays sharp. Radius 0–4.
+
+Implementation: processFrame refactored into three passes (bandpass→mBuf,
+optional blur, recombine). Added mBuf/mTmp Float32 buffers in allocBuffers.
+Energy meter now computed on luma. JS syntax-checked clean.
+
+Deliberately did NOT add heavier edge-preserving denoise (bilateral/NLM) — user
+wants nothing that looks artificial, and these two cover the reported symptoms.
+
+## Open interaction to remember
+
+Lifting the processing-resolution cap will *increase* noise as things stand,
+because downscaling is currently an implicit denoiser. Add/relies-on spatial
+smoothing first, then raising resolution is safer. Camera→Mac output resolution
+is being handled in a separate conversation.
+
 ## Possible next steps
 
 - Optional spatial blur / pyramid level to cut amplified sensor noise further.

@@ -187,6 +187,19 @@
     </div>
 
     <div class="group">
+      <h3>Noise</h3>
+      <label class="field">
+        <span class="row"><span>Color</span><span class="val" id="colorVal">20%</span></span>
+        <input type="range" id="color" min="0" max="100" step="5" value="20">
+      </label>
+      <label class="field">
+        <span class="row"><span>Smoothing</span><span class="val" id="denoiseVal">1 px</span></span>
+        <input type="range" id="denoise" min="0" max="4" step="1" value="1">
+      </label>
+      <p class="note">Lower <b>Color</b> removes the coloured speckle by driving motion from brightness. <b>Smoothing</b> blurs only the amplified motion to cut grain — raise it if noise is heavy, drop to 0 to keep the finest detail.</p>
+    </div>
+
+    <div class="group">
       <h3>Quality</h3>
       <label class="field">
         <span class="row"><span>Detail</span><span class="val" id="resVal">384p</span></span>
@@ -219,9 +232,10 @@
   // state
   let stream = null, running = false, raf = 0;
   let procW = 0, procH = 0;
-  let lowSlow = null, lowFast = null, initialized = false;
+  let lowSlow = null, lowFast = null, mBuf = null, mTmp = null, initialized = false;
   let mode = 'amp';
   let gain = 18, loHz = 0.5, hiHz = 6, targetH = 384;
+  let chromaAmt = 0.2, denoiseR = 1;
   let fps = 30, lastT = 0, energy = 0;
 
   // --- controls ---
@@ -233,6 +247,10 @@
   const loVal = document.getElementById('loVal');
   const hiVal = document.getElementById('hiVal');
   const resVal = document.getElementById('resVal');
+  const colorEl = document.getElementById('color');
+  const colorVal = document.getElementById('colorVal');
+  const denoiseEl = document.getElementById('denoise');
+  const denoiseVal = document.getElementById('denoiseVal');
 
   gainEl.oninput = () => { gain = +gainEl.value; gainVal.textContent = gain + '×'; };
   loEl.oninput = () => {
@@ -249,6 +267,8 @@
     targetH = +resEl.value; resVal.textContent = targetH + 'p';
     if (running) allocBuffers();
   };
+  colorEl.oninput = () => { chromaAmt = +colorEl.value / 100; colorVal.textContent = colorEl.value + '%'; };
+  denoiseEl.oninput = () => { denoiseR = +denoiseEl.value; denoiseVal.textContent = denoiseR + ' px'; };
 
   const modeAmp = document.getElementById('modeAmp');
   const modeMotion = document.getElementById('modeMotion');
@@ -275,6 +295,8 @@
     view.height = dispH;
     lowSlow = new Float32Array(procW * procH * 3);
     lowFast = new Float32Array(procW * procH * 3);
+    mBuf = new Float32Array(procW * procH * 3);
+    mTmp = new Float32Array(procW * procH * 3);
     initialized = false;
   }
 
@@ -362,6 +384,31 @@
     raf = requestAnimationFrame(loop);
   }
 
+  // separable box blur over interleaved RGB, edge-clamped — denoises the motion signal
+  function boxBlur(buf, tmp, w, h, r){
+    for (let y=0; y<h; y++){
+      const row = y*w;
+      for (let x=0; x<w; x++){
+        let sr=0,sg=0,sb=0,cnt=0;
+        for (let k=-r; k<=r; k++){
+          let xx = x+k; if (xx<0) xx=0; else if (xx>=w) xx=w-1;
+          const i=(row+xx)*3; sr+=buf[i]; sg+=buf[i+1]; sb+=buf[i+2]; cnt++;
+        }
+        const o=(row+x)*3; tmp[o]=sr/cnt; tmp[o+1]=sg/cnt; tmp[o+2]=sb/cnt;
+      }
+    }
+    for (let y=0; y<h; y++){
+      for (let x=0; x<w; x++){
+        let sr=0,sg=0,sb=0,cnt=0;
+        for (let k=-r; k<=r; k++){
+          let yy = y+k; if (yy<0) yy=0; else if (yy>=h) yy=h-1;
+          const i=(yy*w+x)*3; sr+=tmp[i]; sg+=tmp[i+1]; sb+=tmp[i+2]; cnt++;
+        }
+        const o=(y*w+x)*3; buf[o]=sr/cnt; buf[o+1]=sg/cnt; buf[o+2]=sb/cnt;
+      }
+    }
+  }
+
   function processFrame(){
     // temporal-bandpass alphas from cutoff freqs and live fps
     const f = Math.max(5, Math.min(120, fps));
@@ -384,24 +431,48 @@
       initialized = true;
     }
 
+    const chroma = chromaAmt, r = denoiseR | 0;
     let e = 0;
+
+    // pass 1 — per-channel temporal bandpass, blended toward luma, into mBuf
     for (let p=0; p<n; p++){
       const i4 = p<<2, i3 = p*3;
-      for (let c=0; c<3; c++){
-        const x = d[i4+c];
-        const s = lowSlow[i3+c] + aSlow*(x - lowSlow[i3+c]); lowSlow[i3+c] = s;
-        const fst = lowFast[i3+c] + aFast*(x - lowFast[i3+c]); lowFast[i3+c] = fst;
-        const band = fst - s;                 // temporal bandpass
-        e += band < 0 ? -band : band;
-        let o = amp ? (x + g*band) : (128 + g*band*1.4);
-        d[i4+c] = o < 0 ? 0 : (o > 255 ? 255 : o);
-      }
+      const xr = d[i4], xg = d[i4+1], xb = d[i4+2];
+      const sr = lowSlow[i3]   + aSlow*(xr - lowSlow[i3]);   lowSlow[i3]   = sr;
+      const sg = lowSlow[i3+1] + aSlow*(xg - lowSlow[i3+1]); lowSlow[i3+1] = sg;
+      const sb = lowSlow[i3+2] + aSlow*(xb - lowSlow[i3+2]); lowSlow[i3+2] = sb;
+      const fr = lowFast[i3]   + aFast*(xr - lowFast[i3]);   lowFast[i3]   = fr;
+      const fg = lowFast[i3+1] + aFast*(xg - lowFast[i3+1]); lowFast[i3+1] = fg;
+      const fb = lowFast[i3+2] + aFast*(xb - lowFast[i3+2]); lowFast[i3+2] = fb;
+      const bR = fr - sr, bG = fg - sg, bB = fb - sb;
+      // luma motion: when chroma = 0 all channels move together, so no colour speckle
+      const bY = 0.299*bR + 0.587*bG + 0.114*bB;
+      mBuf[i3]   = g*(chroma*bR + (1-chroma)*bY);
+      mBuf[i3+1] = g*(chroma*bG + (1-chroma)*bY);
+      mBuf[i3+2] = g*(chroma*bB + (1-chroma)*bY);
+      e += bY < 0 ? -bY : bY;
     }
+
+    // pass 2 — spatially blur only the amplified motion (leaves the base image sharp)
+    if (r > 0) boxBlur(mBuf, mTmp, procW, procH, r);
+
+    // pass 3 — recombine
+    for (let p=0; p<n; p++){
+      const i4 = p<<2, i3 = p*3;
+      const base0 = amp ? d[i4]   : 128, m0 = amp ? mBuf[i3]   : mBuf[i3]*1.4;
+      const base1 = amp ? d[i4+1] : 128, m1 = amp ? mBuf[i3+1] : mBuf[i3+1]*1.4;
+      const base2 = amp ? d[i4+2] : 128, m2 = amp ? mBuf[i3+2] : mBuf[i3+2]*1.4;
+      let o0 = base0 + m0, o1 = base1 + m1, o2 = base2 + m2;
+      d[i4]   = o0<0?0:(o0>255?255:o0);
+      d[i4+1] = o1<0?0:(o1>255?255:o1);
+      d[i4+2] = o2<0?0:(o2>255?255:o2);
+    }
+
     pctx.putImageData(img, 0, 0);
     dctx.imageSmoothingEnabled = true;
     dctx.drawImage(proc, 0, 0, procW, procH, 0, 0, view.width, view.height);
 
-    energy = e / (n*3);
+    energy = e / n;
   }
 
   function drawReadout(){
