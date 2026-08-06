@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Motion Scope — live Eulerian magnification</title>
+<style>
+  :root{
+    --bg:#0b0f14;
+    --panel:#131a22;
+    --panel-2:#1b2430;
+    --line:#26313f;
+    --ink:#e8eef4;
+    --muted:#8ea0b2;
+    --phosphor:#39e6c4;   /* signal */
+    --amber:#f2a63b;      /* gain */
+    --hot:#ff5d73;        /* alerts / stop */
+    --font:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{
+    background:var(--bg);color:var(--ink);font-family:var(--font);
+    display:flex;flex-direction:column;min-height:100%;
+  }
+  header{
+    display:flex;align-items:baseline;gap:.6rem;flex-wrap:wrap;
+    padding:.75rem 1rem;border-bottom:1px solid var(--line);
+  }
+  header .mark{
+    font-family:var(--mono);font-weight:600;letter-spacing:.06em;
+    color:var(--phosphor);font-size:.95rem;
+  }
+  header .sub{color:var(--muted);font-size:.8rem;font-family:var(--mono)}
+  .wrap{
+    flex:1;display:grid;grid-template-columns:1fr 320px;gap:1px;
+    background:var(--line);min-height:0;
+  }
+  .stage{
+    background:#000;position:relative;display:flex;align-items:center;justify-content:center;
+    overflow:hidden;min-height:320px;
+  }
+  canvas#view{max-width:100%;max-height:100%;display:block;background:#000}
+  video#src{display:none}
+  .stage .overlay{
+    position:absolute;inset:0;pointer-events:none;
+    display:flex;flex-direction:column;justify-content:space-between;padding:.6rem .75rem;
+  }
+  .readout{
+    align-self:flex-start;font-family:var(--mono);font-size:.72rem;
+    color:var(--muted);background:rgba(6,10,14,.55);border:1px solid var(--line);
+    border-radius:6px;padding:.3rem .5rem;line-height:1.5;backdrop-filter:blur(4px);
+  }
+  .readout b{color:var(--ink);font-weight:600}
+  .energy{
+    align-self:flex-end;width:100%;max-width:280px;
+    font-family:var(--mono);font-size:.68rem;color:var(--muted);
+  }
+  .energy .bar{
+    height:6px;border-radius:3px;background:var(--panel-2);overflow:hidden;margin-top:.25rem;
+    border:1px solid var(--line);
+  }
+  .energy .bar > i{
+    display:block;height:100%;width:0%;
+    background:linear-gradient(90deg,var(--phosphor),var(--amber));
+  }
+  .empty{
+    position:absolute;inset:0;display:flex;flex-direction:column;gap:.8rem;
+    align-items:center;justify-content:center;text-align:center;padding:2rem;color:var(--muted);
+  }
+  .empty h2{margin:0;color:var(--ink);font-size:1.05rem;font-weight:600}
+  .empty p{margin:0;max-width:34ch;font-size:.85rem;line-height:1.5}
+  .rail{
+    background:var(--panel);overflow-y:auto;padding:1rem;display:flex;flex-direction:column;gap:1.1rem;
+  }
+  .group{display:flex;flex-direction:column;gap:.55rem}
+  .group h3{
+    margin:0;font-size:.7rem;text-transform:uppercase;letter-spacing:.12em;
+    color:var(--muted);font-weight:600;
+  }
+  label.field{display:flex;flex-direction:column;gap:.3rem;font-size:.8rem}
+  label.field .row{display:flex;justify-content:space-between;align-items:baseline}
+  label.field .val{font-family:var(--mono);color:var(--phosphor);font-size:.78rem}
+  input[type=range]{
+    -webkit-appearance:none;appearance:none;width:100%;height:4px;border-radius:2px;
+    background:var(--panel-2);outline:none;
+  }
+  input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none;width:16px;height:16px;border-radius:50%;
+    background:var(--ink);border:2px solid var(--phosphor);cursor:pointer;
+  }
+  input[type=range]::-moz-range-thumb{
+    width:16px;height:16px;border-radius:50%;background:var(--ink);
+    border:2px solid var(--phosphor);cursor:pointer;
+  }
+  input[type=range]:focus-visible{box-shadow:0 0 0 2px var(--phosphor)}
+  select,button{font-family:var(--font);font-size:.82rem}
+  select{
+    width:100%;padding:.5rem;border-radius:8px;background:var(--panel-2);
+    color:var(--ink);border:1px solid var(--line);
+  }
+  .seg{display:flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+  .seg button{
+    flex:1;background:var(--panel-2);color:var(--muted);border:none;padding:.5rem;
+    cursor:pointer;transition:background .12s,color .12s;
+  }
+  .seg button[aria-pressed=true]{background:var(--phosphor);color:#04120e;font-weight:600}
+  .btns{display:flex;gap:.5rem}
+  button.act{
+    flex:1;padding:.6rem;border-radius:8px;border:1px solid var(--line);
+    background:var(--panel-2);color:var(--ink);cursor:pointer;transition:background .12s,border-color .12s;
+  }
+  button.act:hover{border-color:var(--phosphor)}
+  button.act.primary{background:var(--phosphor);color:#04120e;border-color:var(--phosphor);font-weight:600}
+  button.act.stop{border-color:var(--hot);color:var(--hot)}
+  button.act:disabled{opacity:.4;cursor:not-allowed}
+  button.act:focus-visible,.seg button:focus-visible,select:focus-visible{
+    outline:2px solid var(--phosphor);outline-offset:2px;
+  }
+  .note{font-size:.72rem;color:var(--muted);line-height:1.5}
+  .err{color:var(--hot);font-size:.78rem;line-height:1.5;display:none}
+  @media (max-width:820px){
+    .wrap{grid-template-columns:1fr;grid-template-rows:minmax(280px,1fr) auto}
+    .rail{max-height:46vh}
+  }
+  @media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<header>
+  <span class="mark">◉ MOTION SCOPE</span>
+  <span class="sub">live eulerian magnification</span>
+</header>
+
+<div class="wrap">
+  <div class="stage">
+    <video id="src" playsinline muted></video>
+    <canvas id="view" width="960" height="540"></canvas>
+    <div class="overlay" id="overlay" hidden>
+      <div class="readout" id="readout"></div>
+      <div class="energy">
+        motion energy
+        <div class="bar"><i id="energyBar"></i></div>
+      </div>
+    </div>
+    <div class="empty" id="empty">
+      <h2>No camera running</h2>
+      <p>Pick a source and press <b>Start</b>. Point a tripod-mounted camera at something nearly still — trees, a face, a resting insect — and turn amplification up.</p>
+      <p class="err" id="err"></p>
+    </div>
+  </div>
+
+  <div class="rail">
+    <div class="group">
+      <h3>Source</h3>
+      <select id="devices"><option value="">Default camera</option></select>
+      <div class="btns">
+        <button class="act primary" id="startBtn">Start</button>
+        <button class="act stop" id="stopBtn" disabled>Stop</button>
+      </div>
+    </div>
+
+    <div class="group">
+      <h3>View</h3>
+      <div class="seg" role="group" aria-label="View mode">
+        <button id="modeAmp" aria-pressed="true">Amplified</button>
+        <button id="modeMotion" aria-pressed="false">Motion only</button>
+      </div>
+    </div>
+
+    <div class="group">
+      <h3>Magnification</h3>
+      <label class="field">
+        <span class="row"><span>Amplification</span><span class="val" id="gainVal">18×</span></span>
+        <input type="range" id="gain" min="1" max="80" step="1" value="18">
+      </label>
+      <label class="field">
+        <span class="row"><span>Low cutoff</span><span class="val" id="loVal">0.5 Hz</span></span>
+        <input type="range" id="lo" min="0.1" max="6" step="0.1" value="0.5">
+      </label>
+      <label class="field">
+        <span class="row"><span>High cutoff</span><span class="val" id="hiVal">6.0 Hz</span></span>
+        <input type="range" id="hi" min="0.5" max="15" step="0.1" value="6">
+      </label>
+      <p class="note">Only motion whose rhythm falls between the two cutoffs gets amplified. Slow sway ≈ low Hz, wingbeats/vibration ≈ high Hz.</p>
+    </div>
+
+    <div class="group">
+      <h3>Quality</h3>
+      <label class="field">
+        <span class="row"><span>Detail</span><span class="val" id="resVal">384p</span></span>
+        <input type="range" id="res" min="192" max="640" step="64" value="384">
+      </label>
+      <div class="btns">
+        <button class="act" id="resetBtn">Reset baseline</button>
+      </div>
+      <p class="note">Lower detail = smoother, less noise, faster. Reset the baseline after the camera or scene settles.</p>
+    </div>
+  </div>
+</div>
+
+<script>
+(() => {
+  const video = document.getElementById('src');
+  const view = document.getElementById('view');
+  const dctx = view.getContext('2d');
+  const overlay = document.getElementById('overlay');
+  const empty = document.getElementById('empty');
+  const errEl = document.getElementById('err');
+  const readout = document.getElementById('readout');
+  const energyBar = document.getElementById('energyBar');
+  const deviceSel = document.getElementById('devices');
+
+  // offscreen processing canvas
+  const proc = document.createElement('canvas');
+  const pctx = proc.getContext('2d', { willReadFrequently: true });
+
+  // state
+  let stream = null, running = false, raf = 0;
+  let procW = 0, procH = 0;
+  let lowSlow = null, lowFast = null, initialized = false;
+  let mode = 'amp';
+  let gain = 18, loHz = 0.5, hiHz = 6, targetH = 384;
+  let fps = 30, lastT = 0, energy = 0;
+
+  // --- controls ---
+  const gainEl = document.getElementById('gain');
+  const loEl = document.getElementById('lo');
+  const hiEl = document.getElementById('hi');
+  const resEl = document.getElementById('res');
+  const gainVal = document.getElementById('gainVal');
+  const loVal = document.getElementById('loVal');
+  const hiVal = document.getElementById('hiVal');
+  const resVal = document.getElementById('resVal');
+
+  gainEl.oninput = () => { gain = +gainEl.value; gainVal.textContent = gain + '×'; };
+  loEl.oninput = () => {
+    loHz = +loEl.value;
+    if (loHz >= hiHz) { hiHz = Math.min(15, loHz + 0.5); hiEl.value = hiHz; hiVal.textContent = hiHz.toFixed(1)+' Hz'; }
+    loVal.textContent = loHz.toFixed(1)+' Hz';
+  };
+  hiEl.oninput = () => {
+    hiHz = +hiEl.value;
+    if (hiHz <= loHz) { loHz = Math.max(0.1, hiHz - 0.5); loEl.value = loHz; loVal.textContent = loHz.toFixed(1)+' Hz'; }
+    hiVal.textContent = hiHz.toFixed(1)+' Hz';
+  };
+  resEl.oninput = () => {
+    targetH = +resEl.value; resVal.textContent = targetH + 'p';
+    if (running) allocBuffers();
+  };
+
+  const modeAmp = document.getElementById('modeAmp');
+  const modeMotion = document.getElementById('modeMotion');
+  modeAmp.onclick = () => setMode('amp');
+  modeMotion.onclick = () => setMode('motion');
+  function setMode(m){
+    mode = m;
+    modeAmp.setAttribute('aria-pressed', m==='amp');
+    modeMotion.setAttribute('aria-pressed', m==='motion');
+  }
+
+  document.getElementById('resetBtn').onclick = () => { initialized = false; };
+
+  // --- buffers ---
+  function allocBuffers(){
+    if (!video.videoWidth) return;
+    const ar = video.videoWidth / video.videoHeight;
+    procH = Math.round(targetH);
+    procW = Math.round(procH * ar);
+    proc.width = procW; proc.height = procH;
+    // display canvas keeps camera aspect
+    const dispH = 540;
+    view.width = Math.round(dispH * ar);
+    view.height = dispH;
+    lowSlow = new Float32Array(procW * procH * 3);
+    lowFast = new Float32Array(procW * procH * 3);
+    initialized = false;
+  }
+
+  // --- camera ---
+  async function listDevices(){
+    try{
+      const devs = await navigator.mediaDevices.enumerateDevices();
+      const cams = devs.filter(d => d.kind === 'videoinput');
+      const cur = deviceSel.value;
+      deviceSel.innerHTML = '<option value="">Default camera</option>';
+      cams.forEach((c,i) => {
+        const o = document.createElement('option');
+        o.value = c.deviceId;
+        o.textContent = c.label || ('Camera ' + (i+1));
+        deviceSel.appendChild(o);
+      });
+      deviceSel.value = cur;
+    }catch(e){ /* labels need permission first */ }
+  }
+
+  async function start(){
+    stop();
+    errEl.style.display = 'none';
+    const id = deviceSel.value;
+    const constraints = {
+      video: id
+        ? { deviceId: { exact: id }, width:{ideal:1280}, height:{ideal:720} }
+        : { width:{ideal:1280}, height:{ideal:720} },
+      audio: false
+    };
+    try{
+      stream = await navigator.mediaDevices.getUserMedia(constraints);
+      video.srcObject = stream;
+      await video.play();
+      await listDevices();
+      allocBuffers();
+      running = true;
+      empty.hidden = true;
+      overlay.hidden = false;
+      document.getElementById('startBtn').disabled = true;
+      document.getElementById('stopBtn').disabled = false;
+      lastT = performance.now();
+      loop();
+    }catch(e){
+      showError(e);
+    }
+  }
+
+  function stop(){
+    running = false;
+    cancelAnimationFrame(raf);
+    if (stream){ stream.getTracks().forEach(t => t.stop()); stream = null; }
+    video.srcObject = null;
+    overlay.hidden = true;
+    empty.hidden = false;
+    document.getElementById('startBtn').disabled = false;
+    document.getElementById('stopBtn').disabled = true;
+  }
+
+  function showError(e){
+    let msg = 'Could not open the camera.';
+    if (e && e.name === 'NotAllowedError') msg = 'Camera permission was blocked. Allow it and try again — or run this as a standalone file if you\'re inside a sandboxed frame.';
+    else if (e && e.name === 'NotFoundError') msg = 'No camera found. Plug in the DSLR (as a webcam device) and reload.';
+    else if (e && e.name === 'NotReadableError') msg = 'The camera is in use by another app. Close it and try again.';
+    else if (e && e.message) msg += ' (' + e.message + ')';
+    errEl.textContent = msg;
+    errEl.style.display = 'block';
+  }
+
+  document.getElementById('startBtn').onclick = start;
+  document.getElementById('stopBtn').onclick = stop;
+  deviceSel.onchange = () => { if (running) start(); };
+
+  // --- main loop ---
+  function loop(){
+    if (!running) return;
+    const now = performance.now();
+    const dt = now - lastT; lastT = now;
+    if (dt > 0){ const inst = 1000/dt; fps += (inst - fps) * 0.1; }
+
+    if (video.readyState >= 2 && procW){
+      processFrame();
+      drawReadout();
+    }
+    raf = requestAnimationFrame(loop);
+  }
+
+  function processFrame(){
+    // temporal-bandpass alphas from cutoff freqs and live fps
+    const f = Math.max(5, Math.min(120, fps));
+    const aSlow = 1 - Math.exp(-2*Math.PI*loHz / f);
+    const aFast = 1 - Math.exp(-2*Math.PI*hiHz / f);
+
+    pctx.drawImage(video, 0, 0, procW, procH);
+    const img = pctx.getImageData(0, 0, procW, procH);
+    const d = img.data;
+    const n = procW * procH;
+    const g = gain, amp = (mode === 'amp');
+
+    if (!initialized){
+      for (let p=0; p<n; p++){
+        const i4 = p<<2, i3 = p*3;
+        lowSlow[i3]=lowFast[i3]=d[i4];
+        lowSlow[i3+1]=lowFast[i3+1]=d[i4+1];
+        lowSlow[i3+2]=lowFast[i3+2]=d[i4+2];
+      }
+      initialized = true;
+    }
+
+    let e = 0;
+    for (let p=0; p<n; p++){
+      const i4 = p<<2, i3 = p*3;
+      for (let c=0; c<3; c++){
+        const x = d[i4+c];
+        const s = lowSlow[i3+c] + aSlow*(x - lowSlow[i3+c]); lowSlow[i3+c] = s;
+        const fst = lowFast[i3+c] + aFast*(x - lowFast[i3+c]); lowFast[i3+c] = fst;
+        const band = fst - s;                 // temporal bandpass
+        e += band < 0 ? -band : band;
+        let o = amp ? (x + g*band) : (128 + g*band*1.4);
+        d[i4+c] = o < 0 ? 0 : (o > 255 ? 255 : o);
+      }
+    }
+    pctx.putImageData(img, 0, 0);
+    dctx.imageSmoothingEnabled = true;
+    dctx.drawImage(proc, 0, 0, procW, procH, 0, 0, view.width, view.height);
+
+    energy = e / (n*3);
+  }
+
+  function drawReadout(){
+    readout.innerHTML =
+      `<b>${fps.toFixed(0)}</b> fps &nbsp; ` +
+      `<b>${procW}×${procH}</b> &nbsp; ` +
+      `band <b>${loHz.toFixed(1)}–${hiHz.toFixed(1)}</b> Hz &nbsp; ` +
+      `gain <b>${gain}×</b>`;
+    const pct = Math.min(100, energy * 8);
+    energyBar.style.width = pct.toFixed(0) + '%';
+  }
+
+  // populate device list on load (labels appear after first grant)
+  if (navigator.mediaDevices) {
+    navigator.mediaDevices.addEventListener?.('devicechange', listDevices);
+    listDevices();
+  } else {
+    errEl.textContent = 'This browser has no camera API available here.';
+    errEl.style.display = 'block';
+  }
+})();
+</script>
+</body>
+</html>
