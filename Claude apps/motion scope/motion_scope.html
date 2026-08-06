@@ -120,6 +120,7 @@
         <button id="modeAmp" aria-pressed="true">Amplified</button>
         <button id="modeMotion" aria-pressed="false">Motion only</button>
         <button id="modeIsolate" aria-pressed="false">Isolate</button>
+        <button id="modeWarp" aria-pressed="false">Warp<span class="beta">BETA</span></button>
       </div>
     </div>
 
@@ -205,6 +206,8 @@
   let stabilize=false, stabReady=false, sw=0, sh=0;
   let curS=null, prevS=null, shiftBuf=null, smallCnt=null;
   let accX=0, accY=0, slowX=0, slowY=0, stabStrength=0.868;
+  let WC=0, WR=0, refWarp=null, wfx=null, wfy=null;
+  let bSX=null, bFX=null, bSY=null, bFY=null, warpReady=false;
   let Yb=null, Lo=null, Bb=null, R1=null, R2=null, Ab=null; // phase (gray)
   let Bprev=null, R1p=null, R2p=null;                       // previous-frame monogenic (also blur scratch)
   let pxS=null, pxF=null, pyS=null, pyF=null, Pxa=null, Pya=null; // per-axis phase state + accumulators
@@ -246,14 +249,16 @@
     colorField.classList.toggle('dim', m!=='linear');
   }
 
-  const modeAmp=$('modeAmp'), modeMotion=$('modeMotion'), modeIsolate=$('modeIsolate');
+  const modeAmp=$('modeAmp'), modeMotion=$('modeMotion'), modeIsolate=$('modeIsolate'), modeWarp=$('modeWarp');
   modeAmp.onclick = () => setMode('amp');
   modeMotion.onclick = () => setMode('motion');
   modeIsolate.onclick = () => setMode('isolate');
-  function setMode(m){ mode=m;
+  modeWarp.onclick = () => setMode('warp');
+  function setMode(m){ mode=m; warpReady=false;
     modeAmp.setAttribute('aria-pressed', m==='amp');
     modeMotion.setAttribute('aria-pressed', m==='motion');
-    modeIsolate.setAttribute('aria-pressed', m==='isolate'); }
+    modeIsolate.setAttribute('aria-pressed', m==='isolate');
+    modeWarp.setAttribute('aria-pressed', m==='warp'); }
 
   const stabOff=$('stabOff'), stabOn=$('stabOn');
   stabOff.onclick = () => setStab(false);
@@ -263,7 +268,7 @@
   const stabStrEl=$('stabStr'), stabStrVal=$('stabStrVal');
   stabStrEl.oninput = () => { const v=+stabStrEl.value; stabStrength = 0.70 + (v/100)*0.24; stabStrVal.textContent = v; };
 
-  $('resetBtn').onclick = () => { initialized = false; phaseReady = false; };
+  $('resetBtn').onclick = () => { initialized = false; phaseReady = false; warpReady = false; };
 
   // --- buffers ---
   function allocBuffers(){
@@ -285,6 +290,12 @@
     sw = 120; sh = Math.max(24, Math.round(sw * procH / procW));
     curS = new Float32Array(sw*sh); prevS = new Float32Array(sw*sh);
     smallCnt = new Float32Array(sw*sh);
+    WC=10; WR=Math.max(4, Math.round(WC*procH/procW));
+    refWarp = new Float32Array(sw*sh);
+    const nb=WC*WR;
+    wfx=new Float32Array(nb); wfy=new Float32Array(nb);
+    bSX=new Float32Array(nb); bFX=new Float32Array(nb); bSY=new Float32Array(nb); bFY=new Float32Array(nb);
+    warpReady=false;
     shiftBuf = new Uint8ClampedArray(n*4);
     accX=accY=slowX=slowY=0; stabReady=false;
     Yb = new Float32Array(n); Lo = new Float32Array(n); Bb = new Float32Array(n);
@@ -518,6 +529,7 @@
     temporalDenoise(d, n);
 
     if (mode === 'isolate') isolateFrame(d, n);
+    else if (mode === 'warp') warpFrame(d, n, aSlow, aFast);
     else if (method === 'phase') phaseFrame(d, n, aSlow, aFast);
     else linearFrame(d, n, aSlow, aFast);
 
@@ -679,6 +691,61 @@
       d[i4+2]=o2>255?255:o2;
     }
     energy=e/(n*3);
+  }
+
+  function blockSadRef(bx0,by0,bx1,by1,dx,dy){
+    let sad=0,cnt=0;
+    for (let y=by0;y<by1;y++){ const yy=y+dy; if(yy<0||yy>=sh)continue; const cr=y*sw, pr=yy*sw;
+      for (let x=bx0;x<bx1;x++){ const xx=x+dx; if(xx<0||xx>=sw)continue; let df=curS[cr+x]-refWarp[pr+xx]; if(df<0)df=-df; sad+=df; cnt++; } }
+    return cnt>0? sad/cnt : 1e18;
+  }
+  function fieldAt(fld, gx, gy){
+    if(gx<0)gx=0; else if(gx>WC-1)gx=WC-1;
+    if(gy<0)gy=0; else if(gy>WR-1)gy=WR-1;
+    const x0=gx|0,y0=gy|0,x1=x0<WC-1?x0+1:x0,y1=y0<WR-1?y0+1:y0,tx=gx-x0,ty=gy-y0;
+    const a=fld[y0*WC+x0]+(fld[y0*WC+x1]-fld[y0*WC+x0])*tx;
+    const b=fld[y1*WC+x0]+(fld[y1*WC+x1]-fld[y1*WC+x0])*tx;
+    return a+(b-a)*ty;
+  }
+  // ---- WARP (beta): estimate motion field vs a rest reference, amplify it, physically displace the image ----
+  function warpFrame(d, n, aSlow, aFast){
+    buildSmall(d);
+    if(!warpReady){ refWarp.set(curS); const nb=WC*WR; for(let i=0;i<nb;i++){bSX[i]=bFX[i]=bSY[i]=bFY[i]=0;} warpReady=true; return; }
+    const aRef=0.05;
+    for(let i=0;i<sw*sh;i++) refWarp[i]+=aRef*(curS[i]-refWarp[i]);
+    const S=6, f=procW/sw, g=gain, lim=procW*0.12;
+    for(let r=0;r<WR;r++){
+      const by0=(r*sh/WR)|0, by1=(r===WR-1? sh : ((r+1)*sh/WR)|0);
+      for(let c=0;c<WC;c++){
+        const bx0=(c*sw/WC)|0, bx1=(c===WC-1? sw : ((c+1)*sw/WC)|0);
+        let bx=0,by=0,best=1e18;
+        for(let dy=-S;dy<=S;dy++) for(let dx=-S;dx<=S;dx++){
+          const s=blockSadRef(bx0,by0,bx1,by1,dx,dy); if(s<best){best=s;bx=dx;by=dy;} }
+        const Ddx=-bx, Ddy=-by, k=r*WC+c;
+        const sX=bSX[k]+aSlow*(Ddx-bSX[k]); bSX[k]=sX; const fX=bFX[k]+aFast*(Ddx-bFX[k]); bFX[k]=fX;
+        const sY=bSY[k]+aSlow*(Ddy-bSY[k]); bSY[k]=sY; const fY=bFY[k]+aFast*(Ddy-bFY[k]); bFY[k]=fY;
+        let wx=(g-1)*(fX-sX)*f, wy=(g-1)*(fY-sY)*f;
+        if(wx>lim)wx=lim; else if(wx<-lim)wx=-lim;
+        if(wy>lim)wy=lim; else if(wy<-lim)wy=-lim;
+        wfx[k]=wx; wfy[k]=wy;
+      }
+    }
+    shiftBuf.set(d);
+    for(let y=0;y<procH;y++){ const gy=y*WR/procH-0.5;
+      for(let x=0;x<procW;x++){ const gx=x*WC/procW-0.5;
+        let fxp=x-fieldAt(wfx,gx,gy), fyp=y-fieldAt(wfy,gx,gy);
+        if(fxp<0)fxp=0; else if(fxp>procW-1)fxp=procW-1;
+        if(fyp<0)fyp=0; else if(fyp>procH-1)fyp=procH-1;
+        const x0=fxp|0,y0=fyp|0,x1=x0<procW-1?x0+1:x0,y1=y0<procH-1?y0+1:y0,tx=fxp-x0,ty=fyp-y0;
+        const i00=(y0*procW+x0)<<2,i10=(y0*procW+x1)<<2,i01=(y1*procW+x0)<<2,i11=(y1*procW+x1)<<2,di=(y*procW+x)<<2;
+        for(let ch=0;ch<3;ch++){
+          const a=shiftBuf[i00+ch]+(shiftBuf[i10+ch]-shiftBuf[i00+ch])*tx;
+          const b=shiftBuf[i01+ch]+(shiftBuf[i11+ch]-shiftBuf[i01+ch])*tx;
+          d[di+ch]=a+(b-a)*ty;
+        }
+        d[di+3]=255;
+      }
+    }
   }
 
   function drawReadout(){

@@ -206,3 +206,15 @@ of the rest -> background outvotes a moving object (the straw). Falls back to th
 global estimateShift() if <3 textured blocks. Also switched buildSmall to an
 averaged box downsample (added smallCnt buffer) for a steadier estimate. Global
 estimateShift/sadAt kept as fallback. Cost ~ same as before (same pixels, tiled).
+
+## Warp view (beta, Lagrangian magnification)
+
+New View "Warp": physically displaces the image by an amplified motion field
+(the pipes-wobble look) instead of overlaying brightness. Per 10xWR grid block,
+block-match curS vs a slow rest reference (refWarp, EMA aRef=0.05) -> displacement
+from rest; per-block two-EMA temporal bandpass (Hz cutoffs) -> oscillation;
+warp = (gain-1)*band*f, clamped 12%. Bilinear-interpolate the block field to
+full res, remap d (bilinear, sample from shiftBuf copy). Amplification slider =
+warp strength (1 = none). Buffers: refWarp, wfx/wfy, per-block bSX/bFX/bSY/bFY.
+Stacks after stabilize (warps residual real motion). Beta: coarse field, blind-
+untested; may need block count / gain-scale tuning. Reuses cutoffs + stabilize.
