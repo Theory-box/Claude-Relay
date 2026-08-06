@@ -238,3 +238,13 @@ gain*It). Smooth/fine vs the old blocks. Old block warp buffers (refWarp, wfx/wf
 bSX.. , WC/WR) and helpers blockSadRef/fieldAt now unused (left in, harmless).
 Beta: reg / clamp / gain-scale may need tuning; aperture-problem regions rely on
 the window smoothing.
+
+## Warp: Field denoise + Clean plate toggles
+
+Two Warp-only toggles (SynFlowMap/field-denoise directions from research).
+Field denoise: per-pixel temporal EMA (0.4) on the LK displacement (fdX/fdY)
+before amplify -> keeps coherent motion, drops random per-frame field noise.
+Clean plate: plateBuf = slow RGB EMA (aPlate=0.12) of the frame; when on, warp
+samples the denoised still instead of the live frame (low noise; mild ghosting at
+fast motion). plateBuf/fdX/fdY seeded on first warp frame (warpReady). Method
+(Linear/Phase) does NOT affect Warp - separate flow engine.
