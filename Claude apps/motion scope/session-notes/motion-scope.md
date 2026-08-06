@@ -174,3 +174,12 @@ gray downsample (search +-8 small px), scales to proc px, accumulates, slow-EMA
 frame by -shake (edge-replicate, clamped to 15% of width). Buffers: curS/prevS
 (small gray), shiftBuf (Uint8 n*4). Off by default. Known: translation only (no
 rotation/rolling-shutter); slight false-motion rim in Isolate mode after shifting.
+
+## Stabilize: sub-pixel + strength (added)
+
+Finer thumbnail (sw 80->120). estimateShift now: integer block-match then
+parabolic sub-pixel refinement on SAD surface (neighbours via sadAt), returns
+fractional (dx,dy). shiftFrame now bilinear + edge-clamp for fractional
+counter-shift. Accumulation fractional (no round). Strength slider maps 0-100 ->
+EMA alpha 0.25..0.01 (higher = slower pan reference = more drift cancelled),
+default 70 (~0.082, matches old behaviour). Targets medium-small jitter.
