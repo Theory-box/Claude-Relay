@@ -97,3 +97,19 @@ LK optical flow: passes = luma+temporal-band (lumaS/lumaF ping-pong) -> gradient
 structure-tensor products (pack into 2 rgba16f) -> separable blur passes -> solve+
 field-denoise (fdX/fdY ping-pong) -> clean-plate EMA -> warp remap+overlay. Keep
 under 32B/sample per pass. Reuse external-texture input pattern.
+
+## Session 4 — Warp on GPU (5-pass optical flow)
+
+Ported CPU Lucas-Kanade warp to a 5-pass GPU pipeline (WGSL_WA/WB/WBH/WBV/WR):
+A: external video -> luma + temporal band-pass (wlumaS/wlumaF ping-pong) -> yit(Y,It).
+B: gradients + structure-tensor products -> wprodA(sxx,syy,sxy,sxt), wprodB(syt).
+C1/C2: separable box blur of products (window 2+denoiseR) -> back into wprodA/B.
+F: per-pixel 2x2 solve (reg=30, clamp d +-3), warp field (gain-1)*d clamp 10%%,
+   remap external at displaced uv (bilinear) + overlay (overlayAmt*gain*It) -> canvas.
+Textures rgba16float; Pass A = 3 targets (24B <=32). ext imported once, reused in
+A+F bind groups. wseeded seeds luma=Y on frame 1 (It=0 -> no warp). Warp pipeline
+creation wrapped in error scope -> gpuDebug. gpuSupportedFor now includes warp.
+
+### GPU Warp v1 NOT wired (CPU-only, polish later): field-denoise, clean-plate,
+temporal-denoise, stabilize, spatial-scale. Smoothing DOES apply (blur window=wr).
+Blind-untested; on-screen #gpuMsg will surface any WGSL/validation error.
