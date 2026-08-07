@@ -142,6 +142,11 @@
 
     <div class="group" id="warpFieldGroup">
       <h3>Warp field</h3>
+      <div class="seg" role="group" aria-label="Direction">
+        <button id="supOff" aria-pressed="true">Amplify</button>
+        <button id="supOn" aria-pressed="false">Suppress</button>
+      </div>
+      <p class="note"><b>Suppress</b> reverses the warp — it pushes moving parts back toward rest to hold motion still. Amplification becomes stillness strength; cutoffs still pick which motion to freeze.</p>
       <div class="seg" role="group" aria-label="Field denoise">
         <button id="fdOff" aria-pressed="true">Field raw</button>
         <button id="fdOn" aria-pressed="false">Field denoise</button>
@@ -243,7 +248,8 @@
   let lumaS = null, lumaF = null;               // warp overlay: luma temporal bandpass
   let sxx=null, syy=null, sxy=null, sxt=null, syt=null; // warp: Lucas-Kanade structure tensor
   let fdX=null, fdY=null, plateBuf=null;                // warp: field EMA + clean plate
-  let fieldDenoise=false, cleanPlate=false;
+  let fieldDenoise=false, cleanPlate=false, suppress=false;
+  let Yprev=null, pyr=null;                             // pyramidal-flow: prev luma + pyramid buffers
   let stabilize=false, stabReady=false, sw=0, sh=0;
   let curS=null, prevS=null, shiftBuf=null, smallCnt=null;
   let accX=0, accY=0, slowX=0, slowY=0, stabStrength=0.868;
@@ -263,7 +269,11 @@
   const tnrVal=$('tnrVal'), scaleVal=$('scaleVal'), denoiseVal=$('denoiseVal'), colorVal=$('colorVal');
   const colorField=$('colorField');
 
-  gainEl.oninput = () => { gain = +gainEl.value; gainVal.textContent = gain + '×'; };
+  gainEl.oninput = () => { gain = +gainEl.value; updateGainLabel(); };
+  function updateGainLabel(){ gainVal.textContent = suppress ? (Math.round((1-1/gain)*100)+'% still') : (gain+'×'); }
+  const supOff=$('supOff'), supOn=$('supOn');
+  supOff.onclick=()=>setSup(false); supOn.onclick=()=>setSup(true);
+  function setSup(on){ suppress=on; supOn.setAttribute('aria-pressed',on); supOff.setAttribute('aria-pressed',!on); updateGainLabel(); }
   loEl.oninput = () => {
     loHz = +loEl.value;
     if (loHz >= hiHz) { hiHz = Math.min(15, loHz + 0.5); hiEl.value = hiHz; hiVal.textContent = hiHz.toFixed(1)+' Hz'; }
@@ -316,7 +326,7 @@
     s.gain=gain; s.loHz=loHz; s.hiHz=hiHz; s.chromaAmt=chromaAmt; s.denoiseR=denoiseR; s.scaleLv=scaleLv; s.tnr=tnr; s.overlayAmt=overlayAmt; s.targetH=targetH; }
   function loadProfile(p){ const s=profiles[p];
     gain=s.gain; loHz=s.loHz; hiHz=s.hiHz; chromaAmt=s.chromaAmt; denoiseR=s.denoiseR; scaleLv=s.scaleLv; tnr=s.tnr; overlayAmt=s.overlayAmt; targetH=s.targetH;
-    gainEl.value=gain; gainVal.textContent=gain+'×';
+    gainEl.value=gain; updateGainLabel();
     loEl.value=loHz; loVal.textContent=loHz.toFixed(1)+' Hz';
     hiEl.value=hiHz; hiVal.textContent=hiHz.toFixed(1)+' Hz';
     colorEl.value=Math.round(chromaAmt*100); colorVal.textContent=Math.round(chromaAmt*100)+'%';
@@ -392,6 +402,7 @@
     sxx=new Float32Array(n); syy=new Float32Array(n); sxy=new Float32Array(n);
     sxt=new Float32Array(n); syt=new Float32Array(n);
     fdX=new Float32Array(n); fdY=new Float32Array(n); plateBuf=new Float32Array(n*3);
+    Yprev=new Float32Array(n); buildPyr();
     sw = 120; sh = Math.max(24, Math.round(sw * procH / procW));
     stabProc.width = sw; stabProc.height = sh;
     curS = new Float32Array(sw*sh); prevS = new Float32Array(sw*sh);
@@ -1278,42 +1289,113 @@ struct FR { @location(0) disp:vec4f, @location(1) fldN:vec4f };
     const b=fld[y1*WC+x0]+(fld[y1*WC+x1]-fld[y1*WC+x0])*tx;
     return a+(b-a)*ty;
   }
+  // ================= coarse-to-fine (pyramidal) Lucas-Kanade dense optical flow =================
+  // Builds an image pyramid so large motions become small at low resolution; estimates flow
+  // coarse->fine, warping the finer level by the upscaled coarse flow and adding a residual.
+  const PYR_L = 3;
+  function buildPyr(){
+    const levels=[]; let lw=procW, lh=procH;
+    for(let i=0;i<PYR_L;i++){
+      const s=lw*lh;
+      levels.push({ w:lw, h:lh,
+        I0:new Float32Array(s), I1:new Float32Array(s), fx:new Float32Array(s), fy:new Float32Array(s),
+        t1:new Float32Array(s), t2:new Float32Array(s),
+        sxx:new Float32Array(s), syy:new Float32Array(s), sxy:new Float32Array(s), sxt:new Float32Array(s), syt:new Float32Array(s) });
+      lw=Math.max(8, lw>>1); lh=Math.max(8, lh>>1);
+    }
+    pyr={ L:PYR_L, levels };
+  }
+  function sampleBil(img,w,h,fx,fy){
+    if(fx<0)fx=0; else if(fx>w-1)fx=w-1;
+    if(fy<0)fy=0; else if(fy>h-1)fy=h-1;
+    const x0=fx|0, y0=fy|0, x1=x0<w-1?x0+1:x0, y1=y0<h-1?y0+1:y0, tx=fx-x0, ty=fy-y0;
+    const a=img[y0*w+x0]+(img[y0*w+x1]-img[y0*w+x0])*tx;
+    const b=img[y1*w+x0]+(img[y1*w+x1]-img[y1*w+x0])*tx;
+    return a+(b-a)*ty;
+  }
+  function downsample2(src,sw,sh,dst,dw,dh){
+    for(let y=0;y<dh;y++){ const sy=y<<1, sy2=sy+1<sh?sy+1:sh-1;
+      for(let x=0;x<dw;x++){ const sx=x<<1, sx2=sx+1<sw?sx+1:sw-1;
+        dst[y*dw+x]=0.25*(src[sy*sw+sx]+src[sy*sw+sx2]+src[sy2*sw+sx]+src[sy2*sw+sx2]); } }
+  }
+  function lkStep(L){
+    const w=L.w, h=L.h, I0=L.I0, I1=L.I1, fx=L.fx, fy=L.fy;
+    // warp I1 by current flow -> t1 (should align with I0 when flow is right)
+    for(let y=0;y<h;y++){ const row=y*w;
+      for(let x=0;x<w;x++){ const p=row+x; L.t1[p]=sampleBil(I1,w,h,x+fx[p],y+fy[p]); } }
+    // gradients of I0, It = I1w - I0, structure-tensor products
+    for(let y=0;y<h;y++){ const row=y*w;
+      for(let x=0;x<w;x++){ const p=row+x;
+        const xl=x>0?x-1:0, xr=x<w-1?x+1:w-1, yu=y>0?y-1:0, yd=y<h-1?y+1:h-1;
+        const ix=0.5*(I0[row+xr]-I0[row+xl]), iy=0.5*(I0[yd*w+x]-I0[yu*w+x]);
+        const it=L.t1[p]-I0[p];
+        L.sxx[p]=ix*ix; L.syy[p]=iy*iy; L.sxy[p]=ix*iy; L.sxt[p]=ix*it; L.syt[p]=iy*it; } }
+    blurGray(L.sxx,L.t2,w,h,2); blurGray(L.syy,L.t2,w,h,2); blurGray(L.sxy,L.t2,w,h,2);
+    blurGray(L.sxt,L.t2,w,h,2); blurGray(L.syt,L.t2,w,h,2);
+    // solve 2x2 for the residual increment, add to flow
+    const s=w*h;
+    for(let p=0;p<s;p++){
+      const a=L.sxx[p], b=L.sxy[p], c=L.syy[p], det=a*c-b*b+1.0;
+      let rx=(-c*L.sxt[p]+b*L.syt[p])/det, ry=(b*L.sxt[p]-a*L.syt[p])/det;
+      if(rx>2)rx=2; else if(rx<-2)rx=-2;
+      if(ry>2)ry=2; else if(ry<-2)ry=-2;
+      fx[p]+=rx; fy[p]+=ry;
+    }
+  }
+  function computeFlow(I0full, I1full){
+    const lv=pyr.levels, L=pyr.L;
+    lv[0].I0.set(I0full); lv[0].I1.set(I1full);
+    for(let i=1;i<L;i++){
+      downsample2(lv[i-1].I0, lv[i-1].w, lv[i-1].h, lv[i].I0, lv[i].w, lv[i].h);
+      downsample2(lv[i-1].I1, lv[i-1].w, lv[i-1].h, lv[i].I1, lv[i].w, lv[i].h);
+    }
+    lv[L-1].fx.fill(0); lv[L-1].fy.fill(0);
+    for(let l=L-1;l>=0;l--){
+      const C=lv[l];
+      if(l<L-1){ const P=lv[l+1];
+        for(let y=0;y<C.h;y++){ for(let x=0;x<C.w;x++){ const p=y*C.w+x;
+          C.fx[p]=2*sampleBil(P.fx,P.w,P.h,x*0.5,y*0.5);
+          C.fy[p]=2*sampleBil(P.fy,P.w,P.h,x*0.5,y*0.5); } } }
+      lkStep(C); lkStep(C); lkStep(C);
+    }
+  }
+
   // ---- WARP (beta): per-pixel optical flow (Lucas-Kanade), amplified, physically displaces the image ----
   function warpFrame(d, n, aSlow, aFast){
-    const g=gain, w=procW, h=procH;
-    if(!warpReady){ for(let p=0;p<n;p++){ const i4=p<<2,i3=p*3; plateBuf[i3]=d[i4];plateBuf[i3+1]=d[i4+1];plateBuf[i3+2]=d[i4+2]; fdX[p]=0;fdY[p]=0; } warpReady=true; }
-    // luminance
+    const g=gain, w=procW, h=procH, lim=w*0.1;
+    const k = suppress ? (1/g - 1) : (g - 1);
+    // luminance of current frame
     for(let p=0;p<n;p++){ const i4=p<<2; Yb[p]=0.299*d[i4]+0.587*d[i4+1]+0.114*d[i4+2]; }
-    // temporal band-pass -> It (the moving part), via luma EMAs (also feeds the overlay)
+    if(!warpReady){
+      for(let p=0;p<n;p++){ const i4=p<<2,i3=p*3;
+        plateBuf[i3]=d[i4];plateBuf[i3+1]=d[i4+1];plateBuf[i3+2]=d[i4+2];
+        fdX[p]=0;fdY[p]=0; Pxa[p]=0;Pya[p]=0; pxS[p]=0;pxF[p]=0;pyS[p]=0;pyF[p]=0; }
+      Yprev.set(Yb); warpReady=true;
+    }
+    // luma temporal band-pass -> It (feeds the brightness overlay only)
     for(let p=0;p<n;p++){ const y=Yb[p];
       const ls=lumaS[p]+aSlow*(y-lumaS[p]); lumaS[p]=ls;
       const lf=lumaF[p]+aFast*(y-lumaF[p]); lumaF[p]=lf;
       Ab[p]=lf-ls; }
-    // spatial gradients Ix (Bb), Iy (R1)
-    for(let y=0;y<h;y++){ const row=y*w;
-      for(let x=0;x<w;x++){ const xl=x>0?x-1:0,xr=x<w-1?x+1:w-1,yu=y>0?y-1:0,yd=y<h-1?y+1:h-1;
-        Bb[row+x]=0.5*(Yb[row+xr]-Yb[row+xl]);
-        R1[row+x]=0.5*(Yb[yd*w+x]-Yb[yu*w+x]); } }
-    // structure-tensor products, then window-average (box blur) for a smooth flow field
-    for(let p=0;p<n;p++){ const ix=Bb[p], iy=R1[p], it=Ab[p];
-      sxx[p]=ix*ix; syy[p]=iy*iy; sxy[p]=ix*iy; sxt[p]=ix*it; syt[p]=iy*it; }
-    const wr=2+(denoiseR>0?denoiseR:1);
-    blurGray(sxx,gTmp,w,h,wr); blurGray(syy,gTmp,w,h,wr); blurGray(sxy,gTmp,w,h,wr);
-    blurGray(sxt,gTmp,w,h,wr); blurGray(syt,gTmp,w,h,wr);
-    // solve 2x2 per pixel -> displacement; amplify -> warp field (R2=Wx, gTmp2=Wy)
-    const reg=30, lim=w*0.1;
+    // coarse-to-fine dense optical flow (previous frame -> current frame)
+    computeFlow(Yprev, Yb);
+    const F0=pyr.levels[0];
+    // integrate flow into per-pixel position, band-pass the position, amplify/suppress -> warp field
     for(let p=0;p<n;p++){
-      const a=sxx[p], b=sxy[p], c=syy[p];
-      const det=a*c-b*b+reg;
-      let dx=(-c*sxt[p]+b*syt[p])/det, dy=(b*sxt[p]-a*syt[p])/det;
-      if(dx>3)dx=3; else if(dx<-3)dx=-3;
-      if(dy>3)dy=3; else if(dy<-3)dy=-3;
+      const px=Pxa[p]+F0.fx[p]; Pxa[p]=px;
+      const py=Pya[p]+F0.fy[p]; Pya[p]=py;
+      const sx=pxS[p]+aSlow*(px-pxS[p]); pxS[p]=sx;
+      const fxb=pxF[p]+aFast*(px-pxF[p]); pxF[p]=fxb;
+      const sy=pyS[p]+aSlow*(py-pyS[p]); pyS[p]=sy;
+      const fyb=pyF[p]+aFast*(py-pyF[p]); pyF[p]=fyb;
+      let dx=fxb-sx, dy=fyb-sy;
       if(fieldDenoise){ fdX[p]+=0.4*(dx-fdX[p]); fdY[p]+=0.4*(dy-fdY[p]); dx=fdX[p]; dy=fdY[p]; }
-      let wx=(g-1)*dx, wy=(g-1)*dy;
+      let wx=k*dx, wy=k*dy;
       if(wx>lim)wx=lim; else if(wx<-lim)wx=-lim;
       if(wy>lim)wy=lim; else if(wy<-lim)wy=-lim;
       R2[p]=wx; gTmp2[p]=wy;
     }
+    Yprev.set(Yb);
     // remap (bilinear) from a copy, plus optional brightness overlay
     const aPlate=0.12;
     for(let p=0;p<n;p++){ const i4=p<<2,i3=p*3;
