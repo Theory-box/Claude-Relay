@@ -165,13 +165,17 @@
         <input type="range" id="gain" min="1" max="80" step="1" value="18">
       </label>
       <label class="field">
-        <span class="row"><span>Low cutoff</span><span class="val" id="loVal">0.5 Hz</span></span>
-        <input type="range" id="lo" min="0.1" max="6" step="0.1" value="0.5">
+        <span class="row"><span>Center frequency</span><span class="val" id="freqCenterVal">3.25 Hz</span></span>
+        <input type="range" id="freqCenter" min="0" max="1000" step="1" value="0">
       </label>
       <label class="field">
-        <span class="row"><span>High cutoff</span><span class="val" id="hiVal">6.0 Hz</span></span>
-        <input type="range" id="hi" min="0.5" max="15" step="0.1" value="6">
+        <span class="row"><span>Width (band)</span><span class="val" id="freqWidthVal">0.50–6.00 Hz</span></span>
+        <input type="range" id="freqWidth" min="0" max="1000" step="1" value="0">
       </label>
+      <div class="seg" role="group" aria-label="Frequency scale" style="margin-top:.4rem">
+        <button id="scaleLin" aria-pressed="true">Linear</button>
+        <button id="scaleLog" aria-pressed="false">Log</button>
+      </div>
       <label class="field">
         <span class="row"><span>Overlay (Warp)</span><span class="val" id="overlayVal">0%</span></span>
         <input type="range" id="overlay" min="0" max="100" step="5" value="0">
@@ -238,7 +242,7 @@
   let method = 'linear', mode = 'amp', compare = false, curProfile = 'linear';
   let backend = 'cpu';                       // active compute path (flips as GPU paths are ported)
   const caps = { webgpu:false, webgl2:false };
-  let gain = 18, loHz = 0.5, hiHz = 6, targetH = 384;
+  let gain = 18, loHz = 0.5, hiHz = 6, targetH = 384, centerHz = 3.25, widthHz = 5.5, freqLog = false;
   let chromaAmt = 0.2, denoiseR = 1, scaleLv = 0, tnr = 0.4, overlayAmt = 0;
   let fps = 30, lastT = 0, energy = 0;
 
@@ -264,7 +268,8 @@
 
   // --- controls ---
   const $ = id => document.getElementById(id);
-  const gainEl=$('gain'), loEl=$('lo'), hiEl=$('hi'), resEl=$('res');
+  const gainEl=$('gain'), resEl=$('res');
+  const freqCenterEl=$('freqCenter'), freqWidthEl=$('freqWidth'), freqCenterVal=$('freqCenterVal'), freqWidthVal=$('freqWidthVal'), freqLinBtn=$('scaleLin'), freqLogBtn=$('scaleLog');
   const tnrEl=$('tnr'), scaleEl=$('scale'), denoiseEl=$('denoise'), colorEl=$('color');
   const gainVal=$('gainVal'), loVal=$('loVal'), hiVal=$('hiVal'), resVal=$('resVal');
   const tnrVal=$('tnrVal'), scaleVal=$('scaleVal'), denoiseVal=$('denoiseVal'), colorVal=$('colorVal');
@@ -275,16 +280,16 @@
   const supOff=$('supOff'), supOn=$('supOn');
   supOff.onclick=()=>setSup(false); supOn.onclick=()=>setSup(true);
   function setSup(on){ suppress=on; deepFlow=on; warpReady=false; supOn.setAttribute('aria-pressed',on); supOff.setAttribute('aria-pressed',!on); updateGainLabel(); }
-  loEl.oninput = () => {
-    loHz = +loEl.value;
-    if (loHz >= hiHz) { hiHz = Math.min(15, loHz + 0.5); hiEl.value = hiHz; hiVal.textContent = hiHz.toFixed(1)+' Hz'; }
-    loVal.textContent = loHz.toFixed(1)+' Hz';
-  };
-  hiEl.oninput = () => {
-    hiHz = +hiEl.value;
-    if (hiHz <= loHz) { loHz = Math.max(0.1, hiHz - 0.5); loEl.value = loHz; loVal.textContent = loHz.toFixed(1)+' Hz'; }
-    hiVal.textContent = hiHz.toFixed(1)+' Hz';
-  };
+  const FMIN=0.1, FMAX=25, WMIN=0.2, WMAX=30;
+  function p2f(t,lo,hi,log){ return log ? lo*Math.pow(hi/lo,t) : lo+t*(hi-lo); }
+  function f2p(v,lo,hi,log){ v=Math.min(hi,Math.max(lo,v)); return log ? Math.log(v/lo)/Math.log(hi/lo) : (v-lo)/(hi-lo); }
+  function applyBand(){ loHz=Math.max(0.1, centerHz - widthHz/2); hiHz=centerHz + widthHz/2; }
+  function updateFreqLabels(){ applyBand(); freqCenterVal.textContent=centerHz.toFixed(2)+' Hz'; freqWidthVal.textContent=loHz.toFixed(2)+'–'+hiHz.toFixed(2)+' Hz'; }
+  function syncFreqSliders(){ freqCenterEl.value=Math.round(f2p(centerHz,FMIN,FMAX,freqLog)*1000); freqWidthEl.value=Math.round(f2p(widthHz,WMIN,WMAX,freqLog)*1000); }
+  freqCenterEl.oninput=()=>{ centerHz=p2f(+freqCenterEl.value/1000,FMIN,FMAX,freqLog); updateFreqLabels(); };
+  freqWidthEl.oninput=()=>{ widthHz=p2f(+freqWidthEl.value/1000,WMIN,WMAX,freqLog); updateFreqLabels(); };
+  freqLinBtn.onclick=()=>setFreqLog(false); freqLogBtn.onclick=()=>setFreqLog(true);
+  function setFreqLog(on){ freqLog=on; freqLogBtn.setAttribute('aria-pressed',on); freqLinBtn.setAttribute('aria-pressed',!on); syncFreqSliders(); }
   resEl.oninput = () => { targetH = +resEl.value; resVal.textContent = targetH + 'p'; if (running) allocBuffers(); };
   $('nativeBtn').onclick = () => { if(!video.videoHeight) return; resEl.max = video.videoHeight; targetH = video.videoHeight; resEl.value = targetH; resVal.textContent = targetH + 'p'; if (running) allocBuffers(); };
   tnrEl.oninput = () => { tnr = +tnrEl.value/100; tnrVal.textContent = tnrEl.value + '%'; };
@@ -318,19 +323,18 @@
 
   // ---- per-mode settings profiles: each mode keeps its own values; UI shows only relevant controls ----
   const profiles = {
-    linear:  { gain:18, loHz:0.5, hiHz:6, chromaAmt:0.2, denoiseR:1, scaleLv:0, tnr:0.4, overlayAmt:0, targetH:384 },
-    phase:   { gain:30, loHz:0.5, hiHz:4, chromaAmt:0.2, denoiseR:1, scaleLv:0, tnr:0.4, overlayAmt:0, targetH:256 },
-    isolate: { gain:18, loHz:0.5, hiHz:6, chromaAmt:0.2, denoiseR:1, scaleLv:0, tnr:0.4, overlayAmt:0, targetH:384 },
-    warp:    { gain:20, loHz:0.5, hiHz:6, chromaAmt:0.2, denoiseR:1, scaleLv:0, tnr:0.4, overlayAmt:0, targetH:384 },
+    linear:  { gain:18, centerHz:3.25, widthHz:5.5, chromaAmt:0.2, denoiseR:1, scaleLv:0, tnr:0.4, overlayAmt:0, targetH:384 },
+    phase:   { gain:30, centerHz:2.25, widthHz:3.5, chromaAmt:0.2, denoiseR:1, scaleLv:0, tnr:0.4, overlayAmt:0, targetH:256 },
+    isolate: { gain:18, centerHz:3.25, widthHz:5.5, chromaAmt:0.2, denoiseR:1, scaleLv:0, tnr:0.4, overlayAmt:0, targetH:384 },
+    warp:    { gain:20, centerHz:3.25, widthHz:5.5, chromaAmt:0.2, denoiseR:1, scaleLv:0, tnr:0.4, overlayAmt:0, targetH:384 },
   };
   function getProfile(){ if(mode==='isolate') return 'isolate'; if(mode==='warp') return 'warp'; return method==='phase'?'phase':'linear'; }
   function saveProfile(){ const s=profiles[curProfile];
-    s.gain=gain; s.loHz=loHz; s.hiHz=hiHz; s.chromaAmt=chromaAmt; s.denoiseR=denoiseR; s.scaleLv=scaleLv; s.tnr=tnr; s.overlayAmt=overlayAmt; s.targetH=targetH; }
+    s.gain=gain; s.centerHz=centerHz; s.widthHz=widthHz; s.chromaAmt=chromaAmt; s.denoiseR=denoiseR; s.scaleLv=scaleLv; s.tnr=tnr; s.overlayAmt=overlayAmt; s.targetH=targetH; }
   function loadProfile(p){ const s=profiles[p];
-    gain=s.gain; loHz=s.loHz; hiHz=s.hiHz; chromaAmt=s.chromaAmt; denoiseR=s.denoiseR; scaleLv=s.scaleLv; tnr=s.tnr; overlayAmt=s.overlayAmt; targetH=s.targetH;
+    gain=s.gain; centerHz=s.centerHz; widthHz=s.widthHz; chromaAmt=s.chromaAmt; denoiseR=s.denoiseR; scaleLv=s.scaleLv; tnr=s.tnr; overlayAmt=s.overlayAmt; targetH=s.targetH;
     gainEl.value=gain; updateGainLabel();
-    loEl.value=loHz; loVal.textContent=loHz.toFixed(1)+' Hz';
-    hiEl.value=hiHz; hiVal.textContent=hiHz.toFixed(1)+' Hz';
+    syncFreqSliders(); updateFreqLabels();
     colorEl.value=Math.round(chromaAmt*100); colorVal.textContent=Math.round(chromaAmt*100)+'%';
     denoiseEl.value=denoiseR; denoiseVal.textContent=denoiseR+' px';
     scaleEl.value=scaleLv; scaleVal.textContent=scaleLv;
@@ -342,8 +346,9 @@
     const show=(el,on)=>{ if(el) el.style.display=on?'':'none'; };
     const fld=(id)=>{ const e=$(id); return e?e.closest('label.field'):null; };
     show($('methodGroup'), isMag);
-    show(fld('lo'), p!=='isolate');
-    show(fld('hi'), p!=='isolate');
+    show(fld('freqCenter'), p!=='isolate');
+    show(fld('freqWidth'), p!=='isolate');
+    show(freqLinBtn.closest('.seg'), p!=='isolate');
     show($('colorField'), p==='linear');
     show(fld('overlay'), p==='warp');
     show(fld('scale'), p==='linear'||p==='isolate');
