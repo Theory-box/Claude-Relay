@@ -1379,22 +1379,27 @@ struct FR { @location(0) disp:vec4f, @location(1) fldN:vec4f };
       Ab[p]=lf-ls; }
     // coarse-to-fine dense optical flow (previous frame -> current frame)
     computeFlow(Yprev, Yb);
-    const F0=pyr.levels[0];
-    // integrate flow into per-pixel position, band-pass the position, amplify/suppress -> warp field
+    const F0=pyr.levels[0], leak=0.99, dead=0.25;
+    // integrate flow into per-pixel position (with a slow leak), band-pass, deadband, amplify/suppress
     for(let p=0;p<n;p++){
-      const px=Pxa[p]+F0.fx[p]; Pxa[p]=px;
-      const py=Pya[p]+F0.fy[p]; Pya[p]=py;
+      const px=Pxa[p]*leak + F0.fx[p]; Pxa[p]=px;
+      const py=Pya[p]*leak + F0.fy[p]; Pya[p]=py;
       const sx=pxS[p]+aSlow*(px-pxS[p]); pxS[p]=sx;
       const fxb=pxF[p]+aFast*(px-pxF[p]); pxF[p]=fxb;
       const sy=pyS[p]+aSlow*(py-pyS[p]); pyS[p]=sy;
       const fyb=pyF[p]+aFast*(py-pyF[p]); pyF[p]=fyb;
       let dx=fxb-sx, dy=fyb-sy;
+      if(dx*dx+dy*dy < dead*dead){ dx=0; dy=0; }   // stationary areas don't warp
       if(fieldDenoise){ fdX[p]+=0.4*(dx-fdX[p]); fdY[p]+=0.4*(dy-fdY[p]); dx=fdX[p]; dy=fdY[p]; }
       let wx=k*dx, wy=k*dy;
       if(wx>lim)wx=lim; else if(wx<-lim)wx=-lim;
       if(wy>lim)wy=lim; else if(wy<-lim)wy=-lim;
       R2[p]=wx; gTmp2[p]=wy;
     }
+    // smooth the warp field (two box passes ~= Gaussian) to kill flow blockiness / mosaic
+    const fr=2+denoiseR;
+    blurGray(R2, gTmp, w, h, fr); blurGray(R2, gTmp, w, h, fr);
+    blurGray(gTmp2, gTmp, w, h, fr); blurGray(gTmp2, gTmp, w, h, fr);
     Yprev.set(Yb);
     // remap (bilinear) from a copy, plus optional brightness overlay
     const aPlate=0.12;

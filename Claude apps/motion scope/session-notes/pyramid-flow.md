@@ -28,3 +28,12 @@ better big-motion amplification AND real suppression (freeze).
 ## Next after validation
 - Tune (levels, iterations, reg, residual clamp, flow noise handling).
 - Port pyramidal flow to GPU (pyramid via downsample passes; iterative LK passes).
+
+## Session 2 — de-noise the flow (mosaic/shimmer fix)
+Three fixes to the flow BEFORE it's applied (effect strength untouched):
+1. Warp-field spatial smoothing: two box passes (blurGray x2) on R2/gTmp2, radius
+   2+denoiseR -> ~Gaussian, removes box-blur mosaic grid; wires the Smoothing slider.
+2. Deadband: if band displacement |d|<0.25px -> 0, so stationary regions don't warp
+   (kills accumulated-noise shimmer on still areas). Applied post-bandpass.
+3. Accumulator leak 0.99/frame -> bounds random-walk drift from integrated flow noise.
+Tunables if needed: dead (0.25), leak (0.99), fr base (2), LK iters/level (3).
