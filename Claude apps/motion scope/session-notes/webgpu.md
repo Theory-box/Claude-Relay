@@ -78,3 +78,22 @@ default maxColorAttachmentBytesPerSample (32). Invalid pipeline draws nothing (n
 JS throw) -> black + badge green. Fixed: state textures rgba16float (4+8+8=20B).
 Added on-screen GPU error reporter (#gpuMsg) via device.onuncapturederror +
 pushErrorScope around pipeline so validation errors surface in-app.
+
+## Session 3 — Isolate on GPU + per-mode settings
+
+- Isolate ported to GPU: WGSL_ISO shader, bg-subtraction (bg EMA ping-pong bg[2]
+  rgba16float, aBg=0.03), 2 MRT (canvas+bgN). gpuFrameIsolate(); gpuSupportedFor()
+  now = Linear(amp/motion) OR isolate, non-compare. Reset reseeds gpu.seeded +
+  gpu.isoSeeded. GPU isolate v1 does NOT apply spatial scale/smoothing (raw diff).
+- Per-mode settings: profiles{linear,phase,isolate,warp} each store gain,loHz,hiHz,
+  chromaAmt,denoiseR,scaleLv,tnr,overlayAmt,targetH. getProfile() from mode+method.
+  setMode/setMethod -> switchProfile() (save old, load new, realloc if Detail
+  changed, updateVisibility). Dynamic UI: hide cutoffs for isolate, Color for
+  non-linear, Overlay+Warp-field for non-warp, Spatial scale for phase/warp, Method
+  group for isolate/warp. Stabilize/Compare/GPU stay global.
+
+## Next: Warp on GPU (the big multi-pass one)
+LK optical flow: passes = luma+temporal-band (lumaS/lumaF ping-pong) -> gradients+
+structure-tensor products (pack into 2 rgba16f) -> separable blur passes -> solve+
+field-denoise (fdX/fdY ping-pong) -> clean-plate EMA -> warp remap+overlay. Keep
+under 32B/sample per pass. Reuse external-texture input pattern.

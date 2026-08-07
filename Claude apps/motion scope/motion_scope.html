@@ -106,7 +106,7 @@
       <button class="act" id="screenBtn">Share screen</button>
     </div>
 
-    <div class="group">
+    <div class="group" id="methodGroup">
       <h3>Method</h3>
       <div class="seg" role="group" aria-label="Magnification method">
         <button id="mLinear" aria-pressed="true">Linear</button>
@@ -139,7 +139,7 @@
       </div>
     </div>
 
-    <div class="group">
+    <div class="group" id="warpFieldGroup">
       <h3>Warp field</h3>
       <div class="seg" role="group" aria-label="Field denoise">
         <button id="fdOff" aria-pressed="true">Field raw</button>
@@ -226,7 +226,7 @@
   // state
   let stream = null, running = false, raf = 0;
   let procW = 0, procH = 0, initialized = false;
-  let method = 'linear', mode = 'amp', compare = false;
+  let method = 'linear', mode = 'amp', compare = false, curProfile = 'linear';
   let backend = 'cpu';                       // active compute path (flips as GPU paths are ported)
   const caps = { webgpu:false, webgl2:false };
   let gain = 18, loHz = 0.5, hiHz = 6, targetH = 384;
@@ -286,7 +286,7 @@
     method = m; initialized = false; phaseReady = false;
     mLinear.setAttribute('aria-pressed', m==='linear');
     mPhase.setAttribute('aria-pressed', m==='phase');
-    colorField.classList.toggle('dim', m!=='linear');
+    switchProfile();
   }
 
   const modeAmp=$('modeAmp'), modeMotion=$('modeMotion'), modeIsolate=$('modeIsolate'), modeWarp=$('modeWarp');
@@ -298,7 +298,47 @@
     modeAmp.setAttribute('aria-pressed', m==='amp');
     modeMotion.setAttribute('aria-pressed', m==='motion');
     modeIsolate.setAttribute('aria-pressed', m==='isolate');
-    modeWarp.setAttribute('aria-pressed', m==='warp'); }
+    modeWarp.setAttribute('aria-pressed', m==='warp');
+    switchProfile(); }
+
+  // ---- per-mode settings profiles: each mode keeps its own values; UI shows only relevant controls ----
+  const profiles = {
+    linear:  { gain:18, loHz:0.5, hiHz:6, chromaAmt:0.2, denoiseR:1, scaleLv:0, tnr:0.4, overlayAmt:0, targetH:384 },
+    phase:   { gain:30, loHz:0.5, hiHz:4, chromaAmt:0.2, denoiseR:1, scaleLv:0, tnr:0.4, overlayAmt:0, targetH:256 },
+    isolate: { gain:18, loHz:0.5, hiHz:6, chromaAmt:0.2, denoiseR:1, scaleLv:0, tnr:0.4, overlayAmt:0, targetH:384 },
+    warp:    { gain:20, loHz:0.5, hiHz:6, chromaAmt:0.2, denoiseR:1, scaleLv:0, tnr:0.4, overlayAmt:0, targetH:384 },
+  };
+  function getProfile(){ if(mode==='isolate') return 'isolate'; if(mode==='warp') return 'warp'; return method==='phase'?'phase':'linear'; }
+  function saveProfile(){ const s=profiles[curProfile];
+    s.gain=gain; s.loHz=loHz; s.hiHz=hiHz; s.chromaAmt=chromaAmt; s.denoiseR=denoiseR; s.scaleLv=scaleLv; s.tnr=tnr; s.overlayAmt=overlayAmt; s.targetH=targetH; }
+  function loadProfile(p){ const s=profiles[p];
+    gain=s.gain; loHz=s.loHz; hiHz=s.hiHz; chromaAmt=s.chromaAmt; denoiseR=s.denoiseR; scaleLv=s.scaleLv; tnr=s.tnr; overlayAmt=s.overlayAmt; targetH=s.targetH;
+    gainEl.value=gain; gainVal.textContent=gain+'×';
+    loEl.value=loHz; loVal.textContent=loHz.toFixed(1)+' Hz';
+    hiEl.value=hiHz; hiVal.textContent=hiHz.toFixed(1)+' Hz';
+    colorEl.value=Math.round(chromaAmt*100); colorVal.textContent=Math.round(chromaAmt*100)+'%';
+    denoiseEl.value=denoiseR; denoiseVal.textContent=denoiseR+' px';
+    scaleEl.value=scaleLv; scaleVal.textContent=scaleLv;
+    tnrEl.value=Math.round(tnr*100); tnrVal.textContent=Math.round(tnr*100)+'%';
+    overlayEl.value=Math.round(overlayAmt*100); overlayVal.textContent=Math.round(overlayAmt*100)+'%';
+    resEl.value=targetH; resVal.textContent=targetH+'p'; }
+  function updateVisibility(){
+    const p=curProfile, isMag=(mode==='amp'||mode==='motion');
+    const show=(el,on)=>{ if(el) el.style.display=on?'':'none'; };
+    const fld=(id)=>{ const e=$(id); return e?e.closest('label.field'):null; };
+    show($('methodGroup'), isMag);
+    show(fld('lo'), p!=='isolate');
+    show(fld('hi'), p!=='isolate');
+    show($('colorField'), p==='linear');
+    show(fld('overlay'), p==='warp');
+    show(fld('scale'), p==='linear'||p==='isolate');
+    show($('warpFieldGroup'), p==='warp'); }
+  function switchProfile(){
+    saveProfile();
+    const np=getProfile();
+    if(np!==curProfile){ curProfile=np; loadProfile(np);
+      if(running && Math.round(targetH)!==procH) allocBuffers(); }
+    updateVisibility(); }
 
   const stabOff=$('stabOff'), stabOn=$('stabOn');
   stabOff.onclick = () => setStab(false);
@@ -1095,6 +1135,7 @@ struct FOI { @location(0) disp:vec4f, @location(1) bgN:vec4f };
     // and its tooltip shows what's available, so a fall-back to WebGL2/CPU is always visible.
     updateEngineBadge();
   }
+  loadProfile('linear'); updateVisibility();
   detectBackends();
 
   if (navigator.mediaDevices){ navigator.mediaDevices.addEventListener?.('devicechange', listDevices); listDevices(); }
