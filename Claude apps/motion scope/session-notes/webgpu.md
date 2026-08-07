@@ -33,3 +33,31 @@ clearly in the UI so a fall-back is visible.
   can flip and confirm parity per step.
 - Brave/Mac: WebGPU should work (Chromium 113+ default) but Brave gates via
   privacy/farbling; user to confirm `navigator.gpu` returns an object.
+
+## Session 2 — first GPU path landed (Linear amplify)
+
+Implemented WebGPU render pipeline for the Linear (Eulerian) amplify path.
+- Second canvas #viewGPU (webgpu context) overlaid in stage; shown when GPU active,
+  #view (2d) shown otherwise. Header GPU toggle (enabled only if caps.webgpu).
+- WGSL fullscreen pass, 3 render targets (MRT): display (canvas) + slowN + fastN
+  (rgba32float). Reads inputTex (video->proc canvas via copyExternalImageToTexture)
+  + previous slow/fast state; computes EMA bandpass, luma/chroma blend, gain; writes
+  display + new state. Ping-pong slow[2]/fast[2]. seed uniform sets s=f=x on frame 1.
+- Uniforms (32B): gain,aSlow,aFast,chroma,amp,seed,w,h. aSlow/aFast from live fps.
+- Fallbacks: any init/frame/device-lost error -> gpuFallback() -> useGPU off,
+  gpuFailed, button disabled, CPU resumes. CPU path is UNTOUCHED and always safe.
+- backend var flips to 'webgpu' only while a GPU frame actually runs; badge + tooltip
+  reflect it, so falling back to CPU (e.g. switching to Warp) is visible.
+
+### GPU coverage / parity notes (v1)
+GPU path currently = Linear, Amplified/Motion-only, non-Compare ONLY. It does NOT
+yet apply: temporal denoise, stabilize, spatial scale, smoothing. So for a fair
+CPU-vs-GPU parity check, turn those off. Compare view forces CPU. Energy meter is
+stale in GPU mode (cosmetic).
+
+### Next
+- Wire temporal denoise + stabilize (pre-pass) into GPU, then scale/smoothing.
+- Port Phase, Isolate, Warp (warp remap = near-free on GPU) as further passes.
+- Keep stabilize ESTIMATE on CPU (thumbnail); counter-shift on GPU.
+- Can't verify GPU output here — needs user test (toggle GPU, use Compare mentally
+  by flipping the toggle; watch badge + fps).

@@ -27,6 +27,7 @@
   .wrap{flex:1;display:grid;grid-template-columns:1fr 340px;gap:1px;background:var(--line);min-height:0}
   .stage{background:#000;position:relative;display:flex;align-items:center;justify-content:center;overflow:hidden;min-height:320px}
   canvas#view{max-width:100%;max-height:100%;display:block;background:#000}
+  canvas#viewGPU{max-width:100%;max-height:100%;background:#000}
   video#src{display:none}
   .stage .overlay{position:absolute;inset:0;pointer-events:none;display:flex;flex-direction:column;justify-content:space-between;padding:.6rem .75rem}
   .readout{align-self:flex-start;font-family:var(--mono);font-size:.72rem;color:var(--muted);background:rgba(6,10,14,.55);border:1px solid var(--line);border-radius:6px;padding:.3rem .5rem;line-height:1.5;backdrop-filter:blur(4px)}
@@ -72,6 +73,7 @@
   <span class="mark">◉ MOTION SCOPE</span>
   <span class="sub">live motion magnification</span>
   <span id="engineBadge" class="ebadge" title="detecting…">ENGINE: …</span>
+  <button id="gpuBtn" class="hbtn" aria-pressed="false" disabled title="GPU acceleration (Linear view)">GPU</button>
   <button id="cmpBtn" class="hbtn" aria-pressed="false">Compare</button>
 </header>
 
@@ -79,6 +81,7 @@
   <div class="stage">
     <video id="src" playsinline muted></video>
     <canvas id="view" width="960" height="540"></canvas>
+    <canvas id="viewGPU" width="384" height="216" style="display:none"></canvas>
     <div class="overlay" id="overlay" hidden>
       <div class="readout" id="readout"></div>
       <div class="energy">motion energy<div class="bar"><i id="energyBar"></i></div></div>
@@ -357,6 +360,7 @@
     gTmp = new Float32Array(n); gTmp2 = new Float32Array(n);
     phaseReady = false;
     initialized = false;
+    if (gpu) allocGPUTextures();
   }
 
   // --- camera ---
@@ -581,12 +585,151 @@
     prevS.set(curS); stabReady=true;
   }
 
+  // ================= WebGPU backend (beta): GPU Linear amplify =================
+  // Ports the Linear (Eulerian) amplify path to the GPU. Per-pixel temporal state
+  // (slow/fast EMAs) lives in ping-pong float textures; one render pass reads the
+  // frame + previous state and writes the display plus the two new state textures.
+  const viewGPU = document.getElementById('viewGPU');
+  const gpuBtn = document.getElementById('gpuBtn');
+  let useGPU=false, gpu=null, gpuFailed=false;
+
+  const WGSL = `
+struct U { gain:f32, aSlow:f32, aFast:f32, chroma:f32, amp:f32, seed:f32, w:f32, h:f32 };
+@group(0) @binding(0) var<uniform> u:U;
+@group(0) @binding(1) var inp: texture_2d<f32>;
+@group(0) @binding(2) var slowP: texture_2d<f32>;
+@group(0) @binding(3) var fastP: texture_2d<f32>;
+@vertex fn vs(@builtin(vertex_index) i:u32) -> @builtin(position) vec4f {
+  var p = array<vec2f,3>(vec2f(-1.0,-1.0), vec2f(3.0,-1.0), vec2f(-1.0,3.0));
+  return vec4f(p[i], 0.0, 1.0);
+}
+struct FO { @location(0) disp:vec4f, @location(1) slowN:vec4f, @location(2) fastN:vec4f };
+@fragment fn fs(@builtin(position) fc:vec4f) -> FO {
+  let c = vec2i(i32(fc.x), i32(fc.y));
+  let x = textureLoad(inp, c, 0).rgb * 255.0;
+  var ps = textureLoad(slowP, c, 0).rgb;
+  var pf = textureLoad(fastP, c, 0).rgb;
+  if (u.seed > 0.5) { ps = x; pf = x; }
+  let s = ps + u.aSlow * (x - ps);
+  let f = pf + u.aFast * (x - pf);
+  let b = f - s;
+  let bY = dot(b, vec3f(0.299, 0.587, 0.114));
+  let m = u.gain * (u.chroma * b + (1.0 - u.chroma) * vec3f(bY, bY, bY));
+  var outc = x + m;
+  if (u.amp <= 0.5) { outc = vec3f(128.0, 128.0, 128.0) + m; }
+  outc = clamp(outc, vec3f(0.0), vec3f(255.0));
+  var o:FO;
+  o.disp = vec4f(outc/255.0, 1.0);
+  o.slowN = vec4f(s, 1.0);
+  o.fastN = vec4f(f, 1.0);
+  return o;
+}`;
+
+  async function initGPU(){
+    if (gpuFailed || !navigator.gpu) return false;
+    try{
+      const adapter = await navigator.gpu.requestAdapter();
+      if(!adapter) throw new Error('no adapter');
+      const device = await adapter.requestDevice();
+      device.lost.then(()=>{ gpuFallback('device-lost'); });
+      const ctx = viewGPU.getContext('webgpu');
+      const format = navigator.gpu.getPreferredCanvasFormat();
+      ctx.configure({ device, format, alphaMode:'opaque' });
+      const mod = device.createShaderModule({ code: WGSL });
+      const pipeline = device.createRenderPipeline({
+        layout:'auto',
+        vertex:{ module:mod, entryPoint:'vs' },
+        fragment:{ module:mod, entryPoint:'fs', targets:[ {format}, {format:'rgba32float'}, {format:'rgba32float'} ] },
+        primitive:{ topology:'triangle-list' }
+      });
+      const uniformBuf = device.createBuffer({ size:32, usage:GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST });
+      gpu = { device, ctx, format, pipeline, uniformBuf, inputTex:null, slow:[null,null], fast:[null,null], ping:0, seeded:false, w:0, h:0 };
+      allocGPUTextures();
+      return true;
+    }catch(e){ gpuFallback('init'); return false; }
+  }
+
+  function allocGPUTextures(){
+    if(!gpu || !procW) return;
+    try{
+      for(const t of [gpu.inputTex, gpu.slow[0], gpu.slow[1], gpu.fast[0], gpu.fast[1]]) if(t) t.destroy();
+      const dev=gpu.device;
+      const RA=GPUTextureUsage.RENDER_ATTACHMENT, TB=GPUTextureUsage.TEXTURE_BINDING, CD=GPUTextureUsage.COPY_DST;
+      const mk=(fmt,usage)=>dev.createTexture({ size:[procW,procH], format:fmt, usage });
+      gpu.inputTex = mk('rgba8unorm', TB|CD|RA);
+      gpu.slow=[ mk('rgba32float',RA|TB), mk('rgba32float',RA|TB) ];
+      gpu.fast=[ mk('rgba32float',RA|TB), mk('rgba32float',RA|TB) ];
+      gpu.ping=0; gpu.seeded=false; gpu.w=procW; gpu.h=procH;
+      viewGPU.width=procW; viewGPU.height=procH;
+    }catch(e){ gpuFallback('alloc'); }
+  }
+
+  function gpuFrame(){
+    const dev=gpu.device;
+    dev.queue.copyExternalImageToTexture({ source:proc }, { texture:gpu.inputTex }, [procW,procH]);
+    const f=Math.max(5,Math.min(120,fps));
+    const aSlow=1-Math.exp(-2*Math.PI*loHz/f), aFast=1-Math.exp(-2*Math.PI*hiHz/f);
+    const ub=new Float32Array([ gain, aSlow, aFast, chromaAmt, (mode==='amp')?1:0, gpu.seeded?0:1, procW, procH ]);
+    dev.queue.writeBuffer(gpu.uniformBuf, 0, ub);
+    const cur=gpu.ping, nxt=1-cur;
+    const bind=dev.createBindGroup({ layout:gpu.pipeline.getBindGroupLayout(0), entries:[
+      { binding:0, resource:{ buffer:gpu.uniformBuf } },
+      { binding:1, resource:gpu.inputTex.createView() },
+      { binding:2, resource:gpu.slow[cur].createView() },
+      { binding:3, resource:gpu.fast[cur].createView() },
+    ]});
+    const enc=dev.createCommandEncoder();
+    const pass=enc.beginRenderPass({ colorAttachments:[
+      { view:gpu.ctx.getCurrentTexture().createView(), clearValue:{r:0,g:0,b:0,a:1}, loadOp:'clear', storeOp:'store' },
+      { view:gpu.slow[nxt].createView(), clearValue:{r:0,g:0,b:0,a:1}, loadOp:'clear', storeOp:'store' },
+      { view:gpu.fast[nxt].createView(), clearValue:{r:0,g:0,b:0,a:1}, loadOp:'clear', storeOp:'store' },
+    ]});
+    pass.setPipeline(gpu.pipeline); pass.setBindGroup(0,bind); pass.draw(3); pass.end();
+    dev.queue.submit([enc.finish()]);
+    gpu.ping=nxt; gpu.seeded=true;
+  }
+
+  function gpuFallback(){
+    gpuFailed=true; useGPU=false; backend='cpu';
+    try{ viewGPU.style.display='none'; view.style.display='block'; }catch(e){}
+    if(gpuBtn){ gpuBtn.setAttribute('aria-pressed',false); gpuBtn.disabled=true; gpuBtn.title='GPU unavailable (fell back to CPU)'; }
+    gpu=null; updateEngineBadge();
+  }
+
+  // GPU currently covers the Linear method in Amplified / Motion-only, single (non-compare) view
+  function gpuSupportedFor(){ return method==='linear' && (mode==='amp'||mode==='motion') && !compare; }
+
+  if(gpuBtn){
+    gpuBtn.onclick = async () => {
+      if(useGPU){ useGPU=false; gpuBtn.setAttribute('aria-pressed',false); backend='cpu';
+        viewGPU.style.display='none'; view.style.display='block'; updateEngineBadge(); return; }
+      if(!gpu){ const ok=await initGPU(); if(!ok) return; }
+      if(running) allocGPUTextures();
+      useGPU=true; gpuBtn.setAttribute('aria-pressed',true); updateEngineBadge();
+    };
+  }
+
   // --- main loop ---
   function loop(){
     if (!running) return;
     const now = performance.now(); const dt = now-lastT; lastT = now;
     if (dt>0){ const inst=1000/dt; fps += (inst-fps)*0.1; }
-    if (video.readyState>=2 && procW){ processFrame(); drawReadout(); }
+    if (video.readyState>=2 && procW){
+      const gpuActive = useGPU && gpu && !gpuFailed && gpuSupportedFor();
+      const want = gpuActive ? 'webgpu' : 'cpu';
+      if(want!==backend){ backend=want; updateEngineBadge(); }
+      if(gpuActive){
+        pctx.drawImage(video, 0, 0, procW, procH);
+        let ok=true;
+        try{ gpuFrame(); }catch(e){ gpuFallback(); ok=false; }
+        if(ok){ if(viewGPU.style.display==='none'){ viewGPU.style.display='block'; view.style.display='none'; } }
+        else { viewGPU.style.display='none'; view.style.display='block'; processFrame(); }
+      } else {
+        if(viewGPU.style.display!=='none'){ viewGPU.style.display='none'; view.style.display='block'; }
+        processFrame();
+      }
+      drawReadout();
+    }
     raf = requestAnimationFrame(loop);
   }
 
@@ -878,6 +1021,7 @@
   async function detectBackends(){
     try{ if(navigator.gpu){ const ad=await navigator.gpu.requestAdapter(); caps.webgpu=!!ad; } }catch(e){}
     try{ const c=document.createElement('canvas'); caps.webgl2=!!c.getContext('webgl2'); }catch(e){}
+    if(caps.webgpu && gpuBtn && !gpuFailed){ gpuBtn.disabled=false; gpuBtn.title='GPU acceleration (Linear view)'; }
     // compute still runs on CPU until the GPU pipeline is ported; badge shows the ACTIVE path,
     // and its tooltip shows what's available, so a fall-back to WebGL2/CPU is always visible.
     updateEngineBadge();
