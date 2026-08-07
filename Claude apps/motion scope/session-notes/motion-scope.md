@@ -255,3 +255,11 @@ Header "Compare" toggle. sizeView() sets view canvas height to 2x frame height
 when compare on. Draw step: top half = raw video (drawImage(video)), bottom half
 = processed proc; INPUT/OUTPUT labels + phosphor divider. Off = single output as
 before. Raw top reflects true camera (shows shake even when output stabilized).
+
+## Screen-capture source
+
+"Share screen" button -> getDisplayMedia({video,frameRate 30}) into the same
+<video>; attachStream() shared with camera start(). Track onended -> stop() so
+browser "Stop sharing" resets UI. Whole pipeline (stabilize/warp/etc) runs on the
+screen stream unchanged; allocBuffers handles any aspect. Note: display-capture
+may be blocked in a sandboxed iframe (artifact) - reliable in standalone/browser.

@@ -94,6 +94,7 @@
         <button class="act primary" id="startBtn">Start</button>
         <button class="act stop" id="stopBtn" disabled>Stop</button>
       </div>
+      <button class="act" id="screenBtn">Share screen</button>
     </div>
 
     <div class="group">
@@ -363,16 +364,25 @@
       deviceSel.value = cur;
     }catch(e){}
   }
+  async function attachStream(){
+    video.srcObject = stream; await video.play(); allocBuffers();
+    running=true; empty.hidden=true; overlay.hidden=false;
+    $('startBtn').disabled=true; $('stopBtn').disabled=false;
+    lastT = performance.now(); loop();
+  }
   async function start(){
     stop(); errEl.style.display='none';
     const id = deviceSel.value;
     const constraints = { video: id ? { deviceId:{exact:id}, width:{ideal:1280}, height:{ideal:720} } : { width:{ideal:1280}, height:{ideal:720} }, audio:false };
+    try{ stream = await navigator.mediaDevices.getUserMedia(constraints); await attachStream(); await listDevices(); }
+    catch(e){ showError(e); }
+  }
+  async function startScreen(){
+    stop(); errEl.style.display='none';
     try{
-      stream = await navigator.mediaDevices.getUserMedia(constraints);
-      video.srcObject = stream; await video.play(); await listDevices(); allocBuffers();
-      running=true; empty.hidden=true; overlay.hidden=false;
-      $('startBtn').disabled=true; $('stopBtn').disabled=false;
-      lastT = performance.now(); loop();
+      stream = await navigator.mediaDevices.getDisplayMedia({ video:{ frameRate:{ideal:30} }, audio:false });
+      const t = stream.getVideoTracks()[0]; if(t) t.onended = () => stop();
+      await attachStream();
     }catch(e){ showError(e); }
   }
   function stop(){
@@ -390,6 +400,7 @@
     errEl.textContent=msg; errEl.style.display='block';
   }
   $('startBtn').onclick = start;
+  $('screenBtn').onclick = startScreen;
   $('stopBtn').onclick = stop;
   deviceSel.onchange = () => { if (running) start(); };
 
