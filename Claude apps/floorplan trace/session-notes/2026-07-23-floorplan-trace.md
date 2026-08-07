@@ -360,3 +360,32 @@ guard handles deleted cutter. Registration 13/13; inference [A]/[E] unchanged.
 NOTED FOR LATER (user request, not built): distance-memory guides that remember lengths across
 *parallel* guidelines (same horizontal/vertical length even when not collinear), and optionally a mode
 that remembers ALL lengths regardless of direction.
+
+---
+
+## Update — smarter distance memory (angle-grouped, promoted, tolerant)
+
+Reworked distance memory around *recurrence* so it scales to big floorplans without a candidate
+explosion. Module-level `_dim_memory`: bucket int(0..179 undirected degrees) -> list of
+{len,count,promoted}. A drawn segment's length is tallied per angle bucket in place() (clustered by
+`dist_tol`%); it is *promoted* to a remembered dimension per `dist_promote`:
+  - Reused: only when placed while snapped to that length (collinear repeats)
+  - Drawn 2x (default): once the same length is drawn twice within tolerance
+  - Drawn 3x
+Only promoted dims are offered as candidates (in `_distance_candidates` via `_dim_offer`), scoped by
+`dist_scope`: Same Angle (default -- horizontals share, don't bleed into verticals; +/-2deg bucket
+match so 45deg walls share) or Any Angle. This gives the user's cases: 3 horizontals at different
+heights share a width; 15 45deg walls share; verticals optional. Panel readout lists remembered
+"len xN" with a trash/forget button (MESH_OT_floorplan_forget_dims). New settings: dist_scope,
+dist_promote, dist_tol. Cleared on unregister.
+
+Verified: pure algorithm (bucketing/tolerance/promotion/scope); registration + module helpers in
+4.4.3; full integration -- two 2.0 horizontals at different y promote to (2.0 x2), a third horizontal
+snaps to it, a vertical (same-axis) correctly does not.
+
+NOTE: sandbox filesystem reset mid-session; re-applied these edits from scratch and re-downloaded
+Blender to re-verify. Everything above re-tested green.
+
+STILL ON THE TABLE (discussed, not built): on-screen-only + basics-only hold-keys; snap Sources vs
+Types panel split; world-axis global guide planes (X/Y/Z + offset, view-independent, taggable from
+objects); a cursor readout of *why* it snapped.

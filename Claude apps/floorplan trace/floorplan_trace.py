@@ -158,6 +158,75 @@ def _pending_cutter_valid():
         return False
 
 
+# ---- remembered dimensions (distance memory grouped by wall angle) -----------
+# _dim_memory: bucket int(0..179 deg, undirected) -> list of
+#   {'len': float, 'count': int, 'promoted': bool}
+_dim_memory = {}
+
+
+def _dim_bucket(angle_rad):
+    from math import degrees
+    return int(round(degrees(angle_rad))) % 180
+
+
+def _dim_clear():
+    _dim_memory.clear()
+
+
+def _dim_record(angle_rad, length, tol_frac, trigger, used_snap):
+    """Tally a drawn segment; promote its length per the trigger."""
+    if length < 1e-5:
+        return
+    b = _dim_bucket(angle_rad)
+    lst = _dim_memory.setdefault(b, [])
+    entry = None
+    for e in lst:
+        if abs(e['len'] - length) <= tol_frac * max(e['len'], length, 1e-6):
+            entry = e
+            break
+    if entry is None:
+        entry = {'len': length, 'count': 0, 'promoted': False}
+        lst.append(entry)
+    entry['count'] += 1
+    # nudge the representative length toward the running mean
+    entry['len'] += (length - entry['len']) / entry['count']
+    if trigger == 'REUSE':
+        if used_snap:
+            entry['promoted'] = True
+    elif trigger == 'APPEAR3':
+        if entry['count'] >= 3:
+            entry['promoted'] = True
+    else:  # APPEAR2 (default)
+        if entry['count'] >= 2:
+            entry['promoted'] = True
+
+
+def _dim_offer(angle_rad, scope):
+    """Promoted lengths relevant to a segment drawn at angle_rad."""
+    out = []
+    if scope == 'ANY':
+        for lst in _dim_memory.values():
+            out.extend(e['len'] for e in lst if e['promoted'])
+    else:  # SAMEAXIS: same undirected angle bucket, within a couple degrees
+        b = _dim_bucket(angle_rad)
+        for db in range(-2, 3):
+            lst = _dim_memory.get((b + db) % 180)
+            if lst:
+                out.extend(e['len'] for e in lst if e['promoted'])
+    return out
+
+
+def _dim_list():
+    """Flat list of promoted (length, count) for the panel readout, longest first."""
+    items = []
+    for lst in _dim_memory.values():
+        for e in lst:
+            if e['promoted']:
+                items.append((e['len'], e['count']))
+    items.sort(key=lambda x: -x[0])
+    return items
+
+
 # ------------------------------------------------------------------ prefs
 class FT_Prefs(bpy.types.AddonPreferences):
     bl_idname = __name__
@@ -436,6 +505,28 @@ class FT_Settings(bpy.types.PropertyGroup):
     guide_marker_size: bpy.props.FloatProperty(
         name="Marker Size", default=1.0, min=0.4, max=4.0,
         description="Size multiplier for point markers, ticks, and rings")
+    dist_scope: bpy.props.EnumProperty(
+        name="Remember across",
+        description="Which segments a remembered length is offered to",
+        items=[('SAMEAXIS', "Same Angle",
+                "Offer a remembered length only to segments at the same angle "
+                "(e.g. all horizontals share, but horizontals don't affect verticals)"),
+               ('ANY', "Any Angle",
+                "Offer every remembered length to every segment regardless of angle")],
+        default='SAMEAXIS')
+    dist_promote: bpy.props.EnumProperty(
+        name="Remember when",
+        description="When a drawn length is promoted to a remembered dimension",
+        items=[('REUSE', "Reused",
+                "Only when you snap to a previously-drawn length (collinear repeats)"),
+               ('APPEAR2', "Drawn 2x",
+                "Once you've drawn the same length (within tolerance) twice"),
+               ('APPEAR3', "Drawn 3x",
+                "Once you've drawn the same length three times")],
+        default='APPEAR2')
+    dist_tol: bpy.props.FloatProperty(
+        name="Match Tolerance %", default=1.5, min=0.0, max=15.0,
+        description="How close two lengths must be to count as the same dimension")
 
 
 # ------------------------------------------------------------------ operator
@@ -571,6 +662,10 @@ class MESH_OT_floorplan_trace(bpy.types.Operator):
         for dv in diffs:
             if sum(1 for x in diffs if abs(x - dv) <= perp_tol) >= 2:
                 cands.add(round(dv, 6))
+        # promoted remembered dimensions for this direction (angle-grouped memory)
+        for L in _dim_offer(atan2(d.y, d.x), s.dist_scope):
+            if L > 1e-6:
+                cands.add(round(L, 6))
         return cands
 
     def compute_target(self, context, coord):
@@ -789,6 +884,19 @@ class MESH_OT_floorplan_trace(bpy.types.Operator):
             try:
                 self.bm.edges.new((self.chain[-1], v))
             except ValueError:
+                pass
+            # remember this segment's length under its (undirected) angle
+            try:
+                s = context.scene.floorplan_trace
+                if s.use_distance_memory:
+                    prev_uv = Vector(self.to_uv(self.mw @ self.chain[-1].co))
+                    new_uv = Vector(self.to_uv(d['world']))
+                    seg = new_uv - prev_uv
+                    if seg.length > 1e-5:
+                        _dim_record(atan2(seg.y, seg.x), seg.length,
+                                    max(s.dist_tol, 0.0) / 100.0,
+                                    s.dist_promote, d.get('dist') is not None)
+            except Exception:
                 pass
         self.chain.append(v)
         self.refresh_anchors()
@@ -1706,6 +1814,19 @@ class MESH_OT_floorplan_cancel_cut(bpy.types.Operator):
         return {'FINISHED'}
 
 
+class MESH_OT_floorplan_forget_dims(bpy.types.Operator):
+    """Clear all remembered dimensions"""
+    bl_idname = "mesh.floorplan_forget_dims"
+    bl_label = "Forget Dimensions"
+    bl_options = {'INTERNAL'}
+
+    def execute(self, context):
+        _dim_clear()
+        if context.area:
+            context.area.tag_redraw()
+        return {'FINISHED'}
+
+
 class OBJECT_OT_floorplan_calibrate(bpy.types.Operator):
     """Scale selected objects to a known measurement.\nClick the two ends of a measured line, then type its real length"""
     bl_idname = "object.floorplan_calibrate"
@@ -2060,9 +2181,22 @@ class VIEW3D_PT_floorplan_trace(bpy.types.Panel):
         box.label(text="Inference")
         box.prop(s, "use_extension")
         box.prop(s, "use_distance_memory")
-        row = box.row()
-        row.enabled = s.use_distance_memory
-        row.prop(s, "dist_px")
+        dm = box.column()
+        dm.enabled = s.use_distance_memory
+        dm.prop(s, "dist_px")
+        dm.prop(s, "dist_scope")
+        dm.prop(s, "dist_promote")
+        dm.prop(s, "dist_tol")
+        remembered = _dim_list()
+        if remembered:
+            head = dm.row(align=True)
+            head.label(text="Remembered:")
+            head.operator("mesh.floorplan_forget_dims", text="", icon='TRASH')
+            grid = dm.grid_flow(columns=2, even_columns=True, align=True)
+            for length, count in remembered[:8]:
+                grid.label(text="%.4g  x%d" % (length, count))
+            if len(remembered) > 8:
+                dm.label(text="+%d more" % (len(remembered) - 8))
 
         box = guides.box()
         box.label(text="Grid")
@@ -2094,6 +2228,7 @@ classes = (
     MESH_OT_floorplan_cut_dialog,
     MESH_OT_floorplan_apply_cut,
     MESH_OT_floorplan_cancel_cut,
+    MESH_OT_floorplan_forget_dims,
     OBJECT_OT_floorplan_calibrate,
     OBJECT_OT_floorplan_apply_scale,
     VIEW3D_PT_floorplan_trace,
@@ -2199,6 +2334,7 @@ def unregister():
         pass
     _unsubscribe_cut_watch()
     _pending_cut.clear()
+    _dim_clear()
     if _on_load in bpy.app.handlers.load_post:
         bpy.app.handlers.load_post.remove(_on_load)
     _unregister_keymaps()
