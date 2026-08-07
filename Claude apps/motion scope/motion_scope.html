@@ -43,6 +43,7 @@
   .group h3{margin:0;font-size:.7rem;text-transform:uppercase;letter-spacing:.12em;color:var(--muted);font-weight:600}
   label.field{display:flex;flex-direction:column;gap:.3rem;font-size:.8rem}
   label.field.dim{opacity:.4}
+  .inert{opacity:.35;pointer-events:none}
   label.field .row{display:flex;justify-content:space-between;align-items:baseline}
   label.field .val{font-family:var(--mono);color:var(--phosphor);font-size:.78rem}
   input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:4px;border-radius:2px;background:var(--panel-2);outline:none}
@@ -335,12 +336,21 @@
     show(fld('overlay'), p==='warp');
     show(fld('scale'), p==='linear'||p==='isolate');
     show($('warpFieldGroup'), p==='warp'); }
+  function updateInertControls(){
+    const gpuOn=(backend==='webgpu'), p=curProfile;
+    const fld=(id)=>{ const e=$(id); return e?e.closest('label.field'):null; };
+    const mark=(el,inert)=>{ if(el){ el.classList.toggle('inert',inert); if(inert) el.setAttribute('title','Not on GPU yet — switch GPU off to use'); else el.removeAttribute('title'); } };
+    mark(fld('denoise'), gpuOn && (p==='linear'||p==='isolate'));  // Smoothing works on GPU Warp
+    mark(fld('scale'),   gpuOn && (p==='linear'||p==='isolate'));
+    mark(fld('tnr'),     gpuOn);                                    // Temporal denoise not on GPU yet
+    mark($('warpFieldGroup'), gpuOn && p==='warp');                 // Field denoise / Clean plate not on GPU yet
+  }
   function switchProfile(){
     saveProfile();
     const np=getProfile();
     if(np!==curProfile){ curProfile=np; loadProfile(np);
       if(running && Math.round(targetH)!==procH) allocBuffers(); }
-    updateVisibility(); }
+    updateVisibility(); updateInertControls(); }
 
   const stabOff=$('stabOff'), stabOn=$('stabOn');
   stabOff.onclick = () => setStab(false);
@@ -973,7 +983,7 @@ struct FBL { @location(0) a:vec4f, @location(1) b:vec4f };
   if(gpuBtn){
     gpuBtn.onclick = async () => {
       if(useGPU){ useGPU=false; gpuBtn.setAttribute('aria-pressed',false); backend='cpu';
-        viewGPU.style.display='none'; view.style.display='block'; updateEngineBadge(); return; }
+        viewGPU.style.display='none'; view.style.display='block'; updateEngineBadge(); updateInertControls(); return; }
       if(!gpu){ const ok=await initGPU(); if(!ok) return; }
       if(gpuMsg) gpuMsg.hidden=true;
       if(running) allocGPUTextures();
@@ -989,7 +999,7 @@ struct FBL { @location(0) a:vec4f, @location(1) b:vec4f };
     if (video.readyState>=2 && procW){
       const gpuActive = useGPU && gpu && !gpuFailed && gpuSupportedFor();
       const want = gpuActive ? 'webgpu' : 'cpu';
-      if(want!==backend){ backend=want; updateEngineBadge(); }
+      if(want!==backend){ backend=want; updateEngineBadge(); updateInertControls(); }
       if(gpuActive){
         let ok=true;
         gpuStabEstimate();

@@ -113,3 +113,20 @@ creation wrapped in error scope -> gpuDebug. gpuSupportedFor now includes warp.
 ### GPU Warp v1 NOT wired (CPU-only, polish later): field-denoise, clean-plate,
 temporal-denoise, stabilize, spatial-scale. Smoothing DOES apply (blur window=wr).
 Blind-untested; on-screen #gpuMsg will surface any WGSL/validation error.
+
+## Session 5 — polish pass 1: Stabilize on GPU + inert-control hints
+
+- Stabilize now works in ALL GPU paths. gpuStabEstimate() draws video to a 120px
+  stabProc canvas, getImageData, builds curS, runs estimateShiftRobust +leaky
+  integrator (accX/accY, stabStrength), reusing the CPU estimator. Shaders gained
+  sx,sy uniform fields; they offset the video-sampling uv (linear/isolate: uv-(sx,sy);
+  warp Pass A luma + Pass F remap: subtract (sx,sy) too). Uniform buffers: linear &
+  warp -> 48B, isolate stays 32B. When stabilize off, accX/accY forced 0.
+- updateInertControls(): greys (opacity + pointer-events:none + title) the controls
+  not wired on the active GPU path — Smoothing/Spatial-scale (linear+isolate),
+  Temporal denoise (all), Warp-field group (warp). Called on backend flip (loop),
+  switchProfile, and GPU-off. So panel no longer implies inert controls do something.
+
+## Still TODO (polish pass 2): wire Temporal denoise + Smoothing + Spatial scale into
+GPU Linear/Isolate (needs pre-pass/extra state + a blur pass for linear); Field
+denoise + Clean plate into GPU Warp. Then remove those from the inert list.
