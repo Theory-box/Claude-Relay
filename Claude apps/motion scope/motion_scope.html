@@ -656,7 +656,7 @@
   const viewGPU = document.getElementById('viewGPU');
   const gpuBtn = document.getElementById('gpuBtn');
   const gpuMsg = document.getElementById('gpuMsg');
-  let useGPU=false, gpu=null, gpuFailed=false;
+  let useGPU=false, gpu=null, gpuFailed=false, gpuRecovering=false, gpuErrStreak=0;
   function gpuDebug(msg){ console.error('[MotionScope GPU]', msg); if(gpuMsg){ gpuMsg.hidden=false; gpuMsg.textContent='GPU: '+msg; } }
 
   const WGSL = `
@@ -849,7 +849,7 @@ struct FR { @location(0) disp:vec4f, @location(1) fldN:vec4f };
       const adapter = await navigator.gpu.requestAdapter();
       if(!adapter) throw new Error('no adapter');
       const device = await adapter.requestDevice();
-      device.lost.then(()=>{ gpuFallback('device-lost'); });
+      device.lost.then((info)=>{ if(!gpu || gpu.device!==device) return; gpu=null; if(useGPU) gpuSoftRecover(info&&info.message?info.message:'device lost'); });
       device.onuncapturederror = (e)=>{ gpuDebug((e.error && e.error.message) ? e.error.message : String(e.error)); };
       const ctx = viewGPU.getContext('webgpu');
       const format = navigator.gpu.getPreferredCanvasFormat();
@@ -1042,8 +1042,15 @@ struct FR { @location(0) disp:vec4f, @location(1) fldN:vec4f };
   function gpuFallback(){
     gpuFailed=true; useGPU=false; backend='cpu';
     try{ viewGPU.style.display='none'; view.style.display='block'; }catch(e){}
-    if(gpuBtn){ gpuBtn.setAttribute('aria-pressed',false); gpuBtn.disabled=true; gpuBtn.title='GPU unavailable (fell back to CPU)'; }
+    if(gpuBtn){ gpuBtn.setAttribute('aria-pressed',false); gpuBtn.title='GPU acceleration (tap to retry)'; }
     gpu=null; updateEngineBadge();
+  }
+  // transient recovery: rebuild the device without permanently disabling GPU
+  function gpuSoftRecover(msg){
+    if(gpuRecovering) return;
+    gpuRecovering=true; gpu=null; gpuFailed=false;
+    gpuDebug('GPU recovering… ('+msg+')');
+    initGPU().then(ok=>{ gpuRecovering=false; if(ok){ gpuErrStreak=0; if(gpuMsg) gpuMsg.hidden=true; } });
   }
 
   // GPU covers Linear (Amplified/Motion-only), Isolate, and Warp; single (non-compare) view
@@ -1058,6 +1065,7 @@ struct FR { @location(0) disp:vec4f, @location(1) fldN:vec4f };
     gpuBtn.onclick = async () => {
       if(useGPU){ useGPU=false; gpuBtn.setAttribute('aria-pressed',false); backend='cpu';
         viewGPU.style.display='none'; view.style.display='block'; updateEngineBadge(); updateInertControls(); return; }
+      gpuFailed=false; gpuErrStreak=0;
       if(!gpu){ const ok=await initGPU(); if(!ok) return; }
       if(gpuMsg) gpuMsg.hidden=true;
       if(running) allocGPUTextures();
@@ -1077,7 +1085,9 @@ struct FR { @location(0) disp:vec4f, @location(1) fldN:vec4f };
       if(gpuActive){
         let ok=true;
         gpuStabEstimate();
-        try{ if(mode==='isolate') gpuFrameIsolate(); else if(mode==='warp') gpuFrameWarp(); else gpuFrame(); }catch(e){ gpuFallback(); ok=false; }
+        try{ if(mode==='isolate') gpuFrameIsolate(); else if(mode==='warp') gpuFrameWarp(); else gpuFrame(); gpuErrStreak=0; }
+        catch(e){ ok=false; gpuErrStreak++; gpuDebug(e&&e.message?e.message:String(e));
+          if(gpuErrStreak>=8) gpuFallback(); else gpuSoftRecover('frame error'); }
         if(ok){ if(viewGPU.style.display==='none'){ viewGPU.style.display='block'; view.style.display='none'; } }
         else { viewGPU.style.display='none'; view.style.display='block'; processFrame(); }
       } else {
