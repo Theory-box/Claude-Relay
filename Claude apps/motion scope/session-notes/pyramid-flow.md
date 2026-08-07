@@ -37,3 +37,12 @@ Three fixes to the flow BEFORE it's applied (effect strength untouched):
    (kills accumulated-noise shimmer on still areas). Applied post-bandpass.
 3. Accumulator leak 0.99/frame -> bounds random-walk drift from integrated flow noise.
 Tunables if needed: dead (0.25), leak (0.99), fr base (2), LK iters/level (3).
+
+## Session 3 — keep BOTH (Fast/Deep toggle)
+Restored the original single-scale warp as the default; pyramidal flow is now behind
+a Warp-field "Fast / Deep · big motion" toggle (deepFlow). warpFrame branches: Deep =
+pyramidal+accumulate+bandpass+deadband+leak+field-smooth; Fast = original single-scale
+LK on the temporal band (crisp). Suppress works in both (k). gpuSupportedFor: warp on
+GPU only when !deepFlow (Deep is CPU-only). So user can turn GPU off + raise Detail to
+preview Deep at full res, to judge whether low-res was the artifact source before GPU port.
+Next: if full-res Deep looks good -> port pyramidal to GPU (~40 passes, its own build).

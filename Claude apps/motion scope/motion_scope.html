@@ -146,7 +146,11 @@
         <button id="supOff" aria-pressed="true">Amplify</button>
         <button id="supOn" aria-pressed="false">Suppress</button>
       </div>
-      <p class="note"><b>Suppress</b> reverses the warp — it pushes moving parts back toward rest to hold motion still. Amplification becomes stillness strength; cutoffs still pick which motion to freeze.</p>
+      <div class="seg" role="group" aria-label="Flow engine">
+        <button id="flowFast" aria-pressed="true">Fast</button>
+        <button id="flowDeep" aria-pressed="false">Deep · big motion</button>
+      </div>
+      <p class="note"><b>Suppress</b> reverses the warp — it pushes moving parts back toward rest to hold motion still. Amplification becomes stillness strength; cutoffs still pick which motion to freeze. <b>Deep</b> uses coarse-to-fine optical flow to reach large motion (softer, CPU-only for now — turn GPU off and raise Detail to preview).</p>
       <div class="seg" role="group" aria-label="Field denoise">
         <button id="fdOff" aria-pressed="true">Field raw</button>
         <button id="fdOn" aria-pressed="false">Field denoise</button>
@@ -248,7 +252,7 @@
   let lumaS = null, lumaF = null;               // warp overlay: luma temporal bandpass
   let sxx=null, syy=null, sxy=null, sxt=null, syt=null; // warp: Lucas-Kanade structure tensor
   let fdX=null, fdY=null, plateBuf=null;                // warp: field EMA + clean plate
-  let fieldDenoise=false, cleanPlate=false, suppress=false;
+  let fieldDenoise=false, cleanPlate=false, suppress=false, deepFlow=false;
   let Yprev=null, pyr=null;                             // pyramidal-flow: prev luma + pyramid buffers
   let stabilize=false, stabReady=false, sw=0, sh=0;
   let curS=null, prevS=null, shiftBuf=null, smallCnt=null;
@@ -274,6 +278,9 @@
   const supOff=$('supOff'), supOn=$('supOn');
   supOff.onclick=()=>setSup(false); supOn.onclick=()=>setSup(true);
   function setSup(on){ suppress=on; supOn.setAttribute('aria-pressed',on); supOff.setAttribute('aria-pressed',!on); updateGainLabel(); }
+  const flowFast=$('flowFast'), flowDeep=$('flowDeep');
+  flowFast.onclick=()=>setDeep(false); flowDeep.onclick=()=>setDeep(true);
+  function setDeep(on){ deepFlow=on; warpReady=false; flowDeep.setAttribute('aria-pressed',on); flowFast.setAttribute('aria-pressed',!on); }
   loEl.oninput = () => {
     loHz = +loEl.value;
     if (loHz >= hiHz) { hiHz = Math.min(15, loHz + 0.5); hiEl.value = hiHz; hiVal.textContent = hiHz.toFixed(1)+' Hz'; }
@@ -1049,7 +1056,8 @@ struct FR { @location(0) disp:vec4f, @location(1) fldN:vec4f };
   // GPU covers Linear (Amplified/Motion-only), Isolate, and Warp; single (non-compare) view
   function gpuSupportedFor(){
     if(compare) return false;
-    if(mode==='isolate' || mode==='warp') return true;
+    if(mode==='warp') return !deepFlow;      // Deep (pyramidal) flow is CPU-only for now
+    if(mode==='isolate') return true;
     return method==='linear' && (mode==='amp'||mode==='motion');
   }
 
@@ -1377,30 +1385,54 @@ struct FR { @location(0) disp:vec4f, @location(1) fldN:vec4f };
       const ls=lumaS[p]+aSlow*(y-lumaS[p]); lumaS[p]=ls;
       const lf=lumaF[p]+aFast*(y-lumaF[p]); lumaF[p]=lf;
       Ab[p]=lf-ls; }
-    // coarse-to-fine dense optical flow (previous frame -> current frame)
-    computeFlow(Yprev, Yb);
-    const F0=pyr.levels[0], leak=0.99, dead=0.25;
-    // integrate flow into per-pixel position (with a slow leak), band-pass, deadband, amplify/suppress
-    for(let p=0;p<n;p++){
-      const px=Pxa[p]*leak + F0.fx[p]; Pxa[p]=px;
-      const py=Pya[p]*leak + F0.fy[p]; Pya[p]=py;
-      const sx=pxS[p]+aSlow*(px-pxS[p]); pxS[p]=sx;
-      const fxb=pxF[p]+aFast*(px-pxF[p]); pxF[p]=fxb;
-      const sy=pyS[p]+aSlow*(py-pyS[p]); pyS[p]=sy;
-      const fyb=pyF[p]+aFast*(py-pyF[p]); pyF[p]=fyb;
-      let dx=fxb-sx, dy=fyb-sy;
-      if(dx*dx+dy*dy < dead*dead){ dx=0; dy=0; }   // stationary areas don't warp
-      if(fieldDenoise){ fdX[p]+=0.4*(dx-fdX[p]); fdY[p]+=0.4*(dy-fdY[p]); dx=fdX[p]; dy=fdY[p]; }
-      let wx=k*dx, wy=k*dy;
-      if(wx>lim)wx=lim; else if(wx<-lim)wx=-lim;
-      if(wy>lim)wy=lim; else if(wy<-lim)wy=-lim;
-      R2[p]=wx; gTmp2[p]=wy;
+    if(deepFlow){
+      // ---- DEEP: coarse-to-fine dense optical flow (reaches large motion; softer) ----
+      computeFlow(Yprev, Yb);
+      const F0=pyr.levels[0], leak=0.99, dead=0.25;
+      for(let p=0;p<n;p++){
+        const px=Pxa[p]*leak + F0.fx[p]; Pxa[p]=px;
+        const py=Pya[p]*leak + F0.fy[p]; Pya[p]=py;
+        const sx=pxS[p]+aSlow*(px-pxS[p]); pxS[p]=sx;
+        const fxb=pxF[p]+aFast*(px-pxF[p]); pxF[p]=fxb;
+        const sy=pyS[p]+aSlow*(py-pyS[p]); pyS[p]=sy;
+        const fyb=pyF[p]+aFast*(py-pyF[p]); pyF[p]=fyb;
+        let dx=fxb-sx, dy=fyb-sy;
+        if(dx*dx+dy*dy < dead*dead){ dx=0; dy=0; }   // stationary areas don't warp
+        if(fieldDenoise){ fdX[p]+=0.4*(dx-fdX[p]); fdY[p]+=0.4*(dy-fdY[p]); dx=fdX[p]; dy=fdY[p]; }
+        let wx=k*dx, wy=k*dy;
+        if(wx>lim)wx=lim; else if(wx<-lim)wx=-lim;
+        if(wy>lim)wy=lim; else if(wy<-lim)wy=-lim;
+        R2[p]=wx; gTmp2[p]=wy;
+      }
+      const fr=2+denoiseR;
+      blurGray(R2, gTmp, w, h, fr); blurGray(R2, gTmp, w, h, fr);
+      blurGray(gTmp2, gTmp, w, h, fr); blurGray(gTmp2, gTmp, w, h, fr);
+      Yprev.set(Yb);
+    } else {
+      // ---- FAST: single-scale LK on the temporal band (crisp; small-motion) ----
+      for(let y=0;y<h;y++){ const row=y*w;
+        for(let x=0;x<w;x++){ const xl=x>0?x-1:0,xr=x<w-1?x+1:w-1,yu=y>0?y-1:0,yd=y<h-1?y+1:h-1;
+          Bb[row+x]=0.5*(Yb[row+xr]-Yb[row+xl]);
+          R1[row+x]=0.5*(Yb[yd*w+x]-Yb[yu*w+x]); } }
+      for(let p=0;p<n;p++){ const ix=Bb[p], iy=R1[p], it=Ab[p];
+        sxx[p]=ix*ix; syy[p]=iy*iy; sxy[p]=ix*iy; sxt[p]=ix*it; syt[p]=iy*it; }
+      const wr=2+(denoiseR>0?denoiseR:1);
+      blurGray(sxx,gTmp,w,h,wr); blurGray(syy,gTmp,w,h,wr); blurGray(sxy,gTmp,w,h,wr);
+      blurGray(sxt,gTmp,w,h,wr); blurGray(syt,gTmp,w,h,wr);
+      const reg=30;
+      for(let p=0;p<n;p++){
+        const a=sxx[p], b=sxy[p], c=syy[p];
+        const det=a*c-b*b+reg;
+        let dx=(-c*sxt[p]+b*syt[p])/det, dy=(b*sxt[p]-a*syt[p])/det;
+        if(dx>3)dx=3; else if(dx<-3)dx=-3;
+        if(dy>3)dy=3; else if(dy<-3)dy=-3;
+        if(fieldDenoise){ fdX[p]+=0.4*(dx-fdX[p]); fdY[p]+=0.4*(dy-fdY[p]); dx=fdX[p]; dy=fdY[p]; }
+        let wx=k*dx, wy=k*dy;
+        if(wx>lim)wx=lim; else if(wx<-lim)wx=-lim;
+        if(wy>lim)wy=lim; else if(wy<-lim)wy=-lim;
+        R2[p]=wx; gTmp2[p]=wy;
+      }
     }
-    // smooth the warp field (two box passes ~= Gaussian) to kill flow blockiness / mosaic
-    const fr=2+denoiseR;
-    blurGray(R2, gTmp, w, h, fr); blurGray(R2, gTmp, w, h, fr);
-    blurGray(gTmp2, gTmp, w, h, fr); blurGray(gTmp2, gTmp, w, h, fr);
-    Yprev.set(Yb);
     // remap (bilinear) from a copy, plus optional brightness overlay
     const aPlate=0.12;
     for(let p=0;p<n;p++){ const i4=p<<2,i3=p*3;
