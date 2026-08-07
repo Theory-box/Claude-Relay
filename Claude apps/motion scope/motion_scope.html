@@ -17,7 +17,10 @@
   header{display:flex;align-items:baseline;gap:.6rem;flex-wrap:wrap;padding:.75rem 1rem;border-bottom:1px solid var(--line)}
   header .mark{font-family:var(--mono);font-weight:600;letter-spacing:.06em;color:var(--phosphor);font-size:.95rem}
   header .sub{color:var(--muted);font-size:.8rem;font-family:var(--mono)}
-  header .hbtn{margin-left:auto;padding:.35rem .7rem;border-radius:7px;border:1px solid var(--line);background:var(--panel-2);color:var(--ink);font-size:.78rem;cursor:pointer;transition:background .12s,border-color .12s}
+  header .hbtn{margin-left:.5rem;padding:.35rem .7rem;border-radius:7px;border:1px solid var(--line);background:var(--panel-2);color:var(--ink);font-size:.78rem;cursor:pointer;transition:background .12s,border-color .12s}
+  header .ebadge{margin-left:auto;font-family:var(--mono);font-size:.62rem;letter-spacing:.08em;padding:.25rem .5rem;border-radius:5px;border:1px solid var(--line);color:var(--muted);background:var(--panel-2);cursor:default}
+  header .ebadge.gpu{color:var(--phosphor);border-color:var(--phosphor)}
+  header .ebadge.gl{color:var(--amber);border-color:var(--amber)}
   header .hbtn:hover{border-color:var(--phosphor)}
   header .hbtn[aria-pressed=true]{background:var(--phosphor);color:#04120e;border-color:var(--phosphor);font-weight:600}
   header .hbtn:focus-visible{outline:2px solid var(--phosphor);outline-offset:2px}
@@ -68,6 +71,7 @@
 <header>
   <span class="mark">◉ MOTION SCOPE</span>
   <span class="sub">live motion magnification</span>
+  <span id="engineBadge" class="ebadge" title="detecting…">ENGINE: …</span>
   <button id="cmpBtn" class="hbtn" aria-pressed="false">Compare</button>
 </header>
 
@@ -218,6 +222,8 @@
   let stream = null, running = false, raf = 0;
   let procW = 0, procH = 0, initialized = false;
   let method = 'linear', mode = 'amp', compare = false;
+  let backend = 'cpu';                       // active compute path (flips as GPU paths are ported)
+  const caps = { webgpu:false, webgl2:false };
   let gain = 18, loHz = 0.5, hiHz = 6, targetH = 384;
   let chromaAmt = 0.2, denoiseR = 1, scaleLv = 0, tnr = 0.4, overlayAmt = 0;
   let fps = 30, lastT = 0, energy = 0;
@@ -857,6 +863,26 @@
     const pct = Math.min(100, energy * (method==='phase'?400:8));
     energyBar.style.width = pct.toFixed(0) + '%';
   }
+
+  // ---- compute backend detection + UI indicator (WebGPU -> WebGL2 -> CPU) ----
+  const engineBadge = document.getElementById('engineBadge');
+  function updateEngineBadge(){
+    if(!engineBadge) return;
+    engineBadge.textContent = 'ENGINE: ' + backend.toUpperCase();
+    engineBadge.classList.toggle('gpu', backend==='webgpu');
+    engineBadge.classList.toggle('gl',  backend==='webgl2');
+    engineBadge.title = 'WebGPU ' + (caps.webgpu?'available':'unavailable') +
+      '  ·  WebGL2 ' + (caps.webgl2?'available':'unavailable') +
+      '  ·  active: ' + backend.toUpperCase();
+  }
+  async function detectBackends(){
+    try{ if(navigator.gpu){ const ad=await navigator.gpu.requestAdapter(); caps.webgpu=!!ad; } }catch(e){}
+    try{ const c=document.createElement('canvas'); caps.webgl2=!!c.getContext('webgl2'); }catch(e){}
+    // compute still runs on CPU until the GPU pipeline is ported; badge shows the ACTIVE path,
+    // and its tooltip shows what's available, so a fall-back to WebGL2/CPU is always visible.
+    updateEngineBadge();
+  }
+  detectBackends();
 
   if (navigator.mediaDevices){ navigator.mediaDevices.addEventListener?.('devicechange', listDevices); listDevices(); }
   else { errEl.textContent='This browser has no camera API available here.'; errEl.style.display='block'; }
