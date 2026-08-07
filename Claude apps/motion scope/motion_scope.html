@@ -146,11 +146,7 @@
         <button id="supOff" aria-pressed="true">Amplify</button>
         <button id="supOn" aria-pressed="false">Suppress</button>
       </div>
-      <div class="seg" role="group" aria-label="Flow engine">
-        <button id="flowFast" aria-pressed="true">Fast</button>
-        <button id="flowDeep" aria-pressed="false">Deep · big motion</button>
-      </div>
-      <p class="note"><b>Suppress</b> reverses the warp — it pushes moving parts back toward rest to hold motion still. Amplification becomes stillness strength; cutoffs still pick which motion to freeze. <b>Deep</b> uses coarse-to-fine optical flow to reach large motion (softer, CPU-only for now — turn GPU off and raise Detail to preview).</p>
+      <p class="note"><b>Amplify</b> exaggerates motion (crisp). <b>Suppress</b> holds it still — it uses coarse-to-fine optical flow to push moving parts back toward rest, so wind-sway or jitter freezes (a bit softer, and CPU-only). Amplification becomes stillness strength; cutoffs still pick which motion to freeze.</p>
       <div class="seg" role="group" aria-label="Field denoise">
         <button id="fdOff" aria-pressed="true">Field raw</button>
         <button id="fdOn" aria-pressed="false">Field denoise</button>
@@ -277,10 +273,7 @@
   function updateGainLabel(){ gainVal.textContent = suppress ? (Math.round((1-1/gain)*100)+'% still') : (gain+'×'); }
   const supOff=$('supOff'), supOn=$('supOn');
   supOff.onclick=()=>setSup(false); supOn.onclick=()=>setSup(true);
-  function setSup(on){ suppress=on; supOn.setAttribute('aria-pressed',on); supOff.setAttribute('aria-pressed',!on); updateGainLabel(); }
-  const flowFast=$('flowFast'), flowDeep=$('flowDeep');
-  flowFast.onclick=()=>setDeep(false); flowDeep.onclick=()=>setDeep(true);
-  function setDeep(on){ deepFlow=on; warpReady=false; flowDeep.setAttribute('aria-pressed',on); flowFast.setAttribute('aria-pressed',!on); }
+  function setSup(on){ suppress=on; deepFlow=on; warpReady=false; supOn.setAttribute('aria-pressed',on); supOff.setAttribute('aria-pressed',!on); updateGainLabel(); }
   loEl.oninput = () => {
     loHz = +loEl.value;
     if (loHz >= hiHz) { hiHz = Math.min(15, loHz + 0.5); hiEl.value = hiHz; hiVal.textContent = hiHz.toFixed(1)+' Hz'; }

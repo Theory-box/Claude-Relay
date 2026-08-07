@@ -46,3 +46,11 @@ LK on the temporal band (crisp). Suppress works in both (k). gpuSupportedFor: wa
 GPU only when !deepFlow (Deep is CPU-only). So user can turn GPU off + raise Detail to
 preview Deep at full res, to judge whether low-res was the artifact source before GPU port.
 Next: if full-res Deep looks good -> port pyramidal to GPU (~40 passes, its own build).
+
+## Session 4 — ship: Amplify=Fast, Suppress=Deep (merged to main)
+Folded engine choice into the Amplify/Suppress toggle; removed the Fast/Deep control.
+setSup(on): suppress=on AND deepFlow=on, warpReady=false (re-seed). So Amplify -> crisp
+single-scale on GPU (unchanged behaviour); Suppress -> pyramidal deep flow on CPU
+(gpuSupportedFor warp = !deepFlow). Toggling flips engine + badge (GPU<->CPU) with a
+brief re-seed settle. GPU warp unchanged (amplify only). Merged to main.
+Future: revisit deep-flow amplification / phase-based large-motion if desired.
