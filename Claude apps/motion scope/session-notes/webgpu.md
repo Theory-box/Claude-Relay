@@ -61,3 +61,12 @@ stale in GPU mode (cosmetic).
 - Keep stabilize ESTIMATE on CPU (thumbnail); counter-shift on GPU.
 - Can't verify GPU output here — needs user test (toggle GPU, use Compare mentally
   by flipping the toggle; watch badge + fps).
+
+## Session 2 fix — GPU black output
+
+Root cause: fed video via offscreen (willReadFrequently, CPU-backed) canvas +
+copyExternalImageToTexture -> black. Switched to importExternalTexture(video) with
+a sampler + textureSampleBaseClampToEdge(uv); handles scaling and camera YUV->RGB.
+Removed inputTex + proc draw in GPU branch. Bindings now 0 uniform,1 sampler,
+2 external,3 slowP,4 fastP; external re-imported + bind group rebuilt each frame.
+Also GPU canvas now object-fit:contain to fill the pane.
