@@ -263,3 +263,11 @@ before. Raw top reflects true camera (shows shake even when output stabilized).
 browser "Stop sharing" resets UI. Whole pipeline (stabilize/warp/etc) runs on the
 screen stream unchanged; allocBuffers handles any aspect. Note: display-capture
 may be blocked in a sandboxed iframe (artifact) - reliable in standalone/browser.
+
+## Perf pass (quality-neutral)
+
+blurGray/blurRGB -> sliding-window (running-sum) box blur, O(n) not O(n*(2r+1));
+verified bit-identical (max diff 0). Speeds Warp (5 blurs), Phase, and Smoothing
+in Linear/Motion/Isolate. sadAt/blockSad -> tight overlap bounds + exact early-
+exit (thr=best*cnt, row-level break -> 1e18); same argmin, helps Stabilize in any
+mode. Callers pass best (search) / 1e18 (parabola neighbours). Future: WebGL GPU.

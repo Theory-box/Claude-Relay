@@ -408,14 +408,17 @@
   // separable box blur on a single-channel Float32 buffer, edge-clamped
   function blurGray(buf, tmp, w, h, r){
     if (r<=0) return;
+    const inv=1/(2*r+1);
     for (let y=0;y<h;y++){ const row=y*w;
-      for (let x=0;x<w;x++){ let s=0,c=0;
-        for (let k=-r;k<=r;k++){ let xx=x+k; if(xx<0)xx=0; else if(xx>=w)xx=w-1; s+=buf[row+xx]; c++; }
-        tmp[row+x]=s/c; } }
-    for (let y=0;y<h;y++){
-      for (let x=0;x<w;x++){ let s=0,c=0;
-        for (let k=-r;k<=r;k++){ let yy=y+k; if(yy<0)yy=0; else if(yy>=h)yy=h-1; s+=tmp[yy*w+x]; c++; }
-        buf[y*w+x]=s/c; } }
+      let s=0; for (let k=-r;k<=r;k++){ let xx=k; if(xx<0)xx=0; else if(xx>=w)xx=w-1; s+=buf[row+xx]; }
+      for (let x=0;x<w;x++){ tmp[row+x]=s*inv;
+        let xin=x+r+1; if(xin>=w)xin=w-1; let xout=x-r; if(xout<0)xout=0;
+        s+=buf[row+xin]-buf[row+xout]; } }
+    for (let x=0;x<w;x++){
+      let s=0; for (let k=-r;k<=r;k++){ let yy=k; if(yy<0)yy=0; else if(yy>=h)yy=h-1; s+=tmp[yy*w+x]; }
+      for (let y=0;y<h;y++){ buf[y*w+x]=s*inv;
+        let yin=y+r+1; if(yin>=h)yin=h-1; let yout=y-r; if(yout<0)yout=0;
+        s+=tmp[yin*w+x]-tmp[yout*w+x]; } }
   }
   // block-average an RGB motion buffer to a coarse pyramid level (2^lv blocks)
   function coarsenRGB(buf, w, h, lv){
@@ -432,14 +435,19 @@
   // box blur RGB (reuses mTmp)
   function blurRGB(buf, tmp, w, h, r){
     if (r<=0) return;
+    const inv=1/(2*r+1);
     for (let y=0;y<h;y++){ const row=y*w;
-      for (let x=0;x<w;x++){ let sr=0,sg=0,sb=0,c=0;
-        for (let k=-r;k<=r;k++){ let xx=x+k; if(xx<0)xx=0; else if(xx>=w)xx=w-1; const i=(row+xx)*3; sr+=buf[i]; sg+=buf[i+1]; sb+=buf[i+2]; c++; }
-        const o=(row+x)*3; tmp[o]=sr/c; tmp[o+1]=sg/c; tmp[o+2]=sb/c; } }
-    for (let y=0;y<h;y++){
-      for (let x=0;x<w;x++){ let sr=0,sg=0,sb=0,c=0;
-        for (let k=-r;k<=r;k++){ let yy=y+k; if(yy<0)yy=0; else if(yy>=h)yy=h-1; const i=(yy*w+x)*3; sr+=tmp[i]; sg+=tmp[i+1]; sb+=tmp[i+2]; c++; }
-        const o=(y*w+x)*3; buf[o]=sr/c; buf[o+1]=sg/c; buf[o+2]=sb/c; } }
+      let sr=0,sg=0,sb=0;
+      for (let k=-r;k<=r;k++){ let xx=k; if(xx<0)xx=0; else if(xx>=w)xx=w-1; const i=(row+xx)*3; sr+=buf[i]; sg+=buf[i+1]; sb+=buf[i+2]; }
+      for (let x=0;x<w;x++){ const o=(row+x)*3; tmp[o]=sr*inv; tmp[o+1]=sg*inv; tmp[o+2]=sb*inv;
+        let xin=x+r+1; if(xin>=w)xin=w-1; let xout=x-r; if(xout<0)xout=0;
+        const a=(row+xin)*3, b=(row+xout)*3; sr+=buf[a]-buf[b]; sg+=buf[a+1]-buf[b+1]; sb+=buf[a+2]-buf[b+2]; } }
+    for (let x=0;x<w;x++){
+      let sr=0,sg=0,sb=0;
+      for (let k=-r;k<=r;k++){ let yy=k; if(yy<0)yy=0; else if(yy>=h)yy=h-1; const i=(yy*w+x)*3; sr+=tmp[i]; sg+=tmp[i+1]; sb+=tmp[i+2]; }
+      for (let y=0;y<h;y++){ const o=(y*w+x)*3; buf[o]=sr*inv; buf[o+1]=sg*inv; buf[o+2]=sb*inv;
+        let yin=y+r+1; if(yin>=h)yin=h-1; let yout=y-r; if(yout<0)yout=0;
+        const a=(yin*w+x)*3, b=(yout*w+x)*3; sr+=tmp[a]-tmp[b]; sg+=tmp[a+1]-tmp[b+1]; sb+=tmp[a+2]-tmp[b+2]; } }
   }
 
   // motion-adaptive recursive temporal denoise, in place on d (RGB Uint8ClampedArray)
@@ -471,30 +479,36 @@
         curS[bi]+=0.299*d[i4]+0.587*d[i4+1]+0.114*d[i4+2]; smallCnt[bi]++; } }
     for (let i=0;i<sw*sh;i++){ if(smallCnt[i]>0) curS[i]/=smallCnt[i]; }
   }
-  function sadAt(dx,dy){
-    let sad=0,cnt=0;
+  function sadAt(dx,dy,bestv){
     const x0=Math.max(0,-dx), x1=Math.min(sw,sw-dx);
     const y0=Math.max(0,-dy), y1=Math.min(sh,sh-dy);
+    const cnt=(x1-x0)*(y1-y0); if(cnt<=0) return 1e18;
+    const thr=bestv*cnt; let sad=0;
     for (let y=y0;y<y1;y++){ const cr=y*sw, pr=(y+dy)*sw;
-      for (let x=x0;x<x1;x++){ let df=curS[cr+x]-prevS[pr+x+dx]; if(df<0)df=-df; sad+=df; cnt++; } }
-    return cnt>0 ? sad/cnt : 1e18;
+      for (let x=x0;x<x1;x++){ let df=curS[cr+x]-prevS[pr+x+dx]; if(df<0)df=-df; sad+=df; }
+      if(sad>thr) return 1e18; }
+    return sad/cnt;
   }
   function estimateShift(){
     const S=8; let bx=0,by=0,best=1e18;
     for (let dy=-S;dy<=S;dy++){ for (let dx=-S;dx<=S;dx++){
-      const s=sadAt(dx,dy); if (s<best){ best=s; bx=dx; by=dy; } } }
-    // parabolic sub-pixel refinement on the SAD surface
-    const c=best, l=sadAt(bx-1,by), r=sadAt(bx+1,by), u=sadAt(bx,by-1), dn=sadAt(bx,by+1);
+      const s=sadAt(dx,dy,best); if (s<best){ best=s; bx=dx; by=dy; } } }
+    // parabolic sub-pixel refinement on the SAD surface (neighbours need full SAD)
+    const c=best, l=sadAt(bx-1,by,1e18), r=sadAt(bx+1,by,1e18), u=sadAt(bx,by-1,1e18), dn=sadAt(bx,by+1,1e18);
     let sxp=0, syp=0;
     const denx=l-2*c+r; if (Math.abs(denx)>1e-6){ sxp=0.5*(l-r)/denx; if(sxp>0.5)sxp=0.5; else if(sxp<-0.5)sxp=-0.5; }
     const deny=u-2*c+dn; if (Math.abs(deny)>1e-6){ syp=0.5*(u-dn)/deny; if(syp>0.5)syp=0.5; else if(syp<-0.5)syp=-0.5; }
     return [bx+sxp, by+syp];
   }
-  function blockSad(bx0,by0,bx1,by1,dx,dy){
-    let sad=0,cnt=0;
-    for (let y=by0;y<by1;y++){ const yy=y+dy; if(yy<0||yy>=sh) continue; const cr=y*sw, pr=yy*sw;
-      for (let x=bx0;x<bx1;x++){ const xx=x+dx; if(xx<0||xx>=sw) continue; let df=curS[cr+x]-prevS[pr+xx]; if(df<0)df=-df; sad+=df; cnt++; } }
-    return cnt>0 ? sad/cnt : 1e18;
+  function blockSad(bx0,by0,bx1,by1,dx,dy,bestv){
+    const xa=Math.max(bx0,-dx), xb=Math.min(bx1,sw-dx);
+    const ya=Math.max(by0,-dy), yb=Math.min(by1,sh-dy);
+    const cnt=(xb-xa)*(yb-ya); if(cnt<=0) return 1e18;
+    const thr=bestv*cnt; let sad=0;
+    for (let y=ya;y<yb;y++){ const cr=y*sw, pr=(y+dy)*sw;
+      for (let x=xa;x<xb;x++){ let df=curS[cr+x]-prevS[pr+x+dx]; if(df<0)df=-df; sad+=df; }
+      if(sad>thr) return 1e18; }
+    return sad/cnt;
   }
   function median(a){ a.sort((p,q)=>p-q); const m=a.length>>1; return a.length%2 ? a[m] : 0.5*(a[m-1]+a[m]); }
   // robust: estimate a shift per grid block, drop flat blocks, take the median (moving objects get outvoted)
@@ -510,9 +524,9 @@
           for (let x=bx0;x<bx1-1;x++){ let g=curS[cr+x+1]-curS[cr+x]; if(g<0)g=-g; t+=g; tc++; } }
         let bx=0,by=0,best=1e18;
         for (let dy=-S;dy<=S;dy++) for (let dx=-S;dx<=S;dx++){
-          const s=blockSad(bx0,by0,bx1,by1,dx,dy); if(s<best){best=s;bx=dx;by=dy;} }
-        const l=blockSad(bx0,by0,bx1,by1,bx-1,by), rr=blockSad(bx0,by0,bx1,by1,bx+1,by);
-        const u=blockSad(bx0,by0,bx1,by1,bx,by-1), dn=blockSad(bx0,by0,bx1,by1,bx,by+1);
+          const s=blockSad(bx0,by0,bx1,by1,dx,dy,best); if(s<best){best=s;bx=dx;by=dy;} }
+        const l=blockSad(bx0,by0,bx1,by1,bx-1,by,1e18), rr=blockSad(bx0,by0,bx1,by1,bx+1,by,1e18);
+        const u=blockSad(bx0,by0,bx1,by1,bx,by-1,1e18), dn=blockSad(bx0,by0,bx1,by1,bx,by+1,1e18);
         let sxp=0,syp=0; const dnx=l-2*best+rr, dny=u-2*best+dn;
         if(Math.abs(dnx)>1e-6){ sxp=0.5*(l-rr)/dnx; if(sxp>0.5)sxp=0.5; else if(sxp<-0.5)sxp=-0.5; }
         if(Math.abs(dny)>1e-6){ syp=0.5*(u-dn)/dny; if(syp>0.5)syp=0.5; else if(syp<-0.5)syp=-0.5; }
