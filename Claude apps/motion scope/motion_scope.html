@@ -64,6 +64,7 @@
   .note{font-size:.72rem;color:var(--muted);line-height:1.5}
   .beta{display:inline-block;font-family:var(--mono);font-size:.6rem;letter-spacing:.08em;color:var(--amber);border:1px solid var(--amber);border-radius:4px;padding:0 .3rem;margin-left:.35rem;vertical-align:middle}
   .err{color:var(--hot);font-size:.78rem;line-height:1.5;display:none}
+  .gpumsg{position:absolute;left:.6rem;bottom:.6rem;max-width:90%;z-index:5;font-family:var(--mono);font-size:.72rem;line-height:1.4;color:var(--hot);background:rgba(6,10,14,.82);border:1px solid var(--hot);border-radius:6px;padding:.4rem .55rem;white-space:pre-wrap;word-break:break-word}
   @media (max-width:860px){.wrap{grid-template-columns:1fr;grid-template-rows:minmax(280px,1fr) auto}.rail{max-height:48vh}}
   @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
@@ -86,6 +87,7 @@
       <div class="readout" id="readout"></div>
       <div class="energy">motion energy<div class="bar"><i id="energyBar"></i></div></div>
     </div>
+    <div id="gpuMsg" class="gpumsg" hidden></div>
     <div class="empty" id="empty">
       <h2>No camera running</h2>
       <p>Pick a source and press <b>Start</b>. Point a tripod-mounted camera at something nearly still and turn amplification up.</p>
@@ -591,7 +593,9 @@
   // frame + previous state and writes the display plus the two new state textures.
   const viewGPU = document.getElementById('viewGPU');
   const gpuBtn = document.getElementById('gpuBtn');
+  const gpuMsg = document.getElementById('gpuMsg');
   let useGPU=false, gpu=null, gpuFailed=false;
+  function gpuDebug(msg){ console.error('[MotionScope GPU]', msg); if(gpuMsg){ gpuMsg.hidden=false; gpuMsg.textContent='GPU: '+msg; } }
 
   const WGSL = `
 struct U { gain:f32, aSlow:f32, aFast:f32, chroma:f32, amp:f32, seed:f32, w:f32, h:f32 };
@@ -634,16 +638,19 @@ struct FO { @location(0) disp:vec4f, @location(1) slowN:vec4f, @location(2) fast
       if(!adapter) throw new Error('no adapter');
       const device = await adapter.requestDevice();
       device.lost.then(()=>{ gpuFallback('device-lost'); });
+      device.onuncapturederror = (e)=>{ gpuDebug((e.error && e.error.message) ? e.error.message : String(e.error)); };
       const ctx = viewGPU.getContext('webgpu');
       const format = navigator.gpu.getPreferredCanvasFormat();
       ctx.configure({ device, format, alphaMode:'opaque' });
       const mod = device.createShaderModule({ code: WGSL });
+      device.pushErrorScope('validation');
       const pipeline = device.createRenderPipeline({
         layout:'auto',
         vertex:{ module:mod, entryPoint:'vs' },
-        fragment:{ module:mod, entryPoint:'fs', targets:[ {format}, {format:'rgba32float'}, {format:'rgba32float'} ] },
+        fragment:{ module:mod, entryPoint:'fs', targets:[ {format}, {format:'rgba16float'}, {format:'rgba16float'} ] },
         primitive:{ topology:'triangle-list' }
       });
+      device.popErrorScope().then(err=>{ if(err) gpuDebug('pipeline: '+err.message); }).catch(()=>{});
       const uniformBuf = device.createBuffer({ size:32, usage:GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST });
       gpu = { device, ctx, format, pipeline, uniformBuf, sampler:device.createSampler({magFilter:'linear',minFilter:'linear'}), slow:[null,null], fast:[null,null], ping:0, seeded:false, w:0, h:0 };
       allocGPUTextures();
@@ -658,8 +665,8 @@ struct FO { @location(0) disp:vec4f, @location(1) slowN:vec4f, @location(2) fast
       const dev=gpu.device;
       const RA=GPUTextureUsage.RENDER_ATTACHMENT, TB=GPUTextureUsage.TEXTURE_BINDING;
       const mk=(fmt,usage)=>dev.createTexture({ size:[procW,procH], format:fmt, usage });
-      gpu.slow=[ mk('rgba32float',RA|TB), mk('rgba32float',RA|TB) ];
-      gpu.fast=[ mk('rgba32float',RA|TB), mk('rgba32float',RA|TB) ];
+      gpu.slow=[ mk('rgba16float',RA|TB), mk('rgba16float',RA|TB) ];
+      gpu.fast=[ mk('rgba16float',RA|TB), mk('rgba16float',RA|TB) ];
       gpu.ping=0; gpu.seeded=false; gpu.w=procW; gpu.h=procH;
       viewGPU.width=procW; viewGPU.height=procH;
     }catch(e){ gpuFallback('alloc'); }
@@ -706,6 +713,7 @@ struct FO { @location(0) disp:vec4f, @location(1) slowN:vec4f, @location(2) fast
       if(useGPU){ useGPU=false; gpuBtn.setAttribute('aria-pressed',false); backend='cpu';
         viewGPU.style.display='none'; view.style.display='block'; updateEngineBadge(); return; }
       if(!gpu){ const ok=await initGPU(); if(!ok) return; }
+      if(gpuMsg) gpuMsg.hidden=true;
       if(running) allocGPUTextures();
       useGPU=true; gpuBtn.setAttribute('aria-pressed',true); updateEngineBadge();
     };

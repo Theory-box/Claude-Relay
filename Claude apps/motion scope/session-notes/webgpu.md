@@ -70,3 +70,11 @@ a sampler + textureSampleBaseClampToEdge(uv); handles scaling and camera YUV->RG
 Removed inputTex + proc draw in GPU branch. Bindings now 0 uniform,1 sampler,
 2 external,3 slowP,4 fastP; external re-imported + bind group rebuilt each frame.
 Also GPU canvas now object-fit:contain to fill the pane.
+
+## Session 2 fix#2 — black output root cause
+
+Likely cause: MRT wrote canvas(bgra8=4B)+2x rgba32float(16B)=36B/sample, over the
+default maxColorAttachmentBytesPerSample (32). Invalid pipeline draws nothing (no
+JS throw) -> black + badge green. Fixed: state textures rgba16float (4+8+8=20B).
+Added on-screen GPU error reporter (#gpuMsg) via device.onuncapturederror +
+pushErrorScope around pipeline so validation errors surface in-app.
