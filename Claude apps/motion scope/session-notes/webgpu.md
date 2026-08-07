@@ -130,3 +130,14 @@ Blind-untested; on-screen #gpuMsg will surface any WGSL/validation error.
 ## Still TODO (polish pass 2): wire Temporal denoise + Smoothing + Spatial scale into
 GPU Linear/Isolate (needs pre-pass/extra state + a blur pass for linear); Field
 denoise + Clean plate into GPU Warp. Then remove those from the inert list.
+
+## Session 5 cont — GPU wiring: Temporal denoise + Warp field-denoise + Clean plate
+- Temporal denoise on GPU Linear (4th target tnrN, binding5 tnrP, uniform tnr) and
+  Isolate (3rd target, binding4). Motion-adaptive per-channel EMA, matches CPU.
+- Warp field-denoise + clean-plate: _UW +fdOn,cpOn (12 f32, uwBuf 48). New Pass E
+  (WGSL_WP) plate EMA (0.12) of stabilized frame -> wplate ping-pong. Pass F (WGSL_WR)
+  now: field EMA (wfld ping-pong, 0.4) used when fdOn; source = plate (sampled, when
+  cpOn) else external; +2nd target fldN. pR targets [canvas, rf]. Un-greyed warp field
+  group + tnr in updateInertControls.
+Remaining GPU gaps: Smoothing + Spatial scale on Linear/Isolate (need blur/coarsen
+passes). Phase still CPU-only.
