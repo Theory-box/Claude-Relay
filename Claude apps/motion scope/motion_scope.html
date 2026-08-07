@@ -208,6 +208,7 @@
         <span class="row"><span>Detail</span><span class="val" id="resVal">384p</span></span>
         <input type="range" id="res" min="192" max="640" step="64" value="384">
       </label>
+      <button class="act" id="nativeBtn" style="margin-top:.35rem">Match video resolution</button>
       <div class="btns"><button class="act" id="resetBtn">Reset baseline</button></div>
       <p class="note">Lower detail = smoother, less noise, faster. Phase mode is heavier — drop this if the frame rate falls.</p>
     </div>
@@ -285,6 +286,7 @@
     hiVal.textContent = hiHz.toFixed(1)+' Hz';
   };
   resEl.oninput = () => { targetH = +resEl.value; resVal.textContent = targetH + 'p'; if (running) allocBuffers(); };
+  $('nativeBtn').onclick = () => { if(!video.videoHeight) return; resEl.max = video.videoHeight; targetH = video.videoHeight; resEl.value = targetH; resVal.textContent = targetH + 'p'; if (running) allocBuffers(); };
   tnrEl.oninput = () => { tnr = +tnrEl.value/100; tnrVal.textContent = tnrEl.value + '%'; };
   scaleEl.oninput = () => { scaleLv = +scaleEl.value; scaleVal.textContent = scaleLv; };
   denoiseEl.oninput = () => { denoiseR = +denoiseEl.value; denoiseVal.textContent = denoiseR + ' px'; };
@@ -439,7 +441,9 @@
     }catch(e){}
   }
   async function attachStream(){
-    video.srcObject = stream; await video.play(); allocBuffers();
+    video.srcObject = stream; await video.play();
+    if(video.videoHeight){ resEl.max = video.videoHeight; if(resVal) resVal.title='max = '+video.videoHeight+'p (native)'; }
+    allocBuffers();
     running=true; empty.hidden=true; overlay.hidden=false;
     $('startBtn').disabled=true; $('stopBtn').disabled=false;
     lastT = performance.now(); loop();
@@ -447,7 +451,7 @@
   async function start(){
     stop(); errEl.style.display='none';
     const id = deviceSel.value;
-    const constraints = { video: id ? { deviceId:{exact:id}, width:{ideal:1280}, height:{ideal:720} } : { width:{ideal:1280}, height:{ideal:720} }, audio:false };
+    const constraints = { video: id ? { deviceId:{exact:id}, width:{ideal:1920}, height:{ideal:1080} } : { width:{ideal:1920}, height:{ideal:1080} }, audio:false };
     try{ stream = await navigator.mediaDevices.getUserMedia(constraints); await attachStream(); await listDevices(); }
     catch(e){ showError(e); }
   }
