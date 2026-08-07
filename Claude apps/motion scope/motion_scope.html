@@ -342,7 +342,6 @@
     const mark=(el,inert)=>{ if(el){ el.classList.toggle('inert',inert); if(inert) el.setAttribute('title','Not on GPU yet — switch GPU off to use'); else el.removeAttribute('title'); } };
     mark(fld('denoise'), gpuOn && (p==='linear'||p==='isolate'));  // Smoothing works on GPU Warp
     mark(fld('scale'),   gpuOn && (p==='linear'||p==='isolate'));
-    mark(fld('tnr'),     gpuOn);                                    // Temporal denoise not on GPU yet
     mark($('warpFieldGroup'), gpuOn && p==='warp');                 // Field denoise / Clean plate not on GPU yet
   }
   function switchProfile(){
@@ -651,21 +650,27 @@
   function gpuDebug(msg){ console.error('[MotionScope GPU]', msg); if(gpuMsg){ gpuMsg.hidden=false; gpuMsg.textContent='GPU: '+msg; } }
 
   const WGSL = `
-struct U { gain:f32, aSlow:f32, aFast:f32, chroma:f32, amp:f32, seed:f32, w:f32, h:f32, sx:f32, sy:f32 };
+struct U { gain:f32, aSlow:f32, aFast:f32, chroma:f32, amp:f32, seed:f32, w:f32, h:f32, sx:f32, sy:f32, tnr:f32 };
 @group(0) @binding(0) var<uniform> u:U;
 @group(0) @binding(1) var samp: sampler;
 @group(0) @binding(2) var inp: texture_external;
 @group(0) @binding(3) var slowP: texture_2d<f32>;
 @group(0) @binding(4) var fastP: texture_2d<f32>;
+@group(0) @binding(5) var tnrP: texture_2d<f32>;
 @vertex fn vs(@builtin(vertex_index) i:u32) -> @builtin(position) vec4f {
   var p = array<vec2f,3>(vec2f(-1.0,-1.0), vec2f(3.0,-1.0), vec2f(-1.0,3.0));
   return vec4f(p[i], 0.0, 1.0);
 }
-struct FO { @location(0) disp:vec4f, @location(1) slowN:vec4f, @location(2) fastN:vec4f };
+struct FO { @location(0) disp:vec4f, @location(1) slowN:vec4f, @location(2) fastN:vec4f, @location(3) tnrN:vec4f };
 @fragment fn fs(@builtin(position) fc:vec4f) -> FO {
   let c = vec2i(i32(fc.x), i32(fc.y));
   let uv = vec2f((fc.x - u.sx) / u.w, (fc.y - u.sy) / u.h);
-  let x = textureSampleBaseClampToEdge(inp, samp, uv).rgb * 255.0;
+  let xr = textureSampleBaseClampToEdge(inp, samp, uv).rgb * 255.0;
+  var td = textureLoad(tnrP, c, 0).rgb;
+  if (u.seed > 0.5) { td = xr; }
+  let kStatic = 1.0 - 0.92*u.tnr;
+  let w3 = clamp(abs(xr - td)/10.0, vec3f(0.0), vec3f(1.0));
+  let x = td + (vec3f(kStatic) + w3*(1.0 - kStatic)) * (xr - td);
   var ps = textureLoad(slowP, c, 0).rgb;
   var pf = textureLoad(fastP, c, 0).rgb;
   if (u.seed > 0.5) { ps = x; pf = x; }
@@ -681,24 +686,31 @@ struct FO { @location(0) disp:vec4f, @location(1) slowN:vec4f, @location(2) fast
   o.disp = vec4f(outc/255.0, 1.0);
   o.slowN = vec4f(s, 1.0);
   o.fastN = vec4f(f, 1.0);
+  o.tnrN = vec4f(x, 1.0);
   return o;
 }`;
 
   const WGSL_ISO = `
-struct UI { gain:f32, aBg:f32, seed:f32, w:f32, h:f32, sx:f32, sy:f32 };
+struct UI { gain:f32, aBg:f32, seed:f32, w:f32, h:f32, sx:f32, sy:f32, tnr:f32 };
 @group(0) @binding(0) var<uniform> u:UI;
 @group(0) @binding(1) var samp: sampler;
 @group(0) @binding(2) var inp: texture_external;
 @group(0) @binding(3) var bgP: texture_2d<f32>;
+@group(0) @binding(4) var tnrP: texture_2d<f32>;
 @vertex fn vs(@builtin(vertex_index) i:u32) -> @builtin(position) vec4f {
   var p = array<vec2f,3>(vec2f(-1.0,-1.0), vec2f(3.0,-1.0), vec2f(-1.0,3.0));
   return vec4f(p[i], 0.0, 1.0);
 }
-struct FOI { @location(0) disp:vec4f, @location(1) bgN:vec4f };
+struct FOI { @location(0) disp:vec4f, @location(1) bgN:vec4f, @location(2) tnrN:vec4f };
 @fragment fn fs(@builtin(position) fc:vec4f) -> FOI {
   let c = vec2i(i32(fc.x), i32(fc.y));
   let uv = vec2f((fc.x - u.sx) / u.w, (fc.y - u.sy) / u.h);
-  let x = textureSampleBaseClampToEdge(inp, samp, uv).rgb * 255.0;
+  let xr = textureSampleBaseClampToEdge(inp, samp, uv).rgb * 255.0;
+  var td = textureLoad(tnrP, c, 0).rgb;
+  if (u.seed > 0.5) { td = xr; }
+  let kStatic = 1.0 - 0.92*u.tnr;
+  let w3 = clamp(abs(xr - td)/10.0, vec3f(0.0), vec3f(1.0));
+  let x = td + (vec3f(kStatic) + w3*(1.0 - kStatic)) * (xr - td);
   var bg = textureLoad(bgP, c, 0).rgb;
   if (u.seed > 0.5) { bg = x; }
   let nbg = bg + u.aBg * (x - bg);
@@ -706,6 +718,7 @@ struct FOI { @location(0) disp:vec4f, @location(1) bgN:vec4f };
   var o:FOI;
   o.disp = vec4f(d/255.0, 1.0);
   o.bgN = vec4f(nbg, 1.0);
+  o.tnrN = vec4f(x, 1.0);
   return o;
 }`;
 
@@ -805,13 +818,13 @@ struct FBL { @location(0) a:vec4f, @location(1) b:vec4f };
       const pipeline = device.createRenderPipeline({
         layout:'auto',
         vertex:{ module:mod, entryPoint:'vs' },
-        fragment:{ module:mod, entryPoint:'fs', targets:[ {format}, {format:'rgba16float'}, {format:'rgba16float'} ] },
+        fragment:{ module:mod, entryPoint:'fs', targets:[ {format}, {format:'rgba16float'}, {format:'rgba16float'}, {format:'rgba16float'} ] },
         primitive:{ topology:'triangle-list' }
       });
       const pipelineI = device.createRenderPipeline({
         layout:'auto',
         vertex:{ module:modI, entryPoint:'vs' },
-        fragment:{ module:modI, entryPoint:'fs', targets:[ {format}, {format:'rgba16float'} ] },
+        fragment:{ module:modI, entryPoint:'fs', targets:[ {format}, {format:'rgba16float'}, {format:'rgba16float'} ] },
         primitive:{ topology:'triangle-list' }
       });
       device.popErrorScope().then(err=>{ if(err) gpuDebug('pipeline: '+err.message); }).catch(()=>{});
@@ -831,7 +844,7 @@ struct FBL { @location(0) a:vec4f, @location(1) b:vec4f };
         pR:  mkPipe(mkMod(WGSL_WR),  [{format}]),
       };
       device.popErrorScope().then(err=>{ if(err) gpuDebug('warp pipeline: '+err.message); }).catch(()=>{});
-      gpu = { device, ctx, format, pipeline, pipelineI, uniformBuf, uniformBufI, warp, sampler:device.createSampler({magFilter:'linear',minFilter:'linear'}), slow:[null,null], fast:[null,null], bg:[null,null], wlumaS:[null,null], wlumaF:[null,null], wyit:null, wprodA:null, wprodB:null, wprodAh:null, wprodBh:null, ping:0, isoPing:0, wping:0, seeded:false, isoSeeded:false, wseeded:false, w:0, h:0 };
+      gpu = { device, ctx, format, pipeline, pipelineI, uniformBuf, uniformBufI, warp, sampler:device.createSampler({magFilter:'linear',minFilter:'linear'}), slow:[null,null], fast:[null,null], tnr:[null,null], bg:[null,null], itnr:[null,null], wlumaS:[null,null], wlumaF:[null,null], wyit:null, wprodA:null, wprodB:null, wprodAh:null, wprodBh:null, ping:0, isoPing:0, wping:0, seeded:false, isoSeeded:false, wseeded:false, w:0, h:0 };
       allocGPUTextures();
       return true;
     }catch(e){ gpuFallback('init'); return false; }
@@ -840,13 +853,15 @@ struct FBL { @location(0) a:vec4f, @location(1) b:vec4f };
   function allocGPUTextures(){
     if(!gpu || !procW) return;
     try{
-      for(const t of [gpu.slow[0], gpu.slow[1], gpu.fast[0], gpu.fast[1], gpu.bg[0], gpu.bg[1], gpu.wlumaS[0], gpu.wlumaS[1], gpu.wlumaF[0], gpu.wlumaF[1], gpu.wyit, gpu.wprodA, gpu.wprodB, gpu.wprodAh, gpu.wprodBh]) if(t) t.destroy();
+      for(const t of [gpu.slow[0], gpu.slow[1], gpu.fast[0], gpu.fast[1], gpu.tnr[0], gpu.tnr[1], gpu.bg[0], gpu.bg[1], gpu.itnr[0], gpu.itnr[1], gpu.wlumaS[0], gpu.wlumaS[1], gpu.wlumaF[0], gpu.wlumaF[1], gpu.wyit, gpu.wprodA, gpu.wprodB, gpu.wprodAh, gpu.wprodBh]) if(t) t.destroy();
       const dev=gpu.device;
       const RA=GPUTextureUsage.RENDER_ATTACHMENT, TB=GPUTextureUsage.TEXTURE_BINDING;
       const mk=(fmt,usage)=>dev.createTexture({ size:[procW,procH], format:fmt, usage });
       gpu.slow=[ mk('rgba16float',RA|TB), mk('rgba16float',RA|TB) ];
       gpu.fast=[ mk('rgba16float',RA|TB), mk('rgba16float',RA|TB) ];
+      gpu.tnr=[ mk('rgba16float',RA|TB), mk('rgba16float',RA|TB) ];
       gpu.bg=[ mk('rgba16float',RA|TB), mk('rgba16float',RA|TB) ];
+      gpu.itnr=[ mk('rgba16float',RA|TB), mk('rgba16float',RA|TB) ];
       gpu.wlumaS=[ mk('rgba16float',RA|TB), mk('rgba16float',RA|TB) ];
       gpu.wlumaF=[ mk('rgba16float',RA|TB), mk('rgba16float',RA|TB) ];
       gpu.wyit=mk('rgba16float',RA|TB); gpu.wprodA=mk('rgba16float',RA|TB); gpu.wprodB=mk('rgba16float',RA|TB);
@@ -879,7 +894,7 @@ struct FBL { @location(0) a:vec4f, @location(1) b:vec4f };
     const dev=gpu.device;
     const f=Math.max(5,Math.min(120,fps));
     const aSlow=1-Math.exp(-2*Math.PI*loHz/f), aFast=1-Math.exp(-2*Math.PI*hiHz/f);
-    const ub=new Float32Array([ gain, aSlow, aFast, chromaAmt, (mode==='amp')?1:0, gpu.seeded?0:1, procW, procH, accX, accY ]);
+    const ub=new Float32Array([ gain, aSlow, aFast, chromaAmt, (mode==='amp')?1:0, gpu.seeded?0:1, procW, procH, accX, accY, tnr ]);
     dev.queue.writeBuffer(gpu.uniformBuf, 0, ub);
     const ext=dev.importExternalTexture({ source:video });
     const cur=gpu.ping, nxt=1-cur;
@@ -889,12 +904,14 @@ struct FBL { @location(0) a:vec4f, @location(1) b:vec4f };
       { binding:2, resource:ext },
       { binding:3, resource:gpu.slow[cur].createView() },
       { binding:4, resource:gpu.fast[cur].createView() },
+      { binding:5, resource:gpu.tnr[cur].createView() },
     ]});
     const enc=dev.createCommandEncoder();
     const pass=enc.beginRenderPass({ colorAttachments:[
       { view:gpu.ctx.getCurrentTexture().createView(), clearValue:{r:0,g:0,b:0,a:1}, loadOp:'clear', storeOp:'store' },
       { view:gpu.slow[nxt].createView(), clearValue:{r:0,g:0,b:0,a:1}, loadOp:'clear', storeOp:'store' },
       { view:gpu.fast[nxt].createView(), clearValue:{r:0,g:0,b:0,a:1}, loadOp:'clear', storeOp:'store' },
+      { view:gpu.tnr[nxt].createView(), clearValue:{r:0,g:0,b:0,a:1}, loadOp:'clear', storeOp:'store' },
     ]});
     pass.setPipeline(gpu.pipeline); pass.setBindGroup(0,bind); pass.draw(3); pass.end();
     dev.queue.submit([enc.finish()]);
@@ -903,7 +920,7 @@ struct FBL { @location(0) a:vec4f, @location(1) b:vec4f };
 
   function gpuFrameIsolate(){
     const dev=gpu.device;
-    const ub=new Float32Array([ gain, 0.03, gpu.isoSeeded?0:1, procW, procH, accX, accY, 0 ]);
+    const ub=new Float32Array([ gain, 0.03, gpu.isoSeeded?0:1, procW, procH, accX, accY, tnr ]);
     dev.queue.writeBuffer(gpu.uniformBufI, 0, ub);
     const ext=dev.importExternalTexture({ source:video });
     const cur=gpu.isoPing, nxt=1-cur;
@@ -912,11 +929,13 @@ struct FBL { @location(0) a:vec4f, @location(1) b:vec4f };
       { binding:1, resource:gpu.sampler },
       { binding:2, resource:ext },
       { binding:3, resource:gpu.bg[cur].createView() },
+      { binding:4, resource:gpu.itnr[cur].createView() },
     ]});
     const enc=dev.createCommandEncoder();
     const pass=enc.beginRenderPass({ colorAttachments:[
       { view:gpu.ctx.getCurrentTexture().createView(), clearValue:{r:0,g:0,b:0,a:1}, loadOp:'clear', storeOp:'store' },
       { view:gpu.bg[nxt].createView(), clearValue:{r:0,g:0,b:0,a:1}, loadOp:'clear', storeOp:'store' },
+      { view:gpu.itnr[nxt].createView(), clearValue:{r:0,g:0,b:0,a:1}, loadOp:'clear', storeOp:'store' },
     ]});
     pass.setPipeline(gpu.pipelineI); pass.setBindGroup(0,bind); pass.draw(3); pass.end();
     dev.queue.submit([enc.finish()]);
