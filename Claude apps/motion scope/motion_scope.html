@@ -430,9 +430,9 @@
   cmpBtn.onclick=()=>{ compareMode = compareMode==='off'?'lr':(compareMode==='lr'?'tb':'off'); updateCmpBtn(); };
   window.addEventListener('keydown',(e)=>{ if((e.key==='c'||e.key==='C') && !e.repeat && !/input|textarea|select/i.test(e.target.tagName||'')) holdOrig=true; });
   window.addEventListener('keyup',(e)=>{ if(e.key==='c'||e.key==='C') holdOrig=false; });
-  function drawSplit(src){ const vw=view.width, vh=view.height, vW=video.videoWidth||procW, vH=video.videoHeight||procH;
-    if(compareMode==='lr'){ dctx.drawImage(video,0,0,vW,vH, 0,0, vw/2,vh); dctx.drawImage(src,0,0,src.width,src.height, vw/2,0, vw/2,vh); dctx.fillStyle='#39e6c4'; dctx.fillRect(vw/2-1,0,2,vh); }
-    else { dctx.drawImage(video,0,0,vW,vH, 0,0, vw,vh/2); dctx.drawImage(src,0,0,src.width,src.height, 0,vh/2, vw,vh/2); dctx.fillStyle='#39e6c4'; dctx.fillRect(0,vh/2-1,vw,2); } }
+  function drawSplit(src){ const vW=video.videoWidth||procW, vH=video.videoHeight||procH;
+    if(compareMode==='lr'){ dctx.drawImage(video,0,0,vW,vH, 0,0, procW,procH); dctx.drawImage(src,0,0,src.width,src.height, procW,0, procW,procH); dctx.fillStyle='#39e6c4'; dctx.fillRect(procW-1,0,2,procH); }
+    else { dctx.drawImage(video,0,0,vW,vH, 0,0, procW,procH); dctx.drawImage(src,0,0,src.width,src.height, 0,procH, procW,procH); dctx.fillStyle='#39e6c4'; dctx.fillRect(0,procH-1,procW,2); } }
 
   // --- buffers ---
   function sizeView(){
@@ -1414,13 +1414,17 @@ struct MRT { @location(0) phase:vec4f, @location(1) ema:vec4f, @location(2) scr:
     if (dt>0){ const inst=1000/dt; fps += (inst-fps)*0.1; }
     if (video.readyState>=2 && procW){
       if(holdOrig){
-        dctx.drawImage(video, 0, 0, view.width, view.height);
+        if(view.width!==procW||view.height!==procH){ view.width=procW; view.height=procH; }
+        dctx.drawImage(video, 0, 0, procW, procH);
         if(view.style.display==='none'){ view.style.display='block'; viewGPU.style.display='none'; }
         drawReadout(); raf=requestAnimationFrame(loop); return;
       }
       const gpuActive = useGPU && gpu && !gpuFailed && gpuSupportedFor();
       const want = gpuActive ? 'webgpu' : 'cpu';
       if(want!==backend){ backend=want; updateEngineBadge(); updateInertControls(); }
+      if(compareMode==='lr'){ if(view.width!==procW*2||view.height!==procH){ view.width=procW*2; view.height=procH; } }
+      else if(compareMode==='tb'){ if(view.width!==procW||view.height!==procH*2){ view.width=procW; view.height=procH*2; } }
+      else { if(view.width!==procW||view.height!==procH){ view.width=procW; view.height=procH; } }
       let ok=true;
       if(gpuActive){
         gpuStabEstimate();
