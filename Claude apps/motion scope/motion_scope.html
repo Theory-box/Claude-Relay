@@ -160,6 +160,10 @@
         <button id="edgeOn" aria-pressed="false">Edge-aware</button>
       </div>
       <label class="field">
+        <span class="row"><span>Edge sensitivity</span><span class="val" id="edgeSensVal">75</span></span>
+        <input type="range" id="edgeSensEl" min="0" max="100" step="5" value="75">
+      </label>
+      <label class="field">
         <span class="row"><span>Flow smooth</span><span class="val" id="flowSmoothVal">0 px</span></span>
         <input type="range" id="flowSmoothEl" min="0" max="8" step="1" value="0">
       </label>
@@ -269,7 +273,7 @@
   let lumaS = null, lumaF = null;               // warp overlay: luma temporal bandpass
   let sxx=null, syy=null, sxy=null, sxt=null, syt=null; // warp: Lucas-Kanade structure tensor
   let fdX=null, fdY=null, plateBuf=null;                // warp: field EMA + clean plate
-  let fieldDenoise=false, cleanPlate=false, suppress=false, deepFlow=false, edgeAware=false, flowSmoothR=0, compareOrient=0, meshAmt=0, meshCell=40;
+  let fieldDenoise=false, cleanPlate=false, suppress=false, deepFlow=false, edgeAware=false, flowSmoothR=0, compareOrient=0, meshAmt=0, meshCell=40, edgeSens=75;
   let Yprev=null, pyr=null;                             // pyramidal-flow: prev luma + pyramid buffers
   let stabilize=false, stabReady=false, sw=0, sh=0;
   let curS=null, prevS=null, shiftBuf=null, smallCnt=null;
@@ -398,6 +402,8 @@
   const edgeOff=$('edgeOff'), edgeOn=$('edgeOn');
   edgeOff.onclick=()=>setEdge(false); edgeOn.onclick=()=>setEdge(true);
   function setEdge(on){ edgeAware=on; edgeOn.setAttribute('aria-pressed',on); edgeOff.setAttribute('aria-pressed',!on); }
+  const edgeSensEl=$('edgeSensEl'), edgeSensVal=$('edgeSensVal');
+  edgeSensEl.oninput=()=>{ edgeSens=+edgeSensEl.value; edgeSensVal.textContent=edgeSens; };
   const flowSmoothEl=$('flowSmoothEl'), flowSmoothVal=$('flowSmoothVal');
   flowSmoothEl.oninput=()=>{ flowSmoothR=+flowSmoothEl.value; flowSmoothVal.textContent=flowSmoothR+' px'; };
   const meshEl=$('meshEl'), meshVal=$('meshVal'), meshCellEl=$('meshCellEl'), meshCellVal=$('meshCellVal');
@@ -1108,7 +1114,7 @@ struct UC { w:f32, h:f32, orient:f32, sx:f32, sy:f32 };
     const f=Math.max(5,Math.min(120,fps));
     const aSlow=1-Math.exp(-2*Math.PI*loHz/f), aFast=1-Math.exp(-2*Math.PI*hiHz/f);
     const wr=2+(denoiseR>0?denoiseR:1);
-    const ub=new Float32Array([ gain, aSlow, aFast, wr, overlayAmt, gpu.wseeded?0:1, procW, procH, accX, accY, fieldDenoise?1:0, cleanPlate?1:0, (edgeAware?18.0:0.0), flowSmoothR, (compare?1:0), meshAmt, meshCell ]);
+    const ub=new Float32Array([ gain, aSlow, aFast, wr, overlayAmt, gpu.wseeded?0:1, procW, procH, accX, accY, fieldDenoise?1:0, cleanPlate?1:0, (edgeAware ? (3.0+(100.0-edgeSens)*0.6) : 0.0), flowSmoothR, (compare?1:0), meshAmt, meshCell ]);
     dev.queue.writeBuffer(W.uwBuf, 0, ub);
     const ext=dev.importExternalTexture({ source:video });
     const cur=gpu.wping, nxt=1-cur;
