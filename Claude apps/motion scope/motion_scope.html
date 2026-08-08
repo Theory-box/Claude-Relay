@@ -682,7 +682,7 @@
   function gpuDebug(msg){ console.error('[MotionScope GPU]', msg); if(gpuMsg){ gpuMsg.hidden=false; gpuMsg.textContent='GPU: '+msg; } }
 
   const WGSL = `
-struct U { gain:f32, aSlow:f32, aFast:f32, chroma:f32, amp:f32, seed:f32, w:f32, h:f32, sx:f32, sy:f32, tnr:f32 };
+struct U { gain:f32, aSlow:f32, aFast:f32, chroma:f32, amp:f32, seed:f32, w:f32, h:f32, sx:f32, sy:f32, tnr:f32, cmp:f32 };
 @group(0) @binding(0) var<uniform> u:U;
 @group(0) @binding(1) var samp: sampler;
 @group(0) @binding(2) var inp: texture_external;
@@ -715,7 +715,9 @@ struct FO { @location(0) disp:vec4f, @location(1) slowN:vec4f, @location(2) fast
   if (u.amp <= 0.5) { outc = vec3f(128.0, 128.0, 128.0) + m; }
   outc = clamp(outc, vec3f(0.0), vec3f(255.0));
   var o:FO;
-  o.disp = vec4f(outc/255.0, 1.0);
+  var disp = outc;
+  if(u.cmp>0.5){ let mid=u.w*0.5; if(fc.x<mid){ disp=clamp(x, vec3f(0.), vec3f(255.)); } if(abs(fc.x-mid)<1.0){ disp=vec3f(255.,255.,255.); } }
+  o.disp = vec4f(disp/255.0, 1.0);
   o.slowN = vec4f(s, 1.0);
   o.fastN = vec4f(f, 1.0);
   o.tnrN = vec4f(x, 1.0);
@@ -723,7 +725,7 @@ struct FO { @location(0) disp:vec4f, @location(1) slowN:vec4f, @location(2) fast
 }`;
 
   const WGSL_ISO = `
-struct UI { gain:f32, aBg:f32, seed:f32, w:f32, h:f32, sx:f32, sy:f32, tnr:f32 };
+struct UI { gain:f32, aBg:f32, seed:f32, w:f32, h:f32, sx:f32, sy:f32, tnr:f32, cmp:f32 };
 @group(0) @binding(0) var<uniform> u:UI;
 @group(0) @binding(1) var samp: sampler;
 @group(0) @binding(2) var inp: texture_external;
@@ -748,14 +750,16 @@ struct FOI { @location(0) disp:vec4f, @location(1) bgN:vec4f, @location(2) tnrN:
   let nbg = bg + u.aBg * (x - bg);
   let d = clamp(abs(x - nbg) * u.gain, vec3f(0.0), vec3f(255.0));
   var o:FOI;
-  o.disp = vec4f(d/255.0, 1.0);
+  var disp = d;
+  if(u.cmp>0.5){ let mid=u.w*0.5; if(fc.x<mid){ disp=clamp(xr, vec3f(0.), vec3f(255.)); } if(abs(fc.x-mid)<1.0){ disp=vec3f(255.,255.,255.); } }
+  o.disp = vec4f(disp/255.0, 1.0);
   o.bgN = vec4f(nbg, 1.0);
   o.tnrN = vec4f(x, 1.0);
   return o;
 }`;
 
   const _VS = `@vertex fn vs(@builtin(vertex_index) i:u32)->@builtin(position) vec4f { var p=array<vec2f,3>(vec2f(-1.,-1.),vec2f(3.,-1.),vec2f(-1.,3.)); return vec4f(p[i],0.,1.); }`;
-  const _UW = `struct UW { gain:f32,aSlow:f32,aFast:f32,wr:f32,overlay:f32,seed:f32,w:f32,h:f32,sx:f32,sy:f32,fdOn:f32,cpOn:f32,edge:f32,fsr:f32 };`;
+  const _UW = `struct UW { gain:f32,aSlow:f32,aFast:f32,wr:f32,overlay:f32,seed:f32,w:f32,h:f32,sx:f32,sy:f32,fdOn:f32,cpOn:f32,edge:f32,fsr:f32,cmp:f32 };`;
   // Pass A: luma + temporal band-pass -> new slow/fast state + (Y,It)
   const WGSL_WA = _UW + `
 @group(0) @binding(0) var<uniform> u:UW;
@@ -895,7 +899,9 @@ struct FSO { @location(0) flowN:vec4f, @location(1) fldN:vec4f };
     col=textureSampleBaseClampToEdge(inp,samp,suv).rgb*255.0;
   }
   col = col + u.overlay*u.gain*textureLoad(yit,c,0).g;
-  return vec4f(clamp(col,vec3f(0.),vec3f(255.))/255.0, 1.0);
+  var disp = col;
+  if(u.cmp>0.5){ let mid=u.w*0.5; if(fc.x<mid){ let iuv=vec2f((fc.x-u.sx)/u.w,(fc.y-u.sy)/u.h); disp=textureSampleBaseClampToEdge(inp,samp,iuv).rgb*255.0; } if(abs(fc.x-mid)<1.0){ disp=vec3f(255.,255.,255.); } }
+  return vec4f(clamp(disp,vec3f(0.),vec3f(255.))/255.0, 1.0);
 }`;
 
   async function initGPU(){
@@ -926,7 +932,7 @@ struct FSO { @location(0) flowN:vec4f, @location(1) fldN:vec4f };
       });
       device.popErrorScope().then(err=>{ if(err) gpuDebug('pipeline: '+err.message); }).catch(()=>{});
       const uniformBuf = device.createBuffer({ size:48, usage:GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST });
-      const uniformBufI = device.createBuffer({ size:32, usage:GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST });
+      const uniformBufI = device.createBuffer({ size:48, usage:GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST });
       // warp pipelines (5-pass optical-flow)
       const rf={format:'rgba16float'};
       const mkMod=(code)=>device.createShaderModule({code});
@@ -998,7 +1004,7 @@ struct FSO { @location(0) flowN:vec4f, @location(1) fldN:vec4f };
     const dev=gpu.device;
     const f=Math.max(5,Math.min(120,fps));
     const aSlow=1-Math.exp(-2*Math.PI*loHz/f), aFast=1-Math.exp(-2*Math.PI*hiHz/f);
-    const ub=new Float32Array([ gain, aSlow, aFast, chromaAmt, (mode==='amp')?1:0, gpu.seeded?0:1, procW, procH, accX, accY, tnr ]);
+    const ub=new Float32Array([ gain, aSlow, aFast, chromaAmt, (mode==='amp')?1:0, gpu.seeded?0:1, procW, procH, accX, accY, tnr, (compare?1:0) ]);
     dev.queue.writeBuffer(gpu.uniformBuf, 0, ub);
     const ext=dev.importExternalTexture({ source:video });
     const cur=gpu.ping, nxt=1-cur;
@@ -1024,7 +1030,7 @@ struct FSO { @location(0) flowN:vec4f, @location(1) fldN:vec4f };
 
   function gpuFrameIsolate(){
     const dev=gpu.device;
-    const ub=new Float32Array([ gain, 0.03, gpu.isoSeeded?0:1, procW, procH, accX, accY, tnr ]);
+    const ub=new Float32Array([ gain, 0.03, gpu.isoSeeded?0:1, procW, procH, accX, accY, tnr, (compare?1:0) ]);
     dev.queue.writeBuffer(gpu.uniformBufI, 0, ub);
     const ext=dev.importExternalTexture({ source:video });
     const cur=gpu.isoPing, nxt=1-cur;
@@ -1051,7 +1057,7 @@ struct FSO { @location(0) flowN:vec4f, @location(1) fldN:vec4f };
     const f=Math.max(5,Math.min(120,fps));
     const aSlow=1-Math.exp(-2*Math.PI*loHz/f), aFast=1-Math.exp(-2*Math.PI*hiHz/f);
     const wr=2+(denoiseR>0?denoiseR:1);
-    const ub=new Float32Array([ gain, aSlow, aFast, wr, overlayAmt, gpu.wseeded?0:1, procW, procH, accX, accY, fieldDenoise?1:0, cleanPlate?1:0, (edgeAware?18.0:0.0), flowSmoothR ]);
+    const ub=new Float32Array([ gain, aSlow, aFast, wr, overlayAmt, gpu.wseeded?0:1, procW, procH, accX, accY, fieldDenoise?1:0, cleanPlate?1:0, (edgeAware?18.0:0.0), flowSmoothR, (compare?1:0) ]);
     dev.queue.writeBuffer(W.uwBuf, 0, ub);
     const ext=dev.importExternalTexture({ source:video });
     const cur=gpu.wping, nxt=1-cur;
@@ -1127,7 +1133,6 @@ struct FSO { @location(0) flowN:vec4f, @location(1) fldN:vec4f };
 
   // GPU covers Linear (Amplified/Motion-only), Isolate, and Warp; single (non-compare) view
   function gpuSupportedFor(){
-    if(compare) return false;
     if(mode==='warp') return !deepFlow;      // Deep (pyramidal) flow is CPU-only for now
     if(mode==='isolate') return true;
     return method==='linear' && (mode==='amp'||mode==='motion');
