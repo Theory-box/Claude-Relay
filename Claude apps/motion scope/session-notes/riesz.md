@@ -41,3 +41,13 @@ Should now be stable at fixed amplification and at higher resolution.
    Revalidated: gain=1 passthrough exact; stable magnification (~4.5x@a14, dial higher for more);
    800-frame heavy-noise run bounded. Clamp is now a rare safety net, not load-bearing.
 Note: effect is gentler per-unit than the (unstable) biquad — push gain higher for strong mag.
+
+## Session 4 — GPU port STAGE 1 (pyramid build+collapse, no magnification)
+Added GPU path for Riesz: per-level r16float textures (rzG gaussian, rzLap, rzRecon) +
+per-level uniform buffers (sw,sh,dw,dh), pipelines rzPipes{L=luma,R=reduce,Lap,Col,Out}.
+gpuRieszFrame: luma->G0, reduce chain, lap=Gk-expand(Gk+1), collapse recon=lap+expand(hi),
+Out = video color + (recon0 - origLuma). With no phase processing, recon0==origLuma so
+delta~0 => output should EQUAL input video (round-trip test). gpuSupportedFor: riesz GPU-on
+in amp/motion. CPU riesz path unchanged (still magnifies when GPU off).
+TEST: Method=Riesz + GPU ON should look like normal video (clean round-trip). If scrambled/
+shifted/wrong-size => pyramid plumbing bug to fix before adding phase (stage 2).

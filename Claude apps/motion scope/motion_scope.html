@@ -962,6 +962,66 @@ struct UC { w:f32, h:f32, orient:f32, sx:f32, sy:f32 };
   return vec4f(textureSampleLevel(outT,samp,uv,0.0).rgb, 1.0);
 }`;
 
+  // ===== Riesz pyramid on GPU (stage 1: build + collapse, magnification off) =====
+  const RZU = `struct RZU { sw:f32, sh:f32, dw:f32, dh:f32 };`;
+  const WGSL_RZL = RZU + `
+@group(0) @binding(0) var<uniform> u:RZU;
+@group(0) @binding(1) var samp:sampler;
+@group(0) @binding(2) var ext:texture_external;
+` + _VS + `
+@fragment fn fs(@builtin(position) fc:vec4f)->@location(0) vec4f {
+  let uv=vec2f(fc.x/u.dw, fc.y/u.dh);
+  let c=textureSampleBaseClampToEdge(ext,samp,uv).rgb;
+  return vec4f((0.299*c.r+0.587*c.g+0.114*c.b)*255.0, 0., 0., 1.);
+}`;
+  const WGSL_RZRED = RZU + `
+@group(0) @binding(0) var<uniform> u:RZU;
+@group(0) @binding(1) var src:texture_2d<f32>;
+` + _VS + `
+@fragment fn fs(@builtin(position) fc:vec4f)->@location(0) vec4f {
+  let sw=i32(u.sw); let sh=i32(u.sh); let cx=i32(fc.x)*2; let cy=i32(fc.y)*2;
+  var K=array<f32,5>(1.,4.,6.,4.,1.); var acc=0.0;
+  for(var j=-2;j<=2;j=j+1){ var yy=cy+j; if(yy<0){yy=0;} else if(yy>=sh){yy=sh-1;}
+    for(var i=-2;i<=2;i=i+1){ var xx=cx+i; if(xx<0){xx=0;} else if(xx>=sw){xx=sw-1;}
+      acc=acc+textureLoad(src,vec2i(xx,yy),0).r*K[i+2]*K[j+2]; } }
+  return vec4f(acc/256.0,0.,0.,1.);
+}`;
+  const WGSL_RZLAP = RZU + `
+@group(0) @binding(0) var<uniform> u:RZU;
+@group(0) @binding(1) var samp:sampler;
+@group(0) @binding(2) var gk:texture_2d<f32>;
+@group(0) @binding(3) var gk1:texture_2d<f32>;
+` + _VS + `
+@fragment fn fs(@builtin(position) fc:vec4f)->@location(0) vec4f {
+  let cur=textureLoad(gk, vec2i(i32(fc.x),i32(fc.y)), 0).r;
+  let up=textureSampleLevel(gk1, samp, vec2f(fc.x/u.dw, fc.y/u.dh), 0.0).r;
+  return vec4f(cur-up, 0., 0., 1.);
+}`;
+  const WGSL_RZCOL = RZU + `
+@group(0) @binding(0) var<uniform> u:RZU;
+@group(0) @binding(1) var samp:sampler;
+@group(0) @binding(2) var lapk:texture_2d<f32>;
+@group(0) @binding(3) var reconHi:texture_2d<f32>;
+` + _VS + `
+@fragment fn fs(@builtin(position) fc:vec4f)->@location(0) vec4f {
+  let l=textureLoad(lapk, vec2i(i32(fc.x),i32(fc.y)), 0).r;
+  let up=textureSampleLevel(reconHi, samp, vec2f(fc.x/u.dw, fc.y/u.dh), 0.0).r;
+  return vec4f(l+up, 0., 0., 1.);
+}`;
+  const WGSL_RZOUT = RZU + `
+@group(0) @binding(0) var<uniform> u:RZU;
+@group(0) @binding(1) var samp:sampler;
+@group(0) @binding(2) var ext:texture_external;
+@group(0) @binding(3) var recon0:texture_2d<f32>;
+` + _VS + `
+@fragment fn fs(@builtin(position) fc:vec4f)->@location(0) vec4f {
+  let uv=vec2f(fc.x/u.dw, fc.y/u.dh);
+  let col=textureSampleBaseClampToEdge(ext,samp,uv).rgb*255.0;
+  let y=0.299*col.r+0.587*col.g+0.114*col.b;
+  let r0=textureLoad(recon0, vec2i(i32(fc.x),i32(fc.y)), 0).r;
+  return vec4f(clamp(col+vec3f(r0-y), vec3f(0.), vec3f(255.))/255.0, 1.0);
+}`;
+
   async function initGPU(){
     if (gpuFailed || !navigator.gpu) return false;
     try{
@@ -1011,7 +1071,9 @@ struct UC { w:f32, h:f32, orient:f32, sx:f32, sy:f32 };
       device.popErrorScope().then(err=>{ if(err) gpuDebug('warp pipeline: '+err.message); }).catch(()=>{});
       const cmpPipe = mkPipe(mkMod(WGSL_CMP), [{format}]);
       const cmpBuf = device.createBuffer({ size:32, usage:GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST });
-      gpu = { device, ctx, format, pipeline, pipelineI, uniformBuf, uniformBufI, warp, cmpPipe, cmpBuf, sampler:device.createSampler({magFilter:'linear',minFilter:'linear'}), slow:[null,null], fast:[null,null], tnr:[null,null], bg:[null,null], itnr:[null,null], wlumaS:[null,null], wlumaF:[null,null], wyit:null, wprodA:null, wprodB:null, wprodAh:null, wprodBh:null, wfld:[null,null], wplate:[null,null], wflow:null, wflowH:null, wout:null, cmpPipe:null, cmpBuf:null, ping:0, isoPing:0, wping:0, seeded:false, isoSeeded:false, wseeded:false, w:0, h:0 };
+      const rz16=[{format:'r16float'}];
+      const rzPipes = { L:mkPipe(mkMod(WGSL_RZL),rz16), R:mkPipe(mkMod(WGSL_RZRED),rz16), Lap:mkPipe(mkMod(WGSL_RZLAP),rz16), Col:mkPipe(mkMod(WGSL_RZCOL),rz16), Out:mkPipe(mkMod(WGSL_RZOUT),[{format}]) };
+      gpu = { device, ctx, format, pipeline, pipelineI, uniformBuf, uniformBufI, warp, cmpPipe, cmpBuf, rzPipes, rzG:[], rzLap:[], rzRecon:[], rzUni:[], rzL:0, sampler:device.createSampler({magFilter:'linear',minFilter:'linear'}), slow:[null,null], fast:[null,null], tnr:[null,null], bg:[null,null], itnr:[null,null], wlumaS:[null,null], wlumaF:[null,null], wyit:null, wprodA:null, wprodB:null, wprodAh:null, wprodBh:null, wfld:[null,null], wplate:[null,null], wflow:null, wflowH:null, wout:null, cmpPipe:null, cmpBuf:null, ping:0, isoPing:0, wping:0, seeded:false, isoSeeded:false, wseeded:false, w:0, h:0 };
       allocGPUTextures();
       return true;
     }catch(e){ gpuFallback('init'); return false; }
@@ -1020,7 +1082,8 @@ struct UC { w:f32, h:f32, orient:f32, sx:f32, sy:f32 };
   function allocGPUTextures(){
     if(!gpu || !procW) return;
     try{
-      for(const t of [gpu.slow[0], gpu.slow[1], gpu.fast[0], gpu.fast[1], gpu.tnr[0], gpu.tnr[1], gpu.bg[0], gpu.bg[1], gpu.itnr[0], gpu.itnr[1], gpu.wlumaS[0], gpu.wlumaS[1], gpu.wlumaF[0], gpu.wlumaF[1], gpu.wyit, gpu.wprodA, gpu.wprodB, gpu.wprodAh, gpu.wprodBh, gpu.wfld[0], gpu.wfld[1], gpu.wplate[0], gpu.wplate[1], gpu.wflow, gpu.wflowH, gpu.wout]) if(t) t.destroy();
+      for(const t of [gpu.slow[0], gpu.slow[1], gpu.fast[0], gpu.fast[1], gpu.tnr[0], gpu.tnr[1], gpu.bg[0], gpu.bg[1], gpu.itnr[0], gpu.itnr[1], gpu.wlumaS[0], gpu.wlumaS[1], gpu.wlumaF[0], gpu.wlumaF[1], gpu.wyit, gpu.wprodA, gpu.wprodB, gpu.wprodAh, gpu.wprodBh, gpu.wfld[0], gpu.wfld[1], gpu.wplate[0], gpu.wplate[1], gpu.wflow, gpu.wflowH, gpu.wout, ...(gpu.rzG||[]), ...(gpu.rzLap||[]), ...(gpu.rzRecon||[])]) if(t) t.destroy();
+      for(const b of (gpu.rzUni||[])) if(b) b.destroy();
       const dev=gpu.device;
       const RA=GPUTextureUsage.RENDER_ATTACHMENT, TB=GPUTextureUsage.TEXTURE_BINDING;
       const mk=(fmt,usage)=>dev.createTexture({ size:[procW,procH], format:fmt, usage });
@@ -1037,6 +1100,14 @@ struct UC { w:f32, h:f32, orient:f32, sx:f32, sy:f32 };
       gpu.wplate=[ mk('rgba16float',RA|TB), mk('rgba16float',RA|TB) ];
       gpu.wflow=mk('rgba16float',RA|TB); gpu.wflowH=mk('rgba16float',RA|TB);
       gpu.wout=mk(gpu.format,RA|TB);
+      // riesz pyramid per-level textures + uniforms
+      let rzL=1,mw=procW,mh=procH; while(Math.min(mw,mh)>8 && rzL<5){mw=Math.max(1,mw>>1);mh=Math.max(1,mh>>1);rzL++;}
+      gpu.rzL=rzL; gpu.rzG=[]; gpu.rzLap=[]; gpu.rzRecon=[]; gpu.rzUni=[];
+      const mkS=(w,h)=>dev.createTexture({size:[w,h],format:'r16float',usage:RA|TB});
+      let lw=procW,lh=procH;
+      for(let k=0;k<rzL;k++){ gpu.rzG.push(mkS(lw,lh)); if(k<rzL-1){ gpu.rzLap.push(mkS(lw,lh)); gpu.rzRecon.push(mkS(lw,lh)); }
+        const ub=dev.createBuffer({size:16,usage:GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST}); dev.queue.writeBuffer(ub,0,new Float32Array([lw,lh,lw,lh])); gpu.rzUni.push(ub);
+        lw=Math.max(1,lw>>1); lh=Math.max(1,lh>>1); }
       gpu.ping=0; gpu.isoPing=0; gpu.wping=0; gpu.seeded=false; gpu.isoSeeded=false; gpu.wseeded=false; gpu.w=procW; gpu.h=procH;
       viewGPU.width=procW; viewGPU.height=procH;
     }catch(e){ gpuFallback('alloc'); }
@@ -1123,6 +1194,7 @@ struct UC { w:f32, h:f32, orient:f32, sx:f32, sy:f32 };
     const ext=dev.importExternalTexture({ source:video });
     const cur=gpu.wping, nxt=1-cur;
     const V=(t)=>t.createView();
+
     const att=(t)=>({ view:V(t), clearValue:{r:0,g:0,b:0,a:1}, loadOp:'clear', storeOp:'store' });
     const enc=dev.createCommandEncoder();
     // Pass A: temporal band-pass
@@ -1205,6 +1277,18 @@ struct UC { w:f32, h:f32, orient:f32, sx:f32, sy:f32 };
   }
 
   // GPU covers Linear (Amplified/Motion-only), Isolate, and Warp; single (non-compare) view
+  function gpuRieszFrame(){
+    const dev=gpu.device, P=gpu.rzPipes, L=gpu.rzL, U=gpu.rzUni, G=gpu.rzG, LAP=gpu.rzLap, RC=gpu.rzRecon, VV=(t)=>t.createView();
+    const ext=dev.importExternalTexture({source:video}), enc=dev.createCommandEncoder();
+    const run=(pipe,entries,target)=>{ const bg=dev.createBindGroup({layout:pipe.getBindGroupLayout(0),entries}); const p=enc.beginRenderPass({colorAttachments:[{view:VV(target),clearValue:{r:0,g:0,b:0,a:1},loadOp:'clear',storeOp:'store'}]}); p.setPipeline(pipe); p.setBindGroup(0,bg); p.draw(3); p.end(); };
+    run(P.L, [{binding:0,resource:{buffer:U[0]}},{binding:1,resource:gpu.sampler},{binding:2,resource:ext}], G[0]);
+    for(let k=1;k<L;k++) run(P.R, [{binding:0,resource:{buffer:U[k-1]}},{binding:1,resource:VV(G[k-1])}], G[k]);
+    for(let k=0;k<L-1;k++) run(P.Lap, [{binding:0,resource:{buffer:U[k]}},{binding:1,resource:gpu.sampler},{binding:2,resource:VV(G[k])},{binding:3,resource:VV(G[k+1])}], LAP[k]);
+    for(let k=L-2;k>=0;k--){ const hi=(k===L-2)?G[L-1]:RC[k+1]; run(P.Col, [{binding:0,resource:{buffer:U[k]}},{binding:1,resource:gpu.sampler},{binding:2,resource:VV(LAP[k])},{binding:3,resource:VV(hi)}], RC[k]); }
+    const bgO=dev.createBindGroup({layout:P.Out.getBindGroupLayout(0),entries:[{binding:0,resource:{buffer:U[0]}},{binding:1,resource:gpu.sampler},{binding:2,resource:ext},{binding:3,resource:VV(RC[0])}]});
+    const p=enc.beginRenderPass({colorAttachments:[{view:gpu.ctx.getCurrentTexture().createView(),clearValue:{r:0,g:0,b:0,a:1},loadOp:'clear',storeOp:'store'}]}); p.setPipeline(P.Out); p.setBindGroup(0,bgO); p.draw(3); p.end();
+    dev.queue.submit([enc.finish()]);
+  }
   function gpuSupportedFor(){
     if(mode==='warp') return !deepFlow;      // Deep (pyramidal) flow is CPU-only for now
     if(mode==='isolate') return true;
@@ -1240,7 +1324,7 @@ struct UC { w:f32, h:f32, orient:f32, sx:f32, sy:f32 };
       if(gpuActive){
         let ok=true;
         gpuStabEstimate();
-        try{ if(mode==='isolate') gpuFrameIsolate(); else if(mode==='warp') gpuFrameWarp(); else gpuFrame(); gpuErrStreak=0; }
+        try{ if(method==='riesz') gpuRieszFrame(); else if(mode==='isolate') gpuFrameIsolate(); else if(mode==='warp') gpuFrameWarp(); else gpuFrame(); gpuErrStreak=0; }
         catch(e){ ok=false; gpuErrStreak++; gpuDebug(e&&e.message?e.message:String(e));
           if(gpuErrStreak>=8) gpuFallback(); else gpuSoftRecover('frame error'); }
         if(ok){ if(viewGPU.style.display==='none'){ viewGPU.style.display='block'; view.style.display='none'; } }
