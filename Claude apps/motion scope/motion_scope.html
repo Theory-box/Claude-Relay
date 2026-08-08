@@ -163,6 +163,14 @@
         <span class="row"><span>Flow smooth</span><span class="val" id="flowSmoothVal">0 px</span></span>
         <input type="range" id="flowSmoothEl" min="0" max="8" step="1" value="0">
       </label>
+      <label class="field">
+        <span class="row"><span>Mesh warp</span><span class="val" id="meshVal">0%</span></span>
+        <input type="range" id="meshEl" min="0" max="100" step="5" value="0">
+      </label>
+      <label class="field">
+        <span class="row"><span>Mesh grid size</span><span class="val" id="meshCellVal">40 px</span></span>
+        <input type="range" id="meshCellEl" min="16" max="96" step="4" value="40">
+      </label>
       <p class="note">Warp view only. <b>Field denoise</b> smooths the motion field over time to cut wide-band noise. <b>Clean plate</b> warps a denoised still of the scene instead of the live frame. Toggle either off if it softens too much.</p>
     </div>
 
@@ -261,7 +269,7 @@
   let lumaS = null, lumaF = null;               // warp overlay: luma temporal bandpass
   let sxx=null, syy=null, sxy=null, sxt=null, syt=null; // warp: Lucas-Kanade structure tensor
   let fdX=null, fdY=null, plateBuf=null;                // warp: field EMA + clean plate
-  let fieldDenoise=false, cleanPlate=false, suppress=false, deepFlow=false, edgeAware=false, flowSmoothR=0, compareOrient=0;
+  let fieldDenoise=false, cleanPlate=false, suppress=false, deepFlow=false, edgeAware=false, flowSmoothR=0, compareOrient=0, meshAmt=0, meshCell=40;
   let Yprev=null, pyr=null;                             // pyramidal-flow: prev luma + pyramid buffers
   let stabilize=false, stabReady=false, sw=0, sh=0;
   let curS=null, prevS=null, shiftBuf=null, smallCnt=null;
@@ -392,6 +400,9 @@
   function setEdge(on){ edgeAware=on; edgeOn.setAttribute('aria-pressed',on); edgeOff.setAttribute('aria-pressed',!on); }
   const flowSmoothEl=$('flowSmoothEl'), flowSmoothVal=$('flowSmoothVal');
   flowSmoothEl.oninput=()=>{ flowSmoothR=+flowSmoothEl.value; flowSmoothVal.textContent=flowSmoothR+' px'; };
+  const meshEl=$('meshEl'), meshVal=$('meshVal'), meshCellEl=$('meshCellEl'), meshCellVal=$('meshCellVal');
+  meshEl.oninput=()=>{ meshAmt=+meshEl.value/100; meshVal.textContent=meshEl.value+'%'; };
+  meshCellEl.oninput=()=>{ meshCell=+meshCellEl.value; meshCellVal.textContent=meshCell+' px'; };
 
   $('resetBtn').onclick = () => { initialized = false; phaseReady = false; warpReady = false; if(gpu){ gpu.seeded=false; gpu.isoSeeded=false; gpu.wseeded=false; } };
   const cmpBtn=$('cmpBtn');
@@ -760,7 +771,7 @@ struct FOI { @location(0) disp:vec4f, @location(1) bgN:vec4f, @location(2) tnrN:
 }`;
 
   const _VS = `@vertex fn vs(@builtin(vertex_index) i:u32)->@builtin(position) vec4f { var p=array<vec2f,3>(vec2f(-1.,-1.),vec2f(3.,-1.),vec2f(-1.,3.)); return vec4f(p[i],0.,1.); }`;
-  const _UW = `struct UW { gain:f32,aSlow:f32,aFast:f32,wr:f32,overlay:f32,seed:f32,w:f32,h:f32,sx:f32,sy:f32,fdOn:f32,cpOn:f32,edge:f32,fsr:f32,cmp:f32 };`;
+  const _UW = `struct UW { gain:f32,aSlow:f32,aFast:f32,wr:f32,overlay:f32,seed:f32,w:f32,h:f32,sx:f32,sy:f32,fdOn:f32,cpOn:f32,edge:f32,fsr:f32,cmp:f32,meshAmt:f32,meshCell:f32 };`;
   // Pass A: luma + temporal band-pass -> new slow/fast state + (Y,It)
   const WGSL_WA = _UW + `
 @group(0) @binding(0) var<uniform> u:UW;
@@ -888,7 +899,22 @@ struct FSO { @location(0) flowN:vec4f, @location(1) fldN:vec4f };
 ` + _VS + `
 @fragment fn fs(@builtin(position) fc:vec4f)->@location(0) vec4f {
   let c=vec2i(i32(fc.x),i32(fc.y));
-  let du=textureLoad(flowT,c,0).xy;
+  var du=textureLoad(flowT,c,0).xy;
+  if(u.meshAmt>0.001){
+    let cell=max(u.meshCell, 4.0);
+    let wI=i32(u.w); let hI=i32(u.h);
+    let gx=floor((fc.x - cell*0.5)/cell); let gy=floor((fc.y - cell*0.5)/cell);
+    let x0=(gx+0.5)*cell; let y0=(gy+0.5)*cell; let x1=x0+cell; let y1=y0+cell;
+    let cx0=clamp(i32(x0),0,wI-1); let cx1=clamp(i32(x1),0,wI-1);
+    let cy0=clamp(i32(y0),0,hI-1); let cy1=clamp(i32(y1),0,hI-1);
+    let f00=textureLoad(flowT, vec2i(cx0,cy0),0).xy;
+    let f10=textureLoad(flowT, vec2i(cx1,cy0),0).xy;
+    let f01=textureLoad(flowT, vec2i(cx0,cy1),0).xy;
+    let f11=textureLoad(flowT, vec2i(cx1,cy1),0).xy;
+    let tx=clamp((fc.x-x0)/cell,0.0,1.0); let ty=clamp((fc.y-y0)/cell,0.0,1.0);
+    let a=mix(f00,f10,tx); let b=mix(f01,f11,tx);
+    du=mix(du, mix(a,b,ty), u.meshAmt);
+  }
   let lim=u.w*0.1;
   let Wx=clamp((u.gain-1.0)*du.x,-lim,lim); let Wy=clamp((u.gain-1.0)*du.y,-lim,lim);
   var col:vec3f;
@@ -961,7 +987,7 @@ struct UC { w:f32, h:f32, orient:f32, sx:f32, sy:f32 };
       const mkPipe=(mod,targets)=>device.createRenderPipeline({ layout:'auto', vertex:{module:mod,entryPoint:'vs'}, fragment:{module:mod,entryPoint:'fs',targets}, primitive:{topology:'triangle-list'} });
       device.pushErrorScope('validation');
       const warp = {
-        uwBuf: device.createBuffer({ size:64, usage:GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST }),
+        uwBuf: device.createBuffer({ size:80, usage:GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST }),
         pA:  mkPipe(mkMod(WGSL_WA),  [rf,rf,rf]),
         pB:  mkPipe(mkMod(WGSL_WB),  [rf,rf]),
         pBH: mkPipe(mkMod(WGSL_WBH), [rf,rf]),
@@ -1082,7 +1108,7 @@ struct UC { w:f32, h:f32, orient:f32, sx:f32, sy:f32 };
     const f=Math.max(5,Math.min(120,fps));
     const aSlow=1-Math.exp(-2*Math.PI*loHz/f), aFast=1-Math.exp(-2*Math.PI*hiHz/f);
     const wr=2+(denoiseR>0?denoiseR:1);
-    const ub=new Float32Array([ gain, aSlow, aFast, wr, overlayAmt, gpu.wseeded?0:1, procW, procH, accX, accY, fieldDenoise?1:0, cleanPlate?1:0, (edgeAware?18.0:0.0), flowSmoothR, (compare?1:0) ]);
+    const ub=new Float32Array([ gain, aSlow, aFast, wr, overlayAmt, gpu.wseeded?0:1, procW, procH, accX, accY, fieldDenoise?1:0, cleanPlate?1:0, (edgeAware?18.0:0.0), flowSmoothR, (compare?1:0), meshAmt, meshCell ]);
     dev.queue.writeBuffer(W.uwBuf, 0, ub);
     const ext=dev.importExternalTexture({ source:video });
     const cur=gpu.wping, nxt=1-cur;
