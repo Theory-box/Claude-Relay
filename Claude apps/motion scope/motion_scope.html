@@ -112,6 +112,7 @@
       <div class="seg" role="group" aria-label="Magnification method">
         <button id="mLinear" aria-pressed="true">Linear</button>
         <button id="mPhase" aria-pressed="false">Phase<span class="beta">BETA</span></button>
+        <button id="mRiesz" aria-pressed="false">Riesz<span class="beta">BETA</span></button>
       </div>
       <p class="note" id="methodNote">Linear amplifies brightness change — simple, but amplifies noise. Phase amplifies displacement instead, so brightness noise is largely left alone.</p>
     </div>
@@ -319,13 +320,15 @@
   const overlayEl=$('overlay'), overlayVal=$('overlayVal');
   overlayEl.oninput = () => { overlayAmt = +overlayEl.value/100; overlayVal.textContent = overlayEl.value + '%'; };
 
-  const mLinear=$('mLinear'), mPhase=$('mPhase');
+  const mLinear=$('mLinear'), mPhase=$('mPhase'), mRiesz=$('mRiesz');
   mLinear.onclick = () => setMethod('linear');
   mPhase.onclick = () => setMethod('phase');
+  mRiesz.onclick = () => setMethod('riesz');
   function setMethod(m){
     method = m; initialized = false; phaseReady = false;
     mLinear.setAttribute('aria-pressed', m==='linear');
     mPhase.setAttribute('aria-pressed', m==='phase');
+    mRiesz.setAttribute('aria-pressed', m==='riesz');
     switchProfile();
   }
 
@@ -347,8 +350,9 @@
     phase:   { gain:30, centerHz:2.25, widthHz:3.5, chromaAmt:0.2, denoiseR:1, scaleLv:0, tnr:0.4, overlayAmt:0, targetH:256 },
     isolate: { gain:18, centerHz:3.25, widthHz:5.5, chromaAmt:0.2, denoiseR:1, scaleLv:0, tnr:0.4, overlayAmt:0, targetH:384 },
     warp:    { gain:20, centerHz:3.25, widthHz:5.5, chromaAmt:0.2, denoiseR:1, scaleLv:0, tnr:0.4, overlayAmt:0, targetH:384 },
+    riesz:   { gain:20, centerHz:3.0,  widthHz:2.0, chromaAmt:0.2, denoiseR:2, scaleLv:0, tnr:0, overlayAmt:0, targetH:256 },
   };
-  function getProfile(){ if(mode==='isolate') return 'isolate'; if(mode==='warp') return 'warp'; return method==='phase'?'phase':'linear'; }
+  function getProfile(){ if(mode==='isolate') return 'isolate'; if(mode==='warp') return 'warp'; return method==='riesz'?'riesz':(method==='phase'?'phase':'linear'); }
   function saveProfile(){ const s=profiles[curProfile];
     s.gain=gain; s.centerHz=centerHz; s.widthHz=widthHz; s.chromaAmt=chromaAmt; s.denoiseR=denoiseR; s.scaleLv=scaleLv; s.tnr=tnr; s.overlayAmt=overlayAmt; s.targetH=targetH; }
   function loadProfile(p){ const s=profiles[p];
@@ -1250,6 +1254,65 @@ struct UC { w:f32, h:f32, orient:f32, sx:f32, sy:f32 };
     raf = requestAnimationFrame(loop);
   }
 
+
+  // ============ Riesz pyramid phase-based magnification (Wadhwa et al. 2014), CPU ============
+  let rzState=null, rzW=0, rzH=0, rzY=null;
+  function rzBlur5(src,w,h,dst){ const t=new Float32Array(w*h),K0=1,K1=4,K2=6,KS=16;
+    for(let y=0;y<h;y++){const r=y*w;for(let x=0;x<w;x++){const xl2=x>1?x-2:0,xl=x>0?x-1:0,xr=x<w-1?x+1:w-1,xr2=x<w-2?x+2:w-1;t[r+x]=(src[r+xl2]*K0+src[r+xl]*K1+src[r+x]*K2+src[r+xr]*K1+src[r+xr2]*K0)/KS;}}
+    for(let y=0;y<h;y++){const yu2=y>1?y-2:0,yu=y>0?y-1:0,yd=y<h-1?y+1:h-1,yd2=y<h-2?y+2:h-1;for(let x=0;x<w;x++){dst[y*w+x]=(t[yu2*w+x]*K0+t[yu*w+x]*K1+t[y*w+x]*K2+t[yd*w+x]*K1+t[yd2*w+x]*K0)/KS;}}}
+  function rzGblur(src,w,h,r){ const t=new Float32Array(w*h),o=new Float32Array(w*h),inv=1/(2*r+1);
+    for(let pass=0;pass<2;pass++){const a=pass===0?src:o;
+      for(let y=0;y<h;y++){let sum=0;for(let k=-r;k<=r;k++){let xx=k<0?0:(k>=w?w-1:k);sum+=a[y*w+xx];}for(let x=0;x<w;x++){t[y*w+x]=sum*inv;let xi=x+r+1;if(xi>=w)xi=w-1;let xo=x-r;if(xo<0)xo=0;sum+=a[y*w+xi]-a[y*w+xo];}}
+      for(let x=0;x<w;x++){let sum=0;for(let k=-r;k<=r;k++){let yy=k<0?0:(k>=h?h-1:k);sum+=t[yy*w+x];}for(let y=0;y<h;y++){o[y*w+x]=sum*inv;let yi=y+r+1;if(yi>=h)yi=h-1;let yo=y-r;if(yo<0)yo=0;sum+=t[yi*w+x]-t[yo*w+x];}}}
+    return o; }
+  function rzReduce(img,w,h){ const bw=Math.max(1,w>>1),bh=Math.max(1,h>>1),b=new Float32Array(w*h);rzBlur5(img,w,h,b);const o=new Float32Array(bw*bh);for(let y=0;y<bh;y++)for(let x=0;x<bw;x++)o[y*bw+x]=b[Math.min(h-1,y*2)*w+Math.min(w-1,x*2)];return{img:o,w:bw,h:bh}; }
+  function rzExpand(img,w,h,tw,th){ const o=new Float32Array(tw*th);for(let y=0;y<th;y++){const sy=y*h/th,y0=sy|0,y1=Math.min(h-1,y0+1),ty=sy-y0;for(let x=0;x<tw;x++){const sx=x*w/tw,x0=sx|0,x1=Math.min(w-1,x0+1),tx=sx-x0;const a=img[y0*w+x0]+(img[y0*w+x1]-img[y0*w+x0])*tx,b=img[y1*w+x0]+(img[y1*w+x1]-img[y1*w+x0])*tx;o[y*tw+x]=a+(b-a)*ty;}}return o; }
+  function rzBuildLap(gray,w,h,L){ const g=[{img:gray,w,h}];for(let k=1;k<L;k++)g.push(rzReduce(g[k-1].img,g[k-1].w,g[k-1].h));const lap=[];for(let k=0;k<L-1;k++){const e=rzExpand(g[k+1].img,g[k+1].w,g[k+1].h,g[k].w,g[k].h);const l=new Float32Array(g[k].w*g[k].h);for(let i=0;i<l.length;i++)l[i]=g[k].img[i]-e[i];lap.push({img:l,w:g[k].w,h:g[k].h});}lap.push(g[L-1]);return lap; }
+  function rzCollapse(lap){ const L=lap.length;let recon=lap[L-1].img.slice(),cw=lap[L-1].w,ch=lap[L-1].h;for(let k=L-2;k>=0;k--){const e=rzExpand(recon,cw,ch,lap[k].w,lap[k].h);recon=new Float32Array(lap[k].w*lap[k].h);for(let i=0;i<recon.length;i++)recon[i]=lap[k].img[i]+e[i];cw=lap[k].w;ch=lap[k].h;}return recon; }
+  function rzRieszXY(lap,w,h){ const rx=new Float32Array(w*h),ry=new Float32Array(w*h);for(let y=0;y<h;y++)for(let x=0;x<w;x++){const xl=x>0?x-1:0,xr=x<w-1?x+1:w-1,yu=y>0?y-1:0,yd=y<h-1?y+1:h-1;rx[y*w+x]=0.5*(lap[y*w+xl]-lap[y*w+xr]);ry[y*w+x]=0.5*(lap[yu*w+x]-lap[yd*w+x]);}return{rx,ry}; }
+  function rzBiquad(f0,bw,fs){ const w0=2*Math.PI*Math.max(0.01,f0)/fs,Q=Math.max(0.1,f0/bw),al=Math.sin(w0)/(2*Q),a0=1+al;return{B:[al/a0,0,-al/a0],A:[1,(-2*Math.cos(w0))/a0,(1-al)/a0]}; }
+  function rzInit(w,h){ let L=1,mw=w,mh=h;while(Math.min(mw,mh)>8 && L<5){mw=Math.max(1,mw>>1);mh=Math.max(1,mh>>1);L++;}
+    rzState={L,first:true,prev:{lap:[],rx:[],ry:[]},lv:[]};
+    let sw=w,sh=h;for(let k=0;k<L-1;k++){const n=sw*sh;rzState.lv.push({pc:new Float32Array(n),ps:new Float32Array(n),r0c:new Float32Array(n),r1c:new Float32Array(n),r0s:new Float32Array(n),r1s:new Float32Array(n)});sw=Math.max(1,sw>>1);sh=Math.max(1,sh>>1);}
+    rzW=w;rzH=h; if(!rzY||rzY.length!==w*h)rzY=new Float32Array(w*h); }
+  function rieszFrame(d,n){ const w=procW,h=procH;
+    if(!rzState||rzW!==w||rzH!==h) rzInit(w,h);
+    for(let p=0;p<n;p++){const i4=p<<2;rzY[p]=0.299*d[i4]+0.587*d[i4+1]+0.114*d[i4+2];}
+    const fps2=Math.max(5,Math.min(120,fps));
+    const bp=rzBiquad(centerHz,Math.max(0.3,widthHz),fps2), B=bp.B, A=bp.A, alpha=gain, rho=Math.max(1,denoiseR||2);
+    const lap=rzBuildLap(rzY,w,h,rzState.L), nb=rzState.L-1, rx=[],ry=[];
+    for(let k=0;k<nb;k++){const r=rzRieszXY(lap[k].img,lap[k].w,lap[k].h);rx.push(r.rx);ry.push(r.ry);}
+    const P=rzState.prev;
+    if(rzState.first){ P.lap=lap.map(l=>({img:l.img.slice(),w:l.w,h:l.h}));P.rx=rx.map(a=>a.slice());P.ry=ry.map(a=>a.slice());rzState.first=false; energy=0; return; }
+    const out=[]; let eSum=0;
+    for(let k=0;k<nb;k++){ const lw=lap[k].w,lh=lap[k].h,ln=lw*lh;
+      const cr=lap[k].img,cx=rx[k],cy=ry[k],pr=P.lap[k].img,px=P.rx[k],py=P.ry[k],S=rzState.lv[k];
+      const amp=new Float32Array(ln),fc=new Float32Array(ln),fs=new Float32Array(ln);
+      for(let i=0;i<ln;i++){
+        const qr=cr[i]*pr[i]+cx[i]*px[i]+cy[i]*py[i], qx=-cr[i]*px[i]+pr[i]*cx[i], qy=-cr[i]*py[i]+pr[i]*cy[i];
+        const qa=Math.sqrt(qr*qr+qx*qx+qy*qy)+1e-9; let pd=Math.acos(Math.max(-1,Math.min(1,qr/qa)));
+        const io=Math.sqrt(qx*qx+qy*qy)+1e-9, co=qx/io, so=qy/io;
+        S.pc[i]+=pd*co; S.ps[i]+=pd*so; amp[i]=Math.sqrt(qa);
+        let tf=B[0]*S.pc[i]+S.r0c[i]; S.r0c[i]=B[1]*S.pc[i]+S.r1c[i]-A[1]*tf; S.r1c[i]=B[2]*S.pc[i]-A[2]*tf; fc[i]=tf;
+        let tg=B[0]*S.ps[i]+S.r0s[i]; S.r0s[i]=B[1]*S.ps[i]+S.r1s[i]-A[1]*tg; S.r1s[i]=B[2]*S.ps[i]-A[2]*tg; fs[i]=tg;
+      }
+      const ncb=new Float32Array(ln),nsb=new Float32Array(ln);
+      for(let i=0;i<ln;i++){ncb[i]=fc[i]*amp[i];nsb[i]=fs[i]*amp[i];}
+      const bc=rzGblur(ncb,lw,lh,rho),bs=rzGblur(nsb,lw,lh,rho),ba=rzGblur(amp,lw,lh,rho);
+      const oimg=new Float32Array(ln);
+      for(let i=0;i<ln;i++){ const pfc=alpha*bc[i]/(ba[i]+1e-9), pfs=alpha*bs[i]/(ba[i]+1e-9), pm=Math.sqrt(pfc*pfc+pfs*pfs);
+        if(pm<1e-9){oimg[i]=cr[i];} else {const er=Math.cos(pm),ex=pfc/pm*Math.sin(pm),ey=pfs/pm*Math.sin(pm);oimg[i]=er*cr[i]-ex*cx[i]-ey*cy[i];} eSum+=pm; }
+      out.push({img:oimg,w:lw,h:lh});
+    }
+    out.push({img:lap[nb].img,w:lap[nb].w,h:lap[nb].h});
+    for(let k=0;k<nb;k++){P.lap[k].img.set(lap[k].img);P.rx[k].set(rx[k]);P.ry[k].set(ry[k]);}
+    const Ymag=rzCollapse(out);
+    for(let p=0;p<n;p++){const i4=p<<2,dl=Ymag[p]-rzY[p];
+      let r=d[i4]+dl,g=d[i4+1]+dl,b=d[i4+2]+dl;
+      d[i4]=r<0?0:r>255?255:r; d[i4+1]=g<0?0:g>255?255:g; d[i4+2]=b<0?0:b>255?255:b;}
+    energy=eSum/(nb*procW*procH)*4;
+  }
+
   function processFrame(){
     const f = Math.max(5, Math.min(120, fps));
     const aSlow = 1 - Math.exp(-2*Math.PI*loHz / f);
@@ -1264,6 +1327,7 @@ struct UC { w:f32, h:f32, orient:f32, sx:f32, sy:f32 };
 
     if (mode === 'isolate') isolateFrame(d, n);
     else if (mode === 'warp') warpFrame(d, n, aSlow, aFast);
+    else if (method === 'riesz') rieszFrame(d, n);
     else if (method === 'phase') phaseFrame(d, n, aSlow, aFast);
     else linearFrame(d, n, aSlow, aFast);
 
@@ -1617,10 +1681,10 @@ struct UC { w:f32, h:f32, orient:f32, sx:f32, sy:f32 };
 
   function drawReadout(){
     readout.innerHTML =
-      `<b>${method==='phase'?'PHASE':'LINEAR'}</b> &nbsp; ` +
+      `<b>${method==='riesz'?'RIESZ':method==='phase'?'PHASE':'LINEAR'}</b> &nbsp; ` +
       `<b>${fps.toFixed(0)}</b> fps &nbsp; <b>${procW}×${procH}</b> &nbsp; ` +
       `band <b>${loHz.toFixed(1)}–${hiHz.toFixed(1)}</b> Hz &nbsp; gain <b>${gain}×</b>`;
-    const pct = Math.min(100, energy * (method==='phase'?400:8));
+    const pct = Math.min(100, energy * ((method==='phase'||method==='riesz')?400:8));
     energyBar.style.width = pct.toFixed(0) + '%';
   }
 
