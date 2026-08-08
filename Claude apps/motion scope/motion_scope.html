@@ -221,6 +221,10 @@
         <input type="range" id="res" min="192" max="640" step="64" value="384">
       </label>
       <button class="act" id="nativeBtn" style="margin-top:.35rem">Match video resolution</button>
+      <div class="seg" role="group" aria-label="Compare layout" style="margin-top:.5rem">
+        <button id="cmpLR" aria-pressed="true">Compare ↔</button>
+        <button id="cmpTB" aria-pressed="false">Compare ↕</button>
+      </div>
       <div class="btns"><button class="act" id="resetBtn">Reset baseline</button></div>
       <p class="note">Lower detail = smoother, less noise, faster. Phase mode is heavier — drop this if the frame rate falls.</p>
     </div>
@@ -261,7 +265,7 @@
   let lumaS = null, lumaF = null;               // warp overlay: luma temporal bandpass
   let sxx=null, syy=null, sxy=null, sxt=null, syt=null; // warp: Lucas-Kanade structure tensor
   let fdX=null, fdY=null, plateBuf=null;                // warp: field EMA + clean plate
-  let fieldDenoise=false, cleanPlate=false, suppress=false, deepFlow=false, edgeAware=false, flowSmoothR=0;
+  let fieldDenoise=false, cleanPlate=false, suppress=false, deepFlow=false, edgeAware=false, flowSmoothR=0, compareOrient=0;
   let Yprev=null, pyr=null;                             // pyramidal-flow: prev luma + pyramid buffers
   let stabilize=false, stabReady=false, sw=0, sh=0;
   let curS=null, prevS=null, shiftBuf=null, smallCnt=null;
@@ -300,6 +304,9 @@
   function setFreqLog(on){ freqLog=on; freqLogBtn.setAttribute('aria-pressed',on); freqLinBtn.setAttribute('aria-pressed',!on); syncFreqSliders(); }
   resEl.oninput = () => { targetH = +resEl.value; resVal.textContent = targetH + 'p'; if (running) allocBuffers(); };
   $('nativeBtn').onclick = () => { if(!video.videoHeight) return; resEl.max = video.videoHeight; targetH = video.videoHeight; resEl.value = targetH; resVal.textContent = targetH + 'p'; if (running) allocBuffers(); };
+  const cmpLR=$('cmpLR'), cmpTB=$('cmpTB');
+  cmpLR.onclick=()=>setCmpOrient(0); cmpTB.onclick=()=>setCmpOrient(1);
+  function setCmpOrient(o){ compareOrient=o; cmpLR.setAttribute('aria-pressed',o===0); cmpTB.setAttribute('aria-pressed',o===1); }
   tnrEl.oninput = () => { tnr = +tnrEl.value/100; tnrVal.textContent = tnrEl.value + '%'; };
   scaleEl.oninput = () => { scaleLv = +scaleEl.value; scaleVal.textContent = scaleLv; };
   denoiseEl.oninput = () => { denoiseR = +denoiseEl.value; denoiseVal.textContent = denoiseR + ' px'; };
@@ -715,9 +722,7 @@ struct FO { @location(0) disp:vec4f, @location(1) slowN:vec4f, @location(2) fast
   if (u.amp <= 0.5) { outc = vec3f(128.0, 128.0, 128.0) + m; }
   outc = clamp(outc, vec3f(0.0), vec3f(255.0));
   var o:FO;
-  var disp = outc;
-  if(u.cmp>0.5){ let mid=u.w*0.5; if(fc.x<mid){ disp=clamp(x, vec3f(0.), vec3f(255.)); } if(abs(fc.x-mid)<1.0){ disp=vec3f(255.,255.,255.); } }
-  o.disp = vec4f(disp/255.0, 1.0);
+  o.disp = vec4f(outc/255.0, 1.0);
   o.slowN = vec4f(s, 1.0);
   o.fastN = vec4f(f, 1.0);
   o.tnrN = vec4f(x, 1.0);
@@ -750,9 +755,7 @@ struct FOI { @location(0) disp:vec4f, @location(1) bgN:vec4f, @location(2) tnrN:
   let nbg = bg + u.aBg * (x - bg);
   let d = clamp(abs(x - nbg) * u.gain, vec3f(0.0), vec3f(255.0));
   var o:FOI;
-  var disp = d;
-  if(u.cmp>0.5){ let mid=u.w*0.5; if(fc.x<mid){ disp=clamp(xr, vec3f(0.), vec3f(255.)); } if(abs(fc.x-mid)<1.0){ disp=vec3f(255.,255.,255.); } }
-  o.disp = vec4f(disp/255.0, 1.0);
+  o.disp = vec4f(d/255.0, 1.0);
   o.bgN = vec4f(nbg, 1.0);
   o.tnrN = vec4f(x, 1.0);
   return o;
@@ -899,9 +902,30 @@ struct FSO { @location(0) flowN:vec4f, @location(1) fldN:vec4f };
     col=textureSampleBaseClampToEdge(inp,samp,suv).rgb*255.0;
   }
   col = col + u.overlay*u.gain*textureLoad(yit,c,0).g;
-  var disp = col;
-  if(u.cmp>0.5){ let mid=u.w*0.5; if(fc.x<mid){ let iuv=vec2f((fc.x-u.sx)/u.w,(fc.y-u.sy)/u.h); disp=textureSampleBaseClampToEdge(inp,samp,iuv).rgb*255.0; } if(abs(fc.x-mid)<1.0){ disp=vec3f(255.,255.,255.); } }
-  return vec4f(clamp(disp,vec3f(0.),vec3f(255.))/255.0, 1.0);
+  return vec4f(clamp(col,vec3f(0.),vec3f(255.))/255.0, 1.0);
+}`;
+
+  // Compare composite: full input + full output into two halves (side-by-side or stacked)
+  const WGSL_CMP = `
+struct UC { w:f32, h:f32, orient:f32, sx:f32, sy:f32 };
+@group(0) @binding(0) var<uniform> u:UC;
+@group(0) @binding(1) var samp:sampler;
+@group(0) @binding(2) var inp:texture_external;
+@group(0) @binding(3) var outT:texture_2d<f32>;
+@vertex fn vs(@builtin(vertex_index) i:u32)->@builtin(position) vec4f { var p=array<vec2f,3>(vec2f(-1.,-1.),vec2f(3.,-1.),vec2f(-1.,3.)); return vec4f(p[i],0.,1.); }
+@fragment fn fs(@builtin(position) fc:vec4f)->@location(0) vec4f {
+  var isIn=true; var uv=vec2f(0.,0.);
+  if(u.orient<0.5){
+    let mid=u.w*0.5;
+    if(fc.x<mid){ isIn=true; uv=vec2f(fc.x/mid, fc.y/u.h); } else { isIn=false; uv=vec2f((fc.x-mid)/mid, fc.y/u.h); }
+    if(abs(fc.x-mid)<1.0){ return vec4f(1.,1.,1.,1.); }
+  } else {
+    let mid=u.h*0.5;
+    if(fc.y<mid){ isIn=true; uv=vec2f(fc.x/u.w, fc.y/mid); } else { isIn=false; uv=vec2f(fc.x/u.w, (fc.y-mid)/mid); }
+    if(abs(fc.y-mid)<1.0){ return vec4f(1.,1.,1.,1.); }
+  }
+  if(isIn){ return vec4f(textureSampleBaseClampToEdge(inp,samp,uv).rgb, 1.0); }
+  return vec4f(textureSampleLevel(outT,samp,uv,0.0).rgb, 1.0);
 }`;
 
   async function initGPU(){
@@ -951,7 +975,9 @@ struct FSO { @location(0) flowN:vec4f, @location(1) fldN:vec4f };
         pR:  mkPipe(mkMod(WGSL_WR),  [{format}]),
       };
       device.popErrorScope().then(err=>{ if(err) gpuDebug('warp pipeline: '+err.message); }).catch(()=>{});
-      gpu = { device, ctx, format, pipeline, pipelineI, uniformBuf, uniformBufI, warp, sampler:device.createSampler({magFilter:'linear',minFilter:'linear'}), slow:[null,null], fast:[null,null], tnr:[null,null], bg:[null,null], itnr:[null,null], wlumaS:[null,null], wlumaF:[null,null], wyit:null, wprodA:null, wprodB:null, wprodAh:null, wprodBh:null, wfld:[null,null], wplate:[null,null], wflow:null, wflowH:null, ping:0, isoPing:0, wping:0, seeded:false, isoSeeded:false, wseeded:false, w:0, h:0 };
+      const cmpPipe = mkPipe(mkMod(WGSL_CMP), [{format}]);
+      const cmpBuf = device.createBuffer({ size:32, usage:GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST });
+      gpu = { device, ctx, format, pipeline, pipelineI, uniformBuf, uniformBufI, warp, cmpPipe, cmpBuf, sampler:device.createSampler({magFilter:'linear',minFilter:'linear'}), slow:[null,null], fast:[null,null], tnr:[null,null], bg:[null,null], itnr:[null,null], wlumaS:[null,null], wlumaF:[null,null], wyit:null, wprodA:null, wprodB:null, wprodAh:null, wprodBh:null, wfld:[null,null], wplate:[null,null], wflow:null, wflowH:null, wout:null, cmpPipe:null, cmpBuf:null, ping:0, isoPing:0, wping:0, seeded:false, isoSeeded:false, wseeded:false, w:0, h:0 };
       allocGPUTextures();
       return true;
     }catch(e){ gpuFallback('init'); return false; }
@@ -960,7 +986,7 @@ struct FSO { @location(0) flowN:vec4f, @location(1) fldN:vec4f };
   function allocGPUTextures(){
     if(!gpu || !procW) return;
     try{
-      for(const t of [gpu.slow[0], gpu.slow[1], gpu.fast[0], gpu.fast[1], gpu.tnr[0], gpu.tnr[1], gpu.bg[0], gpu.bg[1], gpu.itnr[0], gpu.itnr[1], gpu.wlumaS[0], gpu.wlumaS[1], gpu.wlumaF[0], gpu.wlumaF[1], gpu.wyit, gpu.wprodA, gpu.wprodB, gpu.wprodAh, gpu.wprodBh, gpu.wfld[0], gpu.wfld[1], gpu.wplate[0], gpu.wplate[1], gpu.wflow, gpu.wflowH]) if(t) t.destroy();
+      for(const t of [gpu.slow[0], gpu.slow[1], gpu.fast[0], gpu.fast[1], gpu.tnr[0], gpu.tnr[1], gpu.bg[0], gpu.bg[1], gpu.itnr[0], gpu.itnr[1], gpu.wlumaS[0], gpu.wlumaS[1], gpu.wlumaF[0], gpu.wlumaF[1], gpu.wyit, gpu.wprodA, gpu.wprodB, gpu.wprodAh, gpu.wprodBh, gpu.wfld[0], gpu.wfld[1], gpu.wplate[0], gpu.wplate[1], gpu.wflow, gpu.wflowH, gpu.wout]) if(t) t.destroy();
       const dev=gpu.device;
       const RA=GPUTextureUsage.RENDER_ATTACHMENT, TB=GPUTextureUsage.TEXTURE_BINDING;
       const mk=(fmt,usage)=>dev.createTexture({ size:[procW,procH], format:fmt, usage });
@@ -976,6 +1002,7 @@ struct FSO { @location(0) flowN:vec4f, @location(1) fldN:vec4f };
       gpu.wfld=[ mk('rgba16float',RA|TB), mk('rgba16float',RA|TB) ];
       gpu.wplate=[ mk('rgba16float',RA|TB), mk('rgba16float',RA|TB) ];
       gpu.wflow=mk('rgba16float',RA|TB); gpu.wflowH=mk('rgba16float',RA|TB);
+      gpu.wout=mk(gpu.format,RA|TB);
       gpu.ping=0; gpu.isoPing=0; gpu.wping=0; gpu.seeded=false; gpu.isoSeeded=false; gpu.wseeded=false; gpu.w=procW; gpu.h=procH;
       viewGPU.width=procW; viewGPU.height=procH;
     }catch(e){ gpuFallback('alloc'); }
@@ -1018,7 +1045,7 @@ struct FSO { @location(0) flowN:vec4f, @location(1) fldN:vec4f };
     ]});
     const enc=dev.createCommandEncoder();
     const pass=enc.beginRenderPass({ colorAttachments:[
-      { view:gpu.ctx.getCurrentTexture().createView(), clearValue:{r:0,g:0,b:0,a:1}, loadOp:'clear', storeOp:'store' },
+      { view:(compare?gpu.wout:gpu.ctx.getCurrentTexture()).createView(), clearValue:{r:0,g:0,b:0,a:1}, loadOp:'clear', storeOp:'store' },
       { view:gpu.slow[nxt].createView(), clearValue:{r:0,g:0,b:0,a:1}, loadOp:'clear', storeOp:'store' },
       { view:gpu.fast[nxt].createView(), clearValue:{r:0,g:0,b:0,a:1}, loadOp:'clear', storeOp:'store' },
       { view:gpu.tnr[nxt].createView(), clearValue:{r:0,g:0,b:0,a:1}, loadOp:'clear', storeOp:'store' },
@@ -1043,7 +1070,7 @@ struct FSO { @location(0) flowN:vec4f, @location(1) fldN:vec4f };
     ]});
     const enc=dev.createCommandEncoder();
     const pass=enc.beginRenderPass({ colorAttachments:[
-      { view:gpu.ctx.getCurrentTexture().createView(), clearValue:{r:0,g:0,b:0,a:1}, loadOp:'clear', storeOp:'store' },
+      { view:(compare?gpu.wout:gpu.ctx.getCurrentTexture()).createView(), clearValue:{r:0,g:0,b:0,a:1}, loadOp:'clear', storeOp:'store' },
       { view:gpu.bg[nxt].createView(), clearValue:{r:0,g:0,b:0,a:1}, loadOp:'clear', storeOp:'store' },
       { view:gpu.itnr[nxt].createView(), clearValue:{r:0,g:0,b:0,a:1}, loadOp:'clear', storeOp:'store' },
     ]});
@@ -1111,10 +1138,22 @@ struct FSO { @location(0) flowN:vec4f, @location(1) fldN:vec4f };
       {binding:0,resource:{buffer:W.uwBuf}}, {binding:1,resource:gpu.sampler}, {binding:2,resource:ext},
       {binding:3,resource:V(gpu.wflow)}, {binding:4,resource:V(gpu.wyit)}, {binding:5,resource:V(gpu.wplate[nxt])} ]});
     pass=enc.beginRenderPass({ colorAttachments:[
-      { view:gpu.ctx.getCurrentTexture().createView(), clearValue:{r:0,g:0,b:0,a:1}, loadOp:'clear', storeOp:'store' } ]});
+      { view:(compare?gpu.wout:gpu.ctx.getCurrentTexture()).createView(), clearValue:{r:0,g:0,b:0,a:1}, loadOp:'clear', storeOp:'store' } ]});
     pass.setPipeline(W.pR); pass.setBindGroup(0,bg); pass.draw(3); pass.end();
     dev.queue.submit([enc.finish()]);
     gpu.wping=nxt; gpu.wseeded=true;
+  }
+
+  function compositeCompare(){
+    const dev=gpu.device;
+    const ext=dev.importExternalTexture({ source:video });
+    dev.queue.writeBuffer(gpu.cmpBuf, 0, new Float32Array([ procW, procH, compareOrient, accX, accY, 0,0,0 ]));
+    const bind=dev.createBindGroup({ layout:gpu.cmpPipe.getBindGroupLayout(0), entries:[
+      {binding:0,resource:{buffer:gpu.cmpBuf}}, {binding:1,resource:gpu.sampler}, {binding:2,resource:ext}, {binding:3,resource:gpu.wout.createView()} ]});
+    const enc=dev.createCommandEncoder();
+    const pass=enc.beginRenderPass({ colorAttachments:[ { view:gpu.ctx.getCurrentTexture().createView(), clearValue:{r:0,g:0,b:0,a:1}, loadOp:'clear', storeOp:'store' } ]});
+    pass.setPipeline(gpu.cmpPipe); pass.setBindGroup(0,bind); pass.draw(3); pass.end();
+    dev.queue.submit([enc.finish()]);
   }
 
   function gpuFallback(){
@@ -1162,7 +1201,7 @@ struct FSO { @location(0) flowN:vec4f, @location(1) fldN:vec4f };
       if(gpuActive){
         let ok=true;
         gpuStabEstimate();
-        try{ if(mode==='isolate') gpuFrameIsolate(); else if(mode==='warp') gpuFrameWarp(); else gpuFrame(); gpuErrStreak=0; }
+        try{ if(mode==='isolate') gpuFrameIsolate(); else if(mode==='warp') gpuFrameWarp(); else gpuFrame(); if(compare) compositeCompare(); gpuErrStreak=0; }
         catch(e){ ok=false; gpuErrStreak++; gpuDebug(e&&e.message?e.message:String(e));
           if(gpuErrStreak>=8) gpuFallback(); else gpuSoftRecover('frame error'); }
         if(ok){ if(viewGPU.style.display==='none'){ viewGPU.style.display='block'; view.style.display='none'; } }
