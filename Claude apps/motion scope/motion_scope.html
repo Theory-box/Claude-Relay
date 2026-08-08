@@ -76,7 +76,7 @@
   <span class="sub">live motion magnification</span>
   <span id="engineBadge" class="ebadge" title="detecting…">ENGINE: …</span>
   <button id="gpuBtn" class="hbtn" aria-pressed="false" disabled title="GPU acceleration (Linear view)">GPU</button>
-  <button id="cmpBtn" class="hbtn" aria-pressed="false">Compare</button>
+  <button id="cmpBtn" class="hbtn" aria-pressed="false" title="Hold (or hold C) to show the original">Hold: original</button>
 </header>
 
 <div class="wrap">
@@ -221,10 +221,6 @@
         <input type="range" id="res" min="192" max="640" step="64" value="384">
       </label>
       <button class="act" id="nativeBtn" style="margin-top:.35rem">Match video resolution</button>
-      <div class="seg" role="group" aria-label="Compare layout" style="margin-top:.5rem">
-        <button id="cmpLR" aria-pressed="true">Compare ↔</button>
-        <button id="cmpTB" aria-pressed="false">Compare ↕</button>
-      </div>
       <div class="btns"><button class="act" id="resetBtn">Reset baseline</button></div>
       <p class="note">Lower detail = smoother, less noise, faster. Phase mode is heavier — drop this if the frame rate falls.</p>
     </div>
@@ -304,9 +300,6 @@
   function setFreqLog(on){ freqLog=on; freqLogBtn.setAttribute('aria-pressed',on); freqLinBtn.setAttribute('aria-pressed',!on); syncFreqSliders(); }
   resEl.oninput = () => { targetH = +resEl.value; resVal.textContent = targetH + 'p'; if (running) allocBuffers(); };
   $('nativeBtn').onclick = () => { if(!video.videoHeight) return; resEl.max = video.videoHeight; targetH = video.videoHeight; resEl.value = targetH; resVal.textContent = targetH + 'p'; if (running) allocBuffers(); };
-  const cmpLR=$('cmpLR'), cmpTB=$('cmpTB');
-  cmpLR.onclick=()=>setCmpOrient(0); cmpTB.onclick=()=>setCmpOrient(1);
-  function setCmpOrient(o){ compareOrient=o; cmpLR.setAttribute('aria-pressed',o===0); cmpTB.setAttribute('aria-pressed',o===1); }
   tnrEl.oninput = () => { tnr = +tnrEl.value/100; tnrVal.textContent = tnrEl.value + '%'; };
   scaleEl.oninput = () => { scaleLv = +scaleEl.value; scaleVal.textContent = scaleLv; };
   denoiseEl.oninput = () => { denoiseR = +denoiseEl.value; denoiseVal.textContent = denoiseR + ' px'; };
@@ -402,14 +395,19 @@
 
   $('resetBtn').onclick = () => { initialized = false; phaseReady = false; warpReady = false; if(gpu){ gpu.seeded=false; gpu.isoSeeded=false; gpu.wseeded=false; } };
   const cmpBtn=$('cmpBtn');
-  cmpBtn.onclick = () => { compare=!compare; sizeView(); cmpBtn.setAttribute('aria-pressed', compare); };
+  const holdOn=()=>{ compare=true; cmpBtn.setAttribute('aria-pressed', true); };
+  const holdOff=()=>{ compare=false; cmpBtn.setAttribute('aria-pressed', false); };
+  cmpBtn.onmousedown=holdOn; cmpBtn.onmouseup=holdOff; cmpBtn.onmouseleave=holdOff;
+  cmpBtn.ontouchstart=(e)=>{ e.preventDefault(); holdOn(); }; cmpBtn.ontouchend=(e)=>{ e.preventDefault(); holdOff(); };
+  window.addEventListener('keydown',(e)=>{ if((e.key==='c'||e.key==='C') && !e.repeat && !/input|textarea|select/i.test(e.target.tagName||'')) holdOn(); });
+  window.addEventListener('keyup',(e)=>{ if(e.key==='c'||e.key==='C') holdOff(); });
 
   // --- buffers ---
   function sizeView(){
     if(!procW) return;
     const ar=procW/procH, fh=540;
     view.width=Math.round(fh*ar);
-    view.height=compare ? fh*2 : fh;
+    view.height=fh;
   }
   function allocBuffers(){
     if (!video.videoWidth) return;
@@ -1045,7 +1043,7 @@ struct UC { w:f32, h:f32, orient:f32, sx:f32, sy:f32 };
     ]});
     const enc=dev.createCommandEncoder();
     const pass=enc.beginRenderPass({ colorAttachments:[
-      { view:(compare?gpu.wout:gpu.ctx.getCurrentTexture()).createView(), clearValue:{r:0,g:0,b:0,a:1}, loadOp:'clear', storeOp:'store' },
+      { view:gpu.ctx.getCurrentTexture().createView(), clearValue:{r:0,g:0,b:0,a:1}, loadOp:'clear', storeOp:'store' },
       { view:gpu.slow[nxt].createView(), clearValue:{r:0,g:0,b:0,a:1}, loadOp:'clear', storeOp:'store' },
       { view:gpu.fast[nxt].createView(), clearValue:{r:0,g:0,b:0,a:1}, loadOp:'clear', storeOp:'store' },
       { view:gpu.tnr[nxt].createView(), clearValue:{r:0,g:0,b:0,a:1}, loadOp:'clear', storeOp:'store' },
@@ -1070,7 +1068,7 @@ struct UC { w:f32, h:f32, orient:f32, sx:f32, sy:f32 };
     ]});
     const enc=dev.createCommandEncoder();
     const pass=enc.beginRenderPass({ colorAttachments:[
-      { view:(compare?gpu.wout:gpu.ctx.getCurrentTexture()).createView(), clearValue:{r:0,g:0,b:0,a:1}, loadOp:'clear', storeOp:'store' },
+      { view:gpu.ctx.getCurrentTexture().createView(), clearValue:{r:0,g:0,b:0,a:1}, loadOp:'clear', storeOp:'store' },
       { view:gpu.bg[nxt].createView(), clearValue:{r:0,g:0,b:0,a:1}, loadOp:'clear', storeOp:'store' },
       { view:gpu.itnr[nxt].createView(), clearValue:{r:0,g:0,b:0,a:1}, loadOp:'clear', storeOp:'store' },
     ]});
@@ -1138,7 +1136,7 @@ struct UC { w:f32, h:f32, orient:f32, sx:f32, sy:f32 };
       {binding:0,resource:{buffer:W.uwBuf}}, {binding:1,resource:gpu.sampler}, {binding:2,resource:ext},
       {binding:3,resource:V(gpu.wflow)}, {binding:4,resource:V(gpu.wyit)}, {binding:5,resource:V(gpu.wplate[nxt])} ]});
     pass=enc.beginRenderPass({ colorAttachments:[
-      { view:(compare?gpu.wout:gpu.ctx.getCurrentTexture()).createView(), clearValue:{r:0,g:0,b:0,a:1}, loadOp:'clear', storeOp:'store' } ]});
+      { view:gpu.ctx.getCurrentTexture().createView(), clearValue:{r:0,g:0,b:0,a:1}, loadOp:'clear', storeOp:'store' } ]});
     pass.setPipeline(W.pR); pass.setBindGroup(0,bg); pass.draw(3); pass.end();
     dev.queue.submit([enc.finish()]);
     gpu.wping=nxt; gpu.wseeded=true;
@@ -1195,13 +1193,18 @@ struct UC { w:f32, h:f32, orient:f32, sx:f32, sy:f32 };
     const now = performance.now(); const dt = now-lastT; lastT = now;
     if (dt>0){ const inst=1000/dt; fps += (inst-fps)*0.1; }
     if (video.readyState>=2 && procW){
+      if(compare){
+        dctx.drawImage(video, 0, 0, view.width, view.height);
+        if(view.style.display==='none'){ view.style.display='block'; viewGPU.style.display='none'; }
+        drawReadout(); raf=requestAnimationFrame(loop); return;
+      }
       const gpuActive = useGPU && gpu && !gpuFailed && gpuSupportedFor();
       const want = gpuActive ? 'webgpu' : 'cpu';
       if(want!==backend){ backend=want; updateEngineBadge(); updateInertControls(); }
       if(gpuActive){
         let ok=true;
         gpuStabEstimate();
-        try{ if(mode==='isolate') gpuFrameIsolate(); else if(mode==='warp') gpuFrameWarp(); else gpuFrame(); if(compare) compositeCompare(); gpuErrStreak=0; }
+        try{ if(mode==='isolate') gpuFrameIsolate(); else if(mode==='warp') gpuFrameWarp(); else gpuFrame(); gpuErrStreak=0; }
         catch(e){ ok=false; gpuErrStreak++; gpuDebug(e&&e.message?e.message:String(e));
           if(gpuErrStreak>=8) gpuFallback(); else gpuSoftRecover('frame error'); }
         if(ok){ if(viewGPU.style.display==='none'){ viewGPU.style.display='block'; view.style.display='none'; } }
