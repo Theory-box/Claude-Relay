@@ -935,7 +935,7 @@ struct FSO { @location(0) flowN:vec4f, @location(1) fldN:vec4f };
   var col:vec3f;
   if(u.cpOn>0.5){
     let puv=vec2f((fc.x-Wx)/u.w, (fc.y-Wy)/u.h);
-    col=textureSampleLevel(plate,samp,puv,0.0).rgb*255.0;
+    col=textureSampleLevel(plate,samp,puv,0.0).rgb;
   } else {
     let suv=vec2f((fc.x-Wx-u.sx)/u.w, (fc.y-Wy-u.sy)/u.h);
     col=textureSampleBaseClampToEdge(inp,samp,suv).rgb*255.0;
