@@ -23,6 +23,7 @@
   details.group>summary h3{margin:0}
   .region-box{position:absolute;border:2px solid var(--phosphor);background:rgba(57,230,196,.08);box-shadow:0 0 0 1px rgba(0,0,0,.5);pointer-events:none;box-sizing:border-box}
   .region-box.idle{border-color:rgba(57,230,196,.4);background:rgba(57,230,196,.03)}
+  .probe-box{position:absolute;border:2px solid var(--amber);background:rgba(242,166,59,.08);box-shadow:0 0 0 1px rgba(0,0,0,.5);pointer-events:none;box-sizing:border-box}
   *{box-sizing:border-box}
   html,body{margin:0;height:100%}
   body{background:var(--bg);color:var(--ink);font-family:var(--font);display:flex;flex-direction:column;min-height:100%}
@@ -97,6 +98,7 @@
     <canvas id="view" width="960" height="540"></canvas>
     <canvas id="viewGPU" width="384" height="216" style="display:none"></canvas>
     <div id="regionLayer" style="position:absolute;inset:0;pointer-events:none"></div>
+    <div id="probeLayer" style="position:absolute;inset:0;pointer-events:none"></div>
     <div class="overlay" id="overlay" hidden>
       <div class="readout" id="readout"></div>
       <div class="energy">motion energy<div class="bar"><i id="energyBar"></i></div></div>
@@ -244,6 +246,14 @@
         <input type="range" id="color" min="0" max="100" step="5" value="20">
       </label>
       <p class="note" id="colorNote"><b>Color</b> — lower removes the coloured speckle (Linear only; Phase and Riesz are brightness-driven).</p>
+    </details>
+
+    <details class="group">
+      <summary><h3>Frequency analysis</h3></summary>
+      <div class="btns"><button class="act" id="probeBtn" aria-pressed="false">Pick region</button><button class="act" id="probeClearBtn">Clear</button></div>
+      <canvas id="fftCanvas" width="252" height="96" style="width:100%;height:auto;background:#0b0f14;border:1px solid var(--line);border-radius:6px;margin-top:8px;display:block"></canvas>
+      <p class="note" id="fftPeak">Click <b>Pick region</b> and drag a box over something vibrating — you'll get a live spectrum of its motion and its dominant frequency.</p>
+      <button class="act" id="useBandBtn">Set band around peak</button>
     </details>
   </div>
 </div>
@@ -428,6 +438,58 @@
   stage.addEventListener('pointermove',(e)=>{ if(!curDraw) return; const p=stageToNorm(e.clientX,e.clientY); curDraw.x1=p.nx; curDraw.y1=p.ny; drawRegions(); });
   window.addEventListener('pointerup',()=>{ if(!curDraw) return; const g={x0:Math.min(curDraw.x0,curDraw.x1),y0:Math.min(curDraw.y0,curDraw.y1),x1:Math.max(curDraw.x0,curDraw.x1),y1:Math.max(curDraw.y0,curDraw.y1)}; curDraw=null; if((g.x1-g.x0)>0.03 && (g.y1-g.y0)>0.03){ if(regions.length>=MAXREG) regions.shift(); regions.push(g); if(!stabilize) setStab(true); } setDrawMode(false); });
   window.addEventListener('resize',()=>{ if(regions.length||curDraw) drawRegions(); });
+  // ---- Frequency analysis (FFT of a probed region's motion) ----
+  const FFTN=128; let probeBox=null, probeMode=false, curProbe=null, probeRef=null, peakHz=0, _specCtr=0;
+  const sigX=new Float32Array(FFTN), sigY=new Float32Array(FFTN); let sigPos=0, sigCount=0;
+  const probeCanvas=document.createElement('canvas'); probeCanvas.width=64; probeCanvas.height=64;
+  const probeSCtx=probeCanvas.getContext('2d',{willReadFrequently:true});
+  const probeLayer=$('probeLayer'), probeBtn=$('probeBtn'), probeClearBtn=$('probeClearBtn'), useBandBtn=$('useBandBtn'), fftCanvas=$('fftCanvas'), fftPeak=$('fftPeak');
+  function fft(re,im){ const n=re.length; for(let i=1,j=0;i<n;i++){ let bit=n>>1; for(;j&bit;bit>>=1) j^=bit; j^=bit; if(i<j){ const tr=re[i];re[i]=re[j];re[j]=tr; const ti=im[i];im[i]=im[j];im[j]=ti; } }
+    for(let len=2;len<=n;len<<=1){ const ang=-2*Math.PI/len, wr=Math.cos(ang), wi=Math.sin(ang), hl=len>>1;
+      for(let i=0;i<n;i+=len){ let cr=1,ci=0; for(let k=0;k<hl;k++){ const ur=re[i+k], ui=im[i+k]; const br=re[i+k+hl], bi=im[i+k+hl]; const vr=br*cr-bi*ci, vi=br*ci+bi*cr; re[i+k]=ur+vr; im[i+k]=ui+vi; re[i+k+hl]=ur-vr; im[i+k+hl]=ui-vi; const ncr=cr*wr-ci*wi; ci=cr*wi+ci*wr; cr=ncr; } } } }
+  function sampleProbe(){ if(!probeBox||!video.videoWidth) return null; const vw=video.videoWidth, vh=video.videoHeight;
+    const sx=probeBox.x0*vw, sy=probeBox.y0*vh, sbw=Math.max(2,(probeBox.x1-probeBox.x0)*vw), sbh=Math.max(2,(probeBox.y1-probeBox.y0)*vh);
+    try{ probeSCtx.drawImage(video, sx,sy,sbw,sbh, 0,0,64,64); }catch(e){ return null; }
+    let im; try{ im=probeSCtx.getImageData(0,0,64,64).data; }catch(e){ return null; }
+    const col=new Float32Array(64), row=new Float32Array(64);
+    for(let y=0;y<64;y++){ const ro=y*64; for(let x=0;x<64;x++){ const i4=(ro+x)<<2; const l=0.299*im[i4]+0.587*im[i4+1]+0.114*im[i4+2]; col[x]+=l; row[y]+=l; } }
+    return {col,row}; }
+  function profShift(cur,ref){ const S=6; const sm=new Float32Array(2*S+1);
+    for(let d=-S;d<=S;d++){ let acc=0; for(let i=S;i<64-S;i++){ const v=cur[i+d]-ref[i]; acc+=v*v; } sm[d+S]=acc; }
+    let bi=0,bv=1e18; for(let k=0;k<sm.length;k++){ if(sm[k]<bv){bv=sm[k];bi=k;} }
+    let sub=0; if(bi>0&&bi<sm.length-1){ const l=sm[bi-1],c=sm[bi],r=sm[bi+1],den=l-2*c+r; if(Math.abs(den)>1e-6){ sub=0.5*(l-r)/den; if(sub>0.5)sub=0.5; else if(sub<-0.5)sub=-0.5; } }
+    return (bi-S)+sub; }
+  function probeTick(){ if(!probeBox) return; const p=sampleProbe(); if(!p) return;
+    if(!probeRef){ probeRef=p; return; }
+    const dx=profShift(p.col,probeRef.col), dy=profShift(p.row,probeRef.row);
+    sigX[sigPos]=dx; sigY[sigPos]=dy; sigPos=(sigPos+1)%FFTN; if(sigCount<FFTN)sigCount++; }
+  function computeSpectrum(){ if(sigCount<FFTN) return null; const N=FFTN;
+    const reX=new Float32Array(N), imX=new Float32Array(N), reY=new Float32Array(N), imY=new Float32Array(N);
+    let mx=0,my=0; for(let i=0;i<N;i++){ const idx=(sigPos+i)%N; mx+=sigX[idx]; my+=sigY[idx]; } mx/=N; my/=N;
+    for(let i=0;i<N;i++){ const idx=(sigPos+i)%N, w=0.5-0.5*Math.cos(2*Math.PI*i/(N-1)); reX[i]=(sigX[idx]-mx)*w; reY[i]=(sigY[idx]-my)*w; }
+    fft(reX,imX); fft(reY,imY); const half=N>>1, mag=new Float32Array(half);
+    for(let k=0;k<half;k++){ mag[k]=Math.sqrt(reX[k]*reX[k]+imX[k]*imX[k]+reY[k]*reY[k]+imY[k]*imY[k]); }
+    return mag; }
+  function drawSpectrum(mag,fpsUse,pk){ const ctx=fftCanvas.getContext('2d'), W=fftCanvas.width, H=fftCanvas.height, half=mag.length;
+    ctx.clearRect(0,0,W,H); let mmax=1e-6; for(let k=1;k<half;k++) if(mag[k]>mmax)mmax=mag[k];
+    ctx.fillStyle='#39e6c4'; for(let x=0;x<W;x++){ const k=Math.min(half-1,Math.floor(x/W*half)); const h=(mag[k]/mmax)*(H-4); ctx.fillRect(x,H-h,1,h); }
+    const pxk=(pk/half)*W; ctx.strokeStyle='#f2a63b'; ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(pxk,0); ctx.lineTo(pxk,H); ctx.stroke();
+    ctx.fillStyle='#8ea0b2'; ctx.font='9px ui-monospace,monospace'; ctx.fillText('0',2,H-2); ctx.fillText((fpsUse/2).toFixed(0)+'Hz',W-26,H-2); }
+  function updateSpectrum(){ const mag=computeSpectrum(); const fpsUse=capFps||Math.round(fps)||30;
+    if(!mag){ if(fftPeak) fftPeak.textContent='Collecting motion… '+sigCount+'/'+FFTN; return; }
+    let pk=0,pv=0; const loBin=Math.max(1,Math.floor(0.3*FFTN/fpsUse));
+    for(let k=loBin;k<mag.length;k++){ if(mag[k]>pv){pv=mag[k];pk=k;} }
+    peakHz=pk*fpsUse/FFTN; drawSpectrum(mag,fpsUse,pk);
+    if(fftPeak) fftPeak.textContent='Dominant: '+peakHz.toFixed(2)+' Hz   (axis 0–'+(fpsUse/2).toFixed(0)+' Hz)'; }
+  function drawProbe(){ if(!probeLayer) return; probeLayer.innerHTML=''; if(!procW) return; const g=curProbe? {x0:Math.min(curProbe.x0,curProbe.x1),y0:Math.min(curProbe.y0,curProbe.y1),x1:Math.max(curProbe.x0,curProbe.x1),y1:Math.max(curProbe.y0,curProbe.y1)} : probeBox; if(!g) return; const b=normRect(g), d=document.createElement('div'); d.className='probe-box'; d.style.left=b.left+'px'; d.style.top=b.top+'px'; d.style.width=b.width+'px'; d.style.height=b.height+'px'; probeLayer.appendChild(d); }
+  function setProbeMode(on){ probeMode=on; probeBtn.setAttribute('aria-pressed',on); stage.style.cursor=on?'crosshair':''; if(on && typeof setDrawMode==='function') setDrawMode(false); }
+  probeBtn.onclick=()=>setProbeMode(!probeMode);
+  probeClearBtn.onclick=()=>{ probeBox=null; probeRef=null; sigPos=0; sigCount=0; peakHz=0; drawProbe(); if(fftPeak) fftPeak.textContent='Click Pick region and drag a box over something vibrating.'; const c=fftCanvas.getContext('2d'); c.clearRect(0,0,fftCanvas.width,fftCanvas.height); };
+  useBandBtn.onclick=()=>{ if(peakHz>0.2){ loHz=Math.max(FMIN,peakHz*0.7); hiHz=Math.min(FMAX,peakHz*1.4); applyBand(); layoutBand(); } };
+  stage.addEventListener('pointerdown',(e)=>{ if(!probeMode||compareMode!=='off'||!procW||e.button!==0) return; const p=stageToNorm(e.clientX,e.clientY); curProbe={x0:p.nx,y0:p.ny,x1:p.nx,y1:p.ny}; e.preventDefault(); drawProbe(); });
+  stage.addEventListener('pointermove',(e)=>{ if(!curProbe) return; const p=stageToNorm(e.clientX,e.clientY); curProbe.x1=p.nx; curProbe.y1=p.ny; drawProbe(); });
+  window.addEventListener('pointerup',()=>{ if(!curProbe) return; const g={x0:Math.min(curProbe.x0,curProbe.x1),y0:Math.min(curProbe.y0,curProbe.y1),x1:Math.max(curProbe.x0,curProbe.x1),y1:Math.max(curProbe.y0,curProbe.y1)}; curProbe=null; if((g.x1-g.x0)>0.02&&(g.y1-g.y0)>0.02){ probeBox=g; probeRef=null; sigPos=0; sigCount=0; } setProbeMode(false); drawProbe(); });
+  window.addEventListener('resize',()=>{ if(probeBox||curProbe) drawProbe(); });
   const fdOff=$('fdOff'), fdOn=$('fdOn'), cpOff=$('cpOff'), cpOn=$('cpOn');
   fdOff.onclick=()=>setFD(false); fdOn.onclick=()=>setFD(true);
   cpOff.onclick=()=>setCP(false); cpOn.onclick=()=>setCP(true);
@@ -516,7 +578,7 @@
     }catch(e){}
   }
   function startVfc(){ capFps=0; _vfcN=0; _vfcT0=0; if(!video.requestVideoFrameCallback) return;
-    const tick=(now)=>{ if(!_vfcT0) _vfcT0=now; _vfcN++; const dt=now-_vfcT0; if(dt>=1000){ capFps=Math.round(_vfcN*1000/dt); _vfcN=0; _vfcT0=now; } if(running && video.requestVideoFrameCallback) video.requestVideoFrameCallback(tick); };
+    const tick=(now)=>{ if(!_vfcT0) _vfcT0=now; _vfcN++; const dt=now-_vfcT0; if(dt>=1000){ capFps=Math.round(_vfcN*1000/dt); _vfcN=0; _vfcT0=now; } if(probeBox) probeTick(); if(running && video.requestVideoFrameCallback) video.requestVideoFrameCallback(tick); };
     video.requestVideoFrameCallback(tick); }
   async function attachStream(){
     video.srcObject = stream; await video.play(); startVfc();
@@ -1468,6 +1530,7 @@ struct MRT { @location(0) phase:vec4f, @location(1) ema:vec4f, @location(2) scr:
         if(viewGPU.style.display!=='none'){ viewGPU.style.display='none'; view.style.display='block'; }
       }
       drawReadout();
+      if(probeBox){ if(!video.requestVideoFrameCallback) probeTick(); _specCtr=(_specCtr+1)%5; if(_specCtr===0) updateSpectrum(); }
     }
     raf = requestAnimationFrame(loop);
   }
