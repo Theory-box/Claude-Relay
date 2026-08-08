@@ -1324,7 +1324,7 @@ struct UC { w:f32, h:f32, orient:f32, sx:f32, sy:f32 };
       if(gpuActive){
         let ok=true;
         gpuStabEstimate();
-        try{ if(method==='riesz') gpuRieszFrame(); else if(mode==='isolate') gpuFrameIsolate(); else if(mode==='warp') gpuFrameWarp(); else gpuFrame(); gpuErrStreak=0; }
+        try{ if(mode==='isolate') gpuFrameIsolate(); else if(mode==='warp') gpuFrameWarp(); else if(method==='riesz') gpuRieszFrame(); else gpuFrame(); gpuErrStreak=0; }
         catch(e){ ok=false; gpuErrStreak++; gpuDebug(e&&e.message?e.message:String(e));
           if(gpuErrStreak>=8) gpuFallback(); else gpuSoftRecover('frame error'); }
         if(ok){ if(viewGPU.style.display==='none'){ viewGPU.style.display='block'; view.style.display='none'; } }
