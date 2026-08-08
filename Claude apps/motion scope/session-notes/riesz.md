@@ -51,3 +51,15 @@ delta~0 => output should EQUAL input video (round-trip test). gpuSupportedFor: r
 in amp/motion. CPU riesz path unchanged (still magnifies when GPU off).
 TEST: Method=Riesz + GPU ON should look like normal video (clean round-trip). If scrambled/
 shifted/wrong-size => pyramid plumbing bug to fix before adding phase (stage 2).
+
+## Session 5 — GPU port STAGE 2 (phase magnification)
+Added per-bandpass-level ping-pong textures: rzTri[k][2](lap,rx,ry), rzPhase[k][2](pc,ps),
+rzEma[k][2](slowC,fastC,slowS,fastS), rzScr[k]/rzScrH[k] scratch. Pipelines: Tri, Phase(MRT
+3-target), BH/BV(blur), Shift. rzPhaseUni(seed,aSlow,aFast,alpha,floor,leak).
+Per level: Tri(lap->lap,rx,ry) -> Phase(quaternion diff + leak-accumulate + slow/fast EMA
+bandpass + amp; MRT phase/ema/scr) -> BH/BV(amp-weighted blur of fc*amp,fs*amp,amp) ->
+Shift(pfc=alpha*blur/(blurAmp+floor), clamp pm<=PI, phase-shift -> modified LAP[k]) -> collapse.
+seed=1 first frame (ignores garbage prev, passthrough). alpha=gain-1, floor=2.0, leak=0.999.
+TEST: Method=Riesz + GPU on + Amplified + motion -> should magnify like CPU Riesz but realtime.
+A/B vs CPU (GPU off) should look similar. If scrambled/no-effect/artifacts -> debug vs CPU ref.
+Blind build; likely needs a tuning/debug pass.
