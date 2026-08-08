@@ -16,6 +16,11 @@
   .freqband{position:absolute;top:9px;height:8px;background:var(--phosphor);border-radius:5px;cursor:grab;opacity:.9}
   .freqband:active{cursor:grabbing}
   .freqthumb{position:absolute;top:3px;width:14px;height:20px;margin-left:-7px;background:var(--ink);border:2px solid var(--phosphor);border-radius:5px;cursor:ew-resize;touch-action:none;box-sizing:border-box}
+  details.group>summary{list-style:none;cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:8px}
+  details.group>summary::-webkit-details-marker{display:none}
+  details.group>summary::after{content:'\25B8';color:var(--muted);font-size:.85em;transition:transform .15s ease}
+  details.group[open]>summary::after{transform:rotate(90deg)}
+  details.group>summary h3{margin:0}
   *{box-sizing:border-box}
   html,body{margin:0;height:100%}
   body{background:var(--bg);color:var(--ink);font-family:var(--font);display:flex;flex-direction:column;min-height:100%}
@@ -102,94 +107,61 @@
   </div>
 
   <div class="rail">
-    <div class="group">
-      <h3>Source</h3>
-      <select id="devices"><option value="">Default camera</option></select>
+    <details class="group" open>
+      <summary><h3>Capture</h3></summary>
       <div class="btns">
         <button class="act primary" id="startBtn">Start</button>
         <button class="act stop" id="stopBtn" disabled>Stop</button>
       </div>
       <button class="act" id="screenBtn">Share screen</button>
-    </div>
+      <p class="note">Start opens your browser's camera picker. Share screen captures a window or display instead.</p>
+      <div class="seg" role="group" aria-label="Stabilization" style="margin-top:.5rem">
+        <button id="stabOff" aria-pressed="true">Stabilize off</button>
+        <button id="stabOn" aria-pressed="false">Stabilize on</button>
+      </div>
+      <p class="note">Cancels whole-frame shake before magnifying, so handheld jitter isn't amplified (translation only; slow pans still pass through).</p>
+      <label class="field">
+        <span class="row"><span>Stabilize strength</span><span class="val" id="stabStrVal">70</span></span>
+        <input type="range" id="stabStr" min="0" max="100" step="5" value="70">
+      </label>
+      <label class="field">
+        <span class="row"><span>Detail</span><span class="val" id="resVal">384p</span></span>
+        <input type="range" id="res" min="192" max="640" step="64" value="384">
+      </label>
+      <button class="act" id="nativeBtn" style="margin-top:.35rem">Match video resolution</button>
+      <p class="note">Higher detail = sharper but slower. Match jumps to the source's native resolution (best on GPU).</p>
+      <div class="btns"><button class="act" id="resetBtn">Reset baseline</button></div>
+      <p class="note">Reset baseline re-captures the still background used by Isolate and Clean plate.</p>
+    </details>
 
-    <div class="group" id="methodGroup">
-      <h3>Method</h3>
+    <details class="group" id="methodGroup" open>
+      <summary><h3>Method</h3></summary>
       <div class="seg" role="group" aria-label="Magnification method">
         <button id="mLinear" aria-pressed="true">Linear</button>
         <button id="mPhase" aria-pressed="false">Phase<span class="beta">BETA</span></button>
         <button id="mRiesz" aria-pressed="false">Riesz<span class="beta">BETA</span></button>
       </div>
-      <p class="note" id="methodNote">Linear amplifies brightness change — simple, but amplifies noise. Phase amplifies displacement instead, so brightness noise is largely left alone.</p>
-    </div>
+      <p class="note" id="methodNote"><b>Linear</b> amplifies brightness change — simple, but amplifies noise. <b>Phase</b> and <b>Riesz</b> amplify displacement instead, so brightness noise is largely left alone. <b>Riesz</b> is the fast, high-quality phase method — the best all-round pick.</p>
+    </details>
 
-    <div class="group">
-      <h3>Stabilize <span class="beta">handheld</span></h3>
-      <div class="seg" role="group" aria-label="Stabilization">
-        <button id="stabOff" aria-pressed="true">Off</button>
-        <button id="stabOn" aria-pressed="false">On</button>
-      </div>
-      <p class="note">Estimates whole-frame shake and counter-shifts before magnifying, so jitter isn't amplified. Cancels translation only (not rotation); pans still pass through.</p>
-      <label class="field">
-        <span class="row"><span>Strength</span><span class="val" id="stabStrVal">70</span></span>
-        <input type="range" id="stabStr" min="0" max="100" step="5" value="70">
-      </label>
-      <p class="note">Higher pulls in slower, wider drift as shake to cancel; lower removes only fast jitter.</p>
-    </div>
-
-    <div class="group">
-      <h3>View</h3>
+    <details class="group" open>
+      <summary><h3>View</h3></summary>
       <div class="seg" role="group" aria-label="View mode">
         <button id="modeAmp" aria-pressed="true">Amplified</button>
         <button id="modeMotion" aria-pressed="false">Motion only</button>
         <button id="modeIsolate" aria-pressed="false">Isolate</button>
         <button id="modeWarp" aria-pressed="false">Warp<span class="beta">BETA</span></button>
       </div>
-    </div>
+      <p class="note"><b>Amplified</b> overlays magnified motion on the scene. <b>Motion only</b> shows the bare motion signal. <b>Isolate</b> subtracts a still background. <b>Warp</b> physically displaces pixels along the motion.</p>
+    </details>
 
-    <div class="group" id="warpFieldGroup">
-      <h3>Warp field</h3>
-      <div class="seg" role="group" aria-label="Direction">
-        <button id="supOff" aria-pressed="true">Amplify</button>
-        <button id="supOn" aria-pressed="false">Suppress</button>
-      </div>
-      <p class="note"><b>Amplify</b> exaggerates motion (crisp). <b>Suppress</b> holds it still — it uses coarse-to-fine optical flow to push moving parts back toward rest, so wind-sway or jitter freezes (a bit softer, and CPU-only). Amplification becomes stillness strength; cutoffs still pick which motion to freeze.</p>
-      <div class="seg" role="group" aria-label="Field denoise">
-        <button id="fdOff" aria-pressed="true">Field raw</button>
-        <button id="fdOn" aria-pressed="false">Field denoise</button>
-      </div>
-      <div class="seg" role="group" aria-label="Clean plate">
-        <button id="cpOff" aria-pressed="true">Live plate</button>
-        <button id="cpOn" aria-pressed="false">Clean plate</button>
-      </div>
-      <div class="seg" role="group" aria-label="Flow smoothing">
-        <button id="edgeOff" aria-pressed="true">Smooth flow</button>
-        <button id="edgeOn" aria-pressed="false">Edge-aware</button>
-      </div>
-      <label class="field">
-        <span class="row"><span>Edge sensitivity</span><span class="val" id="edgeSensVal">75</span></span>
-        <input type="range" id="edgeSensEl" min="0" max="100" step="5" value="75">
-      </label>
-      <label class="field">
-        <span class="row"><span>Flow smooth</span><span class="val" id="flowSmoothVal">0 px</span></span>
-        <input type="range" id="flowSmoothEl" min="0" max="8" step="1" value="0">
-      </label>
-      <label class="field">
-        <span class="row"><span>Mesh warp</span><span class="val" id="meshVal">0%</span></span>
-        <input type="range" id="meshEl" min="0" max="100" step="5" value="0">
-      </label>
-      <label class="field">
-        <span class="row"><span>Mesh grid size</span><span class="val" id="meshCellVal">40 px</span></span>
-        <input type="range" id="meshCellEl" min="16" max="96" step="4" value="40">
-      </label>
-      <p class="note">Warp view only. <b>Field denoise</b> smooths the motion field over time to cut wide-band noise. <b>Clean plate</b> warps a denoised still of the scene instead of the live frame. Toggle either off if it softens too much.</p>
-    </div>
-
-    <div class="group">
-      <h3>Magnification</h3>
+    <details class="group" open>
+      <summary><h3>Magnification</h3></summary>
       <label class="field">
         <span class="row"><span>Amplification</span><span class="val" id="gainVal">18×</span></span>
         <input type="range" id="gain" min="1" max="80" step="1" value="18">
       </label>
+      <p class="note">How strongly to exaggerate the motion. 1× is off.</p>
       <label class="field">
         <span class="row"><span>Frequency band</span><span class="val" id="freqBandVal">0.50–6.00 Hz</span></span>
         <div id="freqTrack" class="freqtrack">
@@ -198,46 +170,74 @@
           <div id="freqHi" class="freqthumb"></div>
         </div>
       </label>
-      <label class="field">
-        <span class="row"><span>Overlay (Warp)</span><span class="val" id="overlayVal">0%</span></span>
-        <input type="range" id="overlay" min="0" max="100" step="5" value="0">
-      </label>
-      <p class="note">Only motion whose rhythm falls between the two cutoffs gets amplified. Slow sway ≈ low Hz, wingbeats ≈ high Hz.</p>
-    </div>
+      <p class="note">Only motion whose rhythm falls between the two handles is amplified. Drag the band to move it, or a handle to widen/narrow. Slow sway ≈ low Hz, fast flutter ≈ high Hz. Shared across all modes.</p>
+    </details>
 
-    <div class="group">
-      <h3>Noise control</h3>
+    <details class="group" id="warpFieldGroup">
+      <summary><h3>Warp field</h3></summary>
+      <div class="seg" role="group" aria-label="Direction">
+        <button id="supOff" aria-pressed="true">Amplify</button>
+        <button id="supOn" aria-pressed="false">Suppress</button>
+      </div>
+      <p class="note"><b>Amplify</b> exaggerates motion (crisp). <b>Suppress</b> holds it still — coarse-to-fine flow pushes moving parts back toward rest so sway or jitter freezes (softer, CPU-only).</p>
+      <div class="seg" role="group" aria-label="Field denoise">
+        <button id="fdOff" aria-pressed="true">Field raw</button>
+        <button id="fdOn" aria-pressed="false">Field denoise</button>
+      </div>
+      <p class="note"><b>Field denoise</b> smooths the motion field over time to cut wide-band noise.</p>
+      <div class="seg" role="group" aria-label="Clean plate">
+        <button id="cpOff" aria-pressed="true">Live plate</button>
+        <button id="cpOn" aria-pressed="false">Clean plate</button>
+      </div>
+      <p class="note"><b>Clean plate</b> warps a denoised still of the scene instead of the live frame.</p>
+      <div class="seg" role="group" aria-label="Flow smoothing">
+        <button id="edgeOff" aria-pressed="true">Smooth flow</button>
+        <button id="edgeOn" aria-pressed="false">Edge-aware</button>
+      </div>
+      <label class="field">
+        <span class="row"><span>Edge sensitivity</span><span class="val" id="edgeSensVal">75</span></span>
+        <input type="range" id="edgeSensEl" min="0" max="100" step="5" value="75">
+      </label>
+      <p class="note"><b>Edge-aware</b> smooths the flow along edges but not across them, so moving objects keep their boundaries instead of smearing. Sensitivity sets how sharply it respects edges (needs Flow smooth up to show).</p>
+      <label class="field">
+        <span class="row"><span>Flow smooth</span><span class="val" id="flowSmoothVal">0 px</span></span>
+        <input type="range" id="flowSmoothEl" min="0" max="8" step="1" value="0">
+      </label>
+      <p class="note"><b>Flow smooth</b> blurs the displacement field directly — quiets jitter, but too much softens motion.</p>
+      <label class="field">
+        <span class="row"><span>Mesh warp</span><span class="val" id="meshVal">0%</span></span>
+        <input type="range" id="meshEl" min="0" max="100" step="5" value="0">
+      </label>
+      <label class="field">
+        <span class="row"><span>Mesh grid size</span><span class="val" id="meshCellVal">40 px</span></span>
+        <input type="range" id="meshCellEl" min="16" max="96" step="4" value="40">
+      </label>
+      <p class="note"><b>Mesh warp</b> moves the image on a coarse grid so regions stay coherent (a rubber-sheet look) instead of per-pixel smear. 0% = today's warp; grid size sets the coarseness.</p>
+    </details>
+
+    <details class="group">
+      <summary><h3>Smoothing &amp; noise</h3></summary>
       <label class="field">
         <span class="row"><span>Temporal denoise</span><span class="val" id="tnrVal">40%</span></span>
         <input type="range" id="tnr" min="0" max="100" step="5" value="40">
       </label>
-      <p class="note">Cleans the feed before magnifying: averages each pixel over time where it's still, but passes through where something actually moves, so the static background de-noises without smearing motion.</p>
-      <label class="field">
-        <span class="row"><span>Spatial scale</span><span class="val" id="scaleVal">0</span></span>
-        <input type="range" id="scale" min="0" max="3" step="1" value="0">
-      </label>
-      <p class="note">Amplifies coarser spatial detail (a pyramid level). Higher = less fine-grained noise, but only larger motion survives.</p>
+      <p class="note"><b>Temporal denoise</b> — cleans the feed <i>over time</i>: averages each pixel where it's still, passes through where it moves, so the background de-noises without smearing motion.</p>
       <label class="field">
         <span class="row"><span>Smoothing</span><span class="val" id="denoiseVal">1 px</span></span>
         <input type="range" id="denoise" min="0" max="4" step="1" value="1">
       </label>
+      <p class="note"><b>Smoothing</b> — blurs the motion signal <i>spatially</i>. A little removes speckle; too much softens the result.</p>
+      <label class="field">
+        <span class="row"><span>Spatial scale</span><span class="val" id="scaleVal">0</span></span>
+        <input type="range" id="scale" min="0" max="3" step="1" value="0">
+      </label>
+      <p class="note"><b>Spatial scale</b> — amplifies coarser detail (a pyramid level). Higher = less fine noise, but only larger motion survives.</p>
       <label class="field" id="colorField">
         <span class="row"><span>Color</span><span class="val" id="colorVal">20%</span></span>
         <input type="range" id="color" min="0" max="100" step="5" value="20">
       </label>
-      <p class="note" id="colorNote">Lower Color removes the coloured speckle (Linear only — Phase is already brightness-driven).</p>
-    </div>
-
-    <div class="group">
-      <h3>Quality</h3>
-      <label class="field">
-        <span class="row"><span>Detail</span><span class="val" id="resVal">384p</span></span>
-        <input type="range" id="res" min="192" max="640" step="64" value="384">
-      </label>
-      <button class="act" id="nativeBtn" style="margin-top:.35rem">Match video resolution</button>
-      <div class="btns"><button class="act" id="resetBtn">Reset baseline</button></div>
-      <p class="note">Lower detail = smoother, less noise, faster. Phase mode is heavier — drop this if the frame rate falls.</p>
-    </div>
+      <p class="note" id="colorNote"><b>Color</b> — lower removes the coloured speckle (Linear only; Phase and Riesz are brightness-driven).</p>
+    </details>
   </div>
 </div>
 
@@ -246,12 +246,12 @@
   const video = document.getElementById('src');
   const view = document.getElementById('view');
   const dctx = view.getContext('2d');
-  const overlay = document.getElementById('overlay');
   const empty = document.getElementById('empty');
   const errEl = document.getElementById('err');
   const readout = document.getElementById('readout');
   const energyBar = document.getElementById('energyBar');
-  const deviceSel = document.getElementById('devices');
+  const overlay = document.getElementById('overlay');
+  const deviceSel = { value:'', innerHTML:'', appendChild(){}, onchange:null };
 
   const proc = document.createElement('canvas');
   const pctx = proc.getContext('2d', { willReadFrequently: true });
@@ -328,8 +328,6 @@
   scaleEl.oninput = () => { scaleLv = +scaleEl.value; scaleVal.textContent = scaleLv; };
   denoiseEl.oninput = () => { denoiseR = +denoiseEl.value; denoiseVal.textContent = denoiseR + ' px'; };
   colorEl.oninput = () => { chromaAmt = +colorEl.value/100; colorVal.textContent = colorEl.value + '%'; };
-  const overlayEl=$('overlay'), overlayVal=$('overlayVal');
-  overlayEl.oninput = () => { overlayAmt = +overlayEl.value/100; overlayVal.textContent = overlayEl.value + '%'; };
 
   const mLinear=$('mLinear'), mPhase=$('mPhase'), mRiesz=$('mRiesz');
   mLinear.onclick = () => setMethod('linear');
@@ -374,7 +372,6 @@
     denoiseEl.value=denoiseR; denoiseVal.textContent=denoiseR+' px';
     scaleEl.value=scaleLv; scaleVal.textContent=scaleLv;
     tnrEl.value=Math.round(tnr*100); tnrVal.textContent=Math.round(tnr*100)+'%';
-    overlayEl.value=Math.round(overlayAmt*100); overlayVal.textContent=Math.round(overlayAmt*100)+'%';
     resEl.value=targetH; resVal.textContent=targetH+'p'; }
   function updateVisibility(){
     const p=curProfile, isMag=(mode==='amp'||mode==='motion');
@@ -383,7 +380,6 @@
     show($('methodGroup'), isMag);
     show(freqTrackEl.closest('label.field'), p!=='isolate');
     show($('colorField'), p==='linear');
-    show(fld('overlay'), p==='warp');
     show(fld('scale'), p==='linear'||p==='isolate');
     show($('warpFieldGroup'), p==='warp'); }
   function updateInertControls(){
