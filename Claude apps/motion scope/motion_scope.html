@@ -21,6 +21,8 @@
   details.group>summary::after{content:'\25B8';color:var(--muted);font-size:.85em;transition:transform .15s ease}
   details.group[open]>summary::after{transform:rotate(90deg)}
   details.group>summary h3{margin:0}
+  .region-box{position:absolute;border:2px solid var(--phosphor);background:rgba(57,230,196,.08);box-shadow:0 0 0 1px rgba(0,0,0,.5);pointer-events:none;box-sizing:border-box}
+  .region-box.idle{border-color:rgba(57,230,196,.4);background:rgba(57,230,196,.03)}
   *{box-sizing:border-box}
   html,body{margin:0;height:100%}
   body{background:var(--bg);color:var(--ink);font-family:var(--font);display:flex;flex-direction:column;min-height:100%}
@@ -94,6 +96,7 @@
     <video id="src" playsinline muted></video>
     <canvas id="view" width="960" height="540"></canvas>
     <canvas id="viewGPU" width="384" height="216" style="display:none"></canvas>
+    <div id="regionLayer" style="position:absolute;inset:0;pointer-events:none"></div>
     <div class="overlay" id="overlay" hidden>
       <div class="readout" id="readout"></div>
       <div class="energy">motion energy<div class="bar"><i id="energyBar"></i></div></div>
@@ -124,6 +127,8 @@
         <span class="row"><span>Stabilize strength</span><span class="val" id="stabStrVal">70</span></span>
         <input type="range" id="stabStr" min="0" max="100" step="5" value="70">
       </label>
+      <div class="btns"><button class="act" id="drawRegionBtn" aria-pressed="false">Draw region</button><button class="act" id="clearRegionBtn">Clear</button></div>
+      <p class="note">Click <b>Draw region</b>, then drag a box around what should stay still — Stabilize locks onto that area and ignores movement elsewhere. Add up to 4 boxes on steady features for a firmer hold. Clear removes them.</p>
       <label class="field">
         <span class="row"><span>Detail</span><span class="val" id="resVal">384p</span></span>
         <input type="range" id="res" min="192" max="640" step="64" value="384">
@@ -282,6 +287,7 @@
   let stabilize=false, stabReady=false, sw=0, sh=0;
   let curS=null, prevS=null, shiftBuf=null, smallCnt=null;
   let accX=0, accY=0, slowX=0, slowY=0, stabStrength=0.868;
+  let regions=[], drawMode=false, curDraw=null; const MAXREG=4;
   let WC=0, WR=0, refWarp=null, wfx=null, wfy=null;
   let bSX=null, bFX=null, bSY=null, bFY=null, warpReady=false;
   let Yb=null, Lo=null, Bb=null, R1=null, R2=null, Ab=null; // phase (gray)
@@ -408,6 +414,18 @@
     stabOn.setAttribute('aria-pressed', on); stabOff.setAttribute('aria-pressed', !on); }
   const stabStrEl=$('stabStr'), stabStrVal=$('stabStrVal');
   stabStrEl.oninput = () => { const v=+stabStrEl.value; stabStrength = 0.70 + (v/100)*0.24; stabStrVal.textContent = v; };
+  const stage=document.querySelector('.stage'), regionLayer=$('regionLayer'), drawRegionBtn=$('drawRegionBtn'), clearRegionBtn=$('clearRegionBtn');
+  function stageToNorm(cx,cy){ const cv=(viewGPU.style.display!=='none')?viewGPU:view, r=cv.getBoundingClientRect(); const ar=procW/procH, ba=r.width/r.height; let iw,ih,ox,oy; if(ba>ar){ ih=r.height; iw=ih*ar; ox=(r.width-iw)/2; oy=0; } else { iw=r.width; ih=iw/ar; ox=0; oy=(r.height-ih)/2; } return { nx:Math.max(0,Math.min(1,(cx-r.left-ox)/iw)), ny:Math.max(0,Math.min(1,(cy-r.top-oy)/ih)) }; }
+  function normRect(g){ const cv=(viewGPU.style.display!=='none')?viewGPU:view, r=cv.getBoundingClientRect(), sr=stage.getBoundingClientRect(); const ar=procW/procH, ba=r.width/r.height; let iw,ih,ox,oy; if(ba>ar){ ih=r.height; iw=ih*ar; ox=(r.width-iw)/2; oy=0; } else { iw=r.width; ih=iw/ar; ox=0; oy=(r.height-ih)/2; } const L=r.left-sr.left+ox, T=r.top-sr.top+oy; return { left:L+g.x0*iw, top:T+g.y0*ih, width:(g.x1-g.x0)*iw, height:(g.y1-g.y0)*ih }; }
+  function drawRegions(){ if(!regionLayer) return; regionLayer.innerHTML=''; if(!procW) return; const list=regions.slice(); if(curDraw) list.push({x0:Math.min(curDraw.x0,curDraw.x1),y0:Math.min(curDraw.y0,curDraw.y1),x1:Math.max(curDraw.x0,curDraw.x1),y1:Math.max(curDraw.y0,curDraw.y1),active:true});
+    for(const g of list){ const b=normRect(g), d=document.createElement('div'); d.className='region-box'+((drawMode||g.active)?'':' idle'); d.style.left=b.left+'px'; d.style.top=b.top+'px'; d.style.width=b.width+'px'; d.style.height=b.height+'px'; regionLayer.appendChild(d); } }
+  function setDrawMode(on){ drawMode=on; drawRegionBtn.setAttribute('aria-pressed',on); stage.style.cursor=on?'crosshair':''; drawRegions(); }
+  drawRegionBtn.onclick=()=>setDrawMode(!drawMode);
+  clearRegionBtn.onclick=()=>{ regions.length=0; drawRegions(); };
+  stage.addEventListener('pointerdown',(e)=>{ if(!drawMode || compareMode!=='off' || !procW || e.button!==0) return; const p=stageToNorm(e.clientX,e.clientY); curDraw={x0:p.nx,y0:p.ny,x1:p.nx,y1:p.ny}; e.preventDefault(); drawRegions(); });
+  stage.addEventListener('pointermove',(e)=>{ if(!curDraw) return; const p=stageToNorm(e.clientX,e.clientY); curDraw.x1=p.nx; curDraw.y1=p.ny; drawRegions(); });
+  window.addEventListener('pointerup',()=>{ if(!curDraw) return; const g={x0:Math.min(curDraw.x0,curDraw.x1),y0:Math.min(curDraw.y0,curDraw.y1),x1:Math.max(curDraw.x0,curDraw.x1),y1:Math.max(curDraw.y0,curDraw.y1)}; curDraw=null; if((g.x1-g.x0)>0.03 && (g.y1-g.y0)>0.03){ if(regions.length>=MAXREG) regions.shift(); regions.push(g); if(!stabilize) setStab(true); } setDrawMode(false); });
+  window.addEventListener('resize',()=>{ if(regions.length||curDraw) drawRegions(); });
   const fdOff=$('fdOff'), fdOn=$('fdOn'), cpOff=$('cpOff'), cpOn=$('cpOn');
   fdOff.onclick=()=>setFD(false); fdOn.onclick=()=>setFD(true);
   cpOff.onclick=()=>setCP(false); cpOn.onclick=()=>setCP(true);
@@ -645,9 +663,10 @@
   }
   function median(a){ a.sort((p,q)=>p-q); const m=a.length>>1; return a.length%2 ? a[m] : 0.5*(a[m-1]+a[m]); }
   // robust: estimate a shift per grid block, drop flat blocks, take the median (moving objects get outvoted)
+  function inRegions(nx,ny){ for(const g of regions){ if(nx>=g.x0&&nx<=g.x1&&ny>=g.y0&&ny<=g.y1) return true; } return false; }
   function estimateShiftRobust(){
     const cols=5, rows=4, S=8;
-    const px=[], py=[], tex=[];
+    const px=[], py=[], tex=[], cnx=[], cny=[];
     for (let r=0;r<rows;r++){
       const by0=(r*sh/rows)|0, by1=(r===rows-1? sh : ((r+1)*sh/rows)|0);
       for (let c=0;c<cols;c++){
@@ -663,13 +682,14 @@
         let sxp=0,syp=0; const dnx=l-2*best+rr, dny=u-2*best+dn;
         if(Math.abs(dnx)>1e-6){ sxp=0.5*(l-rr)/dnx; if(sxp>0.5)sxp=0.5; else if(sxp<-0.5)sxp=-0.5; }
         if(Math.abs(dny)>1e-6){ syp=0.5*(u-dn)/dny; if(syp>0.5)syp=0.5; else if(syp<-0.5)syp=-0.5; }
-        px.push(bx+sxp); py.push(by+syp); tex.push(tc>0? t/tc : 0);
+        px.push(bx+sxp); py.push(by+syp); tex.push(tc>0? t/tc : 0); cnx.push((c+0.5)/cols); cny.push((r+0.5)/rows);
       }
     }
     let mt=0; for (let i=0;i<tex.length;i++) mt+=tex[i]; mt/=tex.length;
     const thr=mt*0.5, xs=[], ys=[];
-    for (let i=0;i<px.length;i++){ if(tex[i]>=thr){ xs.push(px[i]); ys.push(py[i]); } }
-    if (xs.length<3) return estimateShift();   // scene too flat -> global fallback
+    for (let i=0;i<px.length;i++){ if(tex[i]>=thr && (regions.length===0 || inRegions(cnx[i],cny[i]))){ xs.push(px[i]); ys.push(py[i]); } }
+    if (xs.length===0) return regions.length? [0,0] : estimateShift();
+    if (xs.length<3 && regions.length===0) return estimateShift();
     return [median(xs), median(ys)];
   }
   function shiftFrame(d, sx, sy){   // fractional shift, bilinear, edge-clamped
@@ -1201,7 +1221,7 @@ struct MRT { @location(0) phase:vec4f, @location(1) ema:vec4f, @location(2) scr:
   // Stabilize estimate for GPU mode: run the (cheap) block-match on a small thumbnail,
   // update accX/accY; the GPU shaders offset their video sampling by it.
   function gpuStabEstimate(){
-    if(!stabilize){ accX=0; accY=0; stabReady=false; return; }
+    if(!stabilize && regions.length===0){ accX=0; accY=0; stabReady=false; return; }
     try{
       spctx.drawImage(video, 0, 0, sw, sh);
       const im = spctx.getImageData(0, 0, sw, sh).data;
