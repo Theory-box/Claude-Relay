@@ -11,6 +11,11 @@
     --font:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
     --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
   }
+  .freqtrack{position:relative;height:26px;margin-top:8px;touch-action:none;user-select:none}
+  .freqtrack::before{content:'';position:absolute;top:11px;left:0;right:0;height:4px;background:var(--line);border-radius:3px}
+  .freqband{position:absolute;top:9px;height:8px;background:var(--phosphor);border-radius:5px;cursor:grab;opacity:.9}
+  .freqband:active{cursor:grabbing}
+  .freqthumb{position:absolute;top:3px;width:14px;height:20px;margin-left:-7px;background:var(--ink);border:2px solid var(--phosphor);border-radius:5px;cursor:ew-resize;touch-action:none;box-sizing:border-box}
   *{box-sizing:border-box}
   html,body{margin:0;height:100%}
   body{background:var(--bg);color:var(--ink);font-family:var(--font);display:flex;flex-direction:column;min-height:100%}
@@ -186,17 +191,13 @@
         <input type="range" id="gain" min="1" max="80" step="1" value="18">
       </label>
       <label class="field">
-        <span class="row"><span>Center frequency</span><span class="val" id="freqCenterVal">3.25 Hz</span></span>
-        <input type="range" id="freqCenter" min="0" max="1000" step="1" value="0">
+        <span class="row"><span>Frequency band</span><span class="val" id="freqBandVal">0.50–6.00 Hz</span></span>
+        <div id="freqTrack" class="freqtrack">
+          <div id="freqBand" class="freqband"></div>
+          <div id="freqLo" class="freqthumb"></div>
+          <div id="freqHi" class="freqthumb"></div>
+        </div>
       </label>
-      <label class="field">
-        <span class="row"><span>Width (band)</span><span class="val" id="freqWidthVal">0.50–6.00 Hz</span></span>
-        <input type="range" id="freqWidth" min="0" max="1000" step="1" value="0">
-      </label>
-      <div class="seg" role="group" aria-label="Frequency scale" style="margin-top:.4rem">
-        <button id="scaleLin" aria-pressed="true">Linear</button>
-        <button id="scaleLog" aria-pressed="false">Log</button>
-      </div>
       <label class="field">
         <span class="row"><span>Overlay (Warp)</span><span class="val" id="overlayVal">0%</span></span>
         <input type="range" id="overlay" min="0" max="100" step="5" value="0">
@@ -290,7 +291,7 @@
   // --- controls ---
   const $ = id => document.getElementById(id);
   const gainEl=$('gain'), resEl=$('res');
-  const freqCenterEl=$('freqCenter'), freqWidthEl=$('freqWidth'), freqCenterVal=$('freqCenterVal'), freqWidthVal=$('freqWidthVal'), freqLinBtn=$('scaleLin'), freqLogBtn=$('scaleLog');
+  const freqTrackEl=$('freqTrack'), freqBandEl=$('freqBand'), freqLoEl=$('freqLo'), freqHiEl=$('freqHi'), freqBandVal=$('freqBandVal');
   const tnrEl=$('tnr'), scaleEl=$('scale'), denoiseEl=$('denoise'), colorEl=$('color');
   const gainVal=$('gainVal'), loVal=$('loVal'), hiVal=$('hiVal'), resVal=$('resVal');
   const tnrVal=$('tnrVal'), scaleVal=$('scaleVal'), denoiseVal=$('denoiseVal'), colorVal=$('colorVal');
@@ -301,16 +302,26 @@
   const supOff=$('supOff'), supOn=$('supOn');
   supOff.onclick=()=>setSup(false); supOn.onclick=()=>setSup(true);
   function setSup(on){ suppress=on; deepFlow=on; warpReady=false; supOn.setAttribute('aria-pressed',on); supOff.setAttribute('aria-pressed',!on); updateGainLabel(); }
-  const FMIN=0.1, FMAX=25, WMIN=0.2, WMAX=30;
-  function p2f(t,lo,hi,log){ return log ? lo*Math.pow(hi/lo,t) : lo+t*(hi-lo); }
-  function f2p(v,lo,hi,log){ v=Math.min(hi,Math.max(lo,v)); return log ? Math.log(v/lo)/Math.log(hi/lo) : (v-lo)/(hi-lo); }
-  function applyBand(){ loHz=Math.max(0.1, centerHz - widthHz/2); hiHz=centerHz + widthHz/2; }
-  function updateFreqLabels(){ applyBand(); freqCenterVal.textContent=centerHz.toFixed(2)+' Hz'; freqWidthVal.textContent=loHz.toFixed(2)+'–'+hiHz.toFixed(2)+' Hz'; }
-  function syncFreqSliders(){ freqCenterEl.value=Math.round(f2p(centerHz,FMIN,FMAX,freqLog)*1000); freqWidthEl.value=Math.round(f2p(widthHz,WMIN,WMAX,freqLog)*1000); }
-  freqCenterEl.oninput=()=>{ centerHz=p2f(+freqCenterEl.value/1000,FMIN,FMAX,freqLog); updateFreqLabels(); };
-  freqWidthEl.oninput=()=>{ widthHz=p2f(+freqWidthEl.value/1000,WMIN,WMAX,freqLog); updateFreqLabels(); };
-  freqLinBtn.onclick=()=>setFreqLog(false); freqLogBtn.onclick=()=>setFreqLog(true);
-  function setFreqLog(on){ freqLog=on; freqLogBtn.setAttribute('aria-pressed',on); freqLinBtn.setAttribute('aria-pressed',!on); syncFreqSliders(); }
+  const FMIN=0.1, FMAX=25;
+  const f2t=(v)=>Math.log(Math.min(FMAX,Math.max(FMIN,v))/FMIN)/Math.log(FMAX/FMIN);
+  const t2f=(t)=>FMIN*Math.pow(FMAX/FMIN, Math.min(1,Math.max(0,t)));
+  function applyBand(){ if(loHz<FMIN)loHz=FMIN; if(hiHz>FMAX)hiHz=FMAX; if(hiHz<loHz+0.05)hiHz=loHz+0.05; centerHz=(loHz+hiHz)/2; widthHz=hiHz-loHz; }
+  function layoutBand(){ applyBand(); const a=f2t(loHz)*100, b=f2t(hiHz)*100; freqLoEl.style.left=a+'%'; freqHiEl.style.left=b+'%'; freqBandEl.style.left=a+'%'; freqBandEl.style.width=(b-a)+'%'; freqBandVal.textContent=loHz.toFixed(2)+'–'+hiHz.toFixed(2)+' Hz'; }
+  let fdrag=null, fdLoT=0, fdHiT=0;
+  const fpx2t=(x)=>{ const r=freqTrackEl.getBoundingClientRect(); return (x-r.left)/r.width; };
+  function fStart(which,e){ fdrag=which; fdLoT=f2t(loHz); fdHiT=f2t(hiHz); e.preventDefault(); try{e.target.setPointerCapture(e.pointerId);}catch(_){}}
+  function fMove(e){ if(!fdrag)return; const t=fpx2t(e.clientX);
+    if(fdrag==='lo'){ loHz=Math.min(hiHz-0.05, Math.max(FMIN, t2f(t))); }
+    else if(fdrag==='hi'){ hiHz=Math.max(loHz+0.05, Math.min(FMAX, t2f(t))); }
+    else { const anchor=(fdLoT+fdHiT)/2, wdt=fdHiT-fdLoT; let a=t-wdt/2, b=t+wdt/2; if(a<0){a=0;b=wdt;} if(b>1){b=1;a=1-wdt;} loHz=t2f(a); hiHz=t2f(b); }
+    layoutBand(); }
+  function fEnd(){ fdrag=null; }
+  freqLoEl.addEventListener('pointerdown',(e)=>fStart('lo',e));
+  freqHiEl.addEventListener('pointerdown',(e)=>fStart('hi',e));
+  freqBandEl.addEventListener('pointerdown',(e)=>fStart('band',e));
+  window.addEventListener('pointermove',fMove);
+  window.addEventListener('pointerup',fEnd);
+  layoutBand();
   resEl.oninput = () => { targetH = +resEl.value; resVal.textContent = targetH + 'p'; if (running) allocBuffers(); };
   $('nativeBtn').onclick = () => { if(!video.videoHeight) return; resEl.max = video.videoHeight; targetH = video.videoHeight; resEl.value = targetH; resVal.textContent = targetH + 'p'; if (running) allocBuffers(); };
   tnrEl.oninput = () => { tnr = +tnrEl.value/100; tnrVal.textContent = tnrEl.value + '%'; };
@@ -354,11 +365,11 @@
   };
   function getProfile(){ if(mode==='isolate') return 'isolate'; if(mode==='warp') return 'warp'; return method==='riesz'?'riesz':(method==='phase'?'phase':'linear'); }
   function saveProfile(){ const s=profiles[curProfile];
-    s.gain=gain; s.centerHz=centerHz; s.widthHz=widthHz; s.chromaAmt=chromaAmt; s.denoiseR=denoiseR; s.scaleLv=scaleLv; s.tnr=tnr; s.overlayAmt=overlayAmt; s.targetH=targetH; }
+    s.gain=gain; s.chromaAmt=chromaAmt; s.denoiseR=denoiseR; s.scaleLv=scaleLv; s.tnr=tnr; s.overlayAmt=overlayAmt; s.targetH=targetH; }
   function loadProfile(p){ const s=profiles[p];
-    gain=s.gain; centerHz=s.centerHz; widthHz=s.widthHz; chromaAmt=s.chromaAmt; denoiseR=s.denoiseR; scaleLv=s.scaleLv; tnr=s.tnr; overlayAmt=s.overlayAmt; targetH=s.targetH;
+    gain=s.gain; chromaAmt=s.chromaAmt; denoiseR=s.denoiseR; scaleLv=s.scaleLv; tnr=s.tnr; overlayAmt=s.overlayAmt; targetH=s.targetH;
     gainEl.value=gain; updateGainLabel();
-    syncFreqSliders(); updateFreqLabels();
+    layoutBand();
     colorEl.value=Math.round(chromaAmt*100); colorVal.textContent=Math.round(chromaAmt*100)+'%';
     denoiseEl.value=denoiseR; denoiseVal.textContent=denoiseR+' px';
     scaleEl.value=scaleLv; scaleVal.textContent=scaleLv;
@@ -370,9 +381,7 @@
     const show=(el,on)=>{ if(el) el.style.display=on?'':'none'; };
     const fld=(id)=>{ const e=$(id); return e?e.closest('label.field'):null; };
     show($('methodGroup'), isMag);
-    show(fld('freqCenter'), p!=='isolate');
-    show(fld('freqWidth'), p!=='isolate');
-    show(freqLinBtn.closest('.seg'), p!=='isolate');
+    show(freqTrackEl.closest('label.field'), p!=='isolate');
     show($('colorField'), p==='linear');
     show(fld('overlay'), p==='warp');
     show(fld('scale'), p==='linear'||p==='isolate');
