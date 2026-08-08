@@ -19,3 +19,14 @@ noise than Linear. Heavy on CPU (builds pyramid + blurs each frame) -> keep Deta
 
 Next: tune, then GPU port (all ops are linear filters/elementwise -> maps to passes).
 Also the future offline video-upload feature can reuse this engine.
+
+## Session 2 — stability audit (fixed 3 real bugs)
+Symptoms: high-res explodes into noise; slow feedback runaway; must creep amplification up.
+Root causes + fixes:
+1. Unbounded phase accumulator (random walk from sensor noise on an indefinite live
+   stream). Fix: leak S.pc/S.ps *=0.995 per frame (bounds walk, below passband).
+2. Division by ~0 amplitude in flat regions (guard was 1e-9). Fix: relative amplitude
+   floor ampFloor=0.15*meanAmp per level -> suppresses noise-only regions (worse at hi-res).
+3. No cap on magnified phase -> cos/sin runaway. Fix: clamp pm to PI (direction preserved).
+Revalidated: clean mag still ~11x; 600-frame heavy-noise run bounded (max~226, no NaN).
+Should now be stable at fixed amplification and at higher resolution.

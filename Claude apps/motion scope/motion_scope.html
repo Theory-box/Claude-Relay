@@ -1287,21 +1287,21 @@ struct UC { w:f32, h:f32, orient:f32, sx:f32, sy:f32 };
     const out=[]; let eSum=0;
     for(let k=0;k<nb;k++){ const lw=lap[k].w,lh=lap[k].h,ln=lw*lh;
       const cr=lap[k].img,cx=rx[k],cy=ry[k],pr=P.lap[k].img,px=P.rx[k],py=P.ry[k],S=rzState.lv[k];
-      const amp=new Float32Array(ln),fc=new Float32Array(ln),fs=new Float32Array(ln);
+      const amp=new Float32Array(ln),fc=new Float32Array(ln),fs=new Float32Array(ln); let ampSum=0;
       for(let i=0;i<ln;i++){
         const qr=cr[i]*pr[i]+cx[i]*px[i]+cy[i]*py[i], qx=-cr[i]*px[i]+pr[i]*cx[i], qy=-cr[i]*py[i]+pr[i]*cy[i];
         const qa=Math.sqrt(qr*qr+qx*qx+qy*qy)+1e-9; let pd=Math.acos(Math.max(-1,Math.min(1,qr/qa)));
         const io=Math.sqrt(qx*qx+qy*qy)+1e-9, co=qx/io, so=qy/io;
-        S.pc[i]+=pd*co; S.ps[i]+=pd*so; amp[i]=Math.sqrt(qa);
+        S.pc[i]=S.pc[i]*0.995+pd*co; S.ps[i]=S.ps[i]*0.995+pd*so; const av=Math.sqrt(qa); amp[i]=av; ampSum+=av;
         let tf=B[0]*S.pc[i]+S.r0c[i]; S.r0c[i]=B[1]*S.pc[i]+S.r1c[i]-A[1]*tf; S.r1c[i]=B[2]*S.pc[i]-A[2]*tf; fc[i]=tf;
         let tg=B[0]*S.ps[i]+S.r0s[i]; S.r0s[i]=B[1]*S.ps[i]+S.r1s[i]-A[1]*tg; S.r1s[i]=B[2]*S.ps[i]-A[2]*tg; fs[i]=tg;
       }
       const ncb=new Float32Array(ln),nsb=new Float32Array(ln);
       for(let i=0;i<ln;i++){ncb[i]=fc[i]*amp[i];nsb[i]=fs[i]*amp[i];}
       const bc=rzGblur(ncb,lw,lh,rho),bs=rzGblur(nsb,lw,lh,rho),ba=rzGblur(amp,lw,lh,rho);
-      const oimg=new Float32Array(ln);
-      for(let i=0;i<ln;i++){ const pfc=alpha*bc[i]/(ba[i]+1e-9), pfs=alpha*bs[i]/(ba[i]+1e-9), pm=Math.sqrt(pfc*pfc+pfs*pfs);
-        if(pm<1e-9){oimg[i]=cr[i];} else {const er=Math.cos(pm),ex=pfc/pm*Math.sin(pm),ey=pfs/pm*Math.sin(pm);oimg[i]=er*cr[i]-ex*cx[i]-ey*cy[i];} eSum+=pm; }
+      const oimg=new Float32Array(ln), ampFloor=0.15*(ampSum/ln)+1e-6;
+      for(let i=0;i<ln;i++){ const denom=ba[i]+ampFloor, pfc=alpha*bc[i]/denom, pfs=alpha*bs[i]/denom, pmR=Math.sqrt(pfc*pfc+pfs*pfs);
+        if(pmR<1e-9){oimg[i]=cr[i];} else { const pm=pmR>Math.PI?Math.PI:pmR, si=Math.sin(pm); oimg[i]=Math.cos(pm)*cr[i]-(pfc/pmR*si)*cx[i]-(pfs/pmR*si)*cy[i]; } eSum+=pmR; }
       out.push({img:oimg,w:lw,h:lh});
     }
     out.push({img:lap[nb].img,w:lap[nb].w,h:lap[nb].h});
