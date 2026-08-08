@@ -177,7 +177,7 @@
           <div id="freqHi" class="freqthumb"></div>
         </div>
       </label>
-      <p class="note">Only motion whose rhythm falls between the two handles is amplified. Drag the band to move it, or a handle to widen/narrow. Slow sway ≈ low Hz, fast flutter ≈ high Hz. Shared across all modes.</p>
+      <p class="note" id="freqNote">Only motion whose rhythm falls between the two handles is amplified. Drag the band to move it, or a handle to widen/narrow. Slow sway ≈ low Hz, fast flutter ≈ high Hz. Shared across all modes.</p>
     </details>
 
     <details class="group" id="warpFieldGroup">
@@ -238,7 +238,7 @@
         <span class="row"><span>Spatial scale</span><span class="val" id="scaleVal">0</span></span>
         <input type="range" id="scale" min="0" max="3" step="1" value="0">
       </label>
-      <p class="note"><b>Spatial scale</b> — amplifies coarser detail (a pyramid level). Higher = less fine noise, but only larger motion survives.</p>
+      <p class="note" id="scaleNote"><b>Spatial scale</b> — amplifies coarser detail (a pyramid level). Higher = less fine noise, but only larger motion survives.</p>
       <label class="field" id="colorField">
         <span class="row"><span>Color</span><span class="val" id="colorVal">20%</span></span>
         <input type="range" id="color" min="0" max="100" step="5" value="20">
@@ -387,8 +387,9 @@
     const fld=(id)=>{ const e=$(id); return e?e.closest('label.field'):null; };
     show($('methodGroup'), isMag);
     show(freqTrackEl.closest('label.field'), p!=='isolate');
-    show($('colorField'), p==='linear');
-    show(fld('scale'), p==='linear'||p==='isolate');
+    show($('colorField'), p==='linear'); show($('colorNote'), p==='linear');
+    show(fld('scale'), p==='linear'||p==='isolate'); show($('scaleNote'), p==='linear'||p==='isolate');
+    show($('freqNote'), p!=='isolate');
     show($('warpFieldGroup'), p==='warp');
     show($('resetGroup'), p==='warp'||p==='isolate');
     const tnrOn=(p==='linear'||p==='phase'||p==='isolate');
