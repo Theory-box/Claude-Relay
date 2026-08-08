@@ -130,8 +130,10 @@
       </label>
       <button class="act" id="nativeBtn" style="margin-top:.35rem">Match video resolution</button>
       <p class="note">Higher detail = sharper but slower. Match jumps to the source's native resolution (best on GPU).</p>
-      <div class="btns"><button class="act" id="resetBtn">Reset baseline</button></div>
-      <p class="note">Reset baseline re-captures the still background used by Isolate and Clean plate.</p>
+      <div id="resetGroup">
+        <div class="btns"><button class="act" id="resetBtn">Reset baseline</button></div>
+        <p class="note">Reset baseline re-captures the still background used by Isolate and Warp's Clean plate.</p>
+      </div>
     </details>
 
     <details class="group" id="methodGroup" open>
@@ -221,7 +223,7 @@
         <span class="row"><span>Temporal denoise</span><span class="val" id="tnrVal">40%</span></span>
         <input type="range" id="tnr" min="0" max="100" step="5" value="40">
       </label>
-      <p class="note"><b>Temporal denoise</b> — cleans the feed <i>over time</i>: averages each pixel where it's still, passes through where it moves, so the background de-noises without smearing motion.</p>
+      <p class="note" id="tnrNote"><b>Temporal denoise</b> — cleans the feed <i>over time</i>: averages each pixel where it's still, passes through where it moves, so the background de-noises without smearing motion. (Not used by Warp or Riesz.)</p>
       <label class="field">
         <span class="row"><span>Smoothing</span><span class="val" id="denoiseVal">1 px</span></span>
         <input type="range" id="denoise" min="0" max="4" step="1" value="1">
@@ -381,7 +383,10 @@
     show(freqTrackEl.closest('label.field'), p!=='isolate');
     show($('colorField'), p==='linear');
     show(fld('scale'), p==='linear'||p==='isolate');
-    show($('warpFieldGroup'), p==='warp'); }
+    show($('warpFieldGroup'), p==='warp');
+    show($('resetGroup'), p==='warp'||p==='isolate');
+    const tnrOn=(p==='linear'||p==='phase'||p==='isolate');
+    show(fld('tnr'), tnrOn); show($('tnrNote'), tnrOn); }
   function updateInertControls(){
     const gpuOn=(backend==='webgpu'), p=curProfile;
     const fld=(id)=>{ const e=$(id); return e?e.closest('label.field'):null; };
