@@ -159,6 +159,10 @@
         <button id="edgeOff" aria-pressed="true">Smooth flow</button>
         <button id="edgeOn" aria-pressed="false">Edge-aware</button>
       </div>
+      <label class="field">
+        <span class="row"><span>Flow smooth</span><span class="val" id="flowSmoothVal">0 px</span></span>
+        <input type="range" id="flowSmoothEl" min="0" max="8" step="1" value="0">
+      </label>
       <p class="note">Warp view only. <b>Field denoise</b> smooths the motion field over time to cut wide-band noise. <b>Clean plate</b> warps a denoised still of the scene instead of the live frame. Toggle either off if it softens too much.</p>
     </div>
 
@@ -257,7 +261,7 @@
   let lumaS = null, lumaF = null;               // warp overlay: luma temporal bandpass
   let sxx=null, syy=null, sxy=null, sxt=null, syt=null; // warp: Lucas-Kanade structure tensor
   let fdX=null, fdY=null, plateBuf=null;                // warp: field EMA + clean plate
-  let fieldDenoise=false, cleanPlate=false, suppress=false, deepFlow=false, edgeAware=false;
+  let fieldDenoise=false, cleanPlate=false, suppress=false, deepFlow=false, edgeAware=false, flowSmoothR=0;
   let Yprev=null, pyr=null;                             // pyramidal-flow: prev luma + pyramid buffers
   let stabilize=false, stabReady=false, sw=0, sh=0;
   let curS=null, prevS=null, shiftBuf=null, smallCnt=null;
@@ -386,6 +390,8 @@
   const edgeOff=$('edgeOff'), edgeOn=$('edgeOn');
   edgeOff.onclick=()=>setEdge(false); edgeOn.onclick=()=>setEdge(true);
   function setEdge(on){ edgeAware=on; edgeOn.setAttribute('aria-pressed',on); edgeOff.setAttribute('aria-pressed',!on); }
+  const flowSmoothEl=$('flowSmoothEl'), flowSmoothVal=$('flowSmoothVal');
+  flowSmoothEl.oninput=()=>{ flowSmoothR=+flowSmoothEl.value; flowSmoothVal.textContent=flowSmoothR+' px'; };
 
   $('resetBtn').onclick = () => { initialized = false; phaseReady = false; warpReady = false; if(gpu){ gpu.seeded=false; gpu.isoSeeded=false; gpu.wseeded=false; } };
   const cmpBtn=$('cmpBtn');
@@ -749,7 +755,7 @@ struct FOI { @location(0) disp:vec4f, @location(1) bgN:vec4f, @location(2) tnrN:
 }`;
 
   const _VS = `@vertex fn vs(@builtin(vertex_index) i:u32)->@builtin(position) vec4f { var p=array<vec2f,3>(vec2f(-1.,-1.),vec2f(3.,-1.),vec2f(-1.,3.)); return vec4f(p[i],0.,1.); }`;
-  const _UW = `struct UW { gain:f32,aSlow:f32,aFast:f32,wr:f32,overlay:f32,seed:f32,w:f32,h:f32,sx:f32,sy:f32,fdOn:f32,cpOn:f32,edge:f32 };`;
+  const _UW = `struct UW { gain:f32,aSlow:f32,aFast:f32,wr:f32,overlay:f32,seed:f32,w:f32,h:f32,sx:f32,sy:f32,fdOn:f32,cpOn:f32,edge:f32,fsr:f32 };`;
   // Pass A: luma + temporal band-pass -> new slow/fast state + (Y,It)
   const WGSL_WA = _UW + `
 @group(0) @binding(0) var<uniform> u:UW;
@@ -823,29 +829,61 @@ struct FBL { @location(0) a:vec4f, @location(1) b:vec4f };
   if(u.seed>0.5){ p=x; }
   return vec4f(p + 0.12*(x-p), 1.0);
 }`;
-  // Pass F: 2x2 solve -> field-denoise -> warp field -> remap (live or clean plate) + overlay
-  const WGSL_WR = _UW + `
+  // Pass Fsolve: 2x2 solve -> field-denoise -> dense flow field (+ fld ping-pong)
+  const WGSL_WSOLVE = _UW + `
 @group(0) @binding(0) var<uniform> u:UW;
-@group(0) @binding(1) var samp:sampler;
-@group(0) @binding(2) var inp:texture_external;
-@group(0) @binding(3) var pa:texture_2d<f32>;
-@group(0) @binding(4) var pb:texture_2d<f32>;
-@group(0) @binding(5) var yit:texture_2d<f32>;
-@group(0) @binding(6) var fldP:texture_2d<f32>;
-@group(0) @binding(7) var plate:texture_2d<f32>;
+@group(0) @binding(1) var pa:texture_2d<f32>;
+@group(0) @binding(2) var pb:texture_2d<f32>;
+@group(0) @binding(3) var fldP:texture_2d<f32>;
 ` + _VS + `
-struct FR { @location(0) disp:vec4f, @location(1) fldN:vec4f };
-@fragment fn fs(@builtin(position) fc:vec4f)->FR {
+struct FSO { @location(0) flowN:vec4f, @location(1) fldN:vec4f };
+@fragment fn fs(@builtin(position) fc:vec4f)->FSO {
   let c=vec2i(i32(fc.x),i32(fc.y));
   let A=textureLoad(pa,c,0); let B=textureLoad(pb,c,0);
   let det=A.x*A.y - A.z*A.z + 30.0;
-  var dx=(-A.y*A.w + A.z*B.x)/det; var dy=(A.z*A.w - A.x*B.x)/det;
-  dx=clamp(dx,-3.,3.); dy=clamp(dy,-3.,3.);
+  var dx=clamp((-A.y*A.w + A.z*B.x)/det,-3.,3.);
+  var dy=clamp((A.z*A.w - A.x*B.x)/det,-3.,3.);
   var fd=textureLoad(fldP,c,0).xy;
   if(u.seed>0.5){ fd=vec2f(dx,dy); }
   fd = fd + 0.4*(vec2f(dx,dy)-fd);
   var du=vec2f(dx,dy);
   if(u.fdOn>0.5){ du=fd; }
+  var o:FSO; o.flowN=vec4f(du,0.,1.); o.fldN=vec4f(fd,0.,1.); return o;
+}`;
+  // Pass Fsmooth: edge-aware (luma-guided) separable smoothing of the flow field
+  const _flowSmooth = (axis) => _UW + `
+@group(0) @binding(0) var<uniform> u:UW;
+@group(0) @binding(1) var flowIn:texture_2d<f32>;
+@group(0) @binding(2) var yit:texture_2d<f32>;
+` + _VS + `
+@fragment fn fs(@builtin(position) fc:vec4f)->@location(0) vec4f {
+  let x=i32(fc.x); let y=i32(fc.y); let w=i32(u.w); let h=i32(u.h); let r=i32(u.fsr);
+  let Yc=textureLoad(yit, vec2i(x,y), 0).r;
+  var s=vec2f(0.); var n=0.0;
+  for(var k=-r;k<=r;k=k+1){
+    ${axis==='x'
+      ? 'var xx=x+k; if(xx<0){xx=0;} else if(xx>=w){xx=w-1;} let cc=vec2i(xx,y);'
+      : 'var yy=y+k; if(yy<0){yy=0;} else if(yy>=h){yy=h-1;} let cc=vec2i(x,yy);'}
+    var wt=1.0;
+    if(u.edge>0.0){ let dY=Yc-textureLoad(yit,cc,0).r; wt=exp(-(dY*dY)/(2.0*u.edge*u.edge)); }
+    s=s+textureLoad(flowIn,cc,0).xy*wt; n=n+wt;
+  }
+  return vec4f(s/n, 0., 1.);
+}`;
+  const WGSL_WFSH = _flowSmooth('x');
+  const WGSL_WFSV = _flowSmooth('y');
+  // Pass Fremap: apply the (smoothed) flow -> remap (live or clean plate) + overlay -> canvas
+  const WGSL_WR = _UW + `
+@group(0) @binding(0) var<uniform> u:UW;
+@group(0) @binding(1) var samp:sampler;
+@group(0) @binding(2) var inp:texture_external;
+@group(0) @binding(3) var flowT:texture_2d<f32>;
+@group(0) @binding(4) var yit:texture_2d<f32>;
+@group(0) @binding(5) var plate:texture_2d<f32>;
+` + _VS + `
+@fragment fn fs(@builtin(position) fc:vec4f)->@location(0) vec4f {
+  let c=vec2i(i32(fc.x),i32(fc.y));
+  let du=textureLoad(flowT,c,0).xy;
   let lim=u.w*0.1;
   let Wx=clamp((u.gain-1.0)*du.x,-lim,lim); let Wy=clamp((u.gain-1.0)*du.y,-lim,lim);
   var col:vec3f;
@@ -857,10 +895,7 @@ struct FR { @location(0) disp:vec4f, @location(1) fldN:vec4f };
     col=textureSampleBaseClampToEdge(inp,samp,suv).rgb*255.0;
   }
   col = col + u.overlay*u.gain*textureLoad(yit,c,0).g;
-  var o:FR;
-  o.disp=vec4f(clamp(col,vec3f(0.),vec3f(255.))/255.0, 1.0);
-  o.fldN=vec4f(fd, 0., 1.);
-  return o;
+  return vec4f(clamp(col,vec3f(0.),vec3f(255.))/255.0, 1.0);
 }`;
 
   async function initGPU(){
@@ -904,10 +939,13 @@ struct FR { @location(0) disp:vec4f, @location(1) fldN:vec4f };
         pBH: mkPipe(mkMod(WGSL_WBH), [rf,rf]),
         pBV: mkPipe(mkMod(WGSL_WBV), [rf,rf]),
         pP:  mkPipe(mkMod(WGSL_WP),  [rf]),
-        pR:  mkPipe(mkMod(WGSL_WR),  [{format}, rf]),
+        pSolve: mkPipe(mkMod(WGSL_WSOLVE), [rf,rf]),
+        pFSH: mkPipe(mkMod(WGSL_WFSH), [rf]),
+        pFSV: mkPipe(mkMod(WGSL_WFSV), [rf]),
+        pR:  mkPipe(mkMod(WGSL_WR),  [{format}]),
       };
       device.popErrorScope().then(err=>{ if(err) gpuDebug('warp pipeline: '+err.message); }).catch(()=>{});
-      gpu = { device, ctx, format, pipeline, pipelineI, uniformBuf, uniformBufI, warp, sampler:device.createSampler({magFilter:'linear',minFilter:'linear'}), slow:[null,null], fast:[null,null], tnr:[null,null], bg:[null,null], itnr:[null,null], wlumaS:[null,null], wlumaF:[null,null], wyit:null, wprodA:null, wprodB:null, wprodAh:null, wprodBh:null, wfld:[null,null], wplate:[null,null], ping:0, isoPing:0, wping:0, seeded:false, isoSeeded:false, wseeded:false, w:0, h:0 };
+      gpu = { device, ctx, format, pipeline, pipelineI, uniformBuf, uniformBufI, warp, sampler:device.createSampler({magFilter:'linear',minFilter:'linear'}), slow:[null,null], fast:[null,null], tnr:[null,null], bg:[null,null], itnr:[null,null], wlumaS:[null,null], wlumaF:[null,null], wyit:null, wprodA:null, wprodB:null, wprodAh:null, wprodBh:null, wfld:[null,null], wplate:[null,null], wflow:null, wflowH:null, ping:0, isoPing:0, wping:0, seeded:false, isoSeeded:false, wseeded:false, w:0, h:0 };
       allocGPUTextures();
       return true;
     }catch(e){ gpuFallback('init'); return false; }
@@ -916,7 +954,7 @@ struct FR { @location(0) disp:vec4f, @location(1) fldN:vec4f };
   function allocGPUTextures(){
     if(!gpu || !procW) return;
     try{
-      for(const t of [gpu.slow[0], gpu.slow[1], gpu.fast[0], gpu.fast[1], gpu.tnr[0], gpu.tnr[1], gpu.bg[0], gpu.bg[1], gpu.itnr[0], gpu.itnr[1], gpu.wlumaS[0], gpu.wlumaS[1], gpu.wlumaF[0], gpu.wlumaF[1], gpu.wyit, gpu.wprodA, gpu.wprodB, gpu.wprodAh, gpu.wprodBh, gpu.wfld[0], gpu.wfld[1], gpu.wplate[0], gpu.wplate[1]]) if(t) t.destroy();
+      for(const t of [gpu.slow[0], gpu.slow[1], gpu.fast[0], gpu.fast[1], gpu.tnr[0], gpu.tnr[1], gpu.bg[0], gpu.bg[1], gpu.itnr[0], gpu.itnr[1], gpu.wlumaS[0], gpu.wlumaS[1], gpu.wlumaF[0], gpu.wlumaF[1], gpu.wyit, gpu.wprodA, gpu.wprodB, gpu.wprodAh, gpu.wprodBh, gpu.wfld[0], gpu.wfld[1], gpu.wplate[0], gpu.wplate[1], gpu.wflow, gpu.wflowH]) if(t) t.destroy();
       const dev=gpu.device;
       const RA=GPUTextureUsage.RENDER_ATTACHMENT, TB=GPUTextureUsage.TEXTURE_BINDING;
       const mk=(fmt,usage)=>dev.createTexture({ size:[procW,procH], format:fmt, usage });
@@ -931,6 +969,7 @@ struct FR { @location(0) disp:vec4f, @location(1) fldN:vec4f };
       gpu.wprodAh=mk('rgba16float',RA|TB); gpu.wprodBh=mk('rgba16float',RA|TB);
       gpu.wfld=[ mk('rgba16float',RA|TB), mk('rgba16float',RA|TB) ];
       gpu.wplate=[ mk('rgba16float',RA|TB), mk('rgba16float',RA|TB) ];
+      gpu.wflow=mk('rgba16float',RA|TB); gpu.wflowH=mk('rgba16float',RA|TB);
       gpu.ping=0; gpu.isoPing=0; gpu.wping=0; gpu.seeded=false; gpu.isoSeeded=false; gpu.wseeded=false; gpu.w=procW; gpu.h=procH;
       viewGPU.width=procW; viewGPU.height=procH;
     }catch(e){ gpuFallback('alloc'); }
@@ -1012,7 +1051,7 @@ struct FR { @location(0) disp:vec4f, @location(1) fldN:vec4f };
     const f=Math.max(5,Math.min(120,fps));
     const aSlow=1-Math.exp(-2*Math.PI*loHz/f), aFast=1-Math.exp(-2*Math.PI*hiHz/f);
     const wr=2+(denoiseR>0?denoiseR:1);
-    const ub=new Float32Array([ gain, aSlow, aFast, wr, overlayAmt, gpu.wseeded?0:1, procW, procH, accX, accY, fieldDenoise?1:0, cleanPlate?1:0, (edgeAware?18.0:0.0) ]);
+    const ub=new Float32Array([ gain, aSlow, aFast, wr, overlayAmt, gpu.wseeded?0:1, procW, procH, accX, accY, fieldDenoise?1:0, cleanPlate?1:0, (edgeAware?18.0:0.0), flowSmoothR ]);
     dev.queue.writeBuffer(W.uwBuf, 0, ub);
     const ext=dev.importExternalTexture({ source:video });
     const cur=gpu.wping, nxt=1-cur;
@@ -1046,14 +1085,27 @@ struct FR { @location(0) disp:vec4f, @location(1) fldN:vec4f };
       {binding:3,resource:V(gpu.wplate[cur])} ]});
     pass=enc.beginRenderPass({ colorAttachments:[ att(gpu.wplate[nxt]) ]});
     pass.setPipeline(W.pP); pass.setBindGroup(0,bg); pass.draw(3); pass.end();
-    // Pass F: solve + field-denoise + remap + overlay -> canvas
+    // Pass Fsolve: 2x2 solve + field-denoise -> flow field (+ fld ping-pong)
+    bg=dev.createBindGroup({ layout:W.pSolve.getBindGroupLayout(0), entries:[
+      {binding:0,resource:{buffer:W.uwBuf}}, {binding:1,resource:V(gpu.wprodA)}, {binding:2,resource:V(gpu.wprodB)}, {binding:3,resource:V(gpu.wfld[cur])} ]});
+    pass=enc.beginRenderPass({ colorAttachments:[ att(gpu.wflow), att(gpu.wfld[nxt]) ]});
+    pass.setPipeline(W.pSolve); pass.setBindGroup(0,bg); pass.draw(3); pass.end();
+    // Pass Fsmooth H: edge-aware flow smoothing
+    bg=dev.createBindGroup({ layout:W.pFSH.getBindGroupLayout(0), entries:[
+      {binding:0,resource:{buffer:W.uwBuf}}, {binding:1,resource:V(gpu.wflow)}, {binding:2,resource:V(gpu.wyit)} ]});
+    pass=enc.beginRenderPass({ colorAttachments:[ att(gpu.wflowH) ]});
+    pass.setPipeline(W.pFSH); pass.setBindGroup(0,bg); pass.draw(3); pass.end();
+    // Pass Fsmooth V: -> back into wflow
+    bg=dev.createBindGroup({ layout:W.pFSV.getBindGroupLayout(0), entries:[
+      {binding:0,resource:{buffer:W.uwBuf}}, {binding:1,resource:V(gpu.wflowH)}, {binding:2,resource:V(gpu.wyit)} ]});
+    pass=enc.beginRenderPass({ colorAttachments:[ att(gpu.wflow) ]});
+    pass.setPipeline(W.pFSV); pass.setBindGroup(0,bg); pass.draw(3); pass.end();
+    // Pass Fremap: apply flow -> remap + overlay -> canvas
     bg=dev.createBindGroup({ layout:W.pR.getBindGroupLayout(0), entries:[
       {binding:0,resource:{buffer:W.uwBuf}}, {binding:1,resource:gpu.sampler}, {binding:2,resource:ext},
-      {binding:3,resource:V(gpu.wprodA)}, {binding:4,resource:V(gpu.wprodB)}, {binding:5,resource:V(gpu.wyit)},
-      {binding:6,resource:V(gpu.wfld[cur])}, {binding:7,resource:V(gpu.wplate[nxt])} ]});
+      {binding:3,resource:V(gpu.wflow)}, {binding:4,resource:V(gpu.wyit)}, {binding:5,resource:V(gpu.wplate[nxt])} ]});
     pass=enc.beginRenderPass({ colorAttachments:[
-      { view:gpu.ctx.getCurrentTexture().createView(), clearValue:{r:0,g:0,b:0,a:1}, loadOp:'clear', storeOp:'store' },
-      att(gpu.wfld[nxt]) ]});
+      { view:gpu.ctx.getCurrentTexture().createView(), clearValue:{r:0,g:0,b:0,a:1}, loadOp:'clear', storeOp:'store' } ]});
     pass.setPipeline(W.pR); pass.setBindGroup(0,bg); pass.draw(3); pass.end();
     dev.queue.submit([enc.finish()]);
     gpu.wping=nxt; gpu.wseeded=true;
