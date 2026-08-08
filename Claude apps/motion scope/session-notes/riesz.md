@@ -30,3 +30,14 @@ Root causes + fixes:
 3. No cap on magnified phase -> cos/sin runaway. Fix: clamp pm to PI (direction preserved).
 Revalidated: clean mag still ~11x; 600-frame heavy-noise run bounded (max~226, no NaN).
 Should now be stable at fixed amplification and at higher resolution.
+
+## Session 3 — deeper audit (2 more real bugs)
+1. 1x wasn't off: alpha was =gain (so 1x doubled in-band motion). Fixed: alpha=max(0,gain-1),
+   matching Linear/Warp convention. gain=1 now == passthrough (validated mean|out-in|=0).
+2. Building wobble / long "memory" / hi-res explosion: resonant RBJ biquad (Q=center/width)
+   rings and pumps at narrow widths; phase-wrapping at fine levels feeds it. Replaced with the
+   app's non-resonant slow/fast EMA band-pass (driven by aSlow/aFast from center/width). No
+   resonance => no ring/pump, gentle ~1s memory not infinite tail. Kept leak(0.999)+ampFloor+clamp.
+   Revalidated: gain=1 passthrough exact; stable magnification (~4.5x@a14, dial higher for more);
+   800-frame heavy-noise run bounded. Clamp is now a rare safety net, not load-bearing.
+Note: effect is gentler per-unit than the (unstable) biquad — push gain higher for strong mag.

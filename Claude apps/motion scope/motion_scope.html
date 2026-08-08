@@ -1273,13 +1273,12 @@ struct UC { w:f32, h:f32, orient:f32, sx:f32, sy:f32 };
   function rzBiquad(f0,bw,fs){ const w0=2*Math.PI*Math.max(0.01,f0)/fs,Q=Math.max(0.1,f0/bw),al=Math.sin(w0)/(2*Q),a0=1+al;return{B:[al/a0,0,-al/a0],A:[1,(-2*Math.cos(w0))/a0,(1-al)/a0]}; }
   function rzInit(w,h){ let L=1,mw=w,mh=h;while(Math.min(mw,mh)>8 && L<5){mw=Math.max(1,mw>>1);mh=Math.max(1,mh>>1);L++;}
     rzState={L,first:true,prev:{lap:[],rx:[],ry:[]},lv:[]};
-    let sw=w,sh=h;for(let k=0;k<L-1;k++){const n=sw*sh;rzState.lv.push({pc:new Float32Array(n),ps:new Float32Array(n),r0c:new Float32Array(n),r1c:new Float32Array(n),r0s:new Float32Array(n),r1s:new Float32Array(n)});sw=Math.max(1,sw>>1);sh=Math.max(1,sh>>1);}
+    let sw=w,sh=h;for(let k=0;k<L-1;k++){const n=sw*sh;rzState.lv.push({pc:new Float32Array(n),ps:new Float32Array(n),slowC:new Float32Array(n),fastC:new Float32Array(n),slowS:new Float32Array(n),fastS:new Float32Array(n)});sw=Math.max(1,sw>>1);sh=Math.max(1,sh>>1);}
     rzW=w;rzH=h; if(!rzY||rzY.length!==w*h)rzY=new Float32Array(w*h); }
-  function rieszFrame(d,n){ const w=procW,h=procH;
+  function rieszFrame(d,n,aSlow,aFast){ const w=procW,h=procH;
     if(!rzState||rzW!==w||rzH!==h) rzInit(w,h);
     for(let p=0;p<n;p++){const i4=p<<2;rzY[p]=0.299*d[i4]+0.587*d[i4+1]+0.114*d[i4+2];}
-    const fps2=Math.max(5,Math.min(120,fps));
-    const bp=rzBiquad(centerHz,Math.max(0.3,widthHz),fps2), B=bp.B, A=bp.A, alpha=gain, rho=Math.max(1,denoiseR||2);
+    const alpha=Math.max(0,gain-1), rho=Math.max(1,denoiseR||2);
     const lap=rzBuildLap(rzY,w,h,rzState.L), nb=rzState.L-1, rx=[],ry=[];
     for(let k=0;k<nb;k++){const r=rzRieszXY(lap[k].img,lap[k].w,lap[k].h);rx.push(r.rx);ry.push(r.ry);}
     const P=rzState.prev;
@@ -1292,9 +1291,9 @@ struct UC { w:f32, h:f32, orient:f32, sx:f32, sy:f32 };
         const qr=cr[i]*pr[i]+cx[i]*px[i]+cy[i]*py[i], qx=-cr[i]*px[i]+pr[i]*cx[i], qy=-cr[i]*py[i]+pr[i]*cy[i];
         const qa=Math.sqrt(qr*qr+qx*qx+qy*qy)+1e-9; let pd=Math.acos(Math.max(-1,Math.min(1,qr/qa)));
         const io=Math.sqrt(qx*qx+qy*qy)+1e-9, co=qx/io, so=qy/io;
-        S.pc[i]=S.pc[i]*0.995+pd*co; S.ps[i]=S.ps[i]*0.995+pd*so; const av=Math.sqrt(qa); amp[i]=av; ampSum+=av;
-        let tf=B[0]*S.pc[i]+S.r0c[i]; S.r0c[i]=B[1]*S.pc[i]+S.r1c[i]-A[1]*tf; S.r1c[i]=B[2]*S.pc[i]-A[2]*tf; fc[i]=tf;
-        let tg=B[0]*S.ps[i]+S.r0s[i]; S.r0s[i]=B[1]*S.ps[i]+S.r1s[i]-A[1]*tg; S.r1s[i]=B[2]*S.ps[i]-A[2]*tg; fs[i]=tg;
+        S.pc[i]=S.pc[i]*0.999+pd*co; S.ps[i]=S.ps[i]*0.999+pd*so; const av=Math.sqrt(qa); amp[i]=av; ampSum+=av;
+        const sc=S.slowC[i]+aSlow*(S.pc[i]-S.slowC[i]); S.slowC[i]=sc; const fcv=S.fastC[i]+aFast*(S.pc[i]-S.fastC[i]); S.fastC[i]=fcv; fc[i]=fcv-sc;
+        const ss=S.slowS[i]+aSlow*(S.ps[i]-S.slowS[i]); S.slowS[i]=ss; const fsv=S.fastS[i]+aFast*(S.ps[i]-S.fastS[i]); S.fastS[i]=fsv; fs[i]=fsv-ss;
       }
       const ncb=new Float32Array(ln),nsb=new Float32Array(ln);
       for(let i=0;i<ln;i++){ncb[i]=fc[i]*amp[i];nsb[i]=fs[i]*amp[i];}
@@ -1327,7 +1326,7 @@ struct UC { w:f32, h:f32, orient:f32, sx:f32, sy:f32 };
 
     if (mode === 'isolate') isolateFrame(d, n);
     else if (mode === 'warp') warpFrame(d, n, aSlow, aFast);
-    else if (method === 'riesz') rieszFrame(d, n);
+    else if (method === 'riesz') rieszFrame(d, n, aSlow, aFast);
     else if (method === 'phase') phaseFrame(d, n, aSlow, aFast);
     else linearFrame(d, n, aSlow, aFast);
 
