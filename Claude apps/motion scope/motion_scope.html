@@ -119,6 +119,18 @@
         <button class="act stop" id="stopBtn" disabled>Stop</button>
       </div>
       <button class="act" id="screenBtn">Share screen</button>
+      <input type="file" id="fileInput" accept="video/*" style="display:none">
+      <button class="act" id="openFileBtn">Open video file…</button>
+      <div id="fileCtrls" style="display:none;margin-top:.4rem">
+        <label class="field"><span class="row"><span>Timeline</span><span class="val" id="timeVal">0:00 / 0:00</span></span>
+          <input type="range" id="seekEl" min="0" max="1000" step="1" value="0"></label>
+        <div class="btns"><button class="act" id="playPauseBtn">Pause</button><button class="act" id="restartBtn">Restart</button></div>
+        <label class="field"><span class="row"><span>Playback speed</span><span class="val" id="speedVal">1×</span></span>
+          <input type="range" id="speedEl" min="0" max="4" step="1" value="3"></label>
+        <p class="note">Slower speed lets the app process <b>every</b> frame of a high-frame-rate clip (needed to catch fast vibration). For a 120 fps clip on a 60 Hz screen use 0.5× or lower — watch the "resolves ≤ … Hz" readout climb as you slow it.</p>
+      </div>
+      <button class="act" id="recordBtn" aria-pressed="false" style="margin-top:.4rem">Record output</button>
+      <p class="note">Records the processed view to a .webm you can download (works on live camera or a loaded file).</p>
       <p class="note">Start opens your browser's camera picker. Share screen captures a window or display instead.</p>
       <div class="seg" role="group" aria-label="Stabilization" style="margin-top:.5rem">
         <button id="stabOff" aria-pressed="true">Stabilize off</button>
@@ -171,6 +183,11 @@
         <input type="range" id="gain" min="1" max="80" step="1" value="18">
       </label>
       <p class="note">How strongly to exaggerate the motion. 1× is off.</p>
+      <label class="field" id="isoRateField">
+        <span class="row"><span>Fade rate</span><span class="val" id="isoRateVal">medium</span></span>
+        <input type="range" id="isoRate" min="0" max="100" step="5" value="46">
+      </label>
+      <p class="note" id="isoRateNote"><b>Fade rate</b> (Isolate) — how fast a now-still object melts into the background. Low = motion lingers longer; high = it fades quickly.</p>
       <label class="field">
         <span class="row"><span>Frequency band</span><span class="val" id="freqBandVal">0.50–6.00 Hz</span></span>
         <div id="freqTrack" class="freqtrack">
@@ -179,7 +196,7 @@
           <div id="freqHi" class="freqthumb"></div>
         </div>
       </label>
-      <p class="note" id="freqNote">Only motion whose rhythm falls between the two handles is amplified. Drag the band to move it, or a handle to widen/narrow. Slow sway ≈ low Hz, fast flutter ≈ high Hz. Shared across all modes.</p>
+      <p class="note" id="freqNote">Only motion whose rhythm falls between the two handles is amplified. Drag the band to move it, or a handle to widen/narrow. Slow sway ≈ low Hz, fast flutter ≈ high Hz. Drag the low handle all the way down (~0 Hz) to catch slow drift / any change vs the start. Shared across all modes.</p>
     </details>
 
     <details class="group" id="warpFieldGroup">
@@ -194,6 +211,16 @@
         <button id="fdOn" aria-pressed="false">Field denoise</button>
       </div>
       <p class="note"><b>Field denoise</b> smooths the motion field over time to cut wide-band noise.</p>
+      <div class="seg" role="group" aria-label="Confidence gate">
+        <button id="confOff" aria-pressed="false">Flow raw</button>
+        <button id="confOn" aria-pressed="true">Confidence gate</button>
+      </div>
+      <p class="note"><b>Confidence gate</b> — suppresses flow where there's no real texture to track, so noise stops making the warp jitter (phase-inspired). Off = raw flow everywhere.</p>
+      <div class="seg" role="group" aria-label="Flow estimator">
+        <button id="pflowOff" aria-pressed="true">Brightness flow</button>
+        <button id="pflowOn" aria-pressed="false">Phase flow (beta)</button>
+      </div>
+      <p class="note"><b>Phase flow (beta)</b> — estimates motion from contrast-normalized (phase-like) gradients, so low-contrast motion tracks as well as bright edges. Experimental; brightness flow is the stable default.</p>
       <div class="seg" role="group" aria-label="Clean plate">
         <button id="cpOff" aria-pressed="true">Live plate</button>
         <button id="cpOn" aria-pressed="false">Clean plate</button>
@@ -280,6 +307,8 @@
   // state
   let stream = null, running = false, raf = 0;
   let capFps = 0, _vfcN = 0, _vfcT0 = 0;
+  let fileURL=null, procFps=0, _mt0=-1, _mn0=0, newFrame=false, sampleFps=30, mediaRec=null, recChunks=[]; const playSpeeds=[0.1,0.25,0.5,1,2];
+  let isoFade=0.03, confGate=true, phaseFlow=false;
   let procW = 0, procH = 0, initialized = false;
   let method = 'linear', mode = 'amp', compareMode = 'off', holdOrig = false, curProfile = 'linear';
   let backend = 'cpu';                       // active compute path (flips as GPU paths are ported)
@@ -323,7 +352,7 @@
   const supOff=$('supOff'), supOn=$('supOn');
   supOff.onclick=()=>setSup(false); supOn.onclick=()=>setSup(true);
   function setSup(on){ suppress=on; deepFlow=on; warpReady=false; supOn.setAttribute('aria-pressed',on); supOff.setAttribute('aria-pressed',!on); updateGainLabel(); }
-  const FMIN=0.1, FMAX=25;
+  const FMIN=0.02, FMAX=25;
   const f2t=(v)=>Math.log(Math.min(FMAX,Math.max(FMIN,v))/FMIN)/Math.log(FMAX/FMIN);
   const t2f=(t)=>FMIN*Math.pow(FMAX/FMIN, Math.min(1,Math.max(0,t)));
   function applyBand(){ if(loHz<FMIN)loHz=FMIN; if(hiHz>FMAX)hiHz=FMAX; if(hiHz<loHz+0.05)hiHz=loHz+0.05; centerHz=(loHz+hiHz)/2; widthHz=hiHz-loHz; }
@@ -405,6 +434,7 @@
     show($('freqNote'), p!=='isolate');
     show($('warpFieldGroup'), p==='warp');
     show($('resetGroup'), p==='warp'||p==='isolate');
+    show($('isoRateField'), p==='isolate'); show($('isoRateNote'), p==='isolate');
     const tnrOn=(p==='linear'||p==='phase'||p==='isolate');
     show(fld('tnr'), tnrOn); show($('tnrNote'), tnrOn); }
   function updateInertControls(){
@@ -428,6 +458,14 @@
     stabOn.setAttribute('aria-pressed', on); stabOff.setAttribute('aria-pressed', !on); }
   const stabStrEl=$('stabStr'), stabStrVal=$('stabStrVal');
   stabStrEl.oninput = () => { const v=+stabStrEl.value; stabStrength = 0.70 + (v/100)*0.24; stabStrVal.textContent = v; };
+  const isoRateEl=$('isoRate'), isoRateVal=$('isoRateVal');
+  isoRateEl.oninput = () => { const v=+isoRateEl.value; isoFade = 0.005*Math.pow(50, v/100); isoRateVal.textContent = v<33?'slow':v<67?'medium':'fast'; };
+  const confOff=$('confOff'), confOn=$('confOn');
+  function setConfGate(on){ confGate=on; confOn.setAttribute('aria-pressed',on); confOff.setAttribute('aria-pressed',!on); }
+  confOff.onclick=()=>setConfGate(false); confOn.onclick=()=>setConfGate(true);
+  const pflowOff=$('pflowOff'), pflowOn=$('pflowOn');
+  function setPhaseFlow(on){ phaseFlow=on; pflowOn.setAttribute('aria-pressed',on); pflowOff.setAttribute('aria-pressed',!on); }
+  pflowOff.onclick=()=>setPhaseFlow(false); pflowOn.onclick=()=>setPhaseFlow(true);
   const stage=document.querySelector('.stage'), regionLayer=$('regionLayer'), drawRegionBtn=$('drawRegionBtn'), clearRegionBtn=$('clearRegionBtn');
   function stageToNorm(cx,cy){ const cv=(viewGPU.style.display!=='none')?viewGPU:view, r=cv.getBoundingClientRect(); const ar=procW/procH, ba=r.width/r.height; let iw,ih,ox,oy; if(ba>ar){ ih=r.height; iw=ih*ar; ox=(r.width-iw)/2; oy=0; } else { iw=r.width; ih=iw/ar; ox=0; oy=(r.height-ih)/2; } return { nx:Math.max(0,Math.min(1,(cx-r.left-ox)/iw)), ny:Math.max(0,Math.min(1,(cy-r.top-oy)/ih)) }; }
   function normRect(g){ const cv=(viewGPU.style.display!=='none')?viewGPU:view, r=cv.getBoundingClientRect(), sr=stage.getBoundingClientRect(); const ar=procW/procH, ba=r.width/r.height; let iw,ih,ox,oy; if(ba>ar){ ih=r.height; iw=ih*ar; ox=(r.width-iw)/2; oy=0; } else { iw=r.width; ih=iw/ar; ox=0; oy=(r.height-ih)/2; } const L=r.left-sr.left+ox, T=r.top-sr.top+oy; return { left:L+g.x0*iw, top:T+g.y0*ih, width:(g.x1-g.x0)*iw, height:(g.y1-g.y0)*ih }; }
@@ -589,16 +627,41 @@
     }catch(e){}
   }
   function startVfc(){ capFps=0; _vfcN=0; _vfcT0=0; if(!video.requestVideoFrameCallback) return;
-    const tick=(now)=>{ if(!_vfcT0) _vfcT0=now; _vfcN++; const dt=now-_vfcT0; if(dt>=1000){ capFps=Math.round(_vfcN*1000/dt); _vfcN=0; _vfcT0=now; } if(probeBox) probeTick(); if(running && video.requestVideoFrameCallback) video.requestVideoFrameCallback(tick); };
+    const tick=(now,meta)=>{ if(!_vfcT0) _vfcT0=now; _vfcN++; const dt=now-_vfcT0; if(dt>=1000){ capFps=Math.round(_vfcN*1000/dt); _vfcN=0; _vfcT0=now; }
+      if(fileURL && meta){ if(_mt0<0){ _mt0=meta.mediaTime; _mn0=meta.presentedFrames||0; } else { const dm=meta.mediaTime-_mt0, dfp=(meta.presentedFrames||0)-_mn0; if(dm>=0.5){ procFps=Math.round(dfp/dm); if(procFps>0) capFps=procFps; _mt0=meta.mediaTime; _mn0=meta.presentedFrames||0; } } }
+      newFrame=true; if(probeBox) probeTick(); if(running && video.requestVideoFrameCallback) video.requestVideoFrameCallback(tick); };
     video.requestVideoFrameCallback(tick); }
-  async function attachStream(){
-    video.srcObject = stream; await video.play(); startVfc();
+  function onSourceReady(){
+    startVfc();
     if(video.videoHeight){ resEl.max = video.videoHeight; if(resVal) resVal.title='max = '+video.videoHeight+'p (native)'; }
     allocBuffers();
     running=true; empty.hidden=true; overlay.hidden=false;
     $('startBtn').disabled=true; $('stopBtn').disabled=false;
     lastT = performance.now(); loop();
   }
+  async function attachStream(){ try{ video.pause(); }catch(e){} try{ video.removeAttribute('src'); }catch(e){} video.loop=false; video.playbackRate=1; video.srcObject = stream; await video.play(); onSourceReady(); }
+  const fileInput=$('fileInput'), openFileBtn=$('openFileBtn'), fileCtrls=$('fileCtrls'), playPauseBtn=$('playPauseBtn'), restartBtn=$('restartBtn'), speedEl=$('speedEl'), speedVal=$('speedVal'), recordBtn=$('recordBtn');
+  openFileBtn.onclick=()=>fileInput.click();
+  fileInput.onchange=()=>{ const fl=fileInput.files&&fileInput.files[0]; if(fl) openVideoFile(fl); fileInput.value=''; };
+  async function openVideoFile(file){ stop(); if(fileURL) URL.revokeObjectURL(fileURL); fileURL=URL.createObjectURL(file); procFps=0; _mt0=-1; _mn0=0;
+    video.srcObject=null; video.src=fileURL; video.loop=true; video.muted=true; video.playbackRate=playSpeeds[+speedEl.value]; errEl.style.display='none';
+    try{ await video.play(); onSourceReady(); fileCtrls.style.display='block'; playPauseBtn.textContent='Pause'; }catch(e){ showError(e); } }
+  playPauseBtn.onclick=()=>{ if(!fileURL) return; if(video.paused){ video.play(); playPauseBtn.textContent='Pause'; } else { video.pause(); playPauseBtn.textContent='Play'; } };
+  restartBtn.onclick=()=>{ if(fileURL){ video.currentTime=0; video.play(); playPauseBtn.textContent='Pause'; } };
+  speedEl.oninput=()=>{ const sp=playSpeeds[+speedEl.value]; speedVal.textContent=sp+'×'; if(fileURL) video.playbackRate=sp; };
+  const seekEl=$('seekEl'), timeVal=$('timeVal'); let seekDrag=false;
+  const fmtT=(x)=>{ x=x||0; if(!isFinite(x))x=0; return Math.floor(x/60)+':'+String(Math.floor(x%60)).padStart(2,'0'); };
+  seekEl.addEventListener('pointerdown',()=>{ seekDrag=true; });
+  window.addEventListener('pointerup',()=>{ seekDrag=false; });
+  seekEl.addEventListener('input',()=>{ if(fileURL && video.duration){ video.currentTime=(+seekEl.value/1000)*video.duration; timeVal.textContent=fmtT(video.currentTime)+' / '+fmtT(video.duration); } });
+  video.addEventListener('timeupdate',()=>{ if(fileURL && !seekDrag && video.duration){ seekEl.value=Math.round(video.currentTime/video.duration*1000); timeVal.textContent=fmtT(video.currentTime)+' / '+fmtT(video.duration); } });
+  video.addEventListener('loadedmetadata',()=>{ if(fileURL){ seekEl.value=0; timeVal.textContent='0:00 / '+fmtT(video.duration); } });
+  recordBtn.onclick=()=>{ if(mediaRec){ try{mediaRec.stop();}catch(e){} return; }
+    const cv=(viewGPU.style.display!=='none')?viewGPU:view; let st; try{ st=cv.captureStream(60); }catch(e){ showError(e); return; }
+    recChunks=[]; try{ mediaRec=new MediaRecorder(st,{mimeType:'video/webm'}); }catch(e){ try{ mediaRec=new MediaRecorder(st); }catch(e2){ showError(e2); return; } }
+    mediaRec.ondataavailable=(e)=>{ if(e.data&&e.data.size) recChunks.push(e.data); };
+    mediaRec.onstop=()=>{ const blob=new Blob(recChunks,{type:'video/webm'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='motion-scope.webm'; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href),2000); mediaRec=null; recordBtn.textContent='Record output'; recordBtn.setAttribute('aria-pressed',false); };
+    mediaRec.start(); recordBtn.textContent='● Stop recording'; recordBtn.setAttribute('aria-pressed',true); }
   async function start(){
     stop(); errEl.style.display='none';
     const id = deviceSel.value;
@@ -616,8 +679,12 @@
   }
   function stop(){
     running=false; cancelAnimationFrame(raf);
+    if(mediaRec){ try{mediaRec.stop();}catch(e){} }
     if (stream){ stream.getTracks().forEach(t=>t.stop()); stream=null; }
-    video.srcObject=null; overlay.hidden=true; empty.hidden=false;
+    try{ video.pause(); }catch(e){} video.srcObject=null; if(video.getAttribute('src')){ video.removeAttribute('src'); }
+    if(fileURL){ URL.revokeObjectURL(fileURL); fileURL=null; }
+    const fc=$('fileCtrls'); if(fc) fc.style.display='none';
+    overlay.hidden=true; empty.hidden=false;
     $('startBtn').disabled=false; $('stopBtn').disabled=true;
   }
   function showError(e){
@@ -890,7 +957,7 @@ struct FOI { @location(0) disp:vec4f, @location(1) bgN:vec4f, @location(2) tnrN:
 }`;
 
   const _VS = `@vertex fn vs(@builtin(vertex_index) i:u32)->@builtin(position) vec4f { var p=array<vec2f,3>(vec2f(-1.,-1.),vec2f(3.,-1.),vec2f(-1.,3.)); return vec4f(p[i],0.,1.); }`;
-  const _UW = `struct UW { gain:f32,aSlow:f32,aFast:f32,wr:f32,overlay:f32,seed:f32,w:f32,h:f32,sx:f32,sy:f32,fdOn:f32,cpOn:f32,edge:f32,fsr:f32,cmp:f32,meshAmt:f32,meshCell:f32 };`;
+  const _UW = `struct UW { gain:f32,aSlow:f32,aFast:f32,wr:f32,overlay:f32,seed:f32,w:f32,h:f32,sx:f32,sy:f32,fdOn:f32,cpOn:f32,edge:f32,fsr:f32,cmp:f32,meshAmt:f32,meshCell:f32,confK:f32,pflow:f32 };`;
   // Pass A: luma + temporal band-pass -> new slow/fast state + (Y,It)
   const WGSL_WA = _UW + `
 @group(0) @binding(0) var<uniform> u:UW;
@@ -923,7 +990,11 @@ struct FB { @location(0) pa:vec4f, @location(1) pb:vec4f };
   let Yu=textureLoad(yit,vec2i(x,yu),0).r; let Yd=textureLoad(yit,vec2i(x,yd),0).r;
   let Ix=0.5*(Yr-Yl); let Iy=0.5*(Yd-Yu);
   let It=textureLoad(yit,vec2i(x,y),0).g;
-  var o:FB; o.pa=vec4f(Ix*Ix, Iy*Iy, Ix*Iy, Ix*It); o.pb=vec4f(Iy*It,0.,0.,0.); return o;
+  let Yc=textureLoad(yit,vec2i(x,y),0).r;
+  let G=Ix*Ix+Iy*Iy;
+  var gx=Ix; var gy=Iy; var gt=It;
+  if(u.pflow>0.5){ let A=sqrt(Yc*Yc+G+1.0); let sc=32.0/A; gx=Ix*sc; gy=Iy*sc; gt=It*sc; }
+  var o:FB; o.pa=vec4f(gx*gx, gy*gy, gx*gy, gx*gt); o.pb=vec4f(gy*gt, G, 0., 0.); return o;
 }`;
   // Pass C: separable box blur of the products (H then V)
   const _blur = (axis) => _UW + `
@@ -983,6 +1054,7 @@ struct FSO { @location(0) flowN:vec4f, @location(1) fldN:vec4f };
   fd = fd + 0.4*(vec2f(dx,dy)-fd);
   var du=vec2f(dx,dy);
   if(u.fdOn>0.5){ du=fd; }
+  let strc=B.y; du=du*(strc/(strc+u.confK+1e-3));
   var o:FSO; o.flowN=vec4f(du,0.,1.); o.fldN=vec4f(fd,0.,1.); return o;
 }`;
   // Pass Fsmooth: edge-aware (luma-guided) separable smoothing of the flow field
@@ -1117,8 +1189,9 @@ struct UC { w:f32, h:f32, orient:f32, sx:f32, sy:f32 };
   let up=textureSampleLevel(reconHi, samp, vec2f(fc.x/u.dw, fc.y/u.dh), 0.0).r;
   return vec4f(l+up, 0., 0., 1.);
 }`;
-  const WGSL_RZOUT = RZU + `
-@group(0) @binding(0) var<uniform> u:RZU;
+  const WGSL_RZOUT = `
+struct RZO { dw:f32, dh:f32, motion:f32, pad:f32 };
+@group(0) @binding(0) var<uniform> u:RZO;
 @group(0) @binding(1) var samp:sampler;
 @group(0) @binding(2) var ext:texture_external;
 @group(0) @binding(3) var recon0:texture_2d<f32>;
@@ -1128,7 +1201,9 @@ struct UC { w:f32, h:f32, orient:f32, sx:f32, sy:f32 };
   let col=textureSampleBaseClampToEdge(ext,samp,uv).rgb*255.0;
   let y=0.299*col.r+0.587*col.g+0.114*col.b;
   let r0=textureLoad(recon0, vec2i(i32(fc.x),i32(fc.y)), 0).r;
-  return vec4f(clamp(col+vec3f(r0-y), vec3f(0.), vec3f(255.))/255.0, 1.0);
+  let d=r0-y;
+  if(u.motion>0.5){ return vec4f(clamp(vec3f(128.0)+vec3f(d)*2.0, vec3f(0.), vec3f(255.))/255.0, 1.0); }
+  return vec4f(clamp(col+vec3f(d), vec3f(0.), vec3f(255.))/255.0, 1.0);
 }`;
 
   const RZP = `struct RZP { seed:f32, aSlow:f32, aFast:f32, alpha:f32, floorv:f32, leak:f32 };`;
@@ -1255,7 +1330,8 @@ struct MRT { @location(0) phase:vec4f, @location(1) ema:vec4f, @location(2) scr:
       const rzPipes = { L:mkPipe(mkMod(WGSL_RZL),rz16), R:mkPipe(mkMod(WGSL_RZRED),rz16), Lap:mkPipe(mkMod(WGSL_RZLAP),rz16), Col:mkPipe(mkMod(WGSL_RZCOL),rz16), Out:mkPipe(mkMod(WGSL_RZOUT),[{format}]),
         Tri:mkPipe(mkMod(WGSL_RZTRI),rf16), Phase:mkPipe(mkMod(WGSL_RZPHASE),[{format:'rgba16float'},{format:'rgba16float'},{format:'rgba16float'}]), BH:mkPipe(mkMod(WGSL_RZBH),rf16), BV:mkPipe(mkMod(WGSL_RZBV),rf16), Shift:mkPipe(mkMod(WGSL_RZSHIFT),rz16) };
       const rzPhaseUni = device.createBuffer({ size:32, usage:GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST });
-      gpu = { device, ctx, format, pipeline, pipelineI, uniformBuf, uniformBufI, warp, cmpPipe, cmpBuf, rzPipes, rzPhaseUni, rzG:[], rzLap:[], rzRecon:[], rzUni:[], rzL:0, rzTri:[], rzPhase:[], rzEma:[], rzScr:[], rzScrH:[], rzPing:0, rzSeeded:false, sampler:device.createSampler({magFilter:'linear',minFilter:'linear'}), slow:[null,null], fast:[null,null], tnr:[null,null], bg:[null,null], itnr:[null,null], wlumaS:[null,null], wlumaF:[null,null], wyit:null, wprodA:null, wprodB:null, wprodAh:null, wprodBh:null, wfld:[null,null], wplate:[null,null], wflow:null, wflowH:null, wout:null, cmpPipe:null, cmpBuf:null, ping:0, isoPing:0, wping:0, seeded:false, isoSeeded:false, wseeded:false, w:0, h:0 };
+      const rzOutBuf = device.createBuffer({ size:16, usage:GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST });
+      gpu = { device, ctx, format, pipeline, pipelineI, uniformBuf, uniformBufI, warp, cmpPipe, cmpBuf, rzPipes, rzPhaseUni, rzOutBuf, rzG:[], rzLap:[], rzRecon:[], rzUni:[], rzL:0, rzTri:[], rzPhase:[], rzEma:[], rzScr:[], rzScrH:[], rzPing:0, rzSeeded:false, sampler:device.createSampler({magFilter:'linear',minFilter:'linear'}), slow:[null,null], fast:[null,null], tnr:[null,null], bg:[null,null], itnr:[null,null], wlumaS:[null,null], wlumaF:[null,null], wyit:null, wprodA:null, wprodB:null, wprodAh:null, wprodBh:null, wfld:[null,null], wplate:[null,null], wflow:null, wflowH:null, wout:null, cmpPipe:null, cmpBuf:null, ping:0, isoPing:0, wping:0, seeded:false, isoSeeded:false, wseeded:false, w:0, h:0 };
       allocGPUTextures();
       return true;
     }catch(e){ gpuFallback('init'); return false; }
@@ -1317,7 +1393,7 @@ struct MRT { @location(0) phase:vec4f, @location(1) ema:vec4f, @location(2) scr:
 
   function gpuFrame(){
     const dev=gpu.device;
-    const f=Math.max(5,Math.min(120,fps));
+    const f=Math.max(5,Math.min(240,sampleFps));
     const aSlow=1-Math.exp(-2*Math.PI*loHz/f), aFast=1-Math.exp(-2*Math.PI*hiHz/f);
     const ub=new Float32Array([ gain, aSlow, aFast, chromaAmt, (mode==='amp')?1:0, gpu.seeded?0:1, procW, procH, accX, accY, tnr, 0 ]);
     dev.queue.writeBuffer(gpu.uniformBuf, 0, ub);
@@ -1345,7 +1421,7 @@ struct MRT { @location(0) phase:vec4f, @location(1) ema:vec4f, @location(2) scr:
 
   function gpuFrameIsolate(){
     const dev=gpu.device;
-    const ub=new Float32Array([ gain, 0.03, gpu.isoSeeded?0:1, procW, procH, accX, accY, tnr, 0 ]);
+    const ub=new Float32Array([ gain, isoFade, gpu.isoSeeded?0:1, procW, procH, accX, accY, tnr, 0 ]);
     dev.queue.writeBuffer(gpu.uniformBufI, 0, ub);
     const ext=dev.importExternalTexture({ source:video });
     const cur=gpu.isoPing, nxt=1-cur;
@@ -1369,10 +1445,10 @@ struct MRT { @location(0) phase:vec4f, @location(1) ema:vec4f, @location(2) scr:
 
   function gpuFrameWarp(){
     const dev=gpu.device, W=gpu.warp;
-    const f=Math.max(5,Math.min(120,fps));
+    const f=Math.max(5,Math.min(240,sampleFps));
     const aSlow=1-Math.exp(-2*Math.PI*loHz/f), aFast=1-Math.exp(-2*Math.PI*hiHz/f);
     const wr=2+(denoiseR>0?denoiseR:1);
-    const ub=new Float32Array([ gain, aSlow, aFast, wr, overlayAmt, gpu.wseeded?0:1, procW, procH, accX, accY, fieldDenoise?1:0, cleanPlate?1:0, (edgeAware ? (3.0+(100.0-edgeSens)*0.6) : 0.0), flowSmoothR, 0, meshAmt, meshCell ]);
+    const ub=new Float32Array([ gain, aSlow, aFast, wr, overlayAmt, gpu.wseeded?0:1, procW, procH, accX, accY, fieldDenoise?1:0, cleanPlate?1:0, (edgeAware ? (3.0+(100.0-edgeSens)*0.6) : 0.0), flowSmoothR, 0, meshAmt, meshCell, (confGate?40.0:0.0), (phaseFlow?1:0) ]);
     dev.queue.writeBuffer(W.uwBuf, 0, ub);
     const ext=dev.importExternalTexture({ source:video });
     const cur=gpu.wping, nxt=1-cur;
@@ -1468,7 +1544,7 @@ struct MRT { @location(0) phase:vec4f, @location(1) ema:vec4f, @location(2) scr:
     for(let k=1;k<L;k++) run(P.R, [{binding:0,resource:{buffer:U[k-1]}},{binding:1,resource:VV(G[k-1])}], G[k]);
     for(let k=0;k<L-1;k++) run(P.Lap, [{binding:0,resource:{buffer:U[k]}},{binding:1,resource:gpu.sampler},{binding:2,resource:VV(G[k])},{binding:3,resource:VV(G[k+1])}], LAP[k]);
     // ---- phase magnification per bandpass level ----
-    const cur=gpu.rzPing, prev=1-cur, ff=Math.max(5,Math.min(120,fps));
+    const cur=gpu.rzPing, prev=1-cur, ff=Math.max(5,Math.min(240,sampleFps));
     const aS=1-Math.exp(-2*Math.PI*loHz/ff), aF=1-Math.exp(-2*Math.PI*hiHz/ff);
     dev.queue.writeBuffer(gpu.rzPhaseUni,0,new Float32Array([gpu.rzSeeded?0:1, aS, aF, Math.max(0,gain-1), 2.0, 0.999, 0,0]));
     const PU={buffer:gpu.rzPhaseUni};
@@ -1482,7 +1558,8 @@ struct MRT { @location(0) phase:vec4f, @location(1) ema:vec4f, @location(2) scr:
       run(P.Shift, [{binding:0,resource:PU},{binding:1,resource:VV(TRI[cur])},{binding:2,resource:VV(gpu.rzScr[k])}], LAP[k]);
     }
     for(let k=L-2;k>=0;k--){ const hi=(k===L-2)?G[L-1]:RC[k+1]; run(P.Col, [{binding:0,resource:{buffer:U[k]}},{binding:1,resource:gpu.sampler},{binding:2,resource:VV(LAP[k])},{binding:3,resource:VV(hi)}], RC[k]); }
-    const bgO=dev.createBindGroup({layout:P.Out.getBindGroupLayout(0),entries:[{binding:0,resource:{buffer:U[0]}},{binding:1,resource:gpu.sampler},{binding:2,resource:ext},{binding:3,resource:VV(RC[0])}]});
+    dev.queue.writeBuffer(gpu.rzOutBuf,0,new Float32Array([procW,procH,mode==='motion'?1:0,0]));
+    const bgO=dev.createBindGroup({layout:P.Out.getBindGroupLayout(0),entries:[{binding:0,resource:{buffer:gpu.rzOutBuf}},{binding:1,resource:gpu.sampler},{binding:2,resource:ext},{binding:3,resource:VV(RC[0])}]});
     const p=enc.beginRenderPass({colorAttachments:[{view:gpu.ctx.getCurrentTexture().createView(),clearValue:{r:0,g:0,b:0,a:1},loadOp:'clear',storeOp:'store'}]}); p.setPipeline(P.Out); p.setBindGroup(0,bgO); p.draw(3); p.end();
     gpu.rzPing=prev; gpu.rzSeeded=true;
     dev.queue.submit([enc.finish()]);
@@ -1511,6 +1588,8 @@ struct MRT { @location(0) phase:vec4f, @location(1) ema:vec4f, @location(2) scr:
     const now = performance.now(); const dt = now-lastT; lastT = now;
     if (dt>0){ const inst=1000/dt; fps += (inst-fps)*0.1; }
     if (video.readyState>=2 && procW){
+      if(fileURL && video.requestVideoFrameCallback){ if(!newFrame){ drawReadout(); raf=requestAnimationFrame(loop); return; } newFrame=false; }
+      sampleFps = (fileURL && procFps>0) ? procFps : fps;
       if(holdOrig){
         if(view.width!==procW||view.height!==procH){ view.width=procW; view.height=procH; }
         dctx.drawImage(video, 0, 0, procW, procH);
@@ -1598,14 +1677,15 @@ struct MRT { @location(0) phase:vec4f, @location(1) ema:vec4f, @location(2) scr:
     out.push({img:lap[nb].img,w:lap[nb].w,h:lap[nb].h});
     for(let k=0;k<nb;k++){P.lap[k].img.set(lap[k].img);P.rx[k].set(rx[k]);P.ry[k].set(ry[k]);}
     const Ymag=rzCollapse(out);
+    const rzMo=(mode==='motion');
     for(let p=0;p<n;p++){const i4=p<<2,dl=Ymag[p]-rzY[p];
-      let r=d[i4]+dl,g=d[i4+1]+dl,b=d[i4+2]+dl;
-      d[i4]=r<0?0:r>255?255:r; d[i4+1]=g<0?0:g>255?255:g; d[i4+2]=b<0?0:b>255?255:b;}
+      if(rzMo){ let v=128+dl*2; v=v<0?0:v>255?255:v; d[i4]=v; d[i4+1]=v; d[i4+2]=v; }
+      else { let r=d[i4]+dl,g=d[i4+1]+dl,b=d[i4+2]+dl; d[i4]=r<0?0:r>255?255:r; d[i4+1]=g<0?0:g>255?255:g; d[i4+2]=b<0?0:b>255?255:b; } }
     energy=eSum/(nb*procW*procH)*4;
   }
 
   function processFrame(){
-    const f = Math.max(5, Math.min(120, fps));
+    const f = Math.max(5, Math.min(240, sampleFps));
     const aSlow = 1 - Math.exp(-2*Math.PI*loHz / f);
     const aFast = 1 - Math.exp(-2*Math.PI*hiHz / f);
     pctx.drawImage(video, 0, 0, procW, procH);
@@ -1758,7 +1838,7 @@ struct MRT { @location(0) phase:vec4f, @location(1) ema:vec4f, @location(2) scr:
 
   // ---- ISOLATE: learn the static scene, show only what differs from it (smoke/motion on black) ----
   function isolateFrame(d, n){
-    const g=gain, aBg=0.03;   // slow background adaptation -> converges to the static scene
+    const g=gain, aBg=isoFade;   // background adaptation rate (Fade rate slider)
     let e=0;
     for (let p=0;p<n;p++){
       const i4=p<<2, i3=p*3;
