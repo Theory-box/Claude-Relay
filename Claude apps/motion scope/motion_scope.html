@@ -293,6 +293,8 @@
       <p class="note" id="fftConf"></p>
       <p class="note" id="fftAlias" style="color:var(--muted)"></p>
       <button class="act" id="useBandBtn">Set band around peak</button>
+      <div class="btns"><button class="act" id="listenBtn">🔊 Listen</button></div>
+      <p class="note">Plays the selected region's motion as sound, pitched up into the audible range (a low hum reads low, a fast buzz reads high). It's a scaled sonification — the true Hz is the number above. Needs a region + a few seconds of signal.</p>
     </details>
   </div>
 </div>
@@ -499,7 +501,7 @@
   const sigX=new Float32Array(FFTN), sigY=new Float32Array(FFTN); let sigPos=0, sigCount=0;
   const probeCanvas=document.createElement('canvas'); probeCanvas.width=64; probeCanvas.height=64;
   const probeSCtx=probeCanvas.getContext('2d',{willReadFrequently:true});
-  const probeLayer=$('probeLayer'), probeBtn=$('probeBtn'), probeClearBtn=$('probeClearBtn'), useBandBtn=$('useBandBtn'), fftCanvas=$('fftCanvas'), fftPeak=$('fftPeak'), fftConf=$('fftConf'), fftAlias=$('fftAlias');
+  const probeLayer=$('probeLayer'), probeBtn=$('probeBtn'), probeClearBtn=$('probeClearBtn'), useBandBtn=$('useBandBtn'), listenBtn=$('listenBtn'), fftCanvas=$('fftCanvas'), fftPeak=$('fftPeak'), fftConf=$('fftConf'), fftAlias=$('fftAlias');
   function fft(re,im){ const n=re.length; for(let i=1,j=0;i<n;i++){ let bit=n>>1; for(;j&bit;bit>>=1) j^=bit; j^=bit; if(i<j){ const tr=re[i];re[i]=re[j];re[j]=tr; const ti=im[i];im[i]=im[j];im[j]=ti; } }
     for(let len=2;len<=n;len<<=1){ const ang=-2*Math.PI/len, wr=Math.cos(ang), wi=Math.sin(ang), hl=len>>1;
       for(let i=0;i<n;i+=len){ let cr=1,ci=0; for(let k=0;k<hl;k++){ const ur=re[i+k], ui=im[i+k]; const br=re[i+k+hl], bi=im[i+k+hl]; const vr=br*cr-bi*ci, vi=br*ci+bi*cr; re[i+k]=ur+vr; im[i+k]=ui+vi; re[i+k+hl]=ur-vr; im[i+k+hl]=ui-vi; const ncr=cr*wr-ci*wi; ci=cr*wi+ci*wr; cr=ncr; } } } }
@@ -549,8 +551,32 @@
   function drawProbe(){ if(!probeLayer) return; probeLayer.innerHTML=''; if(!procW) return; const g=curProbe? {x0:Math.min(curProbe.x0,curProbe.x1),y0:Math.min(curProbe.y0,curProbe.y1),x1:Math.max(curProbe.x0,curProbe.x1),y1:Math.max(curProbe.y0,curProbe.y1)} : probeBox; if(!g) return; const b=normRect(g), d=document.createElement('div'); d.className='probe-box'; d.style.left=b.left+'px'; d.style.top=b.top+'px'; d.style.width=b.width+'px'; d.style.height=b.height+'px'; probeLayer.appendChild(d); }
   function setProbeMode(on){ probeMode=on; probeBtn.setAttribute('aria-pressed',on); stage.style.cursor=on?'crosshair':''; if(on && typeof setDrawMode==='function') setDrawMode(false); }
   probeBtn.onclick=()=>setProbeMode(!probeMode);
-  probeClearBtn.onclick=()=>{ probeBox=null; probeRef=null; sigPos=0; sigCount=0; peakHz=0; drawProbe(); if(fftPeak) fftPeak.textContent='Click Pick region and drag a box over something vibrating.'; const c=fftCanvas.getContext('2d'); c.clearRect(0,0,fftCanvas.width,fftCanvas.height); };
+  probeClearBtn.onclick=()=>{ stopListen(); probeBox=null; probeRef=null; sigPos=0; sigCount=0; peakHz=0; drawProbe(); if(fftPeak) fftPeak.textContent='Click Pick region and drag a box over something vibrating.'; const c=fftCanvas.getContext('2d'); c.clearRect(0,0,fftCanvas.width,fftCanvas.height); };
   useBandBtn.onclick=()=>{ if(peakHz>0.2){ loHz=Math.max(FMIN,peakHz*0.7); hiHz=Math.min(FMAX,peakHz*1.4); applyBand(); layoutBand(); } };
+  let audioCtx=null, audioSrc=null;
+  function stopListen(){ if(audioSrc){ try{audioSrc.stop();}catch(e){} audioSrc=null; } if(listenBtn) listenBtn.textContent='🔊 Listen'; }
+  function listen(){
+    if(audioSrc){ stopListen(); return; }
+    if(!probeBox || sigCount<FFTN){ if(fftPeak) fftPeak.textContent='Pick a region and let the spectrum fill first, then Listen.'; return; }
+    try{ audioCtx = audioCtx || new (window.AudioContext||window.webkitAudioContext)(); if(audioCtx.state==='suspended') audioCtx.resume(); }catch(e){ return; }
+    const N=FFTN, xs=new Float32Array(N), ys=new Float32Array(N);
+    for(let i=0;i<N;i++){ const idx=(sigPos+i)%N; xs[i]=sigX[idx]; ys[i]=sigY[idx]; }
+    const varOf=(a)=>{ let m=0; for(let i=0;i<N;i++)m+=a[i]; m/=N; let v=0; for(let i=0;i<N;i++){const d=a[i]-m; v+=d*d;} return v/N; };
+    const sig = (varOf(xs)>=varOf(ys)) ? xs : ys;
+    let m=0; for(let i=0;i<N;i++)m+=sig[i]; m/=N; let pk=1e-6;
+    for(let i=0;i<N;i++){ sig[i]-=m; const a=Math.abs(sig[i]); if(a>pk)pk=a; }
+    for(let i=0;i<N;i++) sig[i]/=pk;
+    const M=Math.min(16,N>>2);   // crossfade head<-tail for a seamless loop
+    for(let i=0;i<M;i++){ const w=i/M; sig[i]=sig[i]*w + sig[N-M+i]*(1-w); }
+    const sf=(capFps||Math.round(fps)||30), sr=Math.max(8000, Math.min(44100, Math.round(sf*300)));
+    let buf; try{ buf=audioCtx.createBuffer(1,N,sr); }catch(e){ return; }
+    buf.getChannelData(0).set(sig);
+    audioSrc=audioCtx.createBufferSource(); audioSrc.buffer=buf; audioSrc.loop=true;
+    const g=audioCtx.createGain(); g.gain.value=0.5; audioSrc.connect(g); g.connect(audioCtx.destination);
+    audioSrc.onended=()=>{}; audioSrc.start();
+    listenBtn.textContent='⏹ Stop';
+  }
+  listenBtn.onclick=listen;
   stage.addEventListener('pointerdown',(e)=>{ if(!probeMode||compareMode!=='off'||!procW||e.button!==0) return; const p=stageToNorm(e.clientX,e.clientY); curProbe={x0:p.nx,y0:p.ny,x1:p.nx,y1:p.ny}; e.preventDefault(); drawProbe(); });
   stage.addEventListener('pointermove',(e)=>{ if(!curProbe) return; const p=stageToNorm(e.clientX,e.clientY); curProbe.x1=p.nx; curProbe.y1=p.ny; drawProbe(); });
   window.addEventListener('pointerup',()=>{ if(!curProbe) return; const g={x0:Math.min(curProbe.x0,curProbe.x1),y0:Math.min(curProbe.y0,curProbe.y1),x1:Math.max(curProbe.x0,curProbe.x1),y1:Math.max(curProbe.y0,curProbe.y1)}; curProbe=null; if((g.x1-g.x0)>0.02&&(g.y1-g.y0)>0.02){ probeBox=g; probeRef=null; sigPos=0; sigCount=0; } setProbeMode(false); drawProbe(); });
@@ -700,6 +726,7 @@
     try{ video.pause(); }catch(e){} video.srcObject=null; if(video.getAttribute('src')){ video.removeAttribute('src'); }
     if(fileURL){ URL.revokeObjectURL(fileURL); fileURL=null; }
     const fc=$('fileCtrls'); if(fc) fc.style.display='none';
+    if(typeof stopListen==='function') stopListen();
     overlay.hidden=true; empty.hidden=false;
     $('startBtn').disabled=false; $('stopBtn').disabled=true;
   }
