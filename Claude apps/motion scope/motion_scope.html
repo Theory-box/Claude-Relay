@@ -188,6 +188,11 @@
         <input type="range" id="isoRate" min="0" max="100" step="5" value="46">
       </label>
       <p class="note" id="isoRateNote"><b>Fade rate</b> (Isolate) — how fast a now-still object melts into the background. Low = motion lingers longer; high = it fades quickly.</p>
+      <div class="seg" id="tmodeSeg" role="group" aria-label="Temporal mode">
+        <button id="tmodeVel" aria-pressed="true">Velocity</button>
+        <button id="tmodeAcc" aria-pressed="false">Acceleration</button>
+      </div>
+      <p class="note" id="tmodeNote"><b>Acceleration</b> (Riesz) — amplifies the <i>change</i> in motion rather than motion itself: reveals impacts, transients and vibration while ignoring large slow drift. Velocity is the standard mode.</p>
       <label class="field">
         <span class="row"><span>Frequency band</span><span class="val" id="freqBandVal">0.50–6.00 Hz</span></span>
         <div id="freqTrack" class="freqtrack">
@@ -313,7 +318,7 @@
   let stream = null, running = false, raf = 0;
   let capFps = 0, _vfcN = 0, _vfcT0 = 0;
   let fileURL=null, procFps=0, _mt0=-1, _mn0=0, newFrame=false, sampleFps=30, mediaRec=null, recChunks=[]; const playSpeeds=[0.1,0.25,0.5,1,2];
-  let isoFade=0.03, confGate=true, phaseFlow=false, phaseScale=32;
+  let isoFade=0.03, confGate=true, phaseFlow=false, phaseScale=32, accelMode=false;
   let procW = 0, procH = 0, initialized = false;
   let method = 'linear', mode = 'amp', compareMode = 'off', holdOrig = false, curProfile = 'linear';
   let backend = 'cpu';                       // active compute path (flips as GPU paths are ported)
@@ -440,6 +445,7 @@
     show($('warpFieldGroup'), p==='warp');
     show($('resetGroup'), p==='warp'||p==='isolate');
     show($('isoRateField'), p==='isolate'); show($('isoRateNote'), p==='isolate');
+    show($('tmodeSeg'), isMag); show($('tmodeNote'), isMag);
     const tnrOn=(p==='linear'||p==='phase'||p==='isolate');
     show(fld('tnr'), tnrOn); show($('tnrNote'), tnrOn); }
   function updateInertControls(){
@@ -473,6 +479,9 @@
   pflowOff.onclick=()=>setPhaseFlow(false); pflowOn.onclick=()=>setPhaseFlow(true);
   const pscaleEl=$('pscaleEl'), pscaleVal=$('pscaleVal');
   pscaleEl.oninput=()=>{ phaseScale=+pscaleEl.value; pscaleVal.textContent=phaseScale; };
+  const tmodeVel=$('tmodeVel'), tmodeAcc=$('tmodeAcc');
+  function setAccel(on){ accelMode=on; tmodeAcc.setAttribute('aria-pressed',on); tmodeVel.setAttribute('aria-pressed',!on); }
+  tmodeVel.onclick=()=>setAccel(false); tmodeAcc.onclick=()=>setAccel(true);
   const stage=document.querySelector('.stage'), regionLayer=$('regionLayer'), drawRegionBtn=$('drawRegionBtn'), clearRegionBtn=$('clearRegionBtn');
   function stageToNorm(cx,cy){ const cv=(viewGPU.style.display!=='none')?viewGPU:view, r=cv.getBoundingClientRect(); const ar=procW/procH, ba=r.width/r.height; let iw,ih,ox,oy; if(ba>ar){ ih=r.height; iw=ih*ar; ox=(r.width-iw)/2; oy=0; } else { iw=r.width; ih=iw/ar; ox=0; oy=(r.height-ih)/2; } return { nx:Math.max(0,Math.min(1,(cx-r.left-ox)/iw)), ny:Math.max(0,Math.min(1,(cy-r.top-oy)/ih)) }; }
   function normRect(g){ const cv=(viewGPU.style.display!=='none')?viewGPU:view, r=cv.getBoundingClientRect(), sr=stage.getBoundingClientRect(); const ar=procW/procH, ba=r.width/r.height; let iw,ih,ox,oy; if(ba>ar){ ih=r.height; iw=ih*ar; ox=(r.width-iw)/2; oy=0; } else { iw=r.width; ih=iw/ar; ox=0; oy=(r.height-ih)/2; } const L=r.left-sr.left+ox, T=r.top-sr.top+oy; return { left:L+g.x0*iw, top:T+g.y0*ih, width:(g.x1-g.x0)*iw, height:(g.y1-g.y0)*ih }; }
@@ -1213,7 +1222,7 @@ struct RZO { dw:f32, dh:f32, motion:f32, pad:f32 };
   return vec4f(clamp(col+vec3f(d), vec3f(0.), vec3f(255.))/255.0, 1.0);
 }`;
 
-  const RZP = `struct RZP { seed:f32, aSlow:f32, aFast:f32, alpha:f32, floorv:f32, leak:f32 };`;
+  const RZP = `struct RZP { seed:f32, aSlow:f32, aFast:f32, alpha:f32, floorv:f32, leak:f32, accel:f32 };`;
   const WGSL_RZTRI = RZU + `
 @group(0) @binding(0) var<uniform> u:RZU;
 @group(0) @binding(1) var lap:texture_2d<f32>;
@@ -1251,7 +1260,9 @@ struct MRT { @location(0) phase:vec4f, @location(1) ema:vec4f, @location(2) scr:
   let sc=em.x+u.aSlow*(pc-em.x); let fcv=em.y+u.aFast*(pc-em.y);
   let ss=em.z+u.aSlow*(ps-em.z); let fsv=em.w+u.aFast*(ps-em.w);
   let amp=sqrt(qa);
-  var o:MRT; o.phase=vec4f(pc,ps,0.,1.); o.ema=vec4f(sc,fcv,ss,fsv); o.scr=vec4f((fcv-sc)*amp,(fsv-ss)*amp,amp,1.);
+  var bx=fcv-sc; var by=fsv-ss;
+  if(u.accel>0.5){ bx=(bx-(em.y-em.x))*8.0; by=(by-(em.w-em.z))*8.0; }
+  var o:MRT; o.phase=vec4f(pc,ps,0.,1.); o.ema=vec4f(sc,fcv,ss,fsv); o.scr=vec4f(bx*amp,by*amp,amp,1.);
   return o;
 }`;
   const _rzblur=(axis)=> RZU + `
@@ -1553,7 +1564,7 @@ struct MRT { @location(0) phase:vec4f, @location(1) ema:vec4f, @location(2) scr:
     // ---- phase magnification per bandpass level ----
     const cur=gpu.rzPing, prev=1-cur, ff=Math.max(5,Math.min(240,sampleFps));
     const aS=1-Math.exp(-2*Math.PI*loHz/ff), aF=1-Math.exp(-2*Math.PI*hiHz/ff);
-    dev.queue.writeBuffer(gpu.rzPhaseUni,0,new Float32Array([gpu.rzSeeded?0:1, aS, aF, Math.max(0,gain-1), 2.0, 0.999, 0,0]));
+    dev.queue.writeBuffer(gpu.rzPhaseUni,0,new Float32Array([gpu.rzSeeded?0:1, aS, aF, Math.max(0,gain-1), 2.0, 0.999, (accelMode?1:0), 0]));
     const PU={buffer:gpu.rzPhaseUni};
     for(let k=0;k<L-1;k++){ const TRI=gpu.rzTri[k], PH=gpu.rzPhase[k], EM=gpu.rzEma[k];
       run(P.Tri, [{binding:0,resource:{buffer:U[k]}},{binding:1,resource:VV(LAP[k])}], TRI[cur]);
@@ -1670,8 +1681,8 @@ struct MRT { @location(0) phase:vec4f, @location(1) ema:vec4f, @location(2) scr:
         const qa=Math.sqrt(qr*qr+qx*qx+qy*qy)+1e-9; let pd=Math.acos(Math.max(-1,Math.min(1,qr/qa)));
         const io=Math.sqrt(qx*qx+qy*qy)+1e-9, co=qx/io, so=qy/io;
         S.pc[i]=S.pc[i]*0.999+pd*co; S.ps[i]=S.ps[i]*0.999+pd*so; const av=Math.sqrt(qa); amp[i]=av; ampSum+=av;
-        const sc=S.slowC[i]+aSlow*(S.pc[i]-S.slowC[i]); S.slowC[i]=sc; const fcv=S.fastC[i]+aFast*(S.pc[i]-S.fastC[i]); S.fastC[i]=fcv; fc[i]=fcv-sc;
-        const ss=S.slowS[i]+aSlow*(S.ps[i]-S.slowS[i]); S.slowS[i]=ss; const fsv=S.fastS[i]+aFast*(S.ps[i]-S.fastS[i]); S.fastS[i]=fsv; fs[i]=fsv-ss;
+        const pbc=S.fastC[i]-S.slowC[i]; const sc=S.slowC[i]+aSlow*(S.pc[i]-S.slowC[i]); S.slowC[i]=sc; const fcv=S.fastC[i]+aFast*(S.pc[i]-S.fastC[i]); S.fastC[i]=fcv; const bc=fcv-sc; fc[i]= accelMode ? (bc-pbc)*8.0 : bc;
+        const pbs=S.fastS[i]-S.slowS[i]; const ss=S.slowS[i]+aSlow*(S.ps[i]-S.slowS[i]); S.slowS[i]=ss; const fsv=S.fastS[i]+aFast*(S.ps[i]-S.fastS[i]); S.fastS[i]=fsv; const bs=fsv-ss; fs[i]= accelMode ? (bs-pbs)*8.0 : bs;
       }
       const ncb=new Float32Array(ln),nsb=new Float32Array(ln);
       for(let i=0;i<ln;i++){ncb[i]=fc[i]*amp[i];nsb[i]=fs[i]*amp[i];}
