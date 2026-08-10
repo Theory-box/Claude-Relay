@@ -15,3 +15,10 @@ separate probeLayer + probe-box css. Sampling in vfc = true rate; falls back to 
 TEST: Pick region over a vibrating/oscillating object (needs texture/edges). Wait ~4s (shows
 Collecting X/128). Dominant Hz appears; Set band around peak dials the frequency band to it.
 Best with clear periodic motion + enough capture fps (Nyquist).
+
+## Session (analysis panel v2) — aliasing + noise confidence (branch feature/alias)
+- Aliasing: for a detected apparent peak, list candidate true freqs (k*Fs +/- apparent, <=250Hz).
+- Noise confidence: noise floor = median of non-peak spectrum bins; SNR = peak/noiseFloor.
+  SNR<3 -> "reads as noise" (region static/too noisy). >=7 High, >=4.5 Moderate, else Low.
+  Validated in node: pure noise SNR~2.5 (flagged noise), signal+noise SNR~33 (high). Reuses the
+  probe box already in the panel -> user picks a region, gets frequency + trustworthiness.

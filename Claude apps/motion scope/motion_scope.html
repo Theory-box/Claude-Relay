@@ -253,6 +253,7 @@
       <div class="btns"><button class="act" id="probeBtn" aria-pressed="false">Pick region</button><button class="act" id="probeClearBtn">Clear</button></div>
       <canvas id="fftCanvas" width="252" height="96" style="width:100%;height:auto;background:#0b0f14;border:1px solid var(--line);border-radius:6px;margin-top:8px;display:block"></canvas>
       <p class="note" id="fftPeak">Click <b>Pick region</b> and drag a box over something vibrating — you'll get a live spectrum of its motion and its dominant frequency.</p>
+      <p class="note" id="fftConf"></p>
       <p class="note" id="fftAlias" style="color:var(--muted)"></p>
       <button class="act" id="useBandBtn">Set band around peak</button>
     </details>
@@ -444,7 +445,7 @@
   const sigX=new Float32Array(FFTN), sigY=new Float32Array(FFTN); let sigPos=0, sigCount=0;
   const probeCanvas=document.createElement('canvas'); probeCanvas.width=64; probeCanvas.height=64;
   const probeSCtx=probeCanvas.getContext('2d',{willReadFrequently:true});
-  const probeLayer=$('probeLayer'), probeBtn=$('probeBtn'), probeClearBtn=$('probeClearBtn'), useBandBtn=$('useBandBtn'), fftCanvas=$('fftCanvas'), fftPeak=$('fftPeak'), fftAlias=$('fftAlias');
+  const probeLayer=$('probeLayer'), probeBtn=$('probeBtn'), probeClearBtn=$('probeClearBtn'), useBandBtn=$('useBandBtn'), fftCanvas=$('fftCanvas'), fftPeak=$('fftPeak'), fftConf=$('fftConf'), fftAlias=$('fftAlias');
   function fft(re,im){ const n=re.length; for(let i=1,j=0;i<n;i++){ let bit=n>>1; for(;j&bit;bit>>=1) j^=bit; j^=bit; if(i<j){ const tr=re[i];re[i]=re[j];re[j]=tr; const ti=im[i];im[i]=im[j];im[j]=ti; } }
     for(let len=2;len<=n;len<<=1){ const ang=-2*Math.PI/len, wr=Math.cos(ang), wi=Math.sin(ang), hl=len>>1;
       for(let i=0;i<n;i+=len){ let cr=1,ci=0; for(let k=0;k<hl;k++){ const ur=re[i+k], ui=im[i+k]; const br=re[i+k+hl], bi=im[i+k+hl]; const vr=br*cr-bi*ci, vi=br*ci+bi*cr; re[i+k]=ur+vr; im[i+k]=ui+vi; re[i+k+hl]=ur-vr; im[i+k+hl]=ui-vi; const ncr=cr*wr-ci*wi; ci=cr*wi+ci*wr; cr=ncr; } } } }
@@ -481,7 +482,12 @@
     let pk=0,pv=0; const loBin=Math.max(1,Math.floor(0.3*FFTN/fpsUse));
     for(let k=loBin;k<mag.length;k++){ if(mag[k]>pv){pv=mag[k];pk=k;} }
     peakHz=pk*fpsUse/FFTN; drawSpectrum(mag,fpsUse,pk);
+    const nb=[]; for(let k=loBin;k<mag.length;k++){ if(Math.abs(k-pk)>2) nb.push(mag[k]); } nb.sort((a,b)=>a-b);
+    const noise=nb.length?nb[nb.length>>1]:0, snr=noise>1e-9?pv/noise:0;
+    if(snr<3){ if(fftPeak) fftPeak.textContent='No clear vibration here — signal is at the noise level (peak only '+snr.toFixed(1)+'× the noise floor). Try a spot with visible motion, more light, or lower gain.'; if(fftConf) fftConf.textContent=''; if(fftAlias) fftAlias.textContent=''; return; }
     if(fftPeak) fftPeak.textContent='Dominant: '+peakHz.toFixed(2)+' Hz   (axis 0–'+(fpsUse/2).toFixed(0)+' Hz)';
+    if(fftConf){ const c = snr>=7?['High','var(--phosphor)']:snr>=4.5?['Moderate','var(--amber)']:['Low','var(--hot)'];
+      fftConf.innerHTML='Confidence: <b style="color:'+c[1]+'">'+c[0]+'</b> — peak stands '+snr.toFixed(1)+'× above the region\'s noise floor.'; }
     if(fftAlias){ if(peakHz>0.2){ const Fs=fpsUse, fa=peakHz, cand=[]; for(let k=1;k<=8;k++){ const a=k*Fs-fa, b=k*Fs+fa; if(a>0)cand.push(a); cand.push(b); }
         const list=cand.filter(v=>v<=250).sort((p,q)=>p-q).slice(0,7).map(v=>v.toFixed(0));
         fftAlias.innerHTML = list.length? 'If the motion is faster than '+Fs.toFixed(0)+' fps can capture, the true frequency may instead be one of: <b>'+list.join(', ')+'</b> Hz (aliases of the same reading). A second recording at a different frame rate reveals which is real.' : ''; }
