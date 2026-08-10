@@ -1645,10 +1645,10 @@ struct MRT { @location(0) phase:vec4f, @location(1) ema:vec4f, @location(2) scr:
   const ORT_VER='1.20.1', ORT_BASE='https://cdn.jsdelivr.net/npm/onnxruntime-web@1.20.1/dist/';
   const nIn=document.createElement('canvas'), nInCtx=nIn.getContext('2d',{willReadFrequently:true});
   const nOut=document.createElement('canvas'), nOutCtx=nOut.getContext('2d');
-  const NRES=256;
+  const NEURAL_CAP=512;   // neural proc follows the detail slider up to this long-side
   function _c8(v){ return v<0?0:v>255?255:v; }
   function updateNeuralStat(){ const el=$('neuralStat'); if(!el) return; el.textContent = neuralMsg ? neuralMsg : (ortReady ? ('ready · '+neuralBackend.toUpperCase()+(_nMs?(' · '+Math.round(_nMs)+' ms/frame'):'')) : ''); }
-  function neuralProcSize(){ const W=procW||16,H=procH||9,ar=W/H; let w,h; if(W>=H){ w=NRES; h=Math.round(NRES/ar);} else { h=NRES; w=Math.round(NRES*ar);} w=Math.max(8,w-(w%4)); h=Math.max(8,h-(h%4)); return {w:w,h:h}; }
+  function neuralProcSize(){ let w=procW||16, h=procH||9; const m=Math.max(w,h); if(m>NEURAL_CAP){ const sc=NEURAL_CAP/m; w=Math.round(w*sc); h=Math.round(h*sc); } w=Math.max(8,w-(w%4)); h=Math.max(8,h-(h%4)); return {w:w,h:h}; }
   async function loadNeural(){
     if(ortLoading||ortReady) return; ortLoading=true; neuralMsg='loading runtime…'; updateNeuralStat();
     try{
