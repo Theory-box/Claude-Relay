@@ -122,9 +122,11 @@
       <input type="file" id="fileInput" accept="video/*" style="display:none">
       <button class="act" id="openFileBtn">Open video file…</button>
       <div id="fileCtrls" style="display:none;margin-top:.4rem">
+        <label class="field"><span class="row"><span>Timeline</span><span class="val" id="timeVal">0:00 / 0:00</span></span>
+          <input type="range" id="seekEl" min="0" max="1000" step="1" value="0"></label>
         <div class="btns"><button class="act" id="playPauseBtn">Pause</button><button class="act" id="restartBtn">Restart</button></div>
         <label class="field"><span class="row"><span>Playback speed</span><span class="val" id="speedVal">1×</span></span>
-          <input type="range" id="speedEl" min="0" max="3" step="1" value="3"></label>
+          <input type="range" id="speedEl" min="0" max="4" step="1" value="3"></label>
         <p class="note">Slower speed lets the app process <b>every</b> frame of a high-frame-rate clip (needed to catch fast vibration). For a 120 fps clip on a 60 Hz screen use 0.5× or lower — watch the "resolves ≤ … Hz" readout climb as you slow it.</p>
       </div>
       <button class="act" id="recordBtn" aria-pressed="false" style="margin-top:.4rem">Record output</button>
@@ -293,7 +295,7 @@
   // state
   let stream = null, running = false, raf = 0;
   let capFps = 0, _vfcN = 0, _vfcT0 = 0;
-  let fileURL=null, procFps=0, _mt0=-1, _mn0=0, newFrame=false, sampleFps=30, mediaRec=null, recChunks=[]; const playSpeeds=[0.1,0.25,0.5,1];
+  let fileURL=null, procFps=0, _mt0=-1, _mn0=0, newFrame=false, sampleFps=30, mediaRec=null, recChunks=[]; const playSpeeds=[0.1,0.25,0.5,1,2];
   let isoFade=0.03;
   let procW = 0, procH = 0, initialized = false;
   let method = 'linear', mode = 'amp', compareMode = 'off', holdOrig = false, curProfile = 'linear';
@@ -620,6 +622,13 @@
   playPauseBtn.onclick=()=>{ if(!fileURL) return; if(video.paused){ video.play(); playPauseBtn.textContent='Pause'; } else { video.pause(); playPauseBtn.textContent='Play'; } };
   restartBtn.onclick=()=>{ if(fileURL){ video.currentTime=0; video.play(); playPauseBtn.textContent='Pause'; } };
   speedEl.oninput=()=>{ const sp=playSpeeds[+speedEl.value]; speedVal.textContent=sp+'×'; if(fileURL) video.playbackRate=sp; };
+  const seekEl=$('seekEl'), timeVal=$('timeVal'); let seekDrag=false;
+  const fmtT=(x)=>{ x=x||0; if(!isFinite(x))x=0; return Math.floor(x/60)+':'+String(Math.floor(x%60)).padStart(2,'0'); };
+  seekEl.addEventListener('pointerdown',()=>{ seekDrag=true; });
+  window.addEventListener('pointerup',()=>{ seekDrag=false; });
+  seekEl.addEventListener('input',()=>{ if(fileURL && video.duration){ video.currentTime=(+seekEl.value/1000)*video.duration; timeVal.textContent=fmtT(video.currentTime)+' / '+fmtT(video.duration); } });
+  video.addEventListener('timeupdate',()=>{ if(fileURL && !seekDrag && video.duration){ seekEl.value=Math.round(video.currentTime/video.duration*1000); timeVal.textContent=fmtT(video.currentTime)+' / '+fmtT(video.duration); } });
+  video.addEventListener('loadedmetadata',()=>{ if(fileURL){ seekEl.value=0; timeVal.textContent='0:00 / '+fmtT(video.duration); } });
   recordBtn.onclick=()=>{ if(mediaRec){ try{mediaRec.stop();}catch(e){} return; }
     const cv=(viewGPU.style.display!=='none')?viewGPU:view; let st; try{ st=cv.captureStream(60); }catch(e){ showError(e); return; }
     recChunks=[]; try{ mediaRec=new MediaRecorder(st,{mimeType:'video/webm'}); }catch(e){ try{ mediaRec=new MediaRecorder(st); }catch(e2){ showError(e2); return; } }
