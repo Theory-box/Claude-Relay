@@ -119,6 +119,16 @@
         <button class="act stop" id="stopBtn" disabled>Stop</button>
       </div>
       <button class="act" id="screenBtn">Share screen</button>
+      <input type="file" id="fileInput" accept="video/*" style="display:none">
+      <button class="act" id="openFileBtn">Open video file…</button>
+      <div id="fileCtrls" style="display:none;margin-top:.4rem">
+        <div class="btns"><button class="act" id="playPauseBtn">Pause</button><button class="act" id="restartBtn">Restart</button></div>
+        <label class="field"><span class="row"><span>Playback speed</span><span class="val" id="speedVal">1×</span></span>
+          <input type="range" id="speedEl" min="0" max="3" step="1" value="3"></label>
+        <p class="note">Slower speed lets the app process <b>every</b> frame of a high-frame-rate clip (needed to catch fast vibration). For a 120 fps clip on a 60 Hz screen use 0.5× or lower — watch the "resolves ≤ … Hz" readout climb as you slow it.</p>
+      </div>
+      <button class="act" id="recordBtn" aria-pressed="false" style="margin-top:.4rem">Record output</button>
+      <p class="note">Records the processed view to a .webm you can download (works on live camera or a loaded file).</p>
       <p class="note">Start opens your browser's camera picker. Share screen captures a window or display instead.</p>
       <div class="seg" role="group" aria-label="Stabilization" style="margin-top:.5rem">
         <button id="stabOff" aria-pressed="true">Stabilize off</button>
@@ -278,6 +288,7 @@
   // state
   let stream = null, running = false, raf = 0;
   let capFps = 0, _vfcN = 0, _vfcT0 = 0;
+  let fileURL=null, procFps=0, _mt0=-1, _mn0=0, newFrame=false, sampleFps=30, mediaRec=null, recChunks=[]; const playSpeeds=[0.1,0.25,0.5,1];
   let procW = 0, procH = 0, initialized = false;
   let method = 'linear', mode = 'amp', compareMode = 'off', holdOrig = false, curProfile = 'linear';
   let backend = 'cpu';                       // active compute path (flips as GPU paths are ported)
@@ -578,16 +589,34 @@
     }catch(e){}
   }
   function startVfc(){ capFps=0; _vfcN=0; _vfcT0=0; if(!video.requestVideoFrameCallback) return;
-    const tick=(now)=>{ if(!_vfcT0) _vfcT0=now; _vfcN++; const dt=now-_vfcT0; if(dt>=1000){ capFps=Math.round(_vfcN*1000/dt); _vfcN=0; _vfcT0=now; } if(probeBox) probeTick(); if(running && video.requestVideoFrameCallback) video.requestVideoFrameCallback(tick); };
+    const tick=(now,meta)=>{ if(!_vfcT0) _vfcT0=now; _vfcN++; const dt=now-_vfcT0; if(dt>=1000){ capFps=Math.round(_vfcN*1000/dt); _vfcN=0; _vfcT0=now; }
+      if(fileURL && meta){ if(_mt0<0){ _mt0=meta.mediaTime; _mn0=meta.presentedFrames||0; } else { const dm=meta.mediaTime-_mt0, dfp=(meta.presentedFrames||0)-_mn0; if(dm>=0.5){ procFps=Math.round(dfp/dm); if(procFps>0) capFps=procFps; _mt0=meta.mediaTime; _mn0=meta.presentedFrames||0; } } }
+      newFrame=true; if(probeBox) probeTick(); if(running && video.requestVideoFrameCallback) video.requestVideoFrameCallback(tick); };
     video.requestVideoFrameCallback(tick); }
-  async function attachStream(){
-    video.srcObject = stream; await video.play(); startVfc();
+  function onSourceReady(){
+    startVfc();
     if(video.videoHeight){ resEl.max = video.videoHeight; if(resVal) resVal.title='max = '+video.videoHeight+'p (native)'; }
     allocBuffers();
     running=true; empty.hidden=true; overlay.hidden=false;
     $('startBtn').disabled=true; $('stopBtn').disabled=false;
     lastT = performance.now(); loop();
   }
+  async function attachStream(){ video.srcObject = stream; await video.play(); onSourceReady(); }
+  const fileInput=$('fileInput'), openFileBtn=$('openFileBtn'), fileCtrls=$('fileCtrls'), playPauseBtn=$('playPauseBtn'), restartBtn=$('restartBtn'), speedEl=$('speedEl'), speedVal=$('speedVal'), recordBtn=$('recordBtn');
+  openFileBtn.onclick=()=>fileInput.click();
+  fileInput.onchange=()=>{ const fl=fileInput.files&&fileInput.files[0]; if(fl) openVideoFile(fl); fileInput.value=''; };
+  async function openVideoFile(file){ stop(); if(fileURL) URL.revokeObjectURL(fileURL); fileURL=URL.createObjectURL(file); procFps=0; _mt0=-1; _mn0=0;
+    video.srcObject=null; video.src=fileURL; video.loop=true; video.muted=true; video.playbackRate=playSpeeds[+speedEl.value]; errEl.style.display='none';
+    try{ await video.play(); onSourceReady(); fileCtrls.style.display='block'; playPauseBtn.textContent='Pause'; }catch(e){ showError(e); } }
+  playPauseBtn.onclick=()=>{ if(!fileURL) return; if(video.paused){ video.play(); playPauseBtn.textContent='Pause'; } else { video.pause(); playPauseBtn.textContent='Play'; } };
+  restartBtn.onclick=()=>{ if(fileURL){ video.currentTime=0; video.play(); playPauseBtn.textContent='Pause'; } };
+  speedEl.oninput=()=>{ const sp=playSpeeds[+speedEl.value]; speedVal.textContent=sp+'×'; if(fileURL) video.playbackRate=sp; };
+  recordBtn.onclick=()=>{ if(mediaRec){ try{mediaRec.stop();}catch(e){} return; }
+    const cv=(viewGPU.style.display!=='none')?viewGPU:view; let st; try{ st=cv.captureStream(60); }catch(e){ showError(e); return; }
+    recChunks=[]; try{ mediaRec=new MediaRecorder(st,{mimeType:'video/webm'}); }catch(e){ try{ mediaRec=new MediaRecorder(st); }catch(e2){ showError(e2); return; } }
+    mediaRec.ondataavailable=(e)=>{ if(e.data&&e.data.size) recChunks.push(e.data); };
+    mediaRec.onstop=()=>{ const blob=new Blob(recChunks,{type:'video/webm'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='motion-scope.webm'; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href),2000); mediaRec=null; recordBtn.textContent='Record output'; recordBtn.setAttribute('aria-pressed',false); };
+    mediaRec.start(); recordBtn.textContent='● Stop recording'; recordBtn.setAttribute('aria-pressed',true); }
   async function start(){
     stop(); errEl.style.display='none';
     const id = deviceSel.value;
@@ -605,8 +634,12 @@
   }
   function stop(){
     running=false; cancelAnimationFrame(raf);
+    if(mediaRec){ try{mediaRec.stop();}catch(e){} }
     if (stream){ stream.getTracks().forEach(t=>t.stop()); stream=null; }
-    video.srcObject=null; overlay.hidden=true; empty.hidden=false;
+    video.srcObject=null; if(video.src){ try{video.pause();}catch(e){} video.removeAttribute('src'); try{video.load();}catch(e){} }
+    if(fileURL){ URL.revokeObjectURL(fileURL); fileURL=null; }
+    const fc=$('fileCtrls'); if(fc) fc.style.display='none';
+    overlay.hidden=true; empty.hidden=false;
     $('startBtn').disabled=false; $('stopBtn').disabled=true;
   }
   function showError(e){
@@ -1306,7 +1339,7 @@ struct MRT { @location(0) phase:vec4f, @location(1) ema:vec4f, @location(2) scr:
 
   function gpuFrame(){
     const dev=gpu.device;
-    const f=Math.max(5,Math.min(120,fps));
+    const f=Math.max(5,Math.min(240,sampleFps));
     const aSlow=1-Math.exp(-2*Math.PI*loHz/f), aFast=1-Math.exp(-2*Math.PI*hiHz/f);
     const ub=new Float32Array([ gain, aSlow, aFast, chromaAmt, (mode==='amp')?1:0, gpu.seeded?0:1, procW, procH, accX, accY, tnr, 0 ]);
     dev.queue.writeBuffer(gpu.uniformBuf, 0, ub);
@@ -1358,7 +1391,7 @@ struct MRT { @location(0) phase:vec4f, @location(1) ema:vec4f, @location(2) scr:
 
   function gpuFrameWarp(){
     const dev=gpu.device, W=gpu.warp;
-    const f=Math.max(5,Math.min(120,fps));
+    const f=Math.max(5,Math.min(240,sampleFps));
     const aSlow=1-Math.exp(-2*Math.PI*loHz/f), aFast=1-Math.exp(-2*Math.PI*hiHz/f);
     const wr=2+(denoiseR>0?denoiseR:1);
     const ub=new Float32Array([ gain, aSlow, aFast, wr, overlayAmt, gpu.wseeded?0:1, procW, procH, accX, accY, fieldDenoise?1:0, cleanPlate?1:0, (edgeAware ? (3.0+(100.0-edgeSens)*0.6) : 0.0), flowSmoothR, 0, meshAmt, meshCell ]);
@@ -1457,7 +1490,7 @@ struct MRT { @location(0) phase:vec4f, @location(1) ema:vec4f, @location(2) scr:
     for(let k=1;k<L;k++) run(P.R, [{binding:0,resource:{buffer:U[k-1]}},{binding:1,resource:VV(G[k-1])}], G[k]);
     for(let k=0;k<L-1;k++) run(P.Lap, [{binding:0,resource:{buffer:U[k]}},{binding:1,resource:gpu.sampler},{binding:2,resource:VV(G[k])},{binding:3,resource:VV(G[k+1])}], LAP[k]);
     // ---- phase magnification per bandpass level ----
-    const cur=gpu.rzPing, prev=1-cur, ff=Math.max(5,Math.min(120,fps));
+    const cur=gpu.rzPing, prev=1-cur, ff=Math.max(5,Math.min(240,sampleFps));
     const aS=1-Math.exp(-2*Math.PI*loHz/ff), aF=1-Math.exp(-2*Math.PI*hiHz/ff);
     dev.queue.writeBuffer(gpu.rzPhaseUni,0,new Float32Array([gpu.rzSeeded?0:1, aS, aF, Math.max(0,gain-1), 2.0, 0.999, 0,0]));
     const PU={buffer:gpu.rzPhaseUni};
@@ -1500,6 +1533,8 @@ struct MRT { @location(0) phase:vec4f, @location(1) ema:vec4f, @location(2) scr:
     const now = performance.now(); const dt = now-lastT; lastT = now;
     if (dt>0){ const inst=1000/dt; fps += (inst-fps)*0.1; }
     if (video.readyState>=2 && procW){
+      if(fileURL && video.requestVideoFrameCallback){ if(!newFrame){ drawReadout(); raf=requestAnimationFrame(loop); return; } newFrame=false; }
+      sampleFps = (fileURL && procFps>0) ? procFps : fps;
       if(holdOrig){
         if(view.width!==procW||view.height!==procH){ view.width=procW; view.height=procH; }
         dctx.drawImage(video, 0, 0, procW, procH);
@@ -1594,7 +1629,7 @@ struct MRT { @location(0) phase:vec4f, @location(1) ema:vec4f, @location(2) scr:
   }
 
   function processFrame(){
-    const f = Math.max(5, Math.min(120, fps));
+    const f = Math.max(5, Math.min(240, sampleFps));
     const aSlow = 1 - Math.exp(-2*Math.PI*loHz / f);
     const aFast = 1 - Math.exp(-2*Math.PI*hiHz / f);
     pctx.drawImage(video, 0, 0, procW, procH);
