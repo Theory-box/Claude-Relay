@@ -201,7 +201,7 @@
           <div id="freqHi" class="freqthumb"></div>
         </div>
       </label>
-      <p class="note" id="freqNote">Only motion whose rhythm falls between the two handles is amplified. Drag the band to move it, or a handle to widen/narrow. Slow sway ≈ low Hz, fast flutter ≈ high Hz. Drag the low handle all the way down (~0 Hz) to catch slow drift / any change vs the start. Shared across all modes.</p>
+      <p class="note" id="freqNote">Only motion whose rhythm falls between the two handles is amplified. Drag the band to move it, or a handle to widen/narrow. Slow sway ≈ low Hz, fast flutter ≈ high Hz. Drag the low handle fully left to <b>0 Hz</b> — the band then also compares against the starting frame (any lasting change), while still passing the oscillations up to the high handle. e.g. 0–12 Hz = compare-to-start plus everything up to 12 Hz. Shared across all modes.</p>
     </details>
 
     <details class="group" id="warpFieldGroup">
@@ -367,15 +367,15 @@
   const FMIN=0.02, FMAX=25;
   const f2t=(v)=>Math.log(Math.min(FMAX,Math.max(FMIN,v))/FMIN)/Math.log(FMAX/FMIN);
   const t2f=(t)=>FMIN*Math.pow(FMAX/FMIN, Math.min(1,Math.max(0,t)));
-  function applyBand(){ if(loHz<FMIN)loHz=FMIN; if(hiHz>FMAX)hiHz=FMAX; if(hiHz<loHz+0.05)hiHz=loHz+0.05; centerHz=(loHz+hiHz)/2; widthHz=hiHz-loHz; }
+  function applyBand(){ if(loHz<0)loHz=0; else if(loHz>0&&loHz<FMIN)loHz=FMIN; if(hiHz>FMAX)hiHz=FMAX; if(hiHz<loHz+0.05)hiHz=loHz+0.05; centerHz=(loHz+hiHz)/2; widthHz=hiHz-loHz; }
   function layoutBand(){ applyBand(); const a=f2t(loHz)*100, b=f2t(hiHz)*100; freqLoEl.style.left=a+'%'; freqHiEl.style.left=b+'%'; freqBandEl.style.left=a+'%'; freqBandEl.style.width=(b-a)+'%'; freqBandVal.textContent=loHz.toFixed(2)+'–'+hiHz.toFixed(2)+' Hz'; }
   let fdrag=null, fdLoT=0, fdHiT=0;
   const fpx2t=(x)=>{ const r=freqTrackEl.getBoundingClientRect(); return (x-r.left)/r.width; };
   function fStart(which,e){ fdrag=which; fdLoT=f2t(loHz); fdHiT=f2t(hiHz); e.preventDefault(); try{e.target.setPointerCapture(e.pointerId);}catch(_){}}
   function fMove(e){ if(!fdrag)return; const t=fpx2t(e.clientX);
-    if(fdrag==='lo'){ loHz=Math.min(hiHz-0.05, Math.max(FMIN, t2f(t))); }
+    if(fdrag==='lo'){ loHz=(t<=0.01?0:Math.min(hiHz-0.05, Math.max(FMIN, t2f(t)))); }
     else if(fdrag==='hi'){ hiHz=Math.max(loHz+0.05, Math.min(FMAX, t2f(t))); }
-    else { const anchor=(fdLoT+fdHiT)/2, wdt=fdHiT-fdLoT; let a=t-wdt/2, b=t+wdt/2; if(a<0){a=0;b=wdt;} if(b>1){b=1;a=1-wdt;} loHz=t2f(a); hiHz=t2f(b); }
+    else { const anchor=(fdLoT+fdHiT)/2, wdt=fdHiT-fdLoT; let a=t-wdt/2, b=t+wdt/2; if(a<0){a=0;b=wdt;} if(b>1){b=1;a=1-wdt;} loHz=(a<=0.01?0:t2f(a)); hiHz=t2f(b); }
     layoutBand(); }
   function fEnd(){ fdrag=null; }
   freqLoEl.addEventListener('pointerdown',(e)=>fStart('lo',e));
