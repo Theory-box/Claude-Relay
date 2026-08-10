@@ -221,6 +221,11 @@
         <button id="pflowOn" aria-pressed="false">Phase flow (beta)</button>
       </div>
       <p class="note"><b>Phase flow (beta)</b> — estimates motion from contrast-normalized (phase-like) gradients, so low-contrast motion tracks as well as bright edges. Experimental; brightness flow is the stable default.</p>
+      <label class="field" id="pscaleField">
+        <span class="row"><span>Phase flow strength</span><span class="val" id="pscaleVal">32</span></span>
+        <input type="range" id="pscaleEl" min="4" max="96" step="2" value="32">
+      </label>
+      <p class="note">Scales the phase-flow gradients (only affects Phase flow). Lower = gentler / more damped; higher = stronger flow. Default 32.</p>
       <div class="seg" role="group" aria-label="Clean plate">
         <button id="cpOff" aria-pressed="true">Live plate</button>
         <button id="cpOn" aria-pressed="false">Clean plate</button>
@@ -308,7 +313,7 @@
   let stream = null, running = false, raf = 0;
   let capFps = 0, _vfcN = 0, _vfcT0 = 0;
   let fileURL=null, procFps=0, _mt0=-1, _mn0=0, newFrame=false, sampleFps=30, mediaRec=null, recChunks=[]; const playSpeeds=[0.1,0.25,0.5,1,2];
-  let isoFade=0.03, confGate=true, phaseFlow=false;
+  let isoFade=0.03, confGate=true, phaseFlow=false, phaseScale=32;
   let procW = 0, procH = 0, initialized = false;
   let method = 'linear', mode = 'amp', compareMode = 'off', holdOrig = false, curProfile = 'linear';
   let backend = 'cpu';                       // active compute path (flips as GPU paths are ported)
@@ -466,6 +471,8 @@
   const pflowOff=$('pflowOff'), pflowOn=$('pflowOn');
   function setPhaseFlow(on){ phaseFlow=on; pflowOn.setAttribute('aria-pressed',on); pflowOff.setAttribute('aria-pressed',!on); }
   pflowOff.onclick=()=>setPhaseFlow(false); pflowOn.onclick=()=>setPhaseFlow(true);
+  const pscaleEl=$('pscaleEl'), pscaleVal=$('pscaleVal');
+  pscaleEl.oninput=()=>{ phaseScale=+pscaleEl.value; pscaleVal.textContent=phaseScale; };
   const stage=document.querySelector('.stage'), regionLayer=$('regionLayer'), drawRegionBtn=$('drawRegionBtn'), clearRegionBtn=$('clearRegionBtn');
   function stageToNorm(cx,cy){ const cv=(viewGPU.style.display!=='none')?viewGPU:view, r=cv.getBoundingClientRect(); const ar=procW/procH, ba=r.width/r.height; let iw,ih,ox,oy; if(ba>ar){ ih=r.height; iw=ih*ar; ox=(r.width-iw)/2; oy=0; } else { iw=r.width; ih=iw/ar; ox=0; oy=(r.height-ih)/2; } return { nx:Math.max(0,Math.min(1,(cx-r.left-ox)/iw)), ny:Math.max(0,Math.min(1,(cy-r.top-oy)/ih)) }; }
   function normRect(g){ const cv=(viewGPU.style.display!=='none')?viewGPU:view, r=cv.getBoundingClientRect(), sr=stage.getBoundingClientRect(); const ar=procW/procH, ba=r.width/r.height; let iw,ih,ox,oy; if(ba>ar){ ih=r.height; iw=ih*ar; ox=(r.width-iw)/2; oy=0; } else { iw=r.width; ih=iw/ar; ox=0; oy=(r.height-ih)/2; } const L=r.left-sr.left+ox, T=r.top-sr.top+oy; return { left:L+g.x0*iw, top:T+g.y0*ih, width:(g.x1-g.x0)*iw, height:(g.y1-g.y0)*ih }; }
@@ -957,7 +964,7 @@ struct FOI { @location(0) disp:vec4f, @location(1) bgN:vec4f, @location(2) tnrN:
 }`;
 
   const _VS = `@vertex fn vs(@builtin(vertex_index) i:u32)->@builtin(position) vec4f { var p=array<vec2f,3>(vec2f(-1.,-1.),vec2f(3.,-1.),vec2f(-1.,3.)); return vec4f(p[i],0.,1.); }`;
-  const _UW = `struct UW { gain:f32,aSlow:f32,aFast:f32,wr:f32,overlay:f32,seed:f32,w:f32,h:f32,sx:f32,sy:f32,fdOn:f32,cpOn:f32,edge:f32,fsr:f32,cmp:f32,meshAmt:f32,meshCell:f32,confK:f32,pflow:f32 };`;
+  const _UW = `struct UW { gain:f32,aSlow:f32,aFast:f32,wr:f32,overlay:f32,seed:f32,w:f32,h:f32,sx:f32,sy:f32,fdOn:f32,cpOn:f32,edge:f32,fsr:f32,cmp:f32,meshAmt:f32,meshCell:f32,confK:f32,pflow:f32,pscale:f32 };`;
   // Pass A: luma + temporal band-pass -> new slow/fast state + (Y,It)
   const WGSL_WA = _UW + `
 @group(0) @binding(0) var<uniform> u:UW;
@@ -993,7 +1000,7 @@ struct FB { @location(0) pa:vec4f, @location(1) pb:vec4f };
   let Yc=textureLoad(yit,vec2i(x,y),0).r;
   let G=Ix*Ix+Iy*Iy;
   var gx=Ix; var gy=Iy; var gt=It;
-  if(u.pflow>0.5){ let A=sqrt(Yc*Yc+G+1.0); let sc=32.0/A; gx=Ix*sc; gy=Iy*sc; gt=It*sc; }
+  if(u.pflow>0.5){ let A=sqrt(Yc*Yc+G+1.0); let sc=u.pscale/A; gx=Ix*sc; gy=Iy*sc; gt=It*sc; }
   var o:FB; o.pa=vec4f(gx*gx, gy*gy, gx*gy, gx*gt); o.pb=vec4f(gy*gt, G, 0., 0.); return o;
 }`;
   // Pass C: separable box blur of the products (H then V)
@@ -1448,7 +1455,7 @@ struct MRT { @location(0) phase:vec4f, @location(1) ema:vec4f, @location(2) scr:
     const f=Math.max(5,Math.min(240,sampleFps));
     const aSlow=1-Math.exp(-2*Math.PI*loHz/f), aFast=1-Math.exp(-2*Math.PI*hiHz/f);
     const wr=2+(denoiseR>0?denoiseR:1);
-    const ub=new Float32Array([ gain, aSlow, aFast, wr, overlayAmt, gpu.wseeded?0:1, procW, procH, accX, accY, fieldDenoise?1:0, cleanPlate?1:0, (edgeAware ? (3.0+(100.0-edgeSens)*0.6) : 0.0), flowSmoothR, 0, meshAmt, meshCell, (confGate?40.0:0.0), (phaseFlow?1:0) ]);
+    const ub=new Float32Array([ gain, aSlow, aFast, wr, overlayAmt, gpu.wseeded?0:1, procW, procH, accX, accY, fieldDenoise?1:0, cleanPlate?1:0, (edgeAware ? (3.0+(100.0-edgeSens)*0.6) : 0.0), flowSmoothR, 0, meshAmt, meshCell, (confGate?40.0:0.0), (phaseFlow?1:0), phaseScale ]);
     dev.queue.writeBuffer(W.uwBuf, 0, ub);
     const ext=dev.importExternalTexture({ source:video });
     const cur=gpu.wping, nxt=1-cur;
