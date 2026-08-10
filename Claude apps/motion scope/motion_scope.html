@@ -628,7 +628,7 @@
     $('startBtn').disabled=true; $('stopBtn').disabled=false;
     lastT = performance.now(); loop();
   }
-  async function attachStream(){ video.srcObject = stream; await video.play(); onSourceReady(); }
+  async function attachStream(){ try{ video.pause(); }catch(e){} try{ video.removeAttribute('src'); }catch(e){} video.loop=false; video.playbackRate=1; video.srcObject = stream; await video.play(); onSourceReady(); }
   const fileInput=$('fileInput'), openFileBtn=$('openFileBtn'), fileCtrls=$('fileCtrls'), playPauseBtn=$('playPauseBtn'), restartBtn=$('restartBtn'), speedEl=$('speedEl'), speedVal=$('speedVal'), recordBtn=$('recordBtn');
   openFileBtn.onclick=()=>fileInput.click();
   fileInput.onchange=()=>{ const fl=fileInput.files&&fileInput.files[0]; if(fl) openVideoFile(fl); fileInput.value=''; };
@@ -670,7 +670,7 @@
     running=false; cancelAnimationFrame(raf);
     if(mediaRec){ try{mediaRec.stop();}catch(e){} }
     if (stream){ stream.getTracks().forEach(t=>t.stop()); stream=null; }
-    video.srcObject=null; if(video.src){ try{video.pause();}catch(e){} video.removeAttribute('src'); try{video.load();}catch(e){} }
+    try{ video.pause(); }catch(e){} video.srcObject=null; if(video.getAttribute('src')){ video.removeAttribute('src'); }
     if(fileURL){ URL.revokeObjectURL(fileURL); fileURL=null; }
     const fc=$('fileCtrls'); if(fc) fc.style.display='none';
     overlay.hidden=true; empty.hidden=false;
@@ -982,7 +982,7 @@ struct FB { @location(0) pa:vec4f, @location(1) pb:vec4f };
   let Yc=textureLoad(yit,vec2i(x,y),0).r;
   let G=Ix*Ix+Iy*Iy;
   var gx=Ix; var gy=Iy; var gt=It;
-  if(u.pflow>0.5){ let A=sqrt(Yc*Yc+G+1.0); gx=Ix/A; gy=Iy/A; gt=It/A; }
+  if(u.pflow>0.5){ let A=sqrt(Yc*Yc+G+1.0); let sc=32.0/A; gx=Ix*sc; gy=Iy*sc; gt=It*sc; }
   var o:FB; o.pa=vec4f(gx*gx, gy*gy, gx*gy, gx*gt); o.pb=vec4f(gy*gt, G, 0., 0.); return o;
 }`;
   // Pass C: separable box blur of the products (H then V)
