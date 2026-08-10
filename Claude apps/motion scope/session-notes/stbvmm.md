@@ -43,3 +43,5 @@
 - STB-VMM specifics vs MagNet: (a) FIXED 256x256 input -> resize frame to 256x256 for inference, draw result scaled back (ignore detail slider for HQ, or letterbox-pad to 256). (b) amp tensor shape [1,1,1,1] not []. (c) output name 'out'.
 - Perf: Swin at 256 will be much slower than MagNet (maybe 100s of ms - seconds). Async already handles it (UI stays 60fps, neural refreshes slower). Show ms/frame in status.
 - IMPROVE base64 decode: current atob+charloop is slow for 97MB. Use fetch('data:application/octet-stream;base64,'+b64).arrayBuffer() for fast native decode, or chunked. Important so load 'runs well'.
+
+## DECISION: fixed export resolution = 512x512 (user chose). 512 = 8*64, valid (conv_first /8 -> 64 feature, window 8 -> 8 windows). Construct STBVMM(img_size=512, manipulator_num_resblk=1), drop attn_mask keys, load, export fp16 ONNX at 512. Size still ~72MB (weights dominate; res only affects tiny mask buffers). ~4x the compute of 256 -> slower per frame, async keeps UI smooth. In browser: resize input frames to 512x512 for HQ inference, draw result scaled back to display.
