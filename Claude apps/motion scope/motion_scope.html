@@ -1157,8 +1157,9 @@ struct UC { w:f32, h:f32, orient:f32, sx:f32, sy:f32 };
   let up=textureSampleLevel(reconHi, samp, vec2f(fc.x/u.dw, fc.y/u.dh), 0.0).r;
   return vec4f(l+up, 0., 0., 1.);
 }`;
-  const WGSL_RZOUT = RZU + `
-@group(0) @binding(0) var<uniform> u:RZU;
+  const WGSL_RZOUT = `
+struct RZO { dw:f32, dh:f32, motion:f32, pad:f32 };
+@group(0) @binding(0) var<uniform> u:RZO;
 @group(0) @binding(1) var samp:sampler;
 @group(0) @binding(2) var ext:texture_external;
 @group(0) @binding(3) var recon0:texture_2d<f32>;
@@ -1168,7 +1169,9 @@ struct UC { w:f32, h:f32, orient:f32, sx:f32, sy:f32 };
   let col=textureSampleBaseClampToEdge(ext,samp,uv).rgb*255.0;
   let y=0.299*col.r+0.587*col.g+0.114*col.b;
   let r0=textureLoad(recon0, vec2i(i32(fc.x),i32(fc.y)), 0).r;
-  return vec4f(clamp(col+vec3f(r0-y), vec3f(0.), vec3f(255.))/255.0, 1.0);
+  let d=r0-y;
+  if(u.motion>0.5){ return vec4f(clamp(vec3f(128.0)+vec3f(d)*2.0, vec3f(0.), vec3f(255.))/255.0, 1.0); }
+  return vec4f(clamp(col+vec3f(d), vec3f(0.), vec3f(255.))/255.0, 1.0);
 }`;
 
   const RZP = `struct RZP { seed:f32, aSlow:f32, aFast:f32, alpha:f32, floorv:f32, leak:f32 };`;
@@ -1295,7 +1298,8 @@ struct MRT { @location(0) phase:vec4f, @location(1) ema:vec4f, @location(2) scr:
       const rzPipes = { L:mkPipe(mkMod(WGSL_RZL),rz16), R:mkPipe(mkMod(WGSL_RZRED),rz16), Lap:mkPipe(mkMod(WGSL_RZLAP),rz16), Col:mkPipe(mkMod(WGSL_RZCOL),rz16), Out:mkPipe(mkMod(WGSL_RZOUT),[{format}]),
         Tri:mkPipe(mkMod(WGSL_RZTRI),rf16), Phase:mkPipe(mkMod(WGSL_RZPHASE),[{format:'rgba16float'},{format:'rgba16float'},{format:'rgba16float'}]), BH:mkPipe(mkMod(WGSL_RZBH),rf16), BV:mkPipe(mkMod(WGSL_RZBV),rf16), Shift:mkPipe(mkMod(WGSL_RZSHIFT),rz16) };
       const rzPhaseUni = device.createBuffer({ size:32, usage:GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST });
-      gpu = { device, ctx, format, pipeline, pipelineI, uniformBuf, uniformBufI, warp, cmpPipe, cmpBuf, rzPipes, rzPhaseUni, rzG:[], rzLap:[], rzRecon:[], rzUni:[], rzL:0, rzTri:[], rzPhase:[], rzEma:[], rzScr:[], rzScrH:[], rzPing:0, rzSeeded:false, sampler:device.createSampler({magFilter:'linear',minFilter:'linear'}), slow:[null,null], fast:[null,null], tnr:[null,null], bg:[null,null], itnr:[null,null], wlumaS:[null,null], wlumaF:[null,null], wyit:null, wprodA:null, wprodB:null, wprodAh:null, wprodBh:null, wfld:[null,null], wplate:[null,null], wflow:null, wflowH:null, wout:null, cmpPipe:null, cmpBuf:null, ping:0, isoPing:0, wping:0, seeded:false, isoSeeded:false, wseeded:false, w:0, h:0 };
+      const rzOutBuf = device.createBuffer({ size:16, usage:GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST });
+      gpu = { device, ctx, format, pipeline, pipelineI, uniformBuf, uniformBufI, warp, cmpPipe, cmpBuf, rzPipes, rzPhaseUni, rzOutBuf, rzG:[], rzLap:[], rzRecon:[], rzUni:[], rzL:0, rzTri:[], rzPhase:[], rzEma:[], rzScr:[], rzScrH:[], rzPing:0, rzSeeded:false, sampler:device.createSampler({magFilter:'linear',minFilter:'linear'}), slow:[null,null], fast:[null,null], tnr:[null,null], bg:[null,null], itnr:[null,null], wlumaS:[null,null], wlumaF:[null,null], wyit:null, wprodA:null, wprodB:null, wprodAh:null, wprodBh:null, wfld:[null,null], wplate:[null,null], wflow:null, wflowH:null, wout:null, cmpPipe:null, cmpBuf:null, ping:0, isoPing:0, wping:0, seeded:false, isoSeeded:false, wseeded:false, w:0, h:0 };
       allocGPUTextures();
       return true;
     }catch(e){ gpuFallback('init'); return false; }
@@ -1522,7 +1526,8 @@ struct MRT { @location(0) phase:vec4f, @location(1) ema:vec4f, @location(2) scr:
       run(P.Shift, [{binding:0,resource:PU},{binding:1,resource:VV(TRI[cur])},{binding:2,resource:VV(gpu.rzScr[k])}], LAP[k]);
     }
     for(let k=L-2;k>=0;k--){ const hi=(k===L-2)?G[L-1]:RC[k+1]; run(P.Col, [{binding:0,resource:{buffer:U[k]}},{binding:1,resource:gpu.sampler},{binding:2,resource:VV(LAP[k])},{binding:3,resource:VV(hi)}], RC[k]); }
-    const bgO=dev.createBindGroup({layout:P.Out.getBindGroupLayout(0),entries:[{binding:0,resource:{buffer:U[0]}},{binding:1,resource:gpu.sampler},{binding:2,resource:ext},{binding:3,resource:VV(RC[0])}]});
+    dev.queue.writeBuffer(gpu.rzOutBuf,0,new Float32Array([procW,procH,mode==='motion'?1:0,0]));
+    const bgO=dev.createBindGroup({layout:P.Out.getBindGroupLayout(0),entries:[{binding:0,resource:{buffer:gpu.rzOutBuf}},{binding:1,resource:gpu.sampler},{binding:2,resource:ext},{binding:3,resource:VV(RC[0])}]});
     const p=enc.beginRenderPass({colorAttachments:[{view:gpu.ctx.getCurrentTexture().createView(),clearValue:{r:0,g:0,b:0,a:1},loadOp:'clear',storeOp:'store'}]}); p.setPipeline(P.Out); p.setBindGroup(0,bgO); p.draw(3); p.end();
     gpu.rzPing=prev; gpu.rzSeeded=true;
     dev.queue.submit([enc.finish()]);
@@ -1640,9 +1645,10 @@ struct MRT { @location(0) phase:vec4f, @location(1) ema:vec4f, @location(2) scr:
     out.push({img:lap[nb].img,w:lap[nb].w,h:lap[nb].h});
     for(let k=0;k<nb;k++){P.lap[k].img.set(lap[k].img);P.rx[k].set(rx[k]);P.ry[k].set(ry[k]);}
     const Ymag=rzCollapse(out);
+    const rzMo=(mode==='motion');
     for(let p=0;p<n;p++){const i4=p<<2,dl=Ymag[p]-rzY[p];
-      let r=d[i4]+dl,g=d[i4+1]+dl,b=d[i4+2]+dl;
-      d[i4]=r<0?0:r>255?255:r; d[i4+1]=g<0?0:g>255?255:g; d[i4+2]=b<0?0:b>255?255:b;}
+      if(rzMo){ let v=128+dl*2; v=v<0?0:v>255?255:v; d[i4]=v; d[i4+1]=v; d[i4+2]=v; }
+      else { let r=d[i4]+dl,g=d[i4+1]+dl,b=d[i4+2]+dl; d[i4]=r<0?0:r>255?255:r; d[i4+1]=g<0?0:g>255?255:g; d[i4+2]=b<0?0:b>255?255:b; } }
     energy=eSum/(nb*procW*procH)*4;
   }
 
