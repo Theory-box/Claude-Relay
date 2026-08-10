@@ -161,6 +161,12 @@
         <button id="mLinear" aria-pressed="true">Linear</button>
         <button id="mPhase" aria-pressed="false">Phase<span class="beta">BETA</span></button>
         <button id="mRiesz" aria-pressed="false">Riesz<span class="beta">BETA</span></button>
+        <button id="mNeural" aria-pressed="false">Neural<span class="beta">BETA</span></button>
+      </div>
+      <div id="neuralPanel" style="display:none">
+        <div class="btns"><button class="act" id="neuralRefBtn">Set reference frame</button></div>
+        <p class="note" id="neuralStat"></p>
+        <p class="note"><b>Neural (beta)</b> — a learned motion-magnification network (Oh 2018) running in your browser via ONNX Runtime. It magnifies motion relative to a reference frame; <b>Gain</b> = magnification factor. It runs a neural net per frame, so it updates slower than the other engines and processes at reduced resolution.</p>
       </div>
       <p class="note" id="methodNote"><b>Linear</b> amplifies brightness change — simple, but amplifies noise. <b>Phase</b> and <b>Riesz</b> amplify displacement instead, so brightness noise is largely left alone. <b>Riesz</b> is the fast, high-quality phase method — the best all-round pick.</p>
     </details>
@@ -400,8 +406,12 @@
     mLinear.setAttribute('aria-pressed', m==='linear');
     mPhase.setAttribute('aria-pressed', m==='phase');
     mRiesz.setAttribute('aria-pressed', m==='riesz');
+    if(window.mNeural) mNeural.setAttribute('aria-pressed', m==='neural');
+    var np=$('neuralPanel'); if(np) np.style.display=(m==='neural')?'block':'none';
+    if(m==='neural'){ neuralRef=null; loadNeural(); }
     switchProfile();
   }
+  mNeural.onclick = () => setMethod('neural');
 
   const modeAmp=$('modeAmp'), modeMotion=$('modeMotion'), modeIsolate=$('modeIsolate'), modeWarp=$('modeWarp');
   modeAmp.onclick = () => setMode('amp');
@@ -1628,6 +1638,56 @@ struct MRT { @location(0) phase:vec4f, @location(1) ema:vec4f, @location(2) scr:
   }
 
   // --- main loop ---
+
+  // ============ Neural motion magnification (Oh 2018 MagNet, ONNX Runtime Web) ============
+  let ortLoading=false, ortReady=false, magSession=null, neuralBusy=false, neuralMsg='', neuralBackend='';
+  let neuralRef=null, neuralRefW=0, neuralRefH=0, neuralPrev=null, neuralResult=null, neuralResW=0, neuralResH=0, neuralMode='static', _nMs=0;
+  const ORT_VER='1.20.1', ORT_BASE='https://cdn.jsdelivr.net/npm/onnxruntime-web@1.20.1/dist/';
+  const nIn=document.createElement('canvas'), nInCtx=nIn.getContext('2d',{willReadFrequently:true});
+  const nOut=document.createElement('canvas'), nOutCtx=nOut.getContext('2d');
+  const NRES=256;
+  function _c8(v){ return v<0?0:v>255?255:v; }
+  function updateNeuralStat(){ const el=$('neuralStat'); if(!el) return; el.textContent = neuralMsg ? neuralMsg : (ortReady ? ('ready · '+neuralBackend.toUpperCase()+(_nMs?(' · '+Math.round(_nMs)+' ms/frame'):'')) : ''); }
+  function neuralProcSize(){ const W=procW||16,H=procH||9,ar=W/H; let w,h; if(W>=H){ w=NRES; h=Math.round(NRES/ar);} else { h=NRES; w=Math.round(NRES*ar);} w=Math.max(8,w-(w%4)); h=Math.max(8,h-(h%4)); return {w:w,h:h}; }
+  async function loadNeural(){
+    if(ortLoading||ortReady) return; ortLoading=true; neuralMsg='loading runtime…'; updateNeuralStat();
+    try{
+      if(!window.ort){ await new Promise((res,rej)=>{ const sc=document.createElement('script'); sc.src=ORT_BASE+'ort.webgpu.min.js'; sc.onload=res; sc.onerror=()=>rej(new Error('could not load onnxruntime-web from CDN (offline?)')); document.head.appendChild(sc); }); }
+      ort.env.wasm.wasmPaths=ORT_BASE;
+      neuralMsg='loading model…'; updateNeuralStat();
+      const resp=await fetch('magnet.onnx'); if(!resp.ok) throw new Error('magnet.onnx not found next to the page ('+resp.status+') — put it in the same folder');
+      const buf=new Uint8Array(await resp.arrayBuffer());
+      try{ magSession=await ort.InferenceSession.create(buf,{executionProviders:['webgpu','wasm']}); neuralBackend='webgpu'; }
+      catch(e1){ magSession=await ort.InferenceSession.create(buf,{executionProviders:['wasm']}); neuralBackend='wasm'; }
+      ortReady=true; neuralMsg='';
+    }catch(e){ neuralMsg='load failed: '+((e&&e.message)||e); }
+    ortLoading=false; updateNeuralStat();
+  }
+  function grabTensor(w,h){ nIn.width=w; nIn.height=h; nInCtx.drawImage(video,0,0,w,h); const px=nInCtx.getImageData(0,0,w,h).data, plane=w*h, data=new Float32Array(3*plane); for(let i=0,p=0;i<plane;i++,p+=4){ data[i]=px[p]/127.5-1; data[plane+i]=px[p+1]/127.5-1; data[2*plane+i]=px[p+2]/127.5-1; } return data; }
+  async function runNeural(){
+    if(!ortReady||neuralBusy) return; neuralBusy=true;
+    try{
+      const sz=neuralProcSize(), w=sz.w, h=sz.h, B=grabTensor(w,h);
+      if(!neuralRef||neuralRefW!==w||neuralRefH!==h){ neuralRef=B.slice(); neuralRefW=w; neuralRefH=h; }
+      const A=(neuralMode==='live'&&neuralPrev&&neuralPrev.length===B.length)?neuralPrev:neuralRef;
+      const amp=Math.max(0,gain), t0=performance.now();
+      const out=await magSession.run({ frameA:new ort.Tensor('float32',A,[1,3,h,w]), frameB:new ort.Tensor('float32',B,[1,3,h,w]), amp:new ort.Tensor('float32',new Float32Array([amp]),[]) });
+      _nMs=performance.now()-t0;
+      const od=(out.out||out[Object.keys(out)[0]]).data, plane=w*h, im=new ImageData(w,h);
+      for(let i=0,p=0;i<plane;i++,p+=4){ im.data[p]=_c8((od[i]+1)*127.5); im.data[p+1]=_c8((od[plane+i]+1)*127.5); im.data[p+2]=_c8((od[2*plane+i]+1)*127.5); im.data[p+3]=255; }
+      neuralResult=im; neuralResW=w; neuralResH=h; neuralPrev=B; neuralMsg=''; updateNeuralStat();
+    }catch(e){ neuralMsg='run error: '+((e&&e.message)||e); updateNeuralStat(); }
+    neuralBusy=false;
+  }
+  function neuralLoop(){
+    if(view.style.display==='none'){ view.style.display='block'; viewGPU.style.display='none'; }
+    if(view.width!==procW||view.height!==procH){ view.width=procW; view.height=procH; }
+    if(ortReady) runNeural();
+    if(neuralResult){ nOut.width=neuralResW; nOut.height=neuralResH; nOutCtx.putImageData(neuralResult,0,0); dctx.imageSmoothingEnabled=true; dctx.drawImage(nOut,0,0,neuralResW,neuralResH,0,0,procW,procH); }
+    else { dctx.drawImage(video,0,0,procW,procH); }
+  }
+  if($('neuralRefBtn')) $('neuralRefBtn').onclick=()=>{ neuralRef=null; };
+
   function loop(){
     if (!running) return;
     const now = performance.now(); const dt = now-lastT; lastT = now;
@@ -1641,6 +1701,7 @@ struct MRT { @location(0) phase:vec4f, @location(1) ema:vec4f, @location(2) scr:
         if(view.style.display==='none'){ view.style.display='block'; viewGPU.style.display='none'; }
         drawReadout(); raf=requestAnimationFrame(loop); return;
       }
+      if(method==='neural' && (mode==='amp'||mode==='motion')){ neuralLoop(); drawReadout(); raf=requestAnimationFrame(loop); return; }
       const gpuActive = useGPU && gpu && !gpuFailed && gpuSupportedFor();
       const want = gpuActive ? 'webgpu' : 'cpu';
       if(want!==backend){ backend=want; updateEngineBadge(); updateInertControls(); }
@@ -2087,7 +2148,7 @@ struct MRT { @location(0) phase:vec4f, @location(1) ema:vec4f, @location(2) scr:
 
   function drawReadout(){
     readout.innerHTML =
-      `<b>${method==='riesz'?'RIESZ':method==='phase'?'PHASE':'LINEAR'}</b> &nbsp; ` +
+      `<b>${method==='riesz'?'RIESZ':method==='phase'?'PHASE':method==='neural'?'NEURAL':'LINEAR'}</b> &nbsp; ` +
       `<b>${fps.toFixed(0)}</b> fps &nbsp; <b>${procW}×${procH}</b> &nbsp; ` +
       `band <b>${loHz.toFixed(1)}–${hiHz.toFixed(1)}</b> Hz &nbsp; gain <b>${gain}×</b>` +
       (capFps ? ` &nbsp; cap <b>${capFps}</b>/s · <span style="color:${(hiHz>capFps/2+0.01)?'var(--hot)':'inherit'}">resolves ≤${(capFps/2).toFixed(0)} Hz${(hiHz>capFps/2+0.01)?' ⚠ band too high':''}</span>` : '');
