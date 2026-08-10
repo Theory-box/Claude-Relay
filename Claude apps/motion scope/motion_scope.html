@@ -1031,7 +1031,7 @@ struct FSO { @location(0) flowN:vec4f, @location(1) fldN:vec4f };
   fd = fd + 0.4*(vec2f(dx,dy)-fd);
   var du=vec2f(dx,dy);
   if(u.fdOn>0.5){ du=fd; }
-  let strc=A.x+A.y; du=du*(strc/(strc+u.confK));
+  let strc=A.x+A.y; du=du*(strc/(strc+u.confK+1e-3));
   var o:FSO; o.flowN=vec4f(du,0.,1.); o.fldN=vec4f(fd,0.,1.); return o;
 }`;
   // Pass Fsmooth: edge-aware (luma-guided) separable smoothing of the flow field
