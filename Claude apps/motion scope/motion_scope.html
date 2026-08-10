@@ -181,6 +181,11 @@
         <input type="range" id="gain" min="1" max="80" step="1" value="18">
       </label>
       <p class="note">How strongly to exaggerate the motion. 1× is off.</p>
+      <label class="field" id="isoRateField">
+        <span class="row"><span>Fade rate</span><span class="val" id="isoRateVal">medium</span></span>
+        <input type="range" id="isoRate" min="0" max="100" step="5" value="46">
+      </label>
+      <p class="note" id="isoRateNote"><b>Fade rate</b> (Isolate) — how fast a now-still object melts into the background. Low = motion lingers longer; high = it fades quickly.</p>
       <label class="field">
         <span class="row"><span>Frequency band</span><span class="val" id="freqBandVal">0.50–6.00 Hz</span></span>
         <div id="freqTrack" class="freqtrack">
@@ -189,7 +194,7 @@
           <div id="freqHi" class="freqthumb"></div>
         </div>
       </label>
-      <p class="note" id="freqNote">Only motion whose rhythm falls between the two handles is amplified. Drag the band to move it, or a handle to widen/narrow. Slow sway ≈ low Hz, fast flutter ≈ high Hz. Shared across all modes.</p>
+      <p class="note" id="freqNote">Only motion whose rhythm falls between the two handles is amplified. Drag the band to move it, or a handle to widen/narrow. Slow sway ≈ low Hz, fast flutter ≈ high Hz. Drag the low handle all the way down (~0 Hz) to catch slow drift / any change vs the start. Shared across all modes.</p>
     </details>
 
     <details class="group" id="warpFieldGroup">
@@ -289,6 +294,7 @@
   let stream = null, running = false, raf = 0;
   let capFps = 0, _vfcN = 0, _vfcT0 = 0;
   let fileURL=null, procFps=0, _mt0=-1, _mn0=0, newFrame=false, sampleFps=30, mediaRec=null, recChunks=[]; const playSpeeds=[0.1,0.25,0.5,1];
+  let isoFade=0.03;
   let procW = 0, procH = 0, initialized = false;
   let method = 'linear', mode = 'amp', compareMode = 'off', holdOrig = false, curProfile = 'linear';
   let backend = 'cpu';                       // active compute path (flips as GPU paths are ported)
@@ -332,7 +338,7 @@
   const supOff=$('supOff'), supOn=$('supOn');
   supOff.onclick=()=>setSup(false); supOn.onclick=()=>setSup(true);
   function setSup(on){ suppress=on; deepFlow=on; warpReady=false; supOn.setAttribute('aria-pressed',on); supOff.setAttribute('aria-pressed',!on); updateGainLabel(); }
-  const FMIN=0.1, FMAX=25;
+  const FMIN=0.02, FMAX=25;
   const f2t=(v)=>Math.log(Math.min(FMAX,Math.max(FMIN,v))/FMIN)/Math.log(FMAX/FMIN);
   const t2f=(t)=>FMIN*Math.pow(FMAX/FMIN, Math.min(1,Math.max(0,t)));
   function applyBand(){ if(loHz<FMIN)loHz=FMIN; if(hiHz>FMAX)hiHz=FMAX; if(hiHz<loHz+0.05)hiHz=loHz+0.05; centerHz=(loHz+hiHz)/2; widthHz=hiHz-loHz; }
@@ -414,6 +420,7 @@
     show($('freqNote'), p!=='isolate');
     show($('warpFieldGroup'), p==='warp');
     show($('resetGroup'), p==='warp'||p==='isolate');
+    show($('isoRateField'), p==='isolate'); show($('isoRateNote'), p==='isolate');
     const tnrOn=(p==='linear'||p==='phase'||p==='isolate');
     show(fld('tnr'), tnrOn); show($('tnrNote'), tnrOn); }
   function updateInertControls(){
@@ -437,6 +444,8 @@
     stabOn.setAttribute('aria-pressed', on); stabOff.setAttribute('aria-pressed', !on); }
   const stabStrEl=$('stabStr'), stabStrVal=$('stabStrVal');
   stabStrEl.oninput = () => { const v=+stabStrEl.value; stabStrength = 0.70 + (v/100)*0.24; stabStrVal.textContent = v; };
+  const isoRateEl=$('isoRate'), isoRateVal=$('isoRateVal');
+  isoRateEl.oninput = () => { const v=+isoRateEl.value; isoFade = 0.005*Math.pow(50, v/100); isoRateVal.textContent = v<33?'slow':v<67?'medium':'fast'; };
   const stage=document.querySelector('.stage'), regionLayer=$('regionLayer'), drawRegionBtn=$('drawRegionBtn'), clearRegionBtn=$('clearRegionBtn');
   function stageToNorm(cx,cy){ const cv=(viewGPU.style.display!=='none')?viewGPU:view, r=cv.getBoundingClientRect(); const ar=procW/procH, ba=r.width/r.height; let iw,ih,ox,oy; if(ba>ar){ ih=r.height; iw=ih*ar; ox=(r.width-iw)/2; oy=0; } else { iw=r.width; ih=iw/ar; ox=0; oy=(r.height-ih)/2; } return { nx:Math.max(0,Math.min(1,(cx-r.left-ox)/iw)), ny:Math.max(0,Math.min(1,(cy-r.top-oy)/ih)) }; }
   function normRect(g){ const cv=(viewGPU.style.display!=='none')?viewGPU:view, r=cv.getBoundingClientRect(), sr=stage.getBoundingClientRect(); const ar=procW/procH, ba=r.width/r.height; let iw,ih,ox,oy; if(ba>ar){ ih=r.height; iw=ih*ar; ox=(r.width-iw)/2; oy=0; } else { iw=r.width; ih=iw/ar; ox=0; oy=(r.height-ih)/2; } const L=r.left-sr.left+ox, T=r.top-sr.top+oy; return { left:L+g.x0*iw, top:T+g.y0*ih, width:(g.x1-g.x0)*iw, height:(g.y1-g.y0)*ih }; }
@@ -1367,7 +1376,7 @@ struct MRT { @location(0) phase:vec4f, @location(1) ema:vec4f, @location(2) scr:
 
   function gpuFrameIsolate(){
     const dev=gpu.device;
-    const ub=new Float32Array([ gain, 0.03, gpu.isoSeeded?0:1, procW, procH, accX, accY, tnr, 0 ]);
+    const ub=new Float32Array([ gain, isoFade, gpu.isoSeeded?0:1, procW, procH, accX, accY, tnr, 0 ]);
     dev.queue.writeBuffer(gpu.uniformBufI, 0, ub);
     const ext=dev.importExternalTexture({ source:video });
     const cur=gpu.isoPing, nxt=1-cur;
@@ -1782,7 +1791,7 @@ struct MRT { @location(0) phase:vec4f, @location(1) ema:vec4f, @location(2) scr:
 
   // ---- ISOLATE: learn the static scene, show only what differs from it (smoke/motion on black) ----
   function isolateFrame(d, n){
-    const g=gain, aBg=0.03;   // slow background adaptation -> converges to the static scene
+    const g=gain, aBg=isoFade;   // background adaptation rate (Fade rate slider)
     let e=0;
     for (let p=0;p<n;p++){
       const i4=p<<2, i3=p*3;
