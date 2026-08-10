@@ -30,3 +30,16 @@
 - Verify input normalization + amp shape/scale (data_loader.py).
 - fp16 size + quality.
 - ORT-Web perf for a 68-137MB Swin at 256 (likely slow, async so ok).
+
+## CHUNK 2a (fp16 + normalization): DONE
+- NORMALIZATION = IDENTICAL to embedded MagNet: in = px/127.5 - 1 ([-1,1], NCHW); out = clip(-1,1); (x+1)*127.5. Browser preproc reusable AS-IS.
+- amp input shape = (1,1,1,1) [B,1,1,1] (run.py unsqueezes x3), NOT scalar [] like MagNet. Handle in wiring.
+- fp16: 136.6MB -> 72.2MB. fp16 vs fp32 maxdiff 0.0035, mean 0.00045 on [-1,1] -> visually lossless. Embedded HTML ~97MB.
+- DECISION (user runs locally, single-user): EMBED fp16 STB-VMM in the single HTML (~97MB ok). fp16 not fp32.
+
+## CHUNK 2b (NEXT): embed + wire
+- Regenerate fp16 onnx (recipe above) -> base64 embed like magnetB64 (2nd <script> tag, e.g. id="stbvmmB64").
+- Wire as a SECOND neural model option: add a "Quality: Fast / High" toggle in the neural panel. Fast=MagNet(embedded 3.7MB, dynamic res). High=STB-VMM(embedded fp16, FIXED 256x256).
+- STB-VMM specifics vs MagNet: (a) FIXED 256x256 input -> resize frame to 256x256 for inference, draw result scaled back (ignore detail slider for HQ, or letterbox-pad to 256). (b) amp tensor shape [1,1,1,1] not []. (c) output name 'out'.
+- Perf: Swin at 256 will be much slower than MagNet (maybe 100s of ms - seconds). Async already handles it (UI stays 60fps, neural refreshes slower). Show ms/frame in status.
+- IMPROVE base64 decode: current atob+charloop is slow for 97MB. Use fetch('data:application/octet-stream;base64,'+b64).arrayBuffer() for fast native decode, or chunked. Important so load 'runs well'.
