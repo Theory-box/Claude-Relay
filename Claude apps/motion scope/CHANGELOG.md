@@ -2,6 +2,19 @@
 
 All notable changes to the app. Newest first.
 
+## 2026-08-11c — Tracker validation + fixes
+
+### Fixed / improved
+- **Confidence metric fixed** — was inverted (noise inflated it; clean tracks flagged "lost").
+  Now a contrast-normalized residual with a low-contrast gate. Validated on synthetic ground truth.
+- Markers no longer mis-draw in **compare mode** (hidden there — single-video mapping doesn't apply).
+- Each live marker now shows its **dominant frequency (Hz)** right on the video.
+
+### Validated (objective, synthetic ground truth via the actual shipped functions)
+- Position RMS **0.013 px** on a clean signal; ~0.3–0.7 px under light/moderate noise.
+- Frequency accurate within one FFT bin across 2–15 Hz; robust even when position is noisy.
+- Confidence now rises for clean tracks and falls with noise; low-contrast features read ~0.
+
 ## 2026-08-11b — Point tracking (Lucas-Kanade)
 
 ### Added
