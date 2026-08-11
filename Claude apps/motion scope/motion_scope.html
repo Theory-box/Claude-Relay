@@ -521,18 +521,17 @@
     tnrEl.value=Math.round(tnr*100); tnrVal.textContent=Math.round(tnr*100)+'%';
     resEl.value=targetH; resVal.textContent=targetH+'p'; }
   function updateVisibility(){
-    const p=curProfile, isMag=(mode==='amp'||mode==='motion');
+    const p=curProfile, isMag=(mode==='amp'||mode==='motion'), isNeural=(method==='neural');
     const show=(el,on)=>{ if(el) el.style.display=on?'':'none'; };
     const fld=(id)=>{ const e=$(id); return e?e.closest('label.field'):null; };
-    show($('methodGroup'), isMag);
-    show(freqTrackEl.closest('label.field'), p!=='isolate');
-    show($('colorField'), p==='linear'); show($('colorNote'), p==='linear');
-    show(fld('scale'), p==='linear'||p==='isolate'); show($('scaleNote'), p==='linear'||p==='isolate');
-    show($('freqNote'), p!=='isolate');
+    show(freqTrackEl.closest('label.field'), p!=='isolate' && !isNeural);
+    show($('colorField'), p==='linear' && !isNeural); show($('colorNote'), p==='linear' && !isNeural);
+    show(fld('scale'), (p==='linear'||p==='isolate') && !isNeural); show($('scaleNote'), (p==='linear'||p==='isolate') && !isNeural);
+    show($('freqNote'), p!=='isolate' && !isNeural);
     show($('resetGroup'), p==='warp'||p==='isolate');
     show($('isoRateField'), p==='isolate'); show($('isoRateNote'), p==='isolate');
-    show($('tmodeSeg'), isMag); show($('tmodeNote'), isMag);
-    const tnrOn=(p==='linear'||p==='phase'||p==='isolate');
+    show($('tmodeSeg'), isMag && !isNeural); show($('tmodeNote'), isMag && !isNeural);
+    const tnrOn=(p==='linear'||p==='phase'||p==='isolate') && !isNeural;
     show(fld('tnr'), tnrOn); show($('tnrNote'), tnrOn); if(typeof updateSettingsGroups==='function') updateSettingsGroups(); }
   function updateInertControls(){
     const gpuOn=(backend==='webgpu'), p=curProfile;
