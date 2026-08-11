@@ -1742,14 +1742,17 @@ struct MRT { @location(0) phase:vec4f, @location(1) ema:vec4f, @location(2) scr:
     // reseed temporal state so filters start clean at the range start
     initialized=false; phaseReady=false; warpReady=false; neuralRef=null; if(gpu){ gpu.rzSeeded=false; gpu.wseeded=false; }
     const frames=[]; const total=Math.max(1,Math.round((endT-startT)*sf));
+    const maxFrames=Math.max(20, Math.min(1800, Math.floor(6e8/((procW*procH*4)||1))));
     let n=0;
     try{
+    if(method==='neural' && (mode==='amp'||mode==='motion')){ if(stat) stat.textContent='loading model...'; await getSession(); }
     for(let t=startT; t<=endT+1e-6 && !batchCancel; t+=dt){
       await seekTo(t);
       const cv=await batchRenderFrame();
       try{ frames.push(await createImageBitmap(cv)); }catch(e){ try{ const tc=document.createElement('canvas'); tc.width=cv.width; tc.height=cv.height; tc.getContext('2d').drawImage(cv,0,0); frames.push(await createImageBitmap(tc)); }catch(e2){ if(stat) stat.textContent='capture failed: '+(e2.message||e2); } }
       n++; if(stat) stat.textContent='processing '+n+' / '+total+' frames...';
-      if(frames.length>1800){ if(stat) stat.textContent='reached 1800-frame cap; encoding...'; break; }
+      await new Promise(r=>setTimeout(r,4));
+      if(frames.length>=maxFrames){ if(stat) stat.textContent='hit memory cap ('+maxFrames+' frames at this resolution); encoding what we have...'; break; }
     }
     if(!batchCancel && frames.length){ if(stat) stat.textContent='encoding '+frames.length+' frames to WebM...'; await encodeAndDownload(frames, sf, procW, procH, stat); if(stat) stat.textContent='done - downloaded ('+frames.length+' frames).'; }
     else if(stat) stat.textContent = batchCancel?'cancelled.':'nothing to process.';
