@@ -467,7 +467,7 @@
     set('mLinear',eng==='linear'); set('mPhase',eng==='phase'); set('mRiesz',eng==='riesz'); set('mNeural',eng==='neural'); set('mWarp',eng==='warp'); set('mIsolate',eng==='isolate');
     set('modeAmp',mode==='amp'); set('modeMotion',mode==='motion');
     const vi=$('viewIcons'); if(vi) vi.style.display=(mode==='warp'||mode==='isolate')?'none':'';
-    if(typeof updateSettingsGroups==='function') updateSettingsGroups(); }
+    if(typeof updateSettingsGroups==='function') updateSettingsGroups(); if(typeof updateTabAvailability==='function') updateTabAvailability(); }
   function pickEngine(e){ if(e==='warp'||e==='isolate'){ setMode(e); } else { if(mode==='warp'||mode==='isolate') setMode(lastView); setMethod(e); } if(e==='neural' && typeof setTab==='function') setTab('settings'); refreshEngineUI(); }
   function pickView(v){ lastView=v; setMode(v); refreshEngineUI(); }
   mLinear.onclick = () => pickEngine('linear');
@@ -478,8 +478,9 @@
   var activeTab='capture';
   function updateSettingsGroups(){ const inS=(activeTab==='settings'); const ng=$('neuralGroup'); if(ng) ng.style.display=(inS && method==='neural')?'':'none'; const wf=$('warpFieldGroup'); if(wf) wf.style.display=(inS && mode==='warp')?'':'none'; }
   function setTab(t){ activeTab=t; document.querySelectorAll('.tabstrip button').forEach(b=>b.setAttribute('aria-selected', String(b.dataset.tab===t))); document.querySelectorAll('#tabcontent > .group').forEach(g=>{ g.style.display=(g.dataset.tab===t)?'':'none'; }); updateSettingsGroups(); }
+  function updateTabAvailability(){ const off={ stabilize: method==='neural', smoothing: method==='neural' }; let hidActive=false; document.querySelectorAll('.tabstrip button').forEach(b=>{ const t=b.dataset.tab, hide=!!off[t]; b.style.display=hide?'none':''; if(hide && activeTab===t) hidActive=true; }); if(hidActive) setTab('settings'); }
   document.querySelectorAll('.tabstrip button').forEach(b=>{ b.onclick=()=>setTab(b.dataset.tab); });
-  setTab('capture');
+  setTab('capture'); updateTabAvailability();
   function setMethod(m){
     method = m; initialized = false; phaseReady = false;
     mLinear.setAttribute('aria-pressed', m==='linear');
@@ -528,6 +529,7 @@
     show($('colorField'), p==='linear' && !isNeural); show($('colorNote'), p==='linear' && !isNeural);
     show(fld('scale'), (p==='linear'||p==='isolate') && !isNeural); show($('scaleNote'), (p==='linear'||p==='isolate') && !isNeural);
     show($('freqNote'), p!=='isolate' && !isNeural);
+    show(fld('denoise'), !isNeural);
     show($('resetGroup'), p==='warp'||p==='isolate');
     show($('isoRateField'), p==='isolate'); show($('isoRateNote'), p==='isolate');
     show($('tmodeSeg'), isMag && !isNeural); show($('tmodeNote'), isMag && !isNeural);
