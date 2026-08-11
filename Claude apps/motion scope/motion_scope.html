@@ -43,6 +43,11 @@
   canvas#viewGPU{max-width:100%;max-height:100%;width:100%;height:100%;object-fit:contain;background:#000}
   video#src{display:none}
   .stage .overlay{position:absolute;inset:0;pointer-events:none;display:flex;flex-direction:column;justify-content:space-between;padding:.6rem .75rem}
+  #videoBar{position:absolute;left:0;right:0;bottom:0;display:flex;align-items:center;gap:.55rem;padding:.4rem .7rem;background:linear-gradient(transparent,rgba(0,0,0,.7));z-index:6}
+  #videoBar button{background:rgba(0,0,0,.35);color:#fff;border:none;border-radius:5px;padding:.15rem .6rem;cursor:pointer;font-size:.95rem;line-height:1.5;flex:none}
+  #videoBar button:hover{background:rgba(0,0,0,.6)}
+  #videoBar input[type=range]{flex:1 1 auto;accent-color:#39e6c4;cursor:pointer;height:5px;margin:0}
+  #videoBar .vbtime{color:#e8eef4;font-size:.78rem;flex:none;font-variant-numeric:tabular-nums;min-width:5.6rem;text-align:right}
   .readout{align-self:flex-start;font-family:var(--mono);font-size:.72rem;color:var(--muted);background:rgba(6,10,14,.55);border:1px solid var(--line);border-radius:6px;padding:.3rem .5rem;line-height:1.5;backdrop-filter:blur(4px)}
   .readout b{color:var(--ink);font-weight:600}
   .energy{align-self:flex-end;width:100%;max-width:280px;font-family:var(--mono);font-size:.68rem;color:var(--muted)}
@@ -104,6 +109,11 @@
       <div class="energy">motion energy<div class="bar"><i id="energyBar"></i></div></div>
     </div>
     <div id="gpuMsg" class="gpumsg" hidden></div>
+    <div id="videoBar" style="display:none">
+      <button id="vbPlay" title="Play / Pause">&#10074;&#10074;</button>
+      <input type="range" id="vbSeek" min="0" max="1000" step="1" value="0">
+      <span class="vbtime" id="vbTime">0:00 / 0:00</span>
+    </div>
     <div class="empty" id="empty">
       <h2>No camera running</h2>
       <p>Pick a source and press <b>Start</b>. Point a tripod-mounted camera at something nearly still and turn amplification up.</p>
@@ -122,9 +132,7 @@
       <input type="file" id="fileInput" accept="video/*" style="display:none">
       <button class="act" id="openFileBtn">Open video file…</button>
       <div id="fileCtrls" style="display:none;margin-top:.4rem">
-        <label class="field"><span class="row"><span>Timeline</span><span class="val" id="timeVal">0:00 / 0:00</span></span>
-          <input type="range" id="seekEl" min="0" max="1000" step="1" value="0"></label>
-        <div class="btns"><button class="act" id="playPauseBtn">Pause</button><button class="act" id="restartBtn">Restart</button></div>
+        <div class="btns"><button class="act" id="restartBtn">Restart</button></div>
         <label class="field"><span class="row"><span>Playback speed</span><span class="val" id="speedVal">1×</span></span>
           <input type="range" id="speedEl" min="0" max="4" step="1" value="3"></label>
         <p class="note">Slower speed lets the app process <b>every</b> frame of a high-frame-rate clip (needed to catch fast vibration). For a 120 fps clip on a 60 Hz screen use 0.5× or lower — watch the "resolves ≤ … Hz" readout climb as you slow it.</p>
@@ -712,22 +720,23 @@
     lastT = performance.now(); loop();
   }
   async function attachStream(){ try{ video.pause(); }catch(e){} try{ video.removeAttribute('src'); }catch(e){} video.loop=false; video.playbackRate=1; video.srcObject = stream; await video.play(); onSourceReady(); }
-  const fileInput=$('fileInput'), openFileBtn=$('openFileBtn'), fileCtrls=$('fileCtrls'), playPauseBtn=$('playPauseBtn'), restartBtn=$('restartBtn'), speedEl=$('speedEl'), speedVal=$('speedVal'), recordBtn=$('recordBtn');
+  const fileInput=$('fileInput'), openFileBtn=$('openFileBtn'), fileCtrls=$('fileCtrls'), restartBtn=$('restartBtn'), speedEl=$('speedEl'), speedVal=$('speedVal'), recordBtn=$('recordBtn'), vbPlay=$('vbPlay'), vbSeek=$('vbSeek'), vbTime=$('vbTime'), videoBar=$('videoBar');
   openFileBtn.onclick=()=>fileInput.click();
   fileInput.onchange=()=>{ const fl=fileInput.files&&fileInput.files[0]; if(fl) openVideoFile(fl); fileInput.value=''; };
   async function openVideoFile(file){ stop(); if(fileURL) URL.revokeObjectURL(fileURL); fileURL=URL.createObjectURL(file); procFps=0; _mt0=-1; _mn0=0;
     video.srcObject=null; video.src=fileURL; video.loop=true; video.muted=true; video.playbackRate=playSpeeds[+speedEl.value]; errEl.style.display='none';
-    try{ await video.play(); onSourceReady(); fileCtrls.style.display='block'; playPauseBtn.textContent='Pause'; }catch(e){ showError(e); } }
-  playPauseBtn.onclick=()=>{ if(!fileURL) return; if(video.paused){ video.play(); playPauseBtn.textContent='Pause'; } else { video.pause(); playPauseBtn.textContent='Play'; } };
-  restartBtn.onclick=()=>{ if(fileURL){ video.currentTime=0; video.play(); playPauseBtn.textContent='Pause'; } };
+    try{ await video.play(); onSourceReady(); fileCtrls.style.display='block'; if(videoBar) videoBar.style.display='flex'; syncPlayIcon(); }catch(e){ showError(e); } }
+  function syncPlayIcon(){ if(vbPlay) vbPlay.textContent = video.paused ? '\u25B6' : '\u275A\u275A'; }
+  if(vbPlay) vbPlay.onclick=()=>{ if(!fileURL) return; if(video.paused){ video.play(); } else { video.pause(); } syncPlayIcon(); };
+  restartBtn.onclick=()=>{ if(fileURL){ video.currentTime=0; video.play(); syncPlayIcon(); } };
   speedEl.oninput=()=>{ const sp=playSpeeds[+speedEl.value]; speedVal.textContent=sp+'×'; if(fileURL) video.playbackRate=sp; };
-  const seekEl=$('seekEl'), timeVal=$('timeVal'); let seekDrag=false;
+  let seekDrag=false;
   const fmtT=(x)=>{ x=x||0; if(!isFinite(x))x=0; return Math.floor(x/60)+':'+String(Math.floor(x%60)).padStart(2,'0'); };
-  seekEl.addEventListener('pointerdown',()=>{ seekDrag=true; });
+  if(vbSeek){ vbSeek.addEventListener('pointerdown',()=>{ seekDrag=true; }); vbSeek.addEventListener('input',()=>{ if(fileURL && video.duration){ video.currentTime=(+vbSeek.value/1000)*video.duration; if(vbTime) vbTime.textContent=fmtT(video.currentTime)+' / '+fmtT(video.duration); } }); }
   window.addEventListener('pointerup',()=>{ seekDrag=false; });
-  seekEl.addEventListener('input',()=>{ if(fileURL && video.duration){ video.currentTime=(+seekEl.value/1000)*video.duration; timeVal.textContent=fmtT(video.currentTime)+' / '+fmtT(video.duration); } });
-  video.addEventListener('timeupdate',()=>{ if(fileURL && !seekDrag && video.duration){ seekEl.value=Math.round(video.currentTime/video.duration*1000); timeVal.textContent=fmtT(video.currentTime)+' / '+fmtT(video.duration); } });
-  video.addEventListener('loadedmetadata',()=>{ if(fileURL){ seekEl.value=0; timeVal.textContent='0:00 / '+fmtT(video.duration); } });
+  video.addEventListener('timeupdate',()=>{ if(fileURL && !seekDrag && video.duration){ if(vbSeek) vbSeek.value=Math.round(video.currentTime/video.duration*1000); if(vbTime) vbTime.textContent=fmtT(video.currentTime)+' / '+fmtT(video.duration); } });
+  video.addEventListener('loadedmetadata',()=>{ if(fileURL){ if(vbSeek) vbSeek.value=0; if(vbTime) vbTime.textContent='0:00 / '+fmtT(video.duration); } });
+  video.addEventListener('play', syncPlayIcon); video.addEventListener('pause', syncPlayIcon);
   recordBtn.onclick=()=>{ if(mediaRec){ try{mediaRec.stop();}catch(e){} return; }
     const cv=(viewGPU.style.display!=='none')?viewGPU:view; let st; try{ st=cv.captureStream(60); }catch(e){ showError(e); return; }
     recChunks=[]; try{ mediaRec=new MediaRecorder(st,{mimeType:'video/webm'}); }catch(e){ try{ mediaRec=new MediaRecorder(st); }catch(e2){ showError(e2); return; } }
@@ -755,7 +764,7 @@
     if (stream){ stream.getTracks().forEach(t=>t.stop()); stream=null; }
     try{ video.pause(); }catch(e){} video.srcObject=null; if(video.getAttribute('src')){ video.removeAttribute('src'); }
     if(fileURL){ URL.revokeObjectURL(fileURL); fileURL=null; }
-    const fc=$('fileCtrls'); if(fc) fc.style.display='none';
+    const fc=$('fileCtrls'); if(fc) fc.style.display='none'; if(videoBar) videoBar.style.display='none';
     if(typeof stopListen==='function') stopListen();
     overlay.hidden=true; empty.hidden=false;
     $('startBtn').disabled=false; $('stopBtn').disabled=true;
