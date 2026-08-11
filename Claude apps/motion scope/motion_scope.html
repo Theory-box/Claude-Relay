@@ -145,6 +145,7 @@
           <label style="font-size:.8rem">Start s <input id="pvStart" type="number" step="0.1" value="0" style="width:5rem"></label>
           <label style="font-size:.8rem">End s <input id="pvEnd" type="number" step="0.1" value="0" style="width:5rem"></label>
         </div>
+        <div style="margin-top:.35rem;font-size:.8rem">Pack (theta-Net) <select id="pvPack" style="font-size:.8rem"><option value="1">Off - full 1280</option><option value="2">2x - half-res, ~2x faster</option><option value="4">4x - quarter-res, ~4x faster</option></select></div>
         <div style="display:flex;gap:.4rem;margin-top:.4rem"><button class="act primary" id="pvGo">Start</button><button class="act" id="pvCancel">Cancel</button></div>
         <div class="note" id="pvStatus" style="margin-top:.35rem"></div>
       </div>
@@ -1772,8 +1773,60 @@ struct MRT { @location(0) phase:vec4f, @location(1) ema:vec4f, @location(2) scr:
       if(!wasPaused){ try{ video.play(); }catch(e){} }
     }
   }
+  function tileToArray(ctx,S){ const px=ctx.getImageData(0,0,S,S).data, data=new Float32Array(S*S*3); for(let i=0,p=0;i<S*S;i++,p+=4){ const j=i*3; data[j]=px[p]/127.5-1; data[j+1]=px[p+1]/127.5-1; data[j+2]=px[p+2]/127.5-1; } return data; }
+  async function processVideoTiled(startT, endT, pack){
+    if(!fileURL || batchBusy) return; batchBusy=true; batchCancel=false; neuralBusy=false;
+    const stat=$('pvStatus'); const wasPaused=video.paused; try{ video.pause(); }catch(e){}
+    const sf=Math.min(60,(procFps>0?procFps:30)||30), dt=1/sf; sampleFps=sf;
+    const S=1280, cells = pack===2 ? [{x:0,y:0,w:640,h:1280},{x:640,y:0,w:640,h:1280}] : [{x:0,y:0,w:640,h:640},{x:640,y:0,w:640,h:640},{x:0,y:640,w:640,h:640},{x:640,y:640,w:640,h:640}], N=cells.length;
+    const frames=[], maxFrames=Math.max(20, Math.min(1800, Math.floor(6e8/((procW*procH*4)||1))));
+    const tA=document.createElement('canvas'); tA.width=S; tA.height=S; const tAx=tA.getContext('2d',{willReadFrequently:true});
+    const tB=document.createElement('canvas'); tB.width=S; tB.height=S; const tBx=tB.getContext('2d',{willReadFrequently:true});
+    const dC=document.createElement('canvas'); dC.width=procW; dC.height=procH; const dCx=dC.getContext('2d',{willReadFrequently:true});
+    const oC=document.createElement('canvas'); oC.width=procW; oC.height=procH; const oCx=oC.getContext('2d',{willReadFrequently:true});
+    const cC=document.createElement('canvas'); const cCx=cC.getContext('2d');
+    const uC=document.createElement('canvas'); uC.width=procW; uC.height=procH; const uCx=uC.getContext('2d',{willReadFrequently:true}); uCx.imageSmoothingEnabled=true;
+    try{
+      if(stat) stat.textContent='loading model...'; const sess=await getSession(); if(!sess) throw new Error('theta-Net not loaded');
+      await seekTo(startT); for(const c of cells) tAx.drawImage(video,c.x,c.y,c.w,c.h);
+      const Atensor=new ort.Tensor('float32', tileToArray(tAx,S), [1,S,S,3]);
+      const ampT=new ort.Tensor('float32', new Float32Array([Math.max(0,gain)]), [1,1]);
+      const total=Math.max(1,Math.round((endT-startT)*sf)), sharp=neuralSharp; let done=0;
+      for(let base=0; startT+base*dt<=endT+1e-6 && !batchCancel; base+=N){
+        const valid=[], origs=[];
+        for(let i=0;i<N;i++){ const t=startT+(base+i)*dt, c=cells[i];
+          if(t>endT+1e-6){ valid.push(false); origs.push(null); tBx.clearRect(c.x,c.y,c.w,c.h); continue; }
+          await seekTo(t); tBx.drawImage(video,c.x,c.y,c.w,c.h);
+          dCx.drawImage(video,0,0,procW,procH); origs.push(sharp?dCx.getImageData(0,0,procW,procH):null); valid.push(true);
+        }
+        const Barr=tileToArray(tBx,S);
+        const out=await sess.run({frame1:Atensor, frame2:new ort.Tensor('float32',Barr,[1,S,S,3]), amp:ampT});
+        const od=out[Object.keys(out)[0]].data;
+        for(let i=0;i<N;i++){ if(!valid[i]) continue; const c=cells[i]; const cim=new ImageData(c.w,c.h);
+          for(let yy=0;yy<c.h;yy++){ for(let xx=0;xx<c.w;xx++){ const g=((c.y+yy)*S+(c.x+xx))*3, p=(yy*c.w+xx)*4;
+            if(sharp){ cim.data[p]=_c8(128+(od[g]-Barr[g])*127.5); cim.data[p+1]=_c8(128+(od[g+1]-Barr[g+1])*127.5); cim.data[p+2]=_c8(128+(od[g+2]-Barr[g+2])*127.5); }
+            else { cim.data[p]=_c8((od[g]+1)*127.5); cim.data[p+1]=_c8((od[g+1]+1)*127.5); cim.data[p+2]=_c8((od[g+2]+1)*127.5); }
+            cim.data[p+3]=255; } }
+          cC.width=c.w; cC.height=c.h; cCx.putImageData(cim,0,0);
+          if(sharp){ oCx.putImageData(origs[i],0,0); uCx.clearRect(0,0,procW,procH); uCx.drawImage(cC,0,0,c.w,c.h,0,0,procW,procH);
+            const B0=oCx.getImageData(0,0,procW,procH), U=uCx.getImageData(0,0,procW,procH).data, D=B0.data;
+            for(let k=0;k<D.length;k+=4){ D[k]=_c8(D[k]+(U[k]-128)); D[k+1]=_c8(D[k+1]+(U[k+1]-128)); D[k+2]=_c8(D[k+2]+(U[k+2]-128)); }
+            oCx.putImageData(B0,0,0);
+          } else { oCx.imageSmoothingEnabled=true; oCx.drawImage(cC,0,0,c.w,c.h,0,0,procW,procH); }
+          try{ frames.push(await createImageBitmap(oC)); }catch(e){}
+          done++; if(frames.length>=maxFrames) break;
+        }
+        if(stat) stat.textContent='processing ~'+done+' / '+total+' frames ('+pack+'x pack)...';
+        await new Promise(r=>setTimeout(r,4));
+        if(frames.length>=maxFrames){ if(stat) stat.textContent='hit memory cap; encoding...'; break; }
+      }
+      if(!batchCancel && frames.length){ if(stat) stat.textContent='encoding '+frames.length+' frames...'; await encodeAndDownload(frames, sf, procW, procH, stat); if(stat) stat.textContent='done - downloaded ('+frames.length+' frames, '+pack+'x pack).'; }
+      else if(stat) stat.textContent=batchCancel?'cancelled.':'nothing to process.';
+    }catch(err){ if(stat) stat.textContent='error: '+((err&&err.message)||err); }
+    finally{ frames.forEach(f=>{ try{ f.close&&f.close(); }catch(e){} }); batchBusy=false; batchCancel=false; neuralBusy=false; neuralRef=null; if(!wasPaused){ try{ video.play(); }catch(e){} } }
+  }
   (function(){ const pv=$('processVideoBtn'); if(pv) pv.onclick=()=>{ if(!fileURL){ const st=$('pvStatus'); if(st) st.textContent='open a video file first.'; $('pvDialog').style.display='block'; return; } const d=$('pvDialog'); $('pvStart').value='0'; $('pvEnd').value=(video.duration||0).toFixed(2); $('pvStatus').textContent=''; d.style.display='block'; };
-    const go=$('pvGo'); if(go) go.onclick=()=>{ const a=parseFloat($('pvStart').value)||0, b=parseFloat($('pvEnd').value)||(video.duration||0); if(b>a) processVideo(a,b); };
+    const go=$('pvGo'); if(go) go.onclick=()=>{ const a=parseFloat($('pvStart').value)||0, b=parseFloat($('pvEnd').value)||(video.duration||0); if(b>a){ const pkEl=$('pvPack'), pk=pkEl?parseInt(pkEl.value,10):1; if(neuralModel==='tnet' && (pk===2||pk===4)) processVideoTiled(a,b,pk); else processVideo(a,b); } };
     const cx=$('pvCancel'); if(cx) cx.onclick=()=>{ if(batchBusy){ batchCancel=true; } else { $('pvDialog').style.display='none'; } };
   })();
   function setNeuralModel(m){ if(neuralModel===m) return; neuralModel=m; neuralRef=null; neuralResult=null; neuralPrev=null; ['fast','stb128','stb256','tnet'].forEach(k=>{ const b=$('nq_'+k); if(b) b.setAttribute('aria-pressed', k===m); }); neuralMsg=''; updateNeuralStat(); getSession(); }
