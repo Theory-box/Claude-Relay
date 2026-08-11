@@ -1,0 +1,44 @@
+# Changelog — Motion Scope
+
+All notable changes to the app. Newest first.
+
+## 2026-08-11 — Neural engine, offline processing, and UI restructure
+
+### Added — Neural / AI magnification
+- In-browser learned motion magnification via ONNX Runtime Web (WebGPU), no server.
+- Four selectable models: **MagNet** (instant, any resolution), **STB-VMM 128 / 256**
+  (Swin Transformer — sharper, less noise), and **theta-Net** (tiny 2025 model, native 1280).
+- **Residual "Sharp" mode** — composites the AI's magnified motion onto the full-resolution
+  frame so low-res models still look crisp (toggle: Sharp / Upscale).
+- Reference-frame workflow with a "Set reference frame" control; Gain drives magnitude.
+
+### Added — Offline processing
+- **Process video** — choose a frame range and render the whole clip in any mode (including
+  the slow neural modes) offline, then download a correctly-timed WebM to play back in real time.
+- **theta-Net frame-packing (2x / 4x)** — packs multiple frames into one fixed-1280 inference
+  for 2-4x batch throughput; degrades gracefully (native quality for <=640px sources).
+
+### Changed — Performance & accuracy
+- Live neural cost cut from ~2200 ms to ~500 ms (256 model); MagNet resolution cap raised so the
+  Detail slider actually drives it.
+- GPU acceleration is now **on by default** (auto-initializes when a source starts).
+
+### Changed — UI
+- **Tabbed control panel**: Capture / Settings / Process / Analysis / Stabilize / Smoothing.
+- **Always-visible method/view rail** on the left with 2-letter labels (LI/PH/RI/AI/WA/IS, A/M)
+  and instant tooltips.
+- **YouTube-style video bar**: play button + full-width scrubber + time, anchored to the bottom
+  of the video (works in compare mode).
+- Source buttons now **toggle** (Live video / Share screen / Open file each flip to Stop).
+- **Warp and Isolate promoted to full methods**; clearer colored panel headers, bigger labels,
+  more spacing between panels.
+- **Smart control visibility** — only settings that affect the current method are shown (e.g. the
+  frequency band, denoise, color, scale, and velocity/acceleration are hidden under Neural; the
+  Stabilize and Smoothing tabs hide for Neural since they don't apply).
+
+### Notes
+- Evaluated newer models (GeoMag 2026, diffusion approaches) for browser use and ruled them out —
+  Mamba/State-Space and multi-step diffusion don't survive in-browser conversion. STB-VMM / theta-Net
+  are the practical ceiling for now.
+- Known: the neural path reads the raw frame and does not yet apply stabilization (possible future
+  feature).

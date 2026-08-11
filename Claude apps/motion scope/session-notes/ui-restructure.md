@@ -90,3 +90,14 @@ User wants Blender-style vertical tabs on the panel + clearer separation.
 Repo Theory-box/Claude-Relay; feature branches for active work, main clean. Output: chat for
 conversation; the ~191MB single HTML via present_files only (never render in chat). Don't expose
 git/token/paths in chat.
+
+## FUTURE IDEAS (user backlog — not started, for whoever picks this up)
+- Directional motion marker: let the user drop a point on the scene and show an arrow indicating
+  the direction that spot is moving.
+- Expand the Analysis tab with real graphs (the current FFT readout is too basic). Goal: select a
+  region (e.g. a person's head) and get a proper live frequency graph — e.g. derive heartbeat from
+  subtle head-bob motion. (This is the classic "Eulerian video magnification for vital signs" use
+  case — pulse from micro-motion/color.)
+- User is surveying other motion-magnification apps for more ideas; expect incremental requests.
+- Possible: make the neural path use the stabilized frame (currently it uses the raw frame).
+- Possible: minor UI polish (tab icons, finalize the placeholder-derived rail labels if desired).
