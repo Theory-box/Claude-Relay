@@ -102,6 +102,13 @@ git/token/paths in chat.
 - Possible: make the neural path use the stabilized frame (currently it uses the raw frame).
 - Possible: minor UI polish (tab icons, finalize the placeholder-derived rail labels if desired).
 
+## STATUS: + tracked-point stabilization built. Track tab has Stabilize off/view. fitSimilarity()
+(Umeyama, current->initial, validated 0px residual) + applyStab() warps view/viewGPU/#trackLayer via
+CSS matrix (transformOrigin 0,0 for canvases; R.left,R.top for the stage-sized overlay). Toggle=stabView.
+This stabilizes the DISPLAYED view (post-process). NEXT could be PRE-stabilization (warp raw frame
+before magnify) + auto Shi-Tomasi corners + RANSAC for robustness. Also still pending: Kalman + phase +
+freq-audit refinement of the tracker.
+
 ## STATUS: Point tracker v1 built (pyramidal inverse-compositional LK). Track tab: Add point (click
 video, up to 8) / Clear. Overlay = marker+trail+velocity arrow on #trackLayer; per-point dominant Hz +
 confidence in #trkStatus. Module lives after the region-resize listener; trackTick() hooked into

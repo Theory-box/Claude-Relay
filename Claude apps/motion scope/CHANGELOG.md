@@ -2,6 +2,14 @@
 
 All notable changes to the app. Newest first.
 
+## 2026-08-11d — Tracked-point stabilization
+
+### Added
+- **Stabilize view** (Track tab): fits a similarity transform (translation + rotation + scale) from
+  your tracked points and warps the picture so they hold still — 1 point cancels shake, 2+ cancel
+  rotation and zoom-wobble. Applied as a CSS transform to the view + marker overlay (moves together).
+  Similarity fit (Umeyama) validated: recovers a known transform to 0.0000px residual.
+
 ## 2026-08-11c — Tracker validation + fixes
 
 ### Fixed / improved
