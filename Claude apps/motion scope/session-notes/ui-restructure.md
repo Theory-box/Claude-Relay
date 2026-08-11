@@ -34,7 +34,26 @@ offline batch → WebM, θNet frame-packing (2×/4×).
   `pickEngine(e)` , `pickView(v)` , `refreshEngineUI()` (sets button aria-pressed by id,
   toggles #viewIcons for warp/isolate, toggles #neuralGroup for neural). `lastView` tracks amp/motion.
 
-## NEXT — layout pass 2 (NOT started): panel TABS + polish
+## DONE — layout pass 2: panel TABS + polish (pushed to main)
+- `.rail` is now flex-row: vertical `.tabstrip` (6 tabs) + `.tabcontent` (#tabcontent) holding the groups.
+- Tabs: Capture / Settings / Process / Analysis / Stabilize / Smoothing. `setTab(t)` shows/hides
+  `#tabcontent > .group` by `data-tab`. `activeTab` state. Tab buttons wired.
+- Split old Capture group into: Source (data-tab=capture), Detail (capture), Processing (record+
+  process+pvDialog), Stabilize. Settings holds neuralGroup + Magnification + Warp field. Analysis=
+  Frequency. Smoothing=Smoothing. Every `<details class="group">` has a data-tab.
+- Neural panel visibility = (activeTab==='settings' && method==='neural') via `updateNeuralGroupVis()`
+  (called from setTab, refreshEngineUI, setMethod). Picking Neural auto-switches to Settings tab.
+- Polish done: colored header bar on `details.group>summary` (bg var(--panel-2), padding, border,
+  radius), bigger/brighter `.group h3` (.76rem, --ink, 700), tabcontent gap 1.5rem.
+
+## POSSIBLE NEXT / REFINE (user to react)
+- Tab labels are plain text in a 60px strip; could add small icons per tab (Blender-style).
+- Icons in the far-left method/view rail are still first-draft placeholders.
+- Verify each tab shows the right controls; Process tab's Record works on live too; Detail slider.
+- Consider: does the reset-baseline belong in Capture/Detail or Settings? Currently in Detail(capture).
+
+## (old plan below, now done)
+### NEXT — layout pass 2 (was): panel TABS + polish
 User wants Blender-style vertical tabs on the panel + clearer separation.
 - Tabs to build: Capture / Settings / Processing / Analysis / Stabilize / Smoothing.
   Add a vertical tab rail (panel's left edge or top), tag each `<details class="group">` with a
