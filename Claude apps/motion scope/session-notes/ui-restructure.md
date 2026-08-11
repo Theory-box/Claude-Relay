@@ -72,6 +72,16 @@ User wants Blender-style vertical tabs on the panel + clearer separation.
   --muted #8ea0b2, --phosphor #39e6c4 (accent), --amber #f2a63b, --hot #ff5d73.
 - Rail icons are first-draft placeholders (user OK, may refine later).
 
+## AUDIT PASS (done, pushed)
+- No orphaned refs to removed elements (startBtn/stopBtn/methodGroup/neuralPanel/modeIsolate/
+  modeWarp/viewGroup/seekEl/timeVal/playPauseBtn all 0).
+- Neural gating: hidden for AI = freq band, color, scale, velocity/accel, temporal denoise, spatial
+  denoise. Only Gain + neural picker apply. Also HIDE Stabilize + Smoothing tabs when method==='neural'
+  (updateTabAvailability(), auto-switches to Settings if a hidden tab was active). NOTE: neural path
+  (grabTensor) uses the RAW frame — does not apply stabilization; could be a future feature.
+- velocity/acceleration correctly shown for Linear/Phase/Riesz (accelMode used in GPU rzPhaseUni + CPU
+  fc path); not neural/warp/isolate.
+
 ## PARKED
 - θNet fixed 1280 (frame-packing done for batch). Dynamic-res STB-VMM (1 model any size, 191→~100MB)
   = parked/risky. GeoMag 2026 = Mamba/SSM, won't convert to ORT-Web — advised against.
