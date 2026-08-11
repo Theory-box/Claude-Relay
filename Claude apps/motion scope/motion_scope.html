@@ -1714,7 +1714,7 @@ struct MRT { @location(0) phase:vec4f, @location(1) ema:vec4f, @location(2) scr:
 
   // ============ Process video (offline batch -> WebM download; works in every mode) ============
   let batchBusy=false, batchCancel=false;
-  function seekTo(t){ return new Promise(res=>{ const on=()=>{ video.removeEventListener('seeked',on); if(video.requestVideoFrameCallback) video.requestVideoFrameCallback(()=>res()); else setTimeout(res,0); }; video.addEventListener('seeked',on); try{ video.currentTime=Math.max(0,Math.min((video.duration||0)-1e-3,t)); }catch(e){ res(); } }); }
+  function seekTo(t){ return new Promise(res=>{ let done=false; const finish=()=>{ if(done) return; done=true; video.removeEventListener('seeked',on); requestAnimationFrame(()=>requestAnimationFrame(()=>res())); }; const on=()=>finish(); video.addEventListener('seeked',on); const tgt=Math.max(0,Math.min((video.duration||1e9)-1e-3,t)); if(Math.abs(video.currentTime-tgt)<1e-4){ finish(); return; } try{ video.currentTime=tgt; }catch(e){ finish(); } setTimeout(finish, 800); }); }
   async function batchRenderFrame(){
     if(method==='neural' && (mode==='amp'||mode==='motion')){ neuralBusy=false; await runNeural(); neuralDraw(); return view; }
     const gpuActive = useGPU && gpu && !gpuFailed && gpuSupportedFor();
@@ -1734,7 +1734,7 @@ struct MRT { @location(0) phase:vec4f, @location(1) ema:vec4f, @location(2) scr:
   async function processVideo(startT, endT){
     if(!fileURL || batchBusy) return; batchBusy=true; batchCancel=false;
     const stat=$('pvStatus'); const wasPaused=video.paused; try{ video.pause(); }catch(e){}
-    const sf=Math.min(60, (procFps>0?procFps:30)||30), dt=1/sf;
+    const sf=Math.min(60, (procFps>0?procFps:30)||30), dt=1/sf; sampleFps=sf; if(stat) stat.textContent='starting...';
     // reseed temporal state so filters start clean at the range start
     initialized=false; phaseReady=false; warpReady=false; neuralRef=null; if(gpu){ gpu.rzSeeded=false; gpu.wseeded=false; }
     const frames=[]; const total=Math.max(1,Math.round((endT-startT)*sf));
@@ -1742,7 +1742,7 @@ struct MRT { @location(0) phase:vec4f, @location(1) ema:vec4f, @location(2) scr:
     for(let t=startT; t<=endT+1e-6 && !batchCancel; t+=dt){
       await seekTo(t);
       const cv=await batchRenderFrame();
-      try{ frames.push(await createImageBitmap(cv)); }catch(e){}
+      try{ frames.push(await createImageBitmap(cv)); }catch(e){ try{ const tc=document.createElement('canvas'); tc.width=cv.width; tc.height=cv.height; tc.getContext('2d').drawImage(cv,0,0); frames.push(await createImageBitmap(tc)); }catch(e2){ if(stat) stat.textContent='capture failed: '+(e2.message||e2); } }
       n++; if(stat) stat.textContent='processing '+n+' / '+total+' frames...';
       if(frames.length>1800){ if(stat) stat.textContent='reached 1800-frame cap; encoding...'; break; }
     }
