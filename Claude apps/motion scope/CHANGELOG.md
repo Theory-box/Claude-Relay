@@ -2,6 +2,14 @@
 
 All notable changes to the app. Newest first.
 
+## 2026-08-11e — Two independent point trackers
+
+### Changed
+- Analysis point tracking and Stabilize-to-points are now **fully separate** trackers with their own
+  point sets — you never place a stabilization point with the analysis tool. Analysis points draw as
+  circles (with Hz); stabilization points draw as squares and drive the warp. Stabilize tab got its
+  own Add point / Clear.
+
 ## 2026-08-11d — Tracked-point stabilization
 
 ### Added
