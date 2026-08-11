@@ -130,6 +130,16 @@
         <p class="note">Slower speed lets the app process <b>every</b> frame of a high-frame-rate clip (needed to catch fast vibration). For a 120 fps clip on a 60 Hz screen use 0.5× or lower — watch the "resolves ≤ … Hz" readout climb as you slow it.</p>
       </div>
       <button class="act" id="recordBtn" aria-pressed="false" style="margin-top:.4rem">Record output</button>
+      <button class="act" id="processVideoBtn" style="margin-top:.4rem">Process video…</button>
+      <div id="pvDialog" style="display:none;margin-top:.4rem;padding:.5rem;border:1px solid #2a3340;border-radius:8px;background:#141a22">
+        <div class="note" style="margin:.1rem 0 .35rem">Process the loaded video with the <b>current settings</b> (any mode) over a time range, then download a WebM. For the slow Neural modes this runs offline frame-by-frame.</div>
+        <div style="display:flex;gap:.4rem;align-items:center;flex-wrap:wrap">
+          <label style="font-size:.8rem">Start s <input id="pvStart" type="number" step="0.1" value="0" style="width:5rem"></label>
+          <label style="font-size:.8rem">End s <input id="pvEnd" type="number" step="0.1" value="0" style="width:5rem"></label>
+        </div>
+        <div style="display:flex;gap:.4rem;margin-top:.4rem"><button class="act primary" id="pvGo">Start</button><button class="act" id="pvCancel">Cancel</button></div>
+        <div class="note" id="pvStatus" style="margin-top:.35rem"></div>
+      </div>
       <p class="note">Records the processed view to a .webm you can download (works on live camera or a loaded file).</p>
       <p class="note">Start opens your browser's camera picker. Share screen captures a window or display instead.</p>
       <div class="seg" role="group" aria-label="Stabilization" style="margin-top:.5rem">
@@ -1659,7 +1669,7 @@ struct MRT { @location(0) phase:vec4f, @location(1) ema:vec4f, @location(2) scr:
   const nIn=document.createElement('canvas'), nInCtx=nIn.getContext('2d',{willReadFrequently:true});
   const nOut=document.createElement('canvas'), nOutCtx=nOut.getContext('2d');
   const nUp=document.createElement('canvas'), nUpCtx=nUp.getContext('2d',{willReadFrequently:true});
-  const NEURAL_CAP=512;
+  const NEURAL_CAP=1024;
   function _c8(v){ return v<0?0:v>255?255:v; }
   function updateNeuralStat(){ const el=$('neuralStat'); if(!el) return; const cfg=NCFG[neuralModel]; el.textContent = neuralMsg ? neuralMsg : (nSess[neuralModel]?(cfg.nm+' | '+neuralBackend.toUpperCase()+(_nMs?(' | '+Math.round(_nMs)+' ms/frame'):'')):''); }
   async function ensureORT(){ if(window.ort) return; if(ortLibLoading){ while(!window.ort) await new Promise(r=>setTimeout(r,100)); return; } ortLibLoading=true; await new Promise((res,rej)=>{ const sc=document.createElement('script'); sc.src=ORT_BASE+'ort.webgpu.min.js'; sc.onload=res; sc.onerror=()=>rej(new Error('could not load onnxruntime-web from CDN (need internet on first use)')); document.head.appendChild(sc); }); ort.env.wasm.wasmPaths=ORT_BASE; ortLibLoading=false; }
@@ -1687,10 +1697,8 @@ struct MRT { @location(0) phase:vec4f, @location(1) ema:vec4f, @location(2) scr:
     }catch(e){ neuralMsg='run error: '+((e&&e.message)||e); updateNeuralStat(); }
     neuralBusy=false;
   }
-  function neuralLoop(){
-    if(view.style.display==='none'){ view.style.display='block'; viewGPU.style.display='none'; }
+  function neuralDraw(){
     if(view.width!==procW||view.height!==procH){ view.width=procW; view.height=procH; }
-    runNeural();
     if(neuralResult && neuralResSharp){
       dctx.drawImage(video,0,0,procW,procH);
       nOut.width=neuralResW; nOut.height=neuralResH; nOutCtx.putImageData(neuralResult,0,0);
@@ -1702,6 +1710,52 @@ struct MRT { @location(0) phase:vec4f, @location(1) ema:vec4f, @location(2) scr:
       nOut.width=neuralResW; nOut.height=neuralResH; nOutCtx.putImageData(neuralResult,0,0); dctx.imageSmoothingEnabled=true; dctx.drawImage(nOut,0,0,neuralResW,neuralResH,0,0,procW,procH);
     } else { dctx.drawImage(video,0,0,procW,procH); }
   }
+  function neuralLoop(){ if(view.style.display==='none'){ view.style.display='block'; viewGPU.style.display='none'; } runNeural(); neuralDraw(); }
+
+  // ============ Process video (offline batch -> WebM download; works in every mode) ============
+  let batchBusy=false, batchCancel=false;
+  function seekTo(t){ return new Promise(res=>{ const on=()=>{ video.removeEventListener('seeked',on); if(video.requestVideoFrameCallback) video.requestVideoFrameCallback(()=>res()); else setTimeout(res,0); }; video.addEventListener('seeked',on); try{ video.currentTime=Math.max(0,Math.min((video.duration||0)-1e-3,t)); }catch(e){ res(); } }); }
+  async function batchRenderFrame(){
+    if(method==='neural' && (mode==='amp'||mode==='motion')){ neuralBusy=false; await runNeural(); neuralDraw(); return view; }
+    const gpuActive = useGPU && gpu && !gpuFailed && gpuSupportedFor();
+    if(gpuActive){ try{ gpuStabEstimate(); if(mode==='isolate') gpuFrameIsolate(); else if(mode==='warp') gpuFrameWarp(); else if(method==='riesz') gpuRieszFrame(); else gpuFrame(); return viewGPU; }catch(e){ processFrame(); return view; } }
+    processFrame(); return view;
+  }
+  async function encodeAndDownload(frames, fps, w, h, statusEl){
+    const cv=document.createElement('canvas'); cv.width=w; cv.height=h; const cx=cv.getContext('2d');
+    let stream; try{ stream=cv.captureStream(fps); }catch(e){ if(statusEl) statusEl.textContent='encode failed: '+e.message; return; }
+    let rec; try{ rec=new MediaRecorder(stream,{mimeType:'video/webm'}); }catch(e){ try{ rec=new MediaRecorder(stream); }catch(e2){ if(statusEl) statusEl.textContent='recorder unsupported'; return; } }
+    const chunks=[]; rec.ondataavailable=e=>{ if(e.data&&e.data.size) chunks.push(e.data); };
+    const done=new Promise(r=>{ rec.onstop=r; }); rec.start();
+    for(let i=0;i<frames.length;i++){ cx.drawImage(frames[i],0,0,w,h); await new Promise(r=>setTimeout(r,1000/fps)); }
+    await new Promise(r=>setTimeout(r,250)); rec.stop(); await done;
+    const blob=new Blob(chunks,{type:'video/webm'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='motion-scope-processed.webm'; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href),3000);
+  }
+  async function processVideo(startT, endT){
+    if(!fileURL || batchBusy) return; batchBusy=true; batchCancel=false;
+    const stat=$('pvStatus'); const wasPaused=video.paused; try{ video.pause(); }catch(e){}
+    const sf=Math.min(60, (procFps>0?procFps:30)||30), dt=1/sf;
+    // reseed temporal state so filters start clean at the range start
+    initialized=false; phaseReady=false; warpReady=false; neuralRef=null; if(gpu){ gpu.rzSeeded=false; gpu.wseeded=false; }
+    const frames=[]; const total=Math.max(1,Math.round((endT-startT)*sf));
+    let n=0;
+    for(let t=startT; t<=endT+1e-6 && !batchCancel; t+=dt){
+      await seekTo(t);
+      const cv=await batchRenderFrame();
+      try{ frames.push(await createImageBitmap(cv)); }catch(e){}
+      n++; if(stat) stat.textContent='processing '+n+' / '+total+' frames...';
+      if(frames.length>1800){ if(stat) stat.textContent='reached 1800-frame cap; encoding...'; break; }
+    }
+    if(!batchCancel && frames.length){ if(stat) stat.textContent='encoding '+frames.length+' frames to WebM...'; await encodeAndDownload(frames, sf, procW, procH, stat); if(stat) stat.textContent='done - downloaded ('+frames.length+' frames).'; }
+    else if(stat) stat.textContent = batchCancel?'cancelled.':'nothing to process.';
+    frames.forEach(f=>{ try{ f.close&&f.close(); }catch(e){} });
+    batchBusy=false; initialized=false; phaseReady=false; warpReady=false; neuralRef=null; if(gpu){ gpu.rzSeeded=false; gpu.wseeded=false; }
+    if(!wasPaused){ try{ video.play(); }catch(e){} }
+  }
+  (function(){ const pv=$('processVideoBtn'); if(pv) pv.onclick=()=>{ if(!fileURL){ const st=$('pvStatus'); if(st) st.textContent='open a video file first.'; $('pvDialog').style.display='block'; return; } const d=$('pvDialog'); $('pvStart').value='0'; $('pvEnd').value=(video.duration||0).toFixed(2); $('pvStatus').textContent=''; d.style.display='block'; };
+    const go=$('pvGo'); if(go) go.onclick=()=>{ const a=parseFloat($('pvStart').value)||0, b=parseFloat($('pvEnd').value)||(video.duration||0); if(b>a) processVideo(a,b); };
+    const cx=$('pvCancel'); if(cx) cx.onclick=()=>{ if(batchBusy){ batchCancel=true; } else { $('pvDialog').style.display='none'; } };
+  })();
   function setNeuralModel(m){ if(neuralModel===m) return; neuralModel=m; neuralRef=null; neuralResult=null; neuralPrev=null; ['fast','stb128','stb256'].forEach(k=>{ const b=$('nq_'+k); if(b) b.setAttribute('aria-pressed', k===m); }); neuralMsg=''; updateNeuralStat(); getSession(); }
   function setNeuralSharp(on){ neuralSharp=on; neuralResult=null; if($('nqSharp'))$('nqSharp').setAttribute('aria-pressed',on); if($('nqDirect'))$('nqDirect').setAttribute('aria-pressed',!on); }
   if($('nq_fast')) $('nq_fast').onclick=()=>setNeuralModel('fast');
@@ -1713,6 +1767,7 @@ struct MRT { @location(0) phase:vec4f, @location(1) ema:vec4f, @location(2) scr:
 
   function loop(){
     if (!running) return;
+    if (batchBusy){ raf=requestAnimationFrame(loop); return; }
     const now = performance.now(); const dt = now-lastT; lastT = now;
     if (dt>0){ const inst=1000/dt; fps += (inst-fps)*0.1; }
     if (video.readyState>=2 && procW){
