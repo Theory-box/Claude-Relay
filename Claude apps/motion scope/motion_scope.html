@@ -116,7 +116,7 @@
     </div>
     <div class="empty" id="empty">
       <h2>No camera running</h2>
-      <p>Pick a source and press <b>Start</b>. Point a tripod-mounted camera at something nearly still and turn amplification up.</p>
+      <p>Pick a source to begin — <b>Live video</b>, <b>Share screen</b>, or <b>Open video file</b>. Point a tripod-mounted camera at something nearly still and turn amplification up.</p>
       <p class="err" id="err"></p>
     </div>
   </div>
@@ -125,10 +125,9 @@
     <details class="group" open>
       <summary><h3>Capture</h3></summary>
       <div class="btns">
-        <button class="act primary" id="startBtn">Start</button>
-        <button class="act stop" id="stopBtn" disabled>Stop</button>
+        <button class="act primary" id="liveBtn">Live video</button>
+        <button class="act" id="screenBtn">Share screen</button>
       </div>
-      <button class="act" id="screenBtn">Share screen</button>
       <input type="file" id="fileInput" accept="video/*" style="display:none">
       <button class="act" id="openFileBtn">Open video file…</button>
       <div id="fileCtrls" style="display:none;margin-top:.4rem">
@@ -160,7 +159,7 @@
         <span class="row"><span>Stabilize strength</span><span class="val" id="stabStrVal">70</span></span>
         <input type="range" id="stabStr" min="0" max="100" step="5" value="70">
       </label>
-      <div class="btns"><button class="act" id="drawRegionBtn" aria-pressed="false">Draw region</button><button class="act" id="clearRegionBtn">Clear</button></div>
+      <div class="btns" style="margin-top:.5rem"><button class="act" id="drawRegionBtn" aria-pressed="false">Draw region</button><button class="act" id="clearRegionBtn">Clear</button></div>
       <p class="note">Click <b>Draw region</b>, then drag a box around what should stay still — Stabilize locks onto that area and ignores movement elsewhere. Add up to 4 boxes on steady features for a firmer hold. Clear removes them.</p>
       <label class="field">
         <span class="row"><span>Detail</span><span class="val" id="resVal">384p</span></span>
@@ -181,6 +180,8 @@
         <button id="mPhase" aria-pressed="false">Phase<span class="beta">BETA</span></button>
         <button id="mRiesz" aria-pressed="false">Riesz<span class="beta">BETA</span></button>
         <button id="mNeural" aria-pressed="false">Neural<span class="beta">BETA</span></button>
+        <button id="mWarp" aria-pressed="false">Warp<span class="beta">BETA</span></button>
+        <button id="mIsolate" aria-pressed="false">Isolate</button>
       </div>
       <div id="neuralPanel" style="display:none">
         <div class="seg" id="nqSeg" role="group" aria-label="Neural model">
@@ -197,18 +198,16 @@
         <p class="note" id="neuralStat"></p>
         <p class="note"><b>Neural (beta)</b> — learned magnification in your browser. <b>MagNet</b> = instant, any resolution. <b>STB 128 / 256</b> = Swin-Transformer, sharper/less noise (~125 / ~500&nbsp;ms). <b>θNet</b> = tiny 2025 model, runs native 1280 (sharp, experimental — may be memory-heavy). <b>Sharp</b> composites the AI's magnified <i>motion</i> onto your full-resolution frame (crisp) — <b>Upscale</b> shows the raw low-res model output (soft). Motion is vs a reference frame; <b>Gain</b> = factor.</p>
       </div>
-      <p class="note" id="methodNote"><b>Linear</b> amplifies brightness change — simple, but amplifies noise. <b>Phase</b> and <b>Riesz</b> amplify displacement instead, so brightness noise is largely left alone. <b>Riesz</b> is the fast, high-quality phase method — the best all-round pick.</p>
+      <p class="note" id="methodNote"><b>Linear</b> amplifies brightness change — simple, but amplifies noise. <b>Phase</b> and <b>Riesz</b> amplify displacement instead, so brightness noise is largely left alone. <b>Riesz</b> is the fast, high-quality phase method — the best all-round pick. <b>Warp</b> physically displaces pixels along the motion; <b>Isolate</b> subtracts a still background.</p>
     </details>
 
-    <details class="group" open>
+    <details class="group" open id="viewGroup">
       <summary><h3>View</h3></summary>
       <div class="seg" role="group" aria-label="View mode">
         <button id="modeAmp" aria-pressed="true">Amplified</button>
         <button id="modeMotion" aria-pressed="false">Motion only</button>
-        <button id="modeIsolate" aria-pressed="false">Isolate</button>
-        <button id="modeWarp" aria-pressed="false">Warp<span class="beta">BETA</span></button>
       </div>
-      <p class="note"><b>Amplified</b> overlays magnified motion on the scene. <b>Motion only</b> shows the bare motion signal. <b>Isolate</b> subtracts a still background. <b>Warp</b> physically displaces pixels along the motion.</p>
+      <p class="note"><b>Amplified</b> overlays magnified motion on the scene. <b>Motion only</b> shows the bare motion signal.</p>
     </details>
 
     <details class="group" open>
@@ -297,7 +296,7 @@
     </details>
 
     <details class="group">
-      <summary><h3>Smoothing &amp; noise</h3></summary>
+      <summary><h3>Smoothing</h3></summary>
       <label class="field">
         <span class="row"><span>Temporal denoise</span><span class="val" id="tnrVal">40%</span></span>
         <input type="range" id="tnr" min="0" max="100" step="5" value="40">
@@ -426,10 +425,21 @@
   denoiseEl.oninput = () => { denoiseR = +denoiseEl.value; denoiseVal.textContent = denoiseR + ' px'; };
   colorEl.oninput = () => { chromaAmt = +colorEl.value/100; colorVal.textContent = colorEl.value + '%'; };
 
-  const mLinear=$('mLinear'), mPhase=$('mPhase'), mRiesz=$('mRiesz');
-  mLinear.onclick = () => setMethod('linear');
-  mPhase.onclick = () => setMethod('phase');
-  mRiesz.onclick = () => setMethod('riesz');
+  const mLinear=$('mLinear'), mPhase=$('mPhase'), mRiesz=$('mRiesz'), mWarp=$('mWarp'), mIsolate=$('mIsolate');
+  let lastView='amp';
+  function refreshEngineUI(){ const eng=(mode==='warp')?'warp':(mode==='isolate')?'isolate':method;
+    const set=(id,on)=>{ const b=$(id); if(b) b.setAttribute('aria-pressed', on?'true':'false'); };
+    set('mLinear',eng==='linear'); set('mPhase',eng==='phase'); set('mRiesz',eng==='riesz'); set('mNeural',eng==='neural'); set('mWarp',eng==='warp'); set('mIsolate',eng==='isolate');
+    set('modeAmp',mode==='amp'); set('modeMotion',mode==='motion');
+    const vg=$('viewGroup'); if(vg) vg.style.display=(mode==='warp'||mode==='isolate')?'none':'';
+    const np=$('neuralPanel'); if(np) np.style.display=(eng==='neural')?'block':'none'; }
+  function pickEngine(e){ if(e==='warp'||e==='isolate'){ setMode(e); } else { if(mode==='warp'||mode==='isolate') setMode(lastView); setMethod(e); } refreshEngineUI(); }
+  function pickView(v){ lastView=v; setMode(v); refreshEngineUI(); }
+  mLinear.onclick = () => pickEngine('linear');
+  mPhase.onclick = () => pickEngine('phase');
+  mRiesz.onclick = () => pickEngine('riesz');
+  if(mWarp) mWarp.onclick = () => pickEngine('warp');
+  if(mIsolate) mIsolate.onclick = () => pickEngine('isolate');
   function setMethod(m){
     method = m; initialized = false; phaseReady = false;
     mLinear.setAttribute('aria-pressed', m==='linear');
@@ -440,18 +450,14 @@
     if(m==='neural'){ neuralRef=null; getSession(); }
     switchProfile();
   }
-  mNeural.onclick = () => setMethod('neural');
+  mNeural.onclick = () => pickEngine('neural');
 
-  const modeAmp=$('modeAmp'), modeMotion=$('modeMotion'), modeIsolate=$('modeIsolate'), modeWarp=$('modeWarp');
-  modeAmp.onclick = () => setMode('amp');
-  modeMotion.onclick = () => setMode('motion');
-  modeIsolate.onclick = () => setMode('isolate');
-  modeWarp.onclick = () => setMode('warp');
+  const modeAmp=$('modeAmp'), modeMotion=$('modeMotion');
+  modeAmp.onclick = () => pickView('amp');
+  modeMotion.onclick = () => pickView('motion');
   function setMode(m){ mode=m; warpReady=false;
-    modeAmp.setAttribute('aria-pressed', m==='amp');
-    modeMotion.setAttribute('aria-pressed', m==='motion');
-    modeIsolate.setAttribute('aria-pressed', m==='isolate');
-    modeWarp.setAttribute('aria-pressed', m==='warp');
+    if(modeAmp) modeAmp.setAttribute('aria-pressed', m==='amp');
+    if(modeMotion) modeMotion.setAttribute('aria-pressed', m==='motion');
     switchProfile(); }
 
   // ---- per-mode settings profiles: each mode keeps its own values; UI shows only relevant controls ----
@@ -717,16 +723,16 @@
     if(video.videoHeight){ resEl.max = video.videoHeight; if(resVal) resVal.title='max = '+video.videoHeight+'p (native)'; }
     allocBuffers();
     running=true; empty.hidden=true; overlay.hidden=false;
-    $('startBtn').disabled=true; $('stopBtn').disabled=false;
+    if(useGPU && !gpu && !gpuFailed && navigator.gpu){ initGPU().then(ok=>{ if(!ok) useGPU=false; const gb=$('gpuBtn'); if(gb) gb.setAttribute('aria-pressed', !!gpu); if(typeof updateEngineBadge==='function') updateEngineBadge(); }); }
     lastT = performance.now(); loop();
   }
   async function attachStream(){ try{ video.pause(); }catch(e){} try{ video.removeAttribute('src'); }catch(e){} video.loop=false; video.playbackRate=1; video.srcObject = stream; await video.play(); onSourceReady(); }
   const fileInput=$('fileInput'), openFileBtn=$('openFileBtn'), fileCtrls=$('fileCtrls'), restartBtn=$('restartBtn'), speedEl=$('speedEl'), speedVal=$('speedVal'), recordBtn=$('recordBtn'), vbPlay=$('vbPlay'), vbSeek=$('vbSeek'), vbTime=$('vbTime'), videoBar=$('videoBar');
-  openFileBtn.onclick=()=>fileInput.click();
+  openFileBtn.onclick=()=>{ if(activeSource==='file') stop(); else fileInput.click(); };
   fileInput.onchange=()=>{ const fl=fileInput.files&&fileInput.files[0]; if(fl) openVideoFile(fl); fileInput.value=''; };
   async function openVideoFile(file){ stop(); if(fileURL) URL.revokeObjectURL(fileURL); fileURL=URL.createObjectURL(file); procFps=0; _mt0=-1; _mn0=0;
     video.srcObject=null; video.src=fileURL; video.loop=true; video.muted=true; video.playbackRate=playSpeeds[+speedEl.value]; errEl.style.display='none';
-    try{ await video.play(); onSourceReady(); fileCtrls.style.display='block'; if(videoBar) videoBar.style.display='flex'; syncPlayIcon(); }catch(e){ showError(e); } }
+    try{ await video.play(); onSourceReady(); fileCtrls.style.display='block'; if(videoBar) videoBar.style.display='flex'; syncPlayIcon(); activeSource='file'; updateSourceButtons(); }catch(e){ showError(e); } }
   function syncPlayIcon(){ if(vbPlay) vbPlay.textContent = video.paused ? '\u25B6' : '\u275A\u275A'; }
   if(vbPlay) vbPlay.onclick=()=>{ if(!fileURL) return; if(video.paused){ video.play(); } else { video.pause(); } syncPlayIcon(); };
   restartBtn.onclick=()=>{ if(fileURL){ video.currentTime=0; video.play(); syncPlayIcon(); } };
@@ -748,7 +754,7 @@
     stop(); errEl.style.display='none';
     const id = deviceSel.value;
     const constraints = { video: id ? { deviceId:{exact:id}, width:{ideal:1920}, height:{ideal:1080} } : { width:{ideal:1920}, height:{ideal:1080} }, audio:false };
-    try{ stream = await navigator.mediaDevices.getUserMedia(constraints); await attachStream(); await listDevices(); }
+    try{ stream = await navigator.mediaDevices.getUserMedia(constraints); await attachStream(); activeSource='camera'; updateSourceButtons(); await listDevices(); }
     catch(e){ showError(e); }
   }
   async function startScreen(){
@@ -756,7 +762,7 @@
     try{
       stream = await navigator.mediaDevices.getDisplayMedia({ video:{ frameRate:{ideal:30} }, audio:false });
       const t = stream.getVideoTracks()[0]; if(t) t.onended = () => stop();
-      await attachStream();
+      await attachStream(); activeSource='screen'; updateSourceButtons();
     }catch(e){ showError(e); }
   }
   function stop(){
@@ -768,7 +774,7 @@
     const fc=$('fileCtrls'); if(fc) fc.style.display='none'; if(videoBar) videoBar.style.display='none';
     if(typeof stopListen==='function') stopListen();
     overlay.hidden=true; empty.hidden=false;
-    $('startBtn').disabled=false; $('stopBtn').disabled=true;
+    activeSource=null; updateSourceButtons();
   }
   function showError(e){
     let msg='Could not open the camera.';
@@ -778,9 +784,13 @@
     else if (e&&e.message) msg+=' ('+e.message+')';
     errEl.textContent=msg; errEl.style.display='block';
   }
-  $('startBtn').onclick = start;
-  $('screenBtn').onclick = startScreen;
-  $('stopBtn').onclick = stop;
+  let activeSource=null;
+  function updateSourceButtons(){ const lb=$('liveBtn'), sb=$('screenBtn'), ob=$('openFileBtn');
+    if(lb){ lb.textContent=activeSource==='camera'?'Stop':'Live video'; lb.classList.toggle('stop',activeSource==='camera'); }
+    if(sb){ sb.textContent=activeSource==='screen'?'Stop':'Share screen'; sb.classList.toggle('stop',activeSource==='screen'); }
+    if(ob){ ob.textContent=activeSource==='file'?'Stop':'Open video file\u2026'; ob.classList.toggle('stop',activeSource==='file'); } }
+  if($('liveBtn')) $('liveBtn').onclick = () => { if(activeSource==='camera') stop(); else start(); };
+  $('screenBtn').onclick = () => { if(activeSource==='screen') stop(); else startScreen(); };
   deviceSel.onchange = () => { if (running) start(); };
 
   // --- helpers ---
@@ -963,7 +973,7 @@
   const viewGPU = document.getElementById('viewGPU');
   const gpuBtn = document.getElementById('gpuBtn');
   const gpuMsg = document.getElementById('gpuMsg');
-  let useGPU=false, gpu=null, gpuFailed=false, gpuRecovering=false, gpuErrStreak=0;
+  let useGPU=true, gpu=null, gpuFailed=false, gpuRecovering=false, gpuErrStreak=0;
   function gpuDebug(msg){ console.error('[MotionScope GPU]', msg); if(gpuMsg){ gpuMsg.hidden=false; gpuMsg.textContent='GPU: '+msg; } }
 
   const WGSL = `
