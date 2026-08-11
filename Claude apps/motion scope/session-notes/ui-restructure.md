@@ -102,6 +102,12 @@ git/token/paths in chat.
 - Possible: make the neural path use the stabilized frame (currently it uses the raw frame).
 - Possible: minor UI polish (tab icons, finalize the placeholder-derived rail labels if desired).
 
+## STATUS: Point tracker v1 built (pyramidal inverse-compositional LK). Track tab: Add point (click
+video, up to 8) / Clear. Overlay = marker+trail+velocity arrow on #trackLayer; per-point dominant Hz +
+confidence in #trkStatus. Module lives after the region-resize listener; trackTick() hooked into
+drawReadout(); trackers cleared on stop(). Sample rate = sampleFps. NOT YET: Kalman smoothing,
+phase-fusion, frequency-consensus audit, re-lock. Then feature-based stabilization reuses this LK.
+
 ## NEXT BUILD PLAN (agreed): Lucas-Kanade tracking -> point tracker + feature stabilization
 Shared core = **pyramidal Lucas-Kanade (KLT)**: solve a 2x2 least-squares from image gradients
 (Ix,Iy,It) for a small window's (dx,dy); coarse-to-fine pyramid for larger motion. ~100 lines CPU JS,

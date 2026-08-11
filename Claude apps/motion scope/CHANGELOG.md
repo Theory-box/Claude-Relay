@@ -2,6 +2,16 @@
 
 All notable changes to the app. Newest first.
 
+## 2026-08-11b — Point tracking (Lucas-Kanade)
+
+### Added
+- **Point tracking** (new Track tab): drop up to 8 markers on the video; each is followed by a
+  pyramidal inverse-compositional Lucas-Kanade tracker (sub-pixel). Shows a marker, a motion-trail,
+  a velocity **direction arrow**, a per-point **dominant frequency**, and a **confidence** value
+  (from LK residual + Shi-Tomasi min-eigenvalue texture). Reuses the existing FFT.
+- First step of the tracking/stabilization foundation. Next: Kalman smoothing + phase-fusion +
+  frequency-consensus audit, then feature-based (corners+RANSAC) stabilization.
+
 ## 2026-08-11 — Neural engine, offline processing, and UI restructure
 
 ### Added — Neural / AI magnification

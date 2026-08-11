@@ -140,6 +140,7 @@
     <canvas id="viewGPU" width="384" height="216" style="display:none"></canvas>
     <div id="regionLayer" style="position:absolute;inset:0;pointer-events:none"></div>
     <div id="probeLayer" style="position:absolute;inset:0;pointer-events:none"></div>
+    <canvas id="trackLayer" style="position:absolute;inset:0;pointer-events:none"></canvas>
     <div class="overlay" id="overlay" hidden>
       <div class="readout" id="readout"></div>
       <div class="energy">motion energy<div class="bar"><i id="energyBar"></i></div></div>
@@ -165,6 +166,7 @@
       <button data-tab="analysis" aria-selected="false">Analysis</button>
       <button data-tab="stabilize" aria-selected="false">Stabilize</button>
       <button data-tab="smoothing" aria-selected="false">Smoothing</button>
+      <button data-tab="track" aria-selected="false">Track</button>
     </div>
     <div class="tabcontent" id="tabcontent">
     <details class="group" data-tab="capture" open>
@@ -363,6 +365,12 @@
       <button class="act" id="useBandBtn">Set band around peak</button>
       <div class="btns"><button class="act" id="listenBtn">🔊 Listen</button></div>
       <p class="note">Plays the selected region's motion as sound, pitched up into the audible range (a low hum reads low, a fast buzz reads high). It's a scaled sonification — the true Hz is the number above. Needs a region + a few seconds of signal.</p>
+    </details>
+    <details class="group" data-tab="track" open>
+      <summary><h3>Point tracking</h3></summary>
+      <div class="btns"><button class="act" id="trkAddBtn" aria-pressed="false">Add point</button><button class="act" id="trkClearBtn">Clear points</button></div>
+      <p class="note">Click <b>Add point</b>, then click a spot on the video to lock a tracker onto it (up to 8). You get a marker, a motion arrow, and its dominant frequency. Works best on textured points and periodic motion (vibration, pulse).</p>
+      <p class="note" id="trkStatus"></p>
     </details>
     </div>
   </div>
@@ -581,6 +589,23 @@
   stage.addEventListener('pointermove',(e)=>{ if(!curDraw) return; const p=stageToNorm(e.clientX,e.clientY); curDraw.x1=p.nx; curDraw.y1=p.ny; drawRegions(); });
   window.addEventListener('pointerup',()=>{ if(!curDraw) return; const g={x0:Math.min(curDraw.x0,curDraw.x1),y0:Math.min(curDraw.y0,curDraw.y1),x1:Math.max(curDraw.x0,curDraw.x1),y1:Math.max(curDraw.y0,curDraw.y1)}; curDraw=null; if((g.x1-g.x0)>0.03 && (g.y1-g.y0)>0.03){ if(regions.length>=MAXREG) regions.shift(); regions.push(g); if(!stabilize) setStab(true); } setDrawMode(false); });
   window.addEventListener('resize',()=>{ if(regions.length||curDraw) drawRegions(); });
+  // ===== Point tracking: pyramidal inverse-compositional Lucas-Kanade =====
+  const trackers=[]; let trkAddMode=false, _trkLastT=-1, _trkFrame=0;
+  const PLV=3, PHS=7, MAXITER=8, TRK_MAXW=640;
+  const TRK_COLORS=['#39e6c4','#f2a63b','#ff5d73','#7aa2ff','#b980ff','#5ad469','#ff9b3d','#4fd0e0'];
+  const trkCv=document.createElement('canvas'), trkCx=trkCv.getContext('2d',{willReadFrequently:true});
+  let trkW=0, trkH=0, gpyr=null;
+  const trkLayer=$('trackLayer'), trkLx=trkLayer?trkLayer.getContext('2d'):null;
+  function trkBil(im,w,h,x,y){ if(x<0)x=0; if(y<0)y=0; if(x>w-1.001)x=w-1.001; if(y>h-1.001)y=h-1.001; const x0=x|0,y0=y|0,fx=x-x0,fy=y-y0,i=y0*w+x0; return im[i]*(1-fx)*(1-fy)+im[i+1]*fx*(1-fy)+im[i+w]*(1-fx)*fy+im[i+w+1]*fx*fy; }
+  function grabGrayPyramid(){ if(!procW||!video.videoWidth) return null; let w=video.videoWidth,h=video.videoHeight; const sc=Math.min(1,TRK_MAXW/Math.max(w,h)); w=Math.max(16,Math.round(w*sc)); h=Math.max(16,Math.round(h*sc)); trkW=w; trkH=h; trkCv.width=w; trkCv.height=h; trkCx.drawImage(video,0,0,w,h); const px=trkCx.getImageData(0,0,w,h).data, g0=new Float32Array(w*h); for(let i=0,p=0;i<w*h;i++,p+=4){ g0[i]=0.299*px[p]+0.587*px[p+1]+0.114*px[p+2]; } const lv=[{d:g0,w:w,h:h}]; for(let l=1;l<PLV;l++){ const pl=lv[l-1], nw=pl.w>>1, nh=pl.h>>1; if(nw<12||nh<12) break; const nd=new Float32Array(nw*nh); for(let y=0;y<nh;y++){ for(let x=0;x<nw;x++){ const sx=x<<1, sy=y<<1; nd[y*nw+x]=0.25*(pl.d[sy*pl.w+sx]+pl.d[sy*pl.w+sx+1]+pl.d[(sy+1)*pl.w+sx]+pl.d[(sy+1)*pl.w+sx+1]); } } lv.push({d:nd,w:nw,h:nh}); } return lv; }
+  function buildTemplate(nx,ny){ const t={nx:nx,ny:ny,x:nx*trkW,y:ny*trkH,hist:[],vel:{x:0,y:0},conf:1,lost:false,color:TRK_COLORS[trackers.length%TRK_COLORS.length],tmpl:[]}; const n=2*PHS+1; for(let l=0;l<gpyr.length;l++){ const im=gpyr[l], lx=t.x/(1<<l), ly=t.y/(1<<l), T=new Float32Array(n*n), Tx=new Float32Array(n*n), Ty=new Float32Array(n*n); let Hxx=0,Hxy=0,Hyy=0; for(let j=-PHS;j<=PHS;j++){ for(let i=-PHS;i<=PHS;i++){ const k=(j+PHS)*n+(i+PHS); T[k]=trkBil(im.d,im.w,im.h,lx+i,ly+j); const gx=0.5*(trkBil(im.d,im.w,im.h,lx+i+1,ly+j)-trkBil(im.d,im.w,im.h,lx+i-1,ly+j)); const gy=0.5*(trkBil(im.d,im.w,im.h,lx+i,ly+j+1)-trkBil(im.d,im.w,im.h,lx+i,ly+j-1)); Tx[k]=gx; Ty[k]=gy; Hxx+=gx*gx; Hxy+=gx*gy; Hyy+=gy*gy; } } const det=Hxx*Hyy-Hxy*Hxy||1e-6, Hinv=[Hyy/det,-Hxy/det,-Hxy/det,Hxx/det], tr=Hxx+Hyy, dsc=Math.sqrt(Math.max(0,tr*tr-4*det)), minEig=(tr-dsc)/2/(n*n); t.tmpl.push({T:T,Tx:Tx,Ty:Ty,Hinv:Hinv,minEig:minEig}); } return t; }
+  function trackOne(t){ let x=t.x, y=t.y; const nlv=Math.min(gpyr.length,t.tmpl.length), n=2*PHS+1; let resid=0; for(let l=nlv-1;l>=0;l--){ const im=gpyr[l], tp=t.tmpl[l]; let lx=x/(1<<l), ly=y/(1<<l); for(let it=0;it<MAXITER;it++){ let bx=0,by=0,err=0; for(let j=-PHS;j<=PHS;j++){ for(let i=-PHS;i<=PHS;i++){ const k=(j+PHS)*n+(i+PHS); const e=trkBil(im.d,im.w,im.h,lx+i,ly+j)-tp.T[k]; bx+=tp.Tx[k]*e; by+=tp.Ty[k]*e; err+=Math.abs(e); } } const dx=tp.Hinv[0]*bx+tp.Hinv[1]*by, dy=tp.Hinv[2]*bx+tp.Hinv[3]*by; lx-=dx; ly-=dy; resid=err/(n*n); if(dx*dx+dy*dy<1e-4) break; } x=lx*(1<<l); y=ly*(1<<l); } const me=t.tmpl[0].minEig, conf=Math.max(0,Math.min(1,(me>3?1:me/3)*(1-Math.min(1,resid/38)))); const ox=t.x, oy=t.y; t.vel={x:x-ox,y:y-oy}; if(x<2||y<2||x>trkW-3||y>trkH-3){ t.conf=0; t.lost=true; } else { t.x=x; t.y=y; t.nx=x/trkW; t.ny=y/trkH; t.conf=conf; t.lost=conf<0.12; } t.hist.push({x:t.x,y:t.y}); if(t.hist.length>256) t.hist.shift(); }
+  function trackUpdate(){ if(!trackers.length) return; gpyr=grabGrayPyramid(); if(!gpyr) return; for(const t of trackers){ if(t.tmpl.length) trackOne(t); } }
+  function videoDispRect(){ const cv=(viewGPU.style.display!=='none')?viewGPU:view, r=cv.getBoundingClientRect(), sr=stage.getBoundingClientRect(); const ar=procW/procH, ba=r.width/r.height; let iw,ih,ox,oy; if(ba>ar){ ih=r.height; iw=ih*ar; ox=(r.width-iw)/2; oy=0; } else { iw=r.width; ih=iw/ar; ox=0; oy=(r.height-ih)/2; } return {left:r.left-sr.left+ox, top:r.top-sr.top+oy, w:iw, h:ih}; }
+  function drawTrackers(){ if(!trkLayer||!trkLx) return; const sr=stage.getBoundingClientRect(); if(trkLayer.width!==Math.round(sr.width)) trkLayer.width=Math.round(sr.width); if(trkLayer.height!==Math.round(sr.height)) trkLayer.height=Math.round(sr.height); trkLx.clearRect(0,0,trkLayer.width,trkLayer.height); if(!trackers.length||!procW) return; const R=videoDispRect(); for(const t of trackers){ const px=R.left+t.nx*R.w, py=R.top+t.ny*R.h, col=t.lost?'#888':t.color; trkLx.globalAlpha=0.45; trkLx.strokeStyle=col; trkLx.lineWidth=1.5; trkLx.beginPath(); const s0=Math.max(0,t.hist.length-40); for(let i=s0;i<t.hist.length;i++){ const h=t.hist[i], hx=R.left+(h.x/trkW)*R.w, hy=R.top+(h.y/trkH)*R.h; if(i===s0) trkLx.moveTo(hx,hy); else trkLx.lineTo(hx,hy); } trkLx.stroke(); trkLx.globalAlpha=1; trkLx.strokeStyle=col; trkLx.lineWidth=2; trkLx.beginPath(); trkLx.arc(px,py,7,0,6.2832); trkLx.stroke(); trkLx.fillStyle=col; trkLx.beginPath(); trkLx.arc(px,py,1.6,0,6.2832); trkLx.fill(); const vs=10, ax=px+t.vel.x*(R.w/trkW)*vs, ay=py+t.vel.y*(R.h/trkH)*vs, dvx=ax-px, dvy=ay-py; if(dvx*dvx+dvy*dvy>6){ trkLx.beginPath(); trkLx.moveTo(px,py); trkLx.lineTo(ax,ay); trkLx.stroke(); const an=Math.atan2(dvy,dvx); trkLx.beginPath(); trkLx.moveTo(ax,ay); trkLx.lineTo(ax-9*Math.cos(an-0.4),ay-9*Math.sin(an-0.4)); trkLx.moveTo(ax,ay); trkLx.lineTo(ax-9*Math.cos(an+0.4),ay-9*Math.sin(an+0.4)); trkLx.stroke(); } } }
+  function trkDominantHz(t){ if(t.hist.length<32) return 0; let n=1; while(n*2<=t.hist.length) n*=2; if(n<32) return 0; const base=t.hist.length-n; let mx=0,my=0; for(let i=0;i<n;i++){ mx+=t.hist[base+i].x; my+=t.hist[base+i].y; } mx/=n; my/=n; const rx=new Float32Array(n), ix=new Float32Array(n), ry=new Float32Array(n), iy=new Float32Array(n); for(let i=0;i<n;i++){ rx[i]=t.hist[base+i].x-mx; ry[i]=t.hist[base+i].y-my; } fft(rx,ix); fft(ry,iy); const fs=sampleFps||30; let peak=0,pi=0; for(let i=1;i<n/2;i++){ const m=rx[i]*rx[i]+ix[i]*ix[i]+ry[i]*ry[i]+iy[i]*iy[i]; if(m>peak){ peak=m; pi=i; } } return pi*fs/n; }
+  function trackTick(){ if(trackers.length){ if(!fileURL || video.currentTime!==_trkLastT){ trackUpdate(); _trkLastT=video.currentTime; } drawTrackers(); if((++_trkFrame%12)===0){ const st=$('trkStatus'); if(st) st.innerHTML=trackers.map(function(t,i){ const hz=trkDominantHz(t); return 'Point '+(i+1)+': '+(t.lost?'<span style="color:#888">lost — re-add</span>':((hz>0?hz.toFixed(1)+' Hz':'measuring…')+' · conf '+t.conf.toFixed(2))); }).join('<br>'); } } else if(trkLx&&trkLayer){ trkLx.clearRect(0,0,trkLayer.width,trkLayer.height); } }
+  (function(){ const ab=$('trkAddBtn'), cb=$('trkClearBtn'); if(ab) ab.onclick=()=>{ trkAddMode=!trkAddMode; ab.setAttribute('aria-pressed',trkAddMode); stage.style.cursor=trkAddMode?'crosshair':''; if(trkAddMode && typeof setDrawMode==='function') setDrawMode(false); }; if(cb) cb.onclick=()=>{ trackers.length=0; if($('trkStatus'))$('trkStatus').textContent=''; if(trkLx&&trkLayer) trkLx.clearRect(0,0,trkLayer.width,trkLayer.height); }; stage.addEventListener('pointerdown',(e)=>{ if(!trkAddMode||compareMode!=='off'||!procW||e.button!==0) return; const p=stageToNorm(e.clientX,e.clientY); gpyr=grabGrayPyramid(); if(gpyr && trackers.length<8) trackers.push(buildTemplate(p.nx,p.ny)); e.preventDefault(); }); })();
   // ---- Frequency analysis (FFT of a probed region's motion) ----
   const FFTN=128; let probeBox=null, probeMode=false, curProbe=null, probeRef=null, peakHz=0, _specCtr=0;
   const sigX=new Float32Array(FFTN), sigY=new Float32Array(FFTN); let sigPos=0, sigCount=0;
@@ -806,7 +831,7 @@
     }catch(e){ showError(e); }
   }
   function stop(){
-    running=false; cancelAnimationFrame(raf);
+    running=false; cancelAnimationFrame(raf); trackers.length=0; if(typeof trkLx!=='undefined'&&trkLx&&trkLayer) trkLx.clearRect(0,0,trkLayer.width,trkLayer.height);
     if(mediaRec){ try{mediaRec.stop();}catch(e){} }
     if (stream){ stream.getTracks().forEach(t=>t.stop()); stream=null; }
     try{ video.pause(); }catch(e){} video.srcObject=null; if(video.getAttribute('src')){ video.removeAttribute('src'); }
@@ -2348,7 +2373,7 @@ struct MRT { @location(0) phase:vec4f, @location(1) ema:vec4f, @location(2) scr:
     }
   }
 
-  function drawReadout(){
+  function drawReadout(){ trackTick();
     readout.innerHTML =
       `<b>${method==='riesz'?'RIESZ':method==='phase'?'PHASE':method==='neural'?'NEURAL':'LINEAR'}</b> &nbsp; ` +
       `<b>${fps.toFixed(0)}</b> fps &nbsp; <b>${procW}×${procH}</b> &nbsp; ` +
