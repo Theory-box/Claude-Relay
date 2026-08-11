@@ -101,3 +101,19 @@ git/token/paths in chat.
 - User is surveying other motion-magnification apps for more ideas; expect incremental requests.
 - Possible: make the neural path use the stabilized frame (currently it uses the raw frame).
 - Possible: minor UI polish (tab icons, finalize the placeholder-derived rail labels if desired).
+
+## NEXT BUILD PLAN (agreed): Lucas-Kanade tracking -> point tracker + feature stabilization
+Shared core = **pyramidal Lucas-Kanade (KLT)**: solve a 2x2 least-squares from image gradients
+(Ix,Iy,It) for a small window's (dx,dy); coarse-to-fine pyramid for larger motion. ~100 lines CPU JS,
+runs on the grayscale frame we already compute. No model. Build order (each reuses the last):
+1. LK core (pyramidal, per-window (dx,dy) with iteration + confidence).
+2. **Point tracker**: user drops marker -> LK follows it sub-pixel -> outputs (a) direction arrow
+   from recent velocity, (b) displacement-vs-time -> FFT -> real frequency graph. Wires into the
+   Analysis tab + the marker backlog idea. Serves the heartbeat-from-head-bob case.
+3. **Feature-based stabilization**: Shi-Tomasi corner detect -> LK-track all corners -> RANSAC-fit a
+   global transform (similarity: translation+rotation+scale, or homography) -> warp to cancel.
+   Replaces/augments current translation-only grid block-match; handles rotation + zoom-wobble.
+   Feeds every method (better input downstream). The tracked points can serve BOTH stabilize + analysis.
+Caveats: LK drifts/loses on low-texture/occlusion (add confidence + re-lock); good for small stable
+motion (vibration), weaker on erratic motion. Feature-stab warp must avoid artifacts (iterative).
+Don't chase heavyweight learned flow (RAFT etc.) — same browser-conversion wall as GeoMag.
