@@ -2,6 +2,14 @@
 
 All notable changes to the app. Newest first.
 
+## 2026-08-12i — All three stabilizers orderable
+
+### Changed
+- Region is now folded into the same composed-transform path as Points and Auto (in the default Input
+  stabilize mode), so **all three have a 1st/2nd/3rd layer-order dropdown** with three-way auto-swap.
+  Region's shader shift is used only in View-only (post) mode now. Signs verified to match (shader and
+  preFrame both give displayed = raw − acc).
+
 ## 2026-08-12h — Stabilizer intensity + layering
 
 ### Added
