@@ -200,12 +200,12 @@
       <p class="note">Records the processed view to a .webm you can download (works on live camera or a loaded file).</p>
     </details>
     <details class="group" data-tab="stabilize" open>
-      <summary><h3>Stabilize</h3></summary>
-      <div class="seg" role="group" aria-label="Stabilization" style="margin-top:.5rem">
-        <button id="stabOff" aria-pressed="true">Stabilize off</button>
-        <button id="stabOn" aria-pressed="false">Stabilize on</button>
+      <summary><h3>Region stabilizer</h3></summary>
+      <div class="seg" role="group" aria-label="Region stabilization" style="margin-top:.5rem">
+        <button id="stabOff" aria-pressed="true">Off</button>
+        <button id="stabOn" aria-pressed="false">On</button>
       </div>
-      <p class="note">Cancels whole-frame shake before magnifying, so handheld jitter isn't amplified (translation only; slow pans still pass through).</p>
+      <p class="note"><b>On</b> automatically steadies the <b>whole frame</b> (translation only) before magnifying — no region needed. Draw a region below to lock onto a specific area instead. This is fully <b>independent</b> from the point stabilizer below — use either, both, or neither.</p>
       <label class="field">
         <span class="row"><span>Stabilize strength</span><span class="val" id="stabStrVal">70</span></span>
         <input type="range" id="stabStr" min="0" max="100" step="5" value="70">
@@ -1565,7 +1565,7 @@ struct MRT { @location(0) phase:vec4f, @location(1) ema:vec4f, @location(2) scr:
   function gpuStabEstimate(){
     if(!stabilize && regions.length===0){ accX=0; accY=0; stabReady=false; return; }
     try{
-      spctx.drawImage(analysisSrc(), 0, 0, sw, sh);
+      spctx.drawImage(frameSrc(), 0, 0, sw, sh);
       const im = spctx.getImageData(0, 0, sw, sh).data;
       for(let i=0;i<sw*sh;i++){ const i4=i<<2; curS[i]=0.299*im[i4]+0.587*im[i4+1]+0.114*im[i4+2]; }
     }catch(e){ return; }
