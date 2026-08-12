@@ -49,6 +49,15 @@ layer scaled by regionInt at application (accX*regionInt). TODO: full 3-way reor
 
 ## ZOOM: view-crop (zoom-only) DONE — CSS transform on view/viewGPU from cropRect; overlays auto-align via getBoundingClientRect; cropDrawMode + magnifier zoomBtn (🔍/⤢). TODO process-crop mode (re-derive procW/procH from crop aspect + cropped source into procSrcCv/_pvf, compose with stab) = the "ignore everything outside" toggle.
 
+## ACCUMULATE method (branch: feature/accumulate, EXPERIMENTAL — not on main)
+New method "Accumulate" (rail AC) — real-time frame stacking to denoise + brighten a STATIC-camera dark/noisy scene. Two sub-tabs planned: Stack (DONE) + Super-res/drizzle (placeholder, next).
+- accumulateFrame(): draws raw video->proc, getImageData, sums into Float32 accBuf (RGB), accCount++. Frame-change hash (stride-97 sample) skips duplicate captures so √N count is honest. Auto-stretch: 256-bin luma histogram, 0.5/99.5 percentile lo/hi, per-channel (mean-off)*scale -> brightens dark scenes. Renders via dctx.putImageData. Validated in Node: √N denoise + full-range stretch.
+- State: accBuf,accCount,accFrozen,accStretch,accLastHash. Reset on entering method.
+- Loop dispatch after holdOrig (so C still compares stacked vs 1 raw frame), before neural; CPU-only (no GPU path reached).
+- UI: Stack tab (frames+√N readout #accStatus, Reset/Freeze/Save-PNG, Auto-brighten On/Off). Super-res tab placeholder. updateTabAvailability hides settings/process/analysis/stabilize/smoothing/zoom for accumulate, shows stack/superres (+capture). refreshEngineUI hides viewIcons (A/M + zoom) for accumulate. setMethod switches to Stack tab + resets buffer.
+- No alignment/stab (static camera). Known: fixed-pattern noise + hot pixels don't average out (noted in UI).
+- NEXT: Super-res (drizzle) — measure sub-pixel tap-jitter via tracker, splat onto 2-3x grid; Goldilocks drift meter (too still/good/too much). Then if user likes -> merge to main.
+
 ## IDEA BACKLOG (brainstormed, not started) — added 2026-08-12:
 Measurement: operating deflection shapes / mode animation; order tracking (RPM + 1x/2x/3x harmonics);
 beat/difference-frequency finder; coherence map (regions correlated with a clicked reference point);
