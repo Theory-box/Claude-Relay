@@ -2,6 +2,14 @@
 
 All notable changes to the app. Newest first.
 
+## 2026-08-12g — Analysis: measure on Amplified footage
+
+### Added
+- Analysis point tracking measure-on is now 3-way: **Stabilized / Raw / Amplified**. **Amplified**
+  tracks the magnified output so tiny sub-pixel vibrations become big enough to lock a clean frequency
+  (amplification preserves Hz). Caveats noted in UI: amplitude is gain-inflated; only motion inside the
+  Hz band shows. Raw stays default-broadband.
+
 ## 2026-08-12f — Corner-detection mask (Auto stabilizer)
 
 ### Added
