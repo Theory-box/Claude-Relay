@@ -2,6 +2,18 @@
 
 All notable changes to the app. Newest first.
 
+## 2026-08-12k — Real-unit vibrometry + phase relationships
+
+### Added
+- **Real-unit vibrometry**: calibrate a scale (Set scale -> drag a line over a known length -> enter it
+  in mm/cm/in), and analysis point amplitudes read in real units (mm) instead of pixels. Amplitude
+  from the FFT peak lobe (leakage-corrected); validated within ~4%% across frequencies.
+- **Phase relationships**: when points share a frequency (within 15%%), each point shows its phase
+  vs Point 1 (the phase ref): in-phase / antiphase / +-N deg. Phase from the dominant-axis FFT;
+  validated (90deg->89, 180deg->180). Reveals how vibration propagates between points.
+- trkDominantHz now also outputs per-point amplitude (t._ampPx) and dominant-axis phase; phaseAtHz(t,hz)
+  helper. Amber calibration line drawn on the overlay.
+
 ## 2026-08-12j — Analysis graphs
 
 ### Added
