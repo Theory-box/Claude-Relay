@@ -884,7 +884,7 @@
     }catch(e){ showError(e); }
   }
   function stop(){
-    running=false; cancelAnimationFrame(raf); aTrackers.length=0; sTrackers.length=0; autoCorners=[]; autoStab=false; if(typeof trkLx!=='undefined'&&trkLx&&trkLayer){ trkLx.clearRect(0,0,trkLayer.width,trkLayer.height); trkLayer.style.transform=''; } if(typeof view!=='undefined'){ view.style.transform=''; viewGPU.style.transform=''; }
+    running=false; cancelAnimationFrame(raf); aTrackers.length=0; sTrackers.length=0; autoCorners=[]; autoNeedsDetect=autoStab; _stabM=null; _stabMApplied=null; _sm=null; _stabMAppliedPrev=null; _preOn=false; try{ if(_pvf){ _pvf.close(); _pvf=null; } }catch(e){} if(typeof trkLx!=='undefined'&&trkLx&&trkLayer){ trkLx.clearRect(0,0,trkLayer.width,trkLayer.height); trkLayer.style.transform=''; } if(typeof view!=='undefined'){ view.style.transform=''; viewGPU.style.transform=''; }
     if(mediaRec){ try{mediaRec.stop();}catch(e){} }
     if (stream){ stream.getTracks().forEach(t=>t.stop()); stream=null; }
     try{ video.pause(); }catch(e){} video.srcObject=null; if(video.getAttribute('src')){ video.removeAttribute('src'); }

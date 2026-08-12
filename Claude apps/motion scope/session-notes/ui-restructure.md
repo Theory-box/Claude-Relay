@@ -102,6 +102,12 @@ git/token/paths in chat.
 - Possible: make the neural path use the stabilized frame (currently it uses the raw frame).
 - Possible: minor UI polish (tab icons, finalize the placeholder-derived rail labels if desired).
 
+## AUDIT (2026-08-12): fixed metric _stabMAppliedPrev ordering (was comparing transform to itself);
+fixed stop() to clear stale _stabM/_stabMApplied/_sm and close the _pvf VideoFrame + keep autoStab
+consistent (re-detect on new source, no button desync). KNOWN LIMITATION: batch (Process video) reads
+raw frames — does NOT pre-stabilize (separate pipeline; would need per-seeked-frame track+warp).
+Deadband snaps to identity but still builds an (identity) VideoFrame — harmless minor overhead.
+
 ## STATUS: THREE independent stabilizers now — Region (accX/accY translation, whole-frame or drawn
 region), Point markers (sTrackers -> fitSimilarity -> _stabM), and Auto (Shi-Tomasi corners +
 LK-track autoCorners + RANSAC autoFit -> _stabM). Marker+Auto share the _stabM warp path (preFrame
