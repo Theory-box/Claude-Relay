@@ -2,6 +2,16 @@
 
 All notable changes to the app. Newest first.
 
+## 2026-08-12j — Analysis graphs
+
+### Added
+- **Live analysis graph** in the Analysis tab (per tracked point, colored lines):
+  - **Spectrum**: amplitude vs frequency (0–25 Hz), dominant peak marked + labeled in Hz — reads out a
+    pulse or vibration frequency directly (the heartbeat-from-head-bob view).
+  - **Waveform**: displacement over time along each point's dominant axis, with amplitude scale.
+  - trkDominantHz now caches the full FFT spectrum; graph draws every frame when the Analysis tab is
+    open. Peak-bin verified (7 Hz signal -> 7.0 Hz peak).
+
 ## 2026-08-12i — All three stabilizers orderable
 
 ### Changed
