@@ -47,7 +47,17 @@ compose via buildComposedStabM (scaled, ordered by prPoints/prAuto, composeT). R
 layer scaled by regionInt at application (accX*regionInt). TODO: full 3-way reorderable cascade
 (region into the middle) needs per-layer intermediate-frame tracking.
 
-## BACKLOG (agreed, not started):
+## BACKLOG STATUS (updated):
+- DONE: tracker refinement 1a (predictive coast-through) + 1b (frequency-consensus/coherence audit);
+  corner-detection mask (Auto); analysis measure-on Raw/Amplified/Stabilized (independent); stabilizer
+  intensity + full 3-way layer ordering (Region/Points/Auto); analysis graphs (Spectrum + Waveform).
+- PARKED (user said hold off for now): BATCH stabilization — apply stabilization + all live settings to
+  offline Process-video exports (needs per-seeked-frame track+warp in the batch pipeline).
+- POSSIBLE FUTURE: tracker phase-fusion (fuse LK with Riesz phase, the hard one, deferred); full
+  per-layer cascade so Points/Auto also build off each other (currently both track raw, composed);
+  vibrometry in real units; directional-motion arrows on analysis points.
+
+## (old) BACKLOG (agreed, not started):
   - Corner-detection MASK (paint where Auto looks) — nice extra; RANSAC already rejects movers.
   - Stabilizer LAYERING: choose ORDER (region/points/auto) + per-stabilizer INTENSITY sliders; combine.
   - BATCH stabilization: Process-video should apply stabilization + all live settings offline (needs
