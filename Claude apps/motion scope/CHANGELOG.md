@@ -2,6 +2,15 @@
 
 All notable changes to the app. Newest first.
 
+## 2026-08-12q — Process-crop mode
+
+### Added
+- **Zoom-only / Process-crop** toggle in the Zoom tab. **Process crop** feeds only the crop region
+  through the whole pipeline (drawn into procSrcCv/_pvf, reusing the pre-stab substitution) — sharper,
+  region-adapted amplification/analysis, tracking routed to the crop via pipeSrc(). Region squared to
+  avoid distortion (validated). CSS zoom disabled in this mode (crop is the processed frame). Markers
+  reset on switch; stabilization bypassed while process-crop is active.
+
 ## 2026-08-12p — Zoom tab (appears when zoomed)
 
 ### Added
