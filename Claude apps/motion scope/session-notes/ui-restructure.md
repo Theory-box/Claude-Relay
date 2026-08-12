@@ -49,6 +49,14 @@ layer scaled by regionInt at application (accX*regionInt). TODO: full 3-way reor
 
 ## ZOOM: view-crop (zoom-only) DONE — CSS transform on view/viewGPU from cropRect; overlays auto-align via getBoundingClientRect; cropDrawMode + magnifier zoomBtn (🔍/⤢). TODO process-crop mode (re-derive procW/procH from crop aspect + cropped source into procSrcCv/_pvf, compose with stab) = the "ignore everything outside" toggle.
 
+## PHASE DENOISE (branch: feature/denoise, EXPERIMENTAL — not on main)
+Amplitude-weighted phase smoothing + noise gate for the Riesz path. All spatial (never temporal), so it can't remove a vibration frequency. Controls in Settings > "Phase denoise (Riesz)" (shows only for Riesz):
+- Master Off/On (pdOn). Off = baseline (radius 3, floor 2.0, gate 0).
+- Smoothing radius (pdRadius 0-8) -> blur r in WGSL_RZBH/RZBV via RZU.rad (written per-frame into rzUni offset 16; rzUni bumped 16->32B). Also drives CPU denoiseR (radius only; CPU floor/gate skipped — different amplitude scale).
+- Amplitude floor (pdFloor, slider/10 -> 0-10, default 2.0) -> RZP.floorv (was hardcoded 2.0).
+- Noise gate (pdGate, slider/10) + Gate softness (pdGateSoft, slider/10) -> RZP.gate/gateSoft; shift shader multiplies amp by smoothstep(gate-soft,gate+soft, blurA) when gate>0. RZP 32->48B, struct +gate,+gateSoft,+3pad.
+Evaluate; if keep -> merge to main (user says so), else drop branch. GPU validated by build; needs visual test.
+
 ## IDEA BACKLOG (brainstormed, not started) — added 2026-08-12:
 Measurement: operating deflection shapes / mode animation; order tracking (RPM + 1x/2x/3x harmonics);
 beat/difference-frequency finder; coherence map (regions correlated with a clicked reference point);
