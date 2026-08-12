@@ -36,6 +36,8 @@
   header .ebadge.gl{color:var(--amber);border-color:var(--amber)}
   header .hbtn:hover{border-color:var(--phosphor)}
   header .hbtn[aria-pressed=true]{background:var(--phosphor);color:#04120e;border-color:var(--phosphor);font-weight:600}
+  .mask-box{position:absolute;border:2px dashed var(--hot);border-radius:4px;background:rgba(255,93,115,.08);pointer-events:none}
+  .mask-box.inc{border-color:var(--phosphor);background:rgba(57,230,196,.08)}
   header .hbtn:focus-visible{outline:2px solid var(--phosphor);outline-offset:2px}
   .wrap{flex:1;display:grid;grid-template-columns:auto 1fr 340px;gap:1px;background:var(--line);min-height:0}
   .toolrail{background:var(--panel);display:flex;flex-direction:column;align-items:center;gap:.3rem;padding:.55rem .4rem;overflow:visible}
@@ -386,6 +388,9 @@
       <summary><h3>Auto stabilizer</h3></summary>
       <div class="seg" role="group" aria-label="Auto stabilize"><button id="autoOff" aria-pressed="true">Off</button><button id="autoOn" aria-pressed="false">On</button></div>
       <p class="note">Automatically finds and tracks dozens of stable features across the frame and steadies it — translation, rotation and zoom — using <b>RANSAC</b> to reject moving objects (nothing to place). Green dots = trusted features, grey = rejected/lost. Uses the same <b>Input/View</b> mode below. Best for general whole-frame shake.</p>
+      <div class="btns" style="margin-top:.4rem"><button class="act" id="maskDrawBtn" aria-pressed="false">Draw mask</button><button class="act" id="maskClearBtn">Clear mask</button></div>
+      <div class="seg" role="group" aria-label="Mask mode" style="margin-top:.35rem"><button id="maskExc" aria-pressed="true">Exclude</button><button id="maskInc" aria-pressed="false">Include</button></div>
+      <p class="note">Optional: draw box(es) to control where Auto looks for features. <b>Exclude</b> = don't detect inside the boxes (mask out a moving subject); <b>Include</b> = only detect inside them. RANSAC already rejects movers — this is extra fine-tuning.</p>
       <p class="note" id="autoStatus"></p>
     </details>
     <details class="group" data-tab="stabilize" open>
@@ -445,6 +450,7 @@
   let curS=null, prevS=null, shiftBuf=null, smallCnt=null;
   let accX=0, accY=0, stabStrength=0.868;
   let regions=[], drawMode=false, curDraw=null; const MAXREG=4;
+  let maskRegions=[], maskDraw=false, maskCur=null, maskMode="exclude"; const MAXMASK=4;
   let WC=0, WR=0, refWarp=null, wfx=null, wfy=null;
   let bSX=null, bFX=null, bSY=null, bFY=null, warpReady=false;
   let Yb=null, Lo=null, Bb=null, R1=null, R2=null, Ab=null; // phase (gray)
@@ -607,14 +613,23 @@
   function stageToNorm(cx,cy){ const cv=(viewGPU.style.display!=='none')?viewGPU:view, r=cv.getBoundingClientRect(); const ar=procW/procH, ba=r.width/r.height; let iw,ih,ox,oy; if(ba>ar){ ih=r.height; iw=ih*ar; ox=(r.width-iw)/2; oy=0; } else { iw=r.width; ih=iw/ar; ox=0; oy=(r.height-ih)/2; } return { nx:Math.max(0,Math.min(1,(cx-r.left-ox)/iw)), ny:Math.max(0,Math.min(1,(cy-r.top-oy)/ih)) }; }
   function normRect(g){ const cv=(viewGPU.style.display!=='none')?viewGPU:view, r=cv.getBoundingClientRect(), sr=stage.getBoundingClientRect(); const ar=procW/procH, ba=r.width/r.height; let iw,ih,ox,oy; if(ba>ar){ ih=r.height; iw=ih*ar; ox=(r.width-iw)/2; oy=0; } else { iw=r.width; ih=iw/ar; ox=0; oy=(r.height-ih)/2; } const L=r.left-sr.left+ox, T=r.top-sr.top+oy; return { left:L+g.x0*iw, top:T+g.y0*ih, width:(g.x1-g.x0)*iw, height:(g.y1-g.y0)*ih }; }
   function drawRegions(){ if(!regionLayer) return; regionLayer.innerHTML=''; if(!procW) return; const list=regions.slice(); if(curDraw) list.push({x0:Math.min(curDraw.x0,curDraw.x1),y0:Math.min(curDraw.y0,curDraw.y1),x1:Math.max(curDraw.x0,curDraw.x1),y1:Math.max(curDraw.y0,curDraw.y1),active:true});
-    for(const g of list){ const b=normRect(g), d=document.createElement('div'); d.className='region-box'+((drawMode||g.active)?'':' idle'); d.style.left=b.left+'px'; d.style.top=b.top+'px'; d.style.width=b.width+'px'; d.style.height=b.height+'px'; regionLayer.appendChild(d); } }
+    for(const g of list){ const b=normRect(g), d=document.createElement('div'); d.className='region-box'+((drawMode||g.active)?'':' idle'); d.style.left=b.left+'px'; d.style.top=b.top+'px'; d.style.width=b.width+'px'; d.style.height=b.height+'px'; regionLayer.appendChild(d); } const mlist=maskRegions.slice(); if(maskCur) mlist.push({x0:Math.min(maskCur.x0,maskCur.x1),y0:Math.min(maskCur.y0,maskCur.y1),x1:Math.max(maskCur.x0,maskCur.x1),y1:Math.max(maskCur.y0,maskCur.y1)}); for(const g of mlist){ const b=normRect(g), d=document.createElement('div'); d.className='mask-box '+(maskMode==='include'?'inc':'exc'); d.style.left=b.left+'px'; d.style.top=b.top+'px'; d.style.width=b.width+'px'; d.style.height=b.height+'px'; regionLayer.appendChild(d); } }
   function setDrawMode(on){ drawMode=on; drawRegionBtn.setAttribute('aria-pressed',on); stage.style.cursor=on?'crosshair':''; drawRegions(); }
+  const _origSetDrawMode=setDrawMode; setDrawMode=function(on){ if(on){ maskDraw=false; const mb=$('maskDrawBtn'); if(mb)mb.setAttribute('aria-pressed',false); } _origSetDrawMode(on); };
   drawRegionBtn.onclick=()=>setDrawMode(!drawMode);
+  const maskDrawBtn=$('maskDrawBtn'), maskClearBtn=$('maskClearBtn');
+  function setMaskDraw(on){ maskDraw=on; if(maskDrawBtn)maskDrawBtn.setAttribute('aria-pressed',on); stage.style.cursor=on?'crosshair':''; if(on){ setDrawMode(false); if(typeof aAddMode!=='undefined'){aAddMode=false;sAddMode=false;} } drawRegions(); }
+  if(maskDrawBtn) maskDrawBtn.onclick=()=>setMaskDraw(!maskDraw);
+  if(maskClearBtn) maskClearBtn.onclick=()=>{ maskRegions.length=0; autoNeedsDetect=true; drawRegions(); };
+  { const me=$('maskExc'), mi=$('maskInc'); function setMaskMode(m){ maskMode=m; if(me)me.setAttribute('aria-pressed',m==='exclude'); if(mi)mi.setAttribute('aria-pressed',m==='include'); autoNeedsDetect=true; drawRegions(); } if(me)me.onclick=()=>setMaskMode('exclude'); if(mi)mi.onclick=()=>setMaskMode('include'); }
+  stage.addEventListener('pointerdown',(e)=>{ if(!maskDraw||compareMode!=='off'||!procW||e.button!==0) return; const p=stageToNorm(e.clientX,e.clientY); maskCur={x0:p.nx,y0:p.ny,x1:p.nx,y1:p.ny}; e.preventDefault(); drawRegions(); });
+  stage.addEventListener('pointermove',(e)=>{ if(!maskCur) return; const p=stageToNorm(e.clientX,e.clientY); maskCur.x1=p.nx; maskCur.y1=p.ny; drawRegions(); });
+  window.addEventListener('pointerup',()=>{ if(!maskCur) return; const g={x0:Math.min(maskCur.x0,maskCur.x1),y0:Math.min(maskCur.y0,maskCur.y1),x1:Math.max(maskCur.x0,maskCur.x1),y1:Math.max(maskCur.y0,maskCur.y1)}; maskCur=null; if((g.x1-g.x0)>0.03&&(g.y1-g.y0)>0.03){ if(maskRegions.length>=MAXMASK) maskRegions.shift(); maskRegions.push(g); autoNeedsDetect=true; } setMaskDraw(false); });
   clearRegionBtn.onclick=()=>{ regions.length=0; drawRegions(); };
   stage.addEventListener('pointerdown',(e)=>{ if(!drawMode || compareMode!=='off' || !procW || e.button!==0) return; const p=stageToNorm(e.clientX,e.clientY); curDraw={x0:p.nx,y0:p.ny,x1:p.nx,y1:p.ny}; e.preventDefault(); drawRegions(); });
   stage.addEventListener('pointermove',(e)=>{ if(!curDraw) return; const p=stageToNorm(e.clientX,e.clientY); curDraw.x1=p.nx; curDraw.y1=p.ny; drawRegions(); });
   window.addEventListener('pointerup',()=>{ if(!curDraw) return; const g={x0:Math.min(curDraw.x0,curDraw.x1),y0:Math.min(curDraw.y0,curDraw.y1),x1:Math.max(curDraw.x0,curDraw.x1),y1:Math.max(curDraw.y0,curDraw.y1)}; curDraw=null; if((g.x1-g.x0)>0.03 && (g.y1-g.y0)>0.03){ if(regions.length>=MAXREG) regions.shift(); regions.push(g); if(!stabilize) setStab(true); } setDrawMode(false); });
-  window.addEventListener('resize',()=>{ if(regions.length||curDraw) drawRegions(); });
+  window.addEventListener('resize',()=>{ if(regions.length||curDraw||maskRegions.length||maskCur) drawRegions(); });
   // ===== Point tracking: pyramidal inverse-compositional Lucas-Kanade =====
   const aTrackers=[], sTrackers=[]; let aAddMode=false, sAddMode=false, _trkLastT=-1, _trkFrame=0, stabView=false, trkPredict=true;
   const PLV=3, PHS=7, MAXITER=8, TRK_MAXW=640;
@@ -650,7 +665,8 @@
   function detectCorners(){ gpyr=grabGrayPyramid(video); if(!gpyr){ autoCorners=[]; return; } const im=gpyr[0], w=im.w, h=im.h, d=im.d, marg=12, Rr=2, cand=[];
     for(let y=marg;y<h-marg;y+=2){ for(let x=marg;x<w-marg;x+=2){ let sxx=0,syy=0,sxy=0; for(let j=-Rr;j<=Rr;j++){ for(let i=-Rr;i<=Rr;i++){ const px=x+i,py=y+j; const gx=0.5*(d[py*w+px+1]-d[py*w+px-1]), gy=0.5*(d[(py+1)*w+px]-d[(py-1)*w+px]); sxx+=gx*gx; syy+=gy*gy; sxy+=gx*gy; } } const tr=sxx+syy, det=sxx*syy-sxy*sxy, dsc=Math.sqrt(Math.max(0,tr*tr-4*det)), me=(tr-dsc)/2; if(me>1) cand.push({x:x,y:y,s:me}); } }
     cand.sort((a,b)=>b.s-a.s); const picked=[], minD=Math.max(8,Math.min(w,h)/14), md2=minD*minD;
-    for(const c of cand){ let ok=true; for(const p of picked){ if((p.x-c.x)*(p.x-c.x)+(p.y-c.y)*(p.y-c.y)<md2){ ok=false; break; } } if(ok){ picked.push(c); if(picked.length>=MAXCORNERS) break; } }
+    const inMask=(nx,ny)=>{ for(const g of maskRegions){ if(nx>=g.x0&&nx<=g.x1&&ny>=g.y0&&ny<=g.y1) return true; } return false; };
+    for(const c of cand){ if(maskRegions.length){ const ins=inMask(c.x/w,c.y/h); if(maskMode==='exclude'&&ins) continue; if(maskMode==='include'&&!ins) continue; } let ok=true; for(const p of picked){ if((p.x-c.x)*(p.x-c.x)+(p.y-c.y)*(p.y-c.y)<md2){ ok=false; break; } } if(ok){ picked.push(c); if(picked.length>=MAXCORNERS) break; } }
     autoCorners=picked.map(c=>{ const t=buildTemplate(c.x/trkW,c.y/trkH); t.kind='c'; return t; }); autoNeedsDetect=false; }
   function simFrom2(p,q){ const dx=q.x-p.x, dy=q.y-p.y, den=dx*dx+dy*dy; if(den<1e-6) return null; const Dx=q.x0-p.x0, Dy=q.y0-p.y0, a=(dx*Dx+dy*Dy)/den, b=(dx*Dy-dy*Dx)/den; return {a:a,b:b,tx:p.x0-(a*p.x-b*p.y),ty:p.y0-(b*p.x+a*p.y)}; }
   function autoFit(){ const pts=autoCorners.filter(t=>!t.lost && t.conf>0.12); if(pts.length<6){ if(pts.length<4) autoNeedsDetect=true; return null; } const N=pts.length, thr=2.5, thr2=thr*thr; let best=[],bc=0;

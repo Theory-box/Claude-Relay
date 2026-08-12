@@ -2,6 +2,15 @@
 
 All notable changes to the app. Newest first.
 
+## 2026-08-12f — Corner-detection mask (Auto stabilizer)
+
+### Added
+- **Corner mask** (Auto group): draw box(es) to control where Auto detects features. **Exclude** =
+  don't detect inside the boxes (mask out a moving subject); **Include** = only detect inside them.
+  Draw mask / Clear mask + Exclude/Include toggle; re-detects on change. Reuses the region-draw
+  interaction; dashed red (exclude) / green (include) overlay. Validated: exclude 0 inside, include
+  0 outside. RANSAC still rejects movers — this is extra fine-tuning control.
+
 ## 2026-08-12e — Stabilization analysis: overall + per-mode metrics, master toggle
 
 ### Added
