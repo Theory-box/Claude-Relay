@@ -2,6 +2,53 @@
 
 ## STATE: everything is merged to `main` and pushed. `main` is the live build.
 
+## ===== CURRENT-STATE SNAPSHOT (2026-08-12, after 4 audits) =====
+Single-file in-browser motion magnification app. Stable base; 4 audit passes done (bugs fixed early,
+now clean). Build/deliver: edit `motion_scope.html` via targeted python string-replaces → validate
+`node --check` on the extracted <script> → commit+push main → rebuild the ~191MB single file by
+base64-embedding stbvmm_128/256 + tnet into their empty <script> tags → /mnt/user-data/outputs →
+present_files. (magnetB64 already embedded in repo; 512 model committed but unused live.)
+
+### Magnification methods (far-left icon rail, 2-letter labels): Linear(LI) Phase(PH) Riesz(RI, real
+MIT GPU+CPU) Neural(AI, 4 ONNX models) Warp(WA) Isolate(IS); views Amplified(A)/Motion(M). Smart
+per-method control visibility (Neural hides freq/color/scale/denoise/velocity; Stabilize+Smoothing
+tabs hidden for Neural). Tabbed panel: Capture/Settings/Process/Analysis/Stabilize/Smoothing.
+### Neural: ORT WebGPU→WASM, models MagNet / STB-VMM 128 / STB-VMM 256 / theta-Net; residual "Sharp"
+mode; theta-Net frame-packing 2x/4x for offline. Offline "Process video" → WebM (2 paths, both
+memory-capped ~600MB).
+### TRACKING (validated on synthetic ground-truth in Node): pyramidal inverse-compositional
+Lucas-Kanade. TWO independent point trackers, separate sets, no cross-use:
+  - Analysis (Analysis tab): circle markers, report frequency (FFT), NEVER warp. Own Add/Clear.
+  - Stabilize points (Stabilize tab): square markers, drive the warp only. Own Add/Clear.
+  Add point button turns GREEN in placement mode; RIGHT-CLICK a marker deletes it (in placement mode).
+### THREE independent stabilizers (each own on/off, combinable):
+  1. Region (translation block-match; On=auto whole-frame, draw a box to target; accX/accY).
+  2. Stabilize-to-points (sTrackers → fitSimilarity → _stabM; 1pt=translation, 2+=rotation+zoom).
+  3. Auto (Shi-Tomasi corners → LK-track → RANSAC similarity → _stabM; rejects moving objects;
+     green=trusted grey=rejected dots). Auto takes precedence over points for _stabM.
+### Pre-stabilization (DEFAULT): stabilize the input BEFORE amplify/analyze. Toggle Input(pre)/View
+(post cosmetic CSS). preFrame() warps raw→procSrcCv using last frame's _stabMApplied (1-frame lag);
+GPU reads via VideoFrame (gpuSrc), CPU/neural read procSrcCv (frameSrc), analysis reads analysisSrc
+(On stabilized / On raw toggle). Region estimator reads frameSrc.
+### Stabilizer smoothing slider + deadband (kills fit-noise jitter; validated). Live accuracy readout:
+"Raw X → Stab Y px/f (↓Z%)" green=reducing red=adding — the helping/hurting signal.
+
+## AUDIT RESULTS: P1 fixed metric (was comparing transform to itself). P2 fixed stop() stale
+transforms + VideoFrame leak + autoStab toggle desync. P3 removed dead code (blockSadRef,
+compositeCompare, fieldAt, rzBiquad, slowX/slowY). P4 clean (concurrency/cleanup/memory all sound).
+
+## BACKLOG (agreed, not started):
+  - Corner-detection MASK (paint where Auto looks) — nice extra; RANSAC already rejects movers.
+  - Stabilizer LAYERING: choose ORDER (region/points/auto) + per-stabilizer INTENSITY sliders; combine.
+  - BATCH stabilization: Process-video should apply stabilization + all live settings offline (needs
+    per-seeked-frame track+warp in the batch pipeline).
+  - Tracker refinement: Kalman on the STAB transform (not analysis pts), phase-fusion, freq-consensus
+    audit for robust confidence + occlusion coast-through.
+  - Analysis graphs: real frequency plots (heartbeat-from-head-bob), directional arrows, vibrometry.
+  - Minor: tab icons; deadband still builds an identity VideoFrame (harmless).
+## ===== END SNAPSHOT =====
+
+
 ## App
 Single file `Claude apps/motion scope/motion_scope.html`. Real-time + offline motion
 magnification in-browser (webcam/screen/video). Engines: Linear, Phase, Riesz (WebGPU+CPU),
