@@ -2,6 +2,18 @@
 
 All notable changes to the app. Newest first.
 
+## 2026-08-12e — Stabilization analysis: overall + per-mode metrics, master toggle
+
+### Added
+- **Master STAB button** (header, green when on): toggles ALL stabilizers (region + points + auto) at
+  once for instant A/B comparison.
+- **Overall stabilization number** in the top readout: 'stab ↓X%' — green reducing, red adding, OFF
+  when master off. Measured on monitor feature-corners under the final applied transform.
+- **Per-mode metrics**: Region now shows its own Raw→Stab reduction (auto + points already did).
+  Monitor corners auto-tracked whenever any stabilizer is intended.
+- NOTE: region/overall assume displayed = raw − acc; if a number moves the wrong way vs the master
+  toggle it is a one-line sign flip (verify via A/B).
+
 ## 2026-08-12d — Tracker refinement 1a: predictive tracking (coast-through)
 
 ### Added
