@@ -135,6 +135,8 @@
       <div class="trlabel">View</div>
       <button class="tricon" id="modeAmp" data-tip="Amplified — motion over the scene" aria-label="Amplified — motion over the scene" aria-pressed="true">A</button>
       <button class="tricon" id="modeMotion" data-tip="Motion only — bare motion signal" aria-label="Motion only — bare motion signal" aria-pressed="false">M</button>
+      <div class="trsep"></div>
+      <button class="tricon" id="zoomBtn" data-tip="Zoom to region — click then drag a box" aria-label="Zoom to region" aria-pressed="false">🔍</button>
     </div>
   </nav>
   <div class="stage">
@@ -145,6 +147,7 @@
     <div id="probeLayer" style="position:absolute;inset:0;pointer-events:none"></div>
     <canvas id="phaseLayer" style="position:absolute;inset:0;pointer-events:none"></canvas>
     <canvas id="trackLayer" style="position:absolute;inset:0;pointer-events:none"></canvas>
+    <div id="cropSel" style="position:absolute;border:2px solid var(--phosphor);background:rgba(57,230,196,.1);pointer-events:none;display:none;border-radius:4px;z-index:5"></div>
     <div class="overlay" id="overlay" hidden>
       <div class="readout" id="readout"></div>
       <div class="energy">motion energy<div class="bar"><i id="energyBar"></i></div></div>
@@ -478,6 +481,7 @@
   let accX=0, accY=0, stabStrength=0.868;
   let regions=[], drawMode=false, curDraw=null; const MAXREG=4;
   let maskRegions=[], maskDraw=false, maskCur=null, maskMode="exclude"; const MAXMASK=4;
+  let cropRect=null, cropDrawMode=false, cropCur=null;
   let WC=0, WR=0, refWarp=null, wfx=null, wfy=null;
   let bSX=null, bFX=null, bSY=null, bFY=null, warpReady=false;
   let Yb=null, Lo=null, Bb=null, R1=null, R2=null, Ab=null; // phase (gray)
@@ -662,6 +666,16 @@
   stage.addEventListener('pointerdown',(e)=>{ if(!calDraw||compareMode!=='off'||!procW||e.button!==0) return; const p=stageToNorm(e.clientX,e.clientY); calCur={x0:p.nx,y0:p.ny,x1:p.nx,y1:p.ny}; e.preventDefault(); });
   stage.addEventListener('pointermove',(e)=>{ if(!calCur) return; const p=stageToNorm(e.clientX,e.clientY); calCur.x1=p.nx; calCur.y1=p.ny; });
   window.addEventListener('pointerup',()=>{ if(!calCur) return; const g={x0:calCur.x0,y0:calCur.y0,x1:calCur.x1,y1:calCur.y1}; calCur=null; const dx=g.x1-g.x0,dy=g.y1-g.y0; if(dx*dx+dy*dy>0.0004){ calLine=g; calRecompute(); } setCalDraw(false); });
+  function cropTransform(){ const SW=stage.clientWidth, SH=stage.clientHeight, ar=(procW/procH)||1.777, ba=SW/SH; let dw,dh; if(ba>ar){ dh=SH; dw=SH*ar; } else { dw=SW; dh=SW/ar; } const dl=(SW-dw)/2, dt=(SH-dh)/2, g=cropRect, cl=dl+g.x0*dw, ct=dt+g.y0*dh, cw=(g.x1-g.x0)*dw, ch=(g.y1-g.y0)*dh, sc=Math.min(SW/cw,SH/ch), tx=(SW-cw*sc)/2-cl*sc, ty=(SH-ch*sc)/2-ct*sc; return 'translate('+tx+'px,'+ty+'px) scale('+sc+')'; }
+  function applyCropZoom(){ const t=cropRect?cropTransform():''; view.style.transformOrigin='0 0'; view.style.transform=t; viewGPU.style.transformOrigin='0 0'; viewGPU.style.transform=t; }
+  const zoomBtn=$('zoomBtn'), cropSel=$('cropSel');
+  function setZoomIcon(){ if(zoomBtn){ zoomBtn.innerHTML=cropRect?'⤢':'🔍'; zoomBtn.setAttribute('data-tip',cropRect?'Restore full view':'Zoom to region — click then drag a box'); zoomBtn.setAttribute('aria-pressed',(cropDrawMode||!!cropRect)?'true':'false'); } }
+  function setCropDraw(on){ cropDrawMode=on; if(on){ if(typeof setDrawMode==='function')setDrawMode(false); maskDraw=false; calDraw=false; aAddMode=false; sAddMode=false; ['maskDrawBtn','calBtn','trkAddBtn','stabAddBtn'].forEach(id=>{const b=$(id); if(b)b.setAttribute('aria-pressed',false);}); } stage.style.cursor=on?'crosshair':''; if(!on&&cropSel)cropSel.style.display='none'; setZoomIcon(); }
+  if(zoomBtn) zoomBtn.onclick=()=>{ if(cropRect){ cropRect=null; applyCropZoom(); setCropDraw(false); } else { setCropDraw(!cropDrawMode); } };
+  stage.addEventListener('pointerdown',(e)=>{ if(!cropDrawMode||compareMode!=='off'||!procW||e.button!==0) return; const p=stageToNorm(e.clientX,e.clientY); cropCur={x0:p.nx,y0:p.ny,x1:p.nx,y1:p.ny}; e.preventDefault(); });
+  stage.addEventListener('pointermove',(e)=>{ if(!cropCur) return; const p=stageToNorm(e.clientX,e.clientY); cropCur.x1=p.nx; cropCur.y1=p.ny; if(cropSel){ const g={x0:Math.min(cropCur.x0,cropCur.x1),y0:Math.min(cropCur.y0,cropCur.y1),x1:Math.max(cropCur.x0,cropCur.x1),y1:Math.max(cropCur.y0,cropCur.y1)}, b=normRect(g); cropSel.style.display='block'; cropSel.style.left=b.left+'px'; cropSel.style.top=b.top+'px'; cropSel.style.width=b.width+'px'; cropSel.style.height=b.height+'px'; } });
+  window.addEventListener('pointerup',()=>{ if(!cropCur) return; const g={x0:Math.min(cropCur.x0,cropCur.x1),y0:Math.min(cropCur.y0,cropCur.y1),x1:Math.max(cropCur.x0,cropCur.x1),y1:Math.max(cropCur.y0,cropCur.y1)}; cropCur=null; if(cropSel)cropSel.style.display='none'; if((g.x1-g.x0)>0.04&&(g.y1-g.y0)>0.04){ cropRect=g; applyCropZoom(); } setCropDraw(false); });
+  window.addEventListener('resize',()=>{ if(cropRect) applyCropZoom(); });
   clearRegionBtn.onclick=()=>{ regions.length=0; drawRegions(); };
   stage.addEventListener('pointerdown',(e)=>{ if(!drawMode || compareMode!=='off' || !procW || e.button!==0) return; const p=stageToNorm(e.clientX,e.clientY); curDraw={x0:p.nx,y0:p.ny,x1:p.nx,y1:p.ny}; e.preventDefault(); drawRegions(); });
   stage.addEventListener('pointermove',(e)=>{ if(!curDraw) return; const p=stageToNorm(e.clientX,e.clientY); curDraw.x1=p.nx; curDraw.y1=p.ny; drawRegions(); });

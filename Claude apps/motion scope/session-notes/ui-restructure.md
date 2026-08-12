@@ -47,6 +47,8 @@ compose via buildComposedStabM (scaled, ordered by prPoints/prAuto, composeT). R
 layer scaled by regionInt at application (accX*regionInt). TODO: full 3-way reorderable cascade
 (region into the middle) needs per-layer intermediate-frame tracking.
 
+## ZOOM: view-crop (zoom-only) DONE — CSS transform on view/viewGPU from cropRect; overlays auto-align via getBoundingClientRect; cropDrawMode + magnifier zoomBtn (🔍/⤢). TODO process-crop mode (re-derive procW/procH from crop aspect + cropped source into procSrcCv/_pvf, compose with stab) = the "ignore everything outside" toggle.
+
 ## IDEA BACKLOG (brainstormed, not started) — added 2026-08-12:
 Measurement: operating deflection shapes / mode animation; order tracking (RPM + 1x/2x/3x harmonics);
 beat/difference-frequency finder; coherence map (regions correlated with a clicked reference point);

@@ -2,6 +2,17 @@
 
 All notable changes to the app. Newest first.
 
+## 2026-08-12o — Zoom to region (view crop)
+
+### Added
+- **Zoom to region**: magnifying-glass icon under the View icons. Click it, drag a box, and the view
+  zooms so that region fills the viewport (icon becomes a restore glyph; click to return to full view).
+  Implemented as a CSS transform on the view canvases — overlays and marker/coordinate math auto-align
+  via getBoundingClientRect. Full-frame processing is unchanged (this is a digital zoom of the output).
+  Transform validated (crop maps to fill stage exactly).
+- NEXT: 'Process cropped region only' toggle (re-process just the crop for sharper, region-adapted
+  results) — needs procW/procH re-derivation + cropped source, deferred to do carefully.
+
 ## 2026-08-12n — Vibration map: pre/post-amp source
 
 ### Added
