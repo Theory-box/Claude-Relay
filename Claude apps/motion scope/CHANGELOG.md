@@ -2,6 +2,18 @@
 
 All notable changes to the app. Newest first.
 
+## 2026-08-12 — Pre-stabilization (stabilize before amplify/analyze)
+
+### Added / Changed
+- Point stabilization now defaults to **pre-processing**: the input frame is warped by the stab
+  transform *before* the magnifier, neural models, and analysis run on it — so everything works on
+  steadier footage. Toggle **Input** (pre, default) / **View only** (cosmetic display warp, old).
+- Frame-source routing: CPU/neural/analysis read the stabilized canvas; the WebGPU path reads it via
+  a VideoFrame wrapper (importExternalTexture can't take a canvas). Falls back to raw video if a
+  transform isn't ready. Uses last frame's transform (1-frame lag, negligible).
+- Analysis point tracker gets **On stabilized / On raw** toggle: measure the target's own motion
+  (shake removed) or absolute motion including camera shake.
+
 ## 2026-08-11e — Two independent point trackers
 
 ### Changed
