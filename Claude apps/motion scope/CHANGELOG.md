@@ -2,6 +2,13 @@
 
 All notable changes to the app. Newest first.
 
+## 2026-08-12p — Zoom tab (appears when zoomed)
+
+### Added
+- A **Zoom tab** appears in the tab strip when you zoom into a region and disappears when you restore
+  (hooked into updateTabAvailability, keyed on cropRect; leaving zoom auto-switches off the tab). Holds
+  a Restore-full-view button + info; home for zoom settings (process-crop toggle to come).
+
 ## 2026-08-12o — Zoom to region (view crop)
 
 ### Added

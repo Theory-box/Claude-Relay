@@ -173,6 +173,7 @@
       <button data-tab="analysis" aria-selected="false">Analysis</button>
       <button data-tab="stabilize" aria-selected="false">Stabilize</button>
       <button data-tab="smoothing" aria-selected="false">Smoothing</button>
+      <button data-tab="zoom" id="zoomTabBtn" aria-selected="false" style="display:none">Zoom</button>
     </div>
     <div class="tabcontent" id="tabcontent">
     <details class="group" data-tab="capture" open>
@@ -433,6 +434,11 @@
       <p class="note">All three stabilizers compose in the order you set (1st is applied first); intensity scales each one's strength. Ordering applies in the default <b>Input</b> stabilize mode.</p>
       <p class="note" id="stabStatus"></p>
     </details>
+    <details class="group" data-tab="zoom" open>
+      <summary><h3>Zoom</h3></summary>
+      <div class="btns"><button class="act" id="zoomRestoreBtn">Restore full view</button></div>
+      <p class="note">You're zoomed into a region. This is a <b>digital zoom</b> of the processed output — full-frame processing is unchanged, so a deep zoom looks a little soft. Restore, then use the 🔍 icon to draw a new region.</p>
+    </details>
     </div>
   </div>
 </div>
@@ -550,7 +556,7 @@
   var activeTab='capture';
   function updateSettingsGroups(){ const inS=(activeTab==='settings'); const ng=$('neuralGroup'); if(ng) ng.style.display=(inS && method==='neural')?'':'none'; const wf=$('warpFieldGroup'); if(wf) wf.style.display=(inS && mode==='warp')?'':'none'; }
   function setTab(t){ activeTab=t; document.querySelectorAll('.tabstrip button').forEach(b=>b.setAttribute('aria-selected', String(b.dataset.tab===t))); document.querySelectorAll('#tabcontent > .group').forEach(g=>{ g.style.display=(g.dataset.tab===t)?'':'none'; }); updateSettingsGroups(); }
-  function updateTabAvailability(){ const off={ stabilize: method==='neural', smoothing: method==='neural' }; let hidActive=false; document.querySelectorAll('.tabstrip button').forEach(b=>{ const t=b.dataset.tab, hide=!!off[t]; b.style.display=hide?'none':''; if(hide && activeTab===t) hidActive=true; }); if(hidActive) setTab('settings'); }
+  function updateTabAvailability(){ const off={ stabilize: method==='neural', smoothing: method==='neural', zoom: !cropRect }; let hidActive=false; document.querySelectorAll('.tabstrip button').forEach(b=>{ const t=b.dataset.tab, hide=!!off[t]; b.style.display=hide?'none':''; if(hide && activeTab===t) hidActive=true; }); if(hidActive) setTab('settings'); }
   document.querySelectorAll('.tabstrip button').forEach(b=>{ b.onclick=()=>setTab(b.dataset.tab); });
   setTab('capture'); updateTabAvailability();
   function setMethod(m){
@@ -671,10 +677,11 @@
   const zoomBtn=$('zoomBtn'), cropSel=$('cropSel');
   function setZoomIcon(){ if(zoomBtn){ zoomBtn.innerHTML=cropRect?'⤢':'🔍'; zoomBtn.setAttribute('data-tip',cropRect?'Restore full view':'Zoom to region — click then drag a box'); zoomBtn.setAttribute('aria-pressed',(cropDrawMode||!!cropRect)?'true':'false'); } }
   function setCropDraw(on){ cropDrawMode=on; if(on){ if(typeof setDrawMode==='function')setDrawMode(false); maskDraw=false; calDraw=false; aAddMode=false; sAddMode=false; ['maskDrawBtn','calBtn','trkAddBtn','stabAddBtn'].forEach(id=>{const b=$(id); if(b)b.setAttribute('aria-pressed',false);}); } stage.style.cursor=on?'crosshair':''; if(!on&&cropSel)cropSel.style.display='none'; setZoomIcon(); }
-  if(zoomBtn) zoomBtn.onclick=()=>{ if(cropRect){ cropRect=null; applyCropZoom(); setCropDraw(false); } else { setCropDraw(!cropDrawMode); } };
+  if(zoomBtn) zoomBtn.onclick=()=>{ if(cropRect){ cropRect=null; applyCropZoom(); setCropDraw(false); if(typeof updateTabAvailability==='function') updateTabAvailability(); } else { setCropDraw(!cropDrawMode); } };
+  { const zr=$('zoomRestoreBtn'); if(zr) zr.onclick=()=>{ cropRect=null; applyCropZoom(); setCropDraw(false); if(typeof updateTabAvailability==='function') updateTabAvailability(); }; }
   stage.addEventListener('pointerdown',(e)=>{ if(!cropDrawMode||compareMode!=='off'||!procW||e.button!==0) return; const p=stageToNorm(e.clientX,e.clientY); cropCur={x0:p.nx,y0:p.ny,x1:p.nx,y1:p.ny}; e.preventDefault(); });
   stage.addEventListener('pointermove',(e)=>{ if(!cropCur) return; const p=stageToNorm(e.clientX,e.clientY); cropCur.x1=p.nx; cropCur.y1=p.ny; if(cropSel){ const g={x0:Math.min(cropCur.x0,cropCur.x1),y0:Math.min(cropCur.y0,cropCur.y1),x1:Math.max(cropCur.x0,cropCur.x1),y1:Math.max(cropCur.y0,cropCur.y1)}, b=normRect(g); cropSel.style.display='block'; cropSel.style.left=b.left+'px'; cropSel.style.top=b.top+'px'; cropSel.style.width=b.width+'px'; cropSel.style.height=b.height+'px'; } });
-  window.addEventListener('pointerup',()=>{ if(!cropCur) return; const g={x0:Math.min(cropCur.x0,cropCur.x1),y0:Math.min(cropCur.y0,cropCur.y1),x1:Math.max(cropCur.x0,cropCur.x1),y1:Math.max(cropCur.y0,cropCur.y1)}; cropCur=null; if(cropSel)cropSel.style.display='none'; if((g.x1-g.x0)>0.04&&(g.y1-g.y0)>0.04){ cropRect=g; applyCropZoom(); } setCropDraw(false); });
+  window.addEventListener('pointerup',()=>{ if(!cropCur) return; const g={x0:Math.min(cropCur.x0,cropCur.x1),y0:Math.min(cropCur.y0,cropCur.y1),x1:Math.max(cropCur.x0,cropCur.x1),y1:Math.max(cropCur.y0,cropCur.y1)}; cropCur=null; if(cropSel)cropSel.style.display='none'; if((g.x1-g.x0)>0.04&&(g.y1-g.y0)>0.04){ cropRect=g; applyCropZoom(); } setCropDraw(false); if(typeof updateTabAvailability==='function') updateTabAvailability(); });
   window.addEventListener('resize',()=>{ if(cropRect) applyCropZoom(); });
   clearRegionBtn.onclick=()=>{ regions.length=0; drawRegions(); };
   stage.addEventListener('pointerdown',(e)=>{ if(!drawMode || compareMode!=='off' || !procW || e.button!==0) return; const p=stageToNorm(e.clientX,e.clientY); curDraw={x0:p.nx,y0:p.ny,x1:p.nx,y1:p.ny}; e.preventDefault(); drawRegions(); });
