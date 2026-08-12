@@ -2,6 +2,14 @@
 
 All notable changes to the app. Newest first.
 
+## 2026-08-12r — Compare-to-original respects the crop
+
+### Fixed
+- Hold-C (compare to original) and the side-by-side/stacked compare now show the **cropped** original
+  at the same framing instead of zooming out to the full uncropped frame. New drawOrig() helper draws
+  the crop region (process-crop) unprocessed, or the full frame in zoom-only (where the CSS zoom keeps
+  the framing). Also fixed: process-crop now applies stabilization (was bypassed).
+
 ## 2026-08-12q — Process-crop mode
 
 ### Added

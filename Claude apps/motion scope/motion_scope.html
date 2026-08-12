@@ -877,9 +877,10 @@
   cmpBtn.onclick=()=>{ compareMode = compareMode==='off'?'lr':(compareMode==='lr'?'tb':'off'); updateCmpBtn(); };
   window.addEventListener('keydown',(e)=>{ if((e.key==='c'||e.key==='C') && !e.repeat && !/input|textarea|select/i.test(e.target.tagName||'')) holdOrig=true; });
   window.addEventListener('keyup',(e)=>{ if(e.key==='c'||e.key==='C') holdOrig=false; });
+  function drawOrig(dx,dy,dw,dh){ const vw=video.videoWidth||procW, vh=video.videoHeight||procH; if(cropRect && cropCompute && video.videoWidth){ const R=cropAspectRect(); dctx.drawImage(video, R.x0*vw, R.y0*vh, Math.max(1,(R.x1-R.x0)*vw), Math.max(1,(R.y1-R.y0)*vh), dx,dy,dw,dh); } else { dctx.drawImage(video, 0,0,vw,vh, dx,dy,dw,dh); } }
   function drawSplit(src){ const vW=video.videoWidth||procW, vH=video.videoHeight||procH;
-    if(compareMode==='lr'){ dctx.drawImage(video,0,0,vW,vH, 0,0, procW,procH); dctx.drawImage(src,0,0,src.width,src.height, procW,0, procW,procH); dctx.fillStyle='#39e6c4'; dctx.fillRect(procW-1,0,2,procH); }
-    else { dctx.drawImage(video,0,0,vW,vH, 0,0, procW,procH); dctx.drawImage(src,0,0,src.width,src.height, 0,procH, procW,procH); dctx.fillStyle='#39e6c4'; dctx.fillRect(0,procH-1,procW,2); } }
+    if(compareMode==='lr'){ drawOrig(0,0,procW,procH); dctx.drawImage(src,0,0,src.width,src.height, procW,0, procW,procH); dctx.fillStyle='#39e6c4'; dctx.fillRect(procW-1,0,2,procH); }
+    else { drawOrig(0,0,procW,procH); dctx.drawImage(src,0,0,src.width,src.height, 0,procH, procW,procH); dctx.fillStyle='#39e6c4'; dctx.fillRect(0,procH-1,procW,2); } }
 
   // --- buffers ---
   function sizeView(){
@@ -2079,7 +2080,7 @@ struct MRT { @location(0) phase:vec4f, @location(1) ema:vec4f, @location(2) scr:
       preFrame();
       if(holdOrig){
         if(view.width!==procW||view.height!==procH){ view.width=procW; view.height=procH; }
-        dctx.drawImage(video, 0, 0, procW, procH);
+        drawOrig(0,0,procW,procH);
         if(view.style.display==='none'){ view.style.display='block'; viewGPU.style.display='none'; }
         drawReadout(); raf=requestAnimationFrame(loop); return;
       }
