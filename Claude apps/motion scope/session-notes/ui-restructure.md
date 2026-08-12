@@ -37,6 +37,11 @@ GPU reads via VideoFrame (gpuSrc), CPU/neural read procSrcCv (frameSrc), analysi
 transforms + VideoFrame leak + autoStab toggle desync. P3 removed dead code (blockSadRef,
 compositeCompare, fieldAt, rzBiquad, slowX/slowY). P4 clean (concurrency/cleanup/memory all sound).
 
+## IN PROGRESS — Tracker refinement (agreed priority #1): 1a DONE = predictive coast-through
+(alpha-beta in trackOne, toggle trkPredict default on; t.kx/ky/kvx/kvy/coast state; faithful when
+conf high, coasts when conf<0.15 or oob, lost only after coast>18). NEXT: 1b freq-consensus audit
+confidence, 1c auto re-lock; then mask, layering, analysis graphs, batch.
+
 ## BACKLOG (agreed, not started):
   - Corner-detection MASK (paint where Auto looks) — nice extra; RANSAC already rejects movers.
   - Stabilizer LAYERING: choose ORDER (region/points/auto) + per-stabilizer INTENSITY sliders; combine.

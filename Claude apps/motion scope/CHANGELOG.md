@@ -2,6 +2,15 @@
 
 All notable changes to the app. Newest first.
 
+## 2026-08-12d — Tracker refinement 1a: predictive tracking (coast-through)
+
+### Added
+- **Predictive tracking / coast-through** (Analysis tab toggle, default on, all trackers): an alpha-beta
+  predict-correct filter with confidence-adaptive gain. Rides through brief occlusion or a noisy frame
+  instead of jumping/freezing, and smooths jitter. Stays faithful when confident so it doesn't skew
+  frequency. Validated on real trackOne: freq 6.09 vs 6.00Hz (preserved); occluded 18 frames -> bounded
+  error 5.5px, not lost, recovered to 0.21px.
+
 ## 2026-08-12c — Tracker control + stabilization accuracy readout
 
 ### Added
