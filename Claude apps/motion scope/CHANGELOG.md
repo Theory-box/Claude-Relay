@@ -2,6 +2,13 @@
 
 All notable changes to the app. Newest first.
 
+## 2026-08-12n — Vibration map: pre/post-amp source
+
+### Added
+- **Pre-amp / Post-amp** toggle for the Vibration map (mutually exclusive). Pre-amp reads the raw video;
+  Post-amp reads the magnified output so faint vibrations produce a stronger map. Switching resets the
+  demod so it re-locks.
+
 ## 2026-08-12m — Vibration map: Frequency mode + auto-detect
 
 ### Added
