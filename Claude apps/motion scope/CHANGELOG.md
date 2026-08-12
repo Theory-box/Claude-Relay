@@ -2,6 +2,16 @@
 
 All notable changes to the app. Newest first.
 
+## 2026-08-12m — Vibration map: Frequency mode + auto-detect
+
+### Added
+- **Frequency mode** for the Vibration map: a 14-band lock-in filterbank (log-spaced 1–25 Hz) tints each
+  area by WHICH frequency dominates it (blue=low → red=high) instead of phase. Validated: filterbank
+  resolves a pixel to its nearest band (3→3.4, 12→11.9, 18→19.5).
+- **Detect peaks**: scans ~2 s, sums per-band energy across the frame, lists the scene's strongest
+  frequencies as clickable chips that jump the Phase map to that frequency.
+- Phase/Frequency mode toggle; frequency slider auto-hides in Frequency mode.
+
 ## 2026-08-12l — Vibration map (phase filter)
 
 ### Added
