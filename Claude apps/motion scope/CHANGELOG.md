@@ -2,6 +2,15 @@
 
 All notable changes to the app. Newest first.
 
+## 2026-08-12h — Stabilizer intensity + layering
+
+### Added
+- **Per-stabilizer intensity** (Region / Points / Auto, 0–100%): scales each stabilizer's correction.
+  Validated: 100% = unchanged, 0% = no correction, 50% = half.
+- **Points + Auto can now both be active**, composed in a chosen **layer order** (1st/2nd/3rd dropdown
+  with auto-swap). Region stays the whole-frame outer layer with its own intensity.
+- (Full arbitrary region-in-the-middle reordering deferred — needs a deeper per-layer cascade.)
+
 ## 2026-08-12g — Analysis: measure on Amplified footage
 
 ### Added

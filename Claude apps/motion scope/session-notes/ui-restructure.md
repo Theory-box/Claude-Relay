@@ -42,6 +42,11 @@ compositeCompare, fieldAt, rzBiquad, slowX/slowY). P4 clean (concurrency/cleanup
 conf high, coasts when conf<0.15 or oob, lost only after coast>18). NEXT: 1b freq-consensus audit
 confidence, 1c auto re-lock; then mask, layering, analysis graphs, batch.
 
+## LAYERING (partial): per-stabilizer intensity (regionInt/pointsInt/autoInt, scaleT) DONE. Points+Auto
+compose via buildComposedStabM (scaled, ordered by prPoints/prAuto, composeT). Region = outer shader
+layer scaled by regionInt at application (accX*regionInt). TODO: full 3-way reorderable cascade
+(region into the middle) needs per-layer intermediate-frame tracking.
+
 ## BACKLOG (agreed, not started):
   - Corner-detection MASK (paint where Auto looks) — nice extra; RANSAC already rejects movers.
   - Stabilizer LAYERING: choose ORDER (region/points/auto) + per-stabilizer INTENSITY sliders; combine.
