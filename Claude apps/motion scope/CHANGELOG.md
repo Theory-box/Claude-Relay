@@ -2,6 +2,16 @@
 
 All notable changes to the app. Newest first.
 
+## 2026-08-12b — Auto (feature-based) stabilizer
+
+### Added
+- **Auto stabilizer** (Stabilize tab): automatically detects dozens of Shi-Tomasi corners, LK-tracks
+  them, and fits a similarity transform with **RANSAC** — steadies translation + rotation + zoom with
+  nothing to place, and rejects moving objects as outliers (validated: 45/45 inliers found, 18/18
+  moving outliers rejected, transform recovered to 0px). Green dots = trusted, grey = rejected/lost.
+  Shares the Input/View mode + the same warp path as the point stabilizer. Third independent option
+  alongside Region and Points.
+
 ## 2026-08-12 — Pre-stabilization (stabilize before amplify/analyze)
 
 ### Added / Changed

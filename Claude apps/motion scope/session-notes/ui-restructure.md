@@ -102,6 +102,15 @@ git/token/paths in chat.
 - Possible: make the neural path use the stabilized frame (currently it uses the raw frame).
 - Possible: minor UI polish (tab icons, finalize the placeholder-derived rail labels if desired).
 
+## STATUS: THREE independent stabilizers now — Region (accX/accY translation, whole-frame or drawn
+region), Point markers (sTrackers -> fitSimilarity -> _stabM), and Auto (Shi-Tomasi corners +
+LK-track autoCorners + RANSAC autoFit -> _stabM). Marker+Auto share the _stabM warp path (preFrame
+pre / applyStab post) + stabMode + stabActive(). Auto takes precedence over markers for _stabM.
+Pre-stabilization: preFrame() warps input into procSrcCv; GPU reads via VideoFrame (gpuSrc), CPU/
+neural read procSrcCv (frameSrc), analysis reads analysisSrc (stab/raw toggle). FUTURE (user asked):
+mask for corner detection region; layering ORDER control + per-stabilizer INTENSITY sliders; combine
+all three in a chosen order. Also still pending: Kalman + phase + freq-audit tracker refinement.
+
 ## STATUS: + tracked-point stabilization built. Track tab has Stabilize off/view. fitSimilarity()
 (Umeyama, current->initial, validated 0px residual) + applyStab() warps view/viewGPU/#trackLayer via
 CSS matrix (transformOrigin 0,0 for canvases; R.left,R.top for the stage-sized overlay). Toggle=stabView.
