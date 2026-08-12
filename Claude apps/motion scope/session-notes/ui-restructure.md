@@ -47,6 +47,22 @@ compose via buildComposedStabM (scaled, ordered by prPoints/prAuto, composeT). R
 layer scaled by regionInt at application (accX*regionInt). TODO: full 3-way reorderable cascade
 (region into the middle) needs per-layer intermediate-frame tracking.
 
+## IDEA BACKLOG (brainstormed, not started) — added 2026-08-12:
+Measurement: operating deflection shapes / mode animation; order tracking (RPM + 1x/2x/3x harmonics);
+beat/difference-frequency finder; coherence map (regions correlated with a clicked reference point);
+displacement/velocity/acceleration toggle (g-units).
+Perception: difference-from-baseline (capture healthy ref, highlight what changed); motion history /
+temporal echo trail; selective freeze (freeze all except chosen band).
+Instrument: session recording + measurement timeline scrubber; threshold alarms (freq/amplitude limit
+alerts); A/B compare view (two states, overlaid spectra); saved calibration profiles.
+Input/reach: two-camera / stereo depth; high-speed / phone slow-mo import (raise Nyquist ceiling past
+60-120Hz); strobe mode (sample near vibration freq to freeze fast motion).
+Playful: vibration spectrogram waterfall (see+hear); guitar/string tuner (pitch from plucked string).
+Earlier list (still open): rPPG pulse/respiration vitals; motion vector-field overlay; ghost/trail
+extremes; slow-mo synthesis; save/load presets; snapshot/report export; guided modes; region-based
+magnification; visual-microphone audio recovery; Riesz->Warp cascade; phase-limit slider; frequency-map
+DONE, vibration-map DONE, vibrometry DONE, phase-relationship DONE. BATCH stabilization still parked.
+
 ## BACKLOG STATUS (updated):
 - DONE: tracker refinement 1a (predictive coast-through) + 1b (frequency-consensus/coherence audit);
   corner-detection mask (Auto); analysis measure-on Raw/Amplified/Stabilized (independent); stabilizer
