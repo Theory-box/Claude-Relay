@@ -2,6 +2,16 @@
 
 All notable changes to the app. Newest first.
 
+## 2026-08-12l — Vibration map (phase filter)
+
+### Added
+- **Vibration map** (Analysis subpanel): full-frame lock-in demodulation at a chosen frequency —
+  colors every pixel by its vibration PHASE (same hue = in sync, opposite hue = antiphase), brightness
+  = vibration strength. Own frequency slider + threshold + intensity. Per-pixel DC removed before
+  demod (fixes phase recovery). Validated: in-phase 0deg, antiphase 180deg, off-frequency amp 1.5 vs
+  9.7 on-frequency. Runs at reduced res, scaled to display; independent of the magnify pipeline.
+- (Frequency-map mode + auto-detect peaks to follow.)
+
 ## 2026-08-12k — Real-unit vibrometry + phase relationships
 
 ### Added
