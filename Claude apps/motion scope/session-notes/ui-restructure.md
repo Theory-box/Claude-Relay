@@ -102,6 +102,12 @@ git/token/paths in chat.
 - Possible: make the neural path use the stabilized frame (currently it uses the raw frame).
 - Possible: minor UI polish (tab icons, finalize the placeholder-derived rail labels if desired).
 
+## AUDIT 3 (2026-08-12): removed dead code (technical debt) — functions blockSadRef, compositeCompare,
+fieldAt, rzBiquad (defined, never called; leftovers from earlier implementations) + vestigial slowX/slowY
+vars. Verified region-stab + render chains intact. Event listeners (3 pointerdown, 2 pointerup, 2 resize)
+all mode-guarded, no conflicts. BACKLOG (agreed): batch Process-video should eventually apply
+stabilization + all live settings (needs per-seeked-frame track+warp in the batch pipeline).
+
 ## AUDIT (2026-08-12): fixed metric _stabMAppliedPrev ordering (was comparing transform to itself);
 fixed stop() to clear stale _stabM/_stabMApplied/_sm and close the _pvf VideoFrame + keep autoStab
 consistent (re-detect on new source, no button desync). KNOWN LIMITATION: batch (Process video) reads

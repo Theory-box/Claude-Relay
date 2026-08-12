@@ -435,7 +435,7 @@
   let Yprev=null, pyr=null;                             // pyramidal-flow: prev luma + pyramid buffers
   let stabilize=false, stabReady=false, sw=0, sh=0;
   let curS=null, prevS=null, shiftBuf=null, smallCnt=null;
-  let accX=0, accY=0, slowX=0, slowY=0, stabStrength=0.868;
+  let accX=0, accY=0, stabStrength=0.868;
   let regions=[], drawMode=false, curDraw=null; const MAXREG=4;
   let WC=0, WR=0, refWarp=null, wfx=null, wfy=null;
   let bSX=null, bFX=null, bSY=null, bFY=null, warpReady=false;
@@ -578,7 +578,7 @@
   const stabOff=$('stabOff'), stabOn=$('stabOn');
   stabOff.onclick = () => setStab(false);
   stabOn.onclick = () => setStab(true);
-  function setStab(on){ stabilize=on; accX=accY=slowX=slowY=0; stabReady=false;
+  function setStab(on){ stabilize=on; accX=accY=0; stabReady=false;
     stabOn.setAttribute('aria-pressed', on); stabOff.setAttribute('aria-pressed', !on); }
   const stabStrEl=$('stabStr'), stabStrVal=$('stabStrVal');
   stabStrEl.oninput = () => { const v=+stabStrEl.value; stabStrength = 0.70 + (v/100)*0.24; stabStrVal.textContent = v; };
@@ -807,7 +807,7 @@
     bSX=new Float32Array(nb); bFX=new Float32Array(nb); bSY=new Float32Array(nb); bFY=new Float32Array(nb);
     warpReady=false;
     shiftBuf = new Uint8ClampedArray(n*4);
-    accX=accY=slowX=slowY=0; stabReady=false;
+    accX=accY=0; stabReady=false;
     Yb = new Float32Array(n); Lo = new Float32Array(n); Bb = new Float32Array(n);
     R1 = new Float32Array(n); R2 = new Float32Array(n); Ab = new Float32Array(n);
     Bprev = new Float32Array(n); R1p = new Float32Array(n); R2p = new Float32Array(n);
@@ -1722,17 +1722,6 @@ struct MRT { @location(0) phase:vec4f, @location(1) ema:vec4f, @location(2) scr:
     gpu.wping=nxt; gpu.wseeded=true;
   }
 
-  function compositeCompare(){
-    const dev=gpu.device;
-    const ext=dev.importExternalTexture({ source:gpuSrc() });
-    dev.queue.writeBuffer(gpu.cmpBuf, 0, new Float32Array([ procW, procH, compareOrient, accX, accY, 0,0,0 ]));
-    const bind=dev.createBindGroup({ layout:gpu.cmpPipe.getBindGroupLayout(0), entries:[
-      {binding:0,resource:{buffer:gpu.cmpBuf}}, {binding:1,resource:gpu.sampler}, {binding:2,resource:ext}, {binding:3,resource:gpu.wout.createView()} ]});
-    const enc=dev.createCommandEncoder();
-    const pass=enc.beginRenderPass({ colorAttachments:[ { view:gpu.ctx.getCurrentTexture().createView(), clearValue:{r:0,g:0,b:0,a:1}, loadOp:'clear', storeOp:'store' } ]});
-    pass.setPipeline(gpu.cmpPipe); pass.setBindGroup(0,bind); pass.draw(3); pass.end();
-    dev.queue.submit([enc.finish()]);
-  }
 
   function gpuFallback(){
     gpuFailed=true; useGPU=false; backend='cpu';
@@ -2028,7 +2017,6 @@ struct MRT { @location(0) phase:vec4f, @location(1) ema:vec4f, @location(2) scr:
   function rzBuildLap(gray,w,h,L){ const g=[{img:gray,w,h}];for(let k=1;k<L;k++)g.push(rzReduce(g[k-1].img,g[k-1].w,g[k-1].h));const lap=[];for(let k=0;k<L-1;k++){const e=rzExpand(g[k+1].img,g[k+1].w,g[k+1].h,g[k].w,g[k].h);const l=new Float32Array(g[k].w*g[k].h);for(let i=0;i<l.length;i++)l[i]=g[k].img[i]-e[i];lap.push({img:l,w:g[k].w,h:g[k].h});}lap.push(g[L-1]);return lap; }
   function rzCollapse(lap){ const L=lap.length;let recon=lap[L-1].img.slice(),cw=lap[L-1].w,ch=lap[L-1].h;for(let k=L-2;k>=0;k--){const e=rzExpand(recon,cw,ch,lap[k].w,lap[k].h);recon=new Float32Array(lap[k].w*lap[k].h);for(let i=0;i<recon.length;i++)recon[i]=lap[k].img[i]+e[i];cw=lap[k].w;ch=lap[k].h;}return recon; }
   function rzRieszXY(lap,w,h){ const rx=new Float32Array(w*h),ry=new Float32Array(w*h);for(let y=0;y<h;y++)for(let x=0;x<w;x++){const xl=x>0?x-1:0,xr=x<w-1?x+1:w-1,yu=y>0?y-1:0,yd=y<h-1?y+1:h-1;rx[y*w+x]=0.5*(lap[y*w+xl]-lap[y*w+xr]);ry[y*w+x]=0.5*(lap[yu*w+x]-lap[yd*w+x]);}return{rx,ry}; }
-  function rzBiquad(f0,bw,fs){ const w0=2*Math.PI*Math.max(0.01,f0)/fs,Q=Math.max(0.1,f0/bw),al=Math.sin(w0)/(2*Q),a0=1+al;return{B:[al/a0,0,-al/a0],A:[1,(-2*Math.cos(w0))/a0,(1-al)/a0]}; }
   function rzInit(w,h){ let L=1,mw=w,mh=h;while(Math.min(mw,mh)>8 && L<5){mw=Math.max(1,mw>>1);mh=Math.max(1,mh>>1);L++;}
     rzState={L,first:true,prev:{lap:[],rx:[],ry:[]},lv:[]};
     let sw=w,sh=h;for(let k=0;k<L-1;k++){const n=sw*sh;rzState.lv.push({pc:new Float32Array(n),ps:new Float32Array(n),slowC:new Float32Array(n),fastC:new Float32Array(n),slowS:new Float32Array(n),fastS:new Float32Array(n)});sw=Math.max(1,sw>>1);sh=Math.max(1,sh>>1);}
@@ -2249,20 +2237,6 @@ struct MRT { @location(0) phase:vec4f, @location(1) ema:vec4f, @location(2) scr:
     energy=e/(n*3);
   }
 
-  function blockSadRef(bx0,by0,bx1,by1,dx,dy){
-    let sad=0,cnt=0;
-    for (let y=by0;y<by1;y++){ const yy=y+dy; if(yy<0||yy>=sh)continue; const cr=y*sw, pr=yy*sw;
-      for (let x=bx0;x<bx1;x++){ const xx=x+dx; if(xx<0||xx>=sw)continue; let df=curS[cr+x]-refWarp[pr+xx]; if(df<0)df=-df; sad+=df; cnt++; } }
-    return cnt>0? sad/cnt : 1e18;
-  }
-  function fieldAt(fld, gx, gy){
-    if(gx<0)gx=0; else if(gx>WC-1)gx=WC-1;
-    if(gy<0)gy=0; else if(gy>WR-1)gy=WR-1;
-    const x0=gx|0,y0=gy|0,x1=x0<WC-1?x0+1:x0,y1=y0<WR-1?y0+1:y0,tx=gx-x0,ty=gy-y0;
-    const a=fld[y0*WC+x0]+(fld[y0*WC+x1]-fld[y0*WC+x0])*tx;
-    const b=fld[y1*WC+x0]+(fld[y1*WC+x1]-fld[y1*WC+x0])*tx;
-    return a+(b-a)*ty;
-  }
   // ================= coarse-to-fine (pyramidal) Lucas-Kanade dense optical flow =================
   // Builds an image pyramid so large motions become small at low resolution; estimates flow
   // coarse->fine, warping the finer level by the upscaled coarse flow and adding a residual.
