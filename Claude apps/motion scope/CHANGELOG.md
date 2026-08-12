@@ -2,6 +2,19 @@
 
 All notable changes to the app. Newest first.
 
+## 2026-08-12c — Tracker control + stabilization accuracy readout
+
+### Added
+- **Delete individual trackers**: right-click a marker while in placement mode to remove just that one.
+- **Placement mode is now obvious**: the Add point button turns green and stays green while active;
+  click again to exit.
+- **Residual-motion accuracy readout**: live 'Raw X.X → Stab Y.Y px/f (↓Z%)' in the stabilizer status —
+  green when stabilization is removing motion, red when it's adding jitter. Measured from tracked
+  features frame-to-frame, raw vs stabilized. Validated.
+- **Stabilizer smoothing slider (+ deadband)**: averages the stabilizing transform over recent frames
+  to kill frame-to-frame jitter (applies to Auto + point stabilizers); deadband snaps to no-warp when
+  motion is below the noise floor. Validated: jitter 1.96 → 0.41 px/f as smoothing 0 → 80.
+
 ## 2026-08-12b — Auto (feature-based) stabilizer
 
 ### Added
