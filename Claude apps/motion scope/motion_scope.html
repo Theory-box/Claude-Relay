@@ -464,7 +464,7 @@
       <p class="note"><b>Gently tap</b> the static camera to jog it a sub-pixel or two between frames — the meter shows if you're in the sweet spot, and frames outside the green band are thrown away. Aim at something with visible <b>detail/edges</b> (alignment needs texture). Finer grids (3×/4×) have a higher ceiling but need <b>more varied tapping</b> to fill — the convergence readout will take longer. Alignment auto-refreshes to the cleaned image as it builds. Hold <b>C</b> to compare against one raw frame.</p>
       <div class="btns" style="margin-top:.5rem"><button class="act" id="srEnhanceBtn">Enhance (deconvolve)</button></div>
       <label class="field"><span class="row"><span>Enhance strength</span><span class="val" id="srIbpStrV">80</span></span><input type="range" id="srIbpStr" min="10" max="150" step="5" value="80"></label>
-      <label class="field"><span class="row"><span>Detail (sharpness)</span><span class="val" id="srIbpPsfV">65</span></span><input type="range" id="srIbpPsf" min="20" max="100" step="5" value="65"></label>
+      <label class="field"><span class="row"><span>Detail (sharpness)</span><span class="val" id="srIbpPsfV">70</span></span><input type="range" id="srIbpPsf" min="20" max="100" step="5" value="70"></label>
       <p class="note"><b>Enhance</b> runs iterative back-projection on the converged crop — it deconvolves the lens/sensor blur to recover <b>real</b> detail, constrained by your frames (not invented). Best after it's converged. Higher strength/detail = crisper but can ring — back off if it looks crunchy. Reset to clear. (Region crops only.)</p>
     </details>
     </div>
@@ -498,7 +498,7 @@
   let accBuf=null, accCount=0, accFrozen=false, accStretch=true, accLastHash=0, accSub='stack'; let accCapCv=null, accCapCx=null; const ACC_MAXH=1440;
   let srBuf=null, srWt=null, srRef=null, srGray=null, srImg=null, srS=2, srHW=0, srHH=0, srCount=0, srAccepted=0, srFrozen=false, srMinDrift=0.15, srMaxDrift=2.5, srLastDrift=0, srStatus='good';
   let srCapCv=null, srCapCx=null, srW=0, srH=0; const SR_MAXH=750; let srAdded=false; let srFillBuf=null, srCoverage=0, srBaseA=null, srBaseW=null, srIsNative=false, srKa=null, srKb=null, srKc=null, srLo=-1, srHi=-1;
-  let srFrames=[], srEnhanced=false, srIbpOut=null, srIbpStrength=0.8, srIbpPsf=0.55; const SR_IBP_MAXPIX=620000, SR_IBP_MAXFRAMES=16, srIbpIters=7; let srPhase=new Int16Array(16), srPhaseCov=0;
+  let srFrames=[], srEnhanced=false, srIbpOut=null, srIbpStrength=0.8, srIbpPsf=0.55, srLastSig=null; const SR_IBP_MAXPIX=620000, SR_IBP_MAXFRAMES=16, srIbpIters=7; let srPhase=new Int16Array(16), srPhaseCov=0;
   const srExpLUT=(()=>{ const a=new Float32Array(289); for(let i=0;i<289;i++)a[i]=Math.exp(-0.5*i/32); return a; })();
   let settleEMA=-1, settleD0=-1, settleFrames=0, settlePrev=-1; const accHolder={buf:null,ready:false}, srHolder={buf:null,ready:false};
   function settleReset(){ settleEMA=-1; settleD0=-1; settleFrames=0; settlePrev=-1; accHolder.ready=false; srHolder.ready=false; }
@@ -2287,7 +2287,7 @@ struct MRT { @location(0) phase:vec4f, @location(1) ema:vec4f, @location(2) scr:
       }
       for(let c=0;c<HN;c++){ const bw=bpW[c]; if(bw<1e-6)continue; const inv=1/bw, c3=c*3; let a=X[c3]+beta*errHr[c3]*inv, b=X[c3+1]+beta*errHr[c3+1]*inv, cc=X[c3+2]+beta*errHr[c3+2]*inv; X[c3]=a<0?0:(a>255?255:a); X[c3+1]=b<0?0:(b>255?255:b); X[c3+2]=cc<0?0:(cc>255?255:cc); }
     }
-    srIbpOut=X; srEnhanced=true; srFrozen=true; const fb=$('srFreeze'); if(fb){ fb.textContent='Resume'; fb.setAttribute('aria-pressed',true); }
+    srIbpOut=X; srEnhanced=true; srFrozen=true; srAdded=false; srLo=-1; srHi=-1; const fb=$('srFreeze'); if(fb){ fb.textContent='Resume'; fb.setAttribute('aria-pressed',true); }
     srRenderAndShow();
   }
   function superResFrame(){
@@ -2304,11 +2304,12 @@ struct MRT { @location(0) phase:vec4f, @location(1) ema:vec4f, @location(2) scr:
     srCapCx.imageSmoothingEnabled = !srNative;  // native crop = 1:1 (real pixels); downsample = smooth (no alias artifacts)
     srCapCx.drawImage(video, scx,scy,scw,sch, 0,0,bw,bh);
     const id=srCapCx.getImageData(0,0,bw,bh), px=id.data; srW=bw; srH=bh; srIsNative=srNative;
+    { const _sig=cropRect?(Math.round(scx)+'_'+Math.round(scy)+'_'+Math.round(scw)+'_'+Math.round(sch)+'_'+S):'full_'+S; if(_sig!==srLastSig){ srLastSig=_sig; srBuf=null; srLo=-1; srHi=-1; srFrames.length=0; srEnhanced=false; srIbpOut=null; srPhase.fill(0); srPhaseCov=0; if(typeof settleReset==='function')settleReset(); } }
     if(!srGray||srGray.length!==N) srGray=new Float32Array(N);
     for(let i=0,p=0;i<N;i++,p+=4) srGray[i]=px[p]*0.299+px[p+1]*0.587+px[p+2]*0.114;
     if(!srBuf || srBuf.length!==HN*3 || srHW!==HW){
       srBuf=new Float32Array(HN*3); srWt=new Float32Array(HN); srRef=new Float32Array(N); srRef.set(srGray); srHW=HW; srHH=HH; srCount=0; srAccepted=0; srLastDrift=0; srStatus='good';
-      srSplat(px,0,0); srCount=1; srAccepted=1; srAdded=true; srFrames.length=0; srStoreFrame(px,0,0); srPhase.fill(0); srPhase[0]=1; srPhaseCov=0; srRenderAndShow(); return;
+      srSplat(px,0,0); srCount=1; srAccepted=1; srAdded=true; srEnhanced=false; srFrames.length=0; srStoreFrame(px,0,0); srPhase.fill(0); srPhase[0]=1; srPhaseCov=0; srRenderAndShow(); return;
     }
     const sh=srEstShift(srGray, srRef, srW, srH), drift=Math.sqrt(sh.dx*sh.dx+sh.dy*sh.dy);
     srLastDrift=isFinite(drift)?drift:99; srCount++; srAdded=false;
