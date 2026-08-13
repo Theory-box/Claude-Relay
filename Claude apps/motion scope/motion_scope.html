@@ -493,7 +493,7 @@
   let method = 'linear', mode = 'amp', compareMode = 'off', holdOrig = false, curProfile = 'linear';
   let accBuf=null, accCount=0, accFrozen=false, accStretch=true, accLastHash=0;
   let srBuf=null, srWt=null, srRef=null, srGray=null, srImg=null, srS=2, srHW=0, srHH=0, srCount=0, srAccepted=0, srFrozen=false, srMinDrift=0.15, srMaxDrift=2.5, srLastDrift=0, srStatus='good';
-  let srCapCv=null, srCapCx=null, srW=0, srH=0; const SR_MAXH=540; let srAdded=false;
+  let srCapCv=null, srCapCx=null, srW=0, srH=0; const SR_MAXH=540; let srAdded=false; let srFillBuf=null, srCoverage=0;
   let settleEMA=-1, settleD0=-1, settleFrames=0, settlePrev=-1; const accHolder={buf:null,ready:false}, srHolder={buf:null,ready:false};
   function settleReset(){ settleEMA=-1; settleD0=-1; settleFrames=0; settlePrev=-1; accHolder.ready=false; srHolder.ready=false; }
   function pushSettle(delta){ if(!(delta>=0))return; settleFrames++; if(settleEMA<0)settleEMA=delta; else { settlePrev=settleEMA; settleEMA+=(delta-settleEMA)*0.2; } if(settleD0<0&&settleFrames>=6)settleD0=settleEMA; }
@@ -2180,20 +2180,28 @@ struct MRT { @location(0) phase:vec4f, @location(1) ema:vec4f, @location(2) scr:
   function srRenderAndShow(){
     const HW=srHW,HH=srHH,HN=HW*HH;
     let out=srImg; if(!out||out.width!==HW||out.height!==HH){ out=srImg=dctx.createImageData(HW,HH); }
-    const od=out.data; let lo=0,hi=255;
-    if(accStretch){ const hist=new Uint32Array(256); let tot=0;
-      for(let c=0;c<HN;c++){ const wt=srWt[c]; if(wt<1e-4)continue; const inv=1/wt, c3=c*3; let L=(srBuf[c3]*0.299+srBuf[c3+1]*0.587+srBuf[c3+2]*0.114)*inv|0; if(L<0)L=0;else if(L>255)L=255; hist[L]++; tot++; }
-      let c=0; for(let b=0;b<256;b++){c+=hist[b];if(c>=tot*0.005){lo=b;break;}} c=0; for(let b=255;b>=0;b--){c+=hist[b];if(c>=tot*0.005){hi=b;break;}} if(hi<=lo)hi=lo+1;
+    const od=out.data;
+    if(!srFillBuf||srFillBuf.length!==HN*3) srFillBuf=new Float32Array(HN*3);
+    let wsum=0; for(let c=0;c<HN;c++) wsum+=srWt[c]; const wAvg=wsum/HN||1e-6, cthr=wAvg*0.8;
+    let lo=0,hi=255, covered=0; const doHist=accStretch, hist=doHist?new Uint32Array(256):null;
+    for(let Y=0;Y<HH;Y++){ const y0=Y>0?Y-1:0, y1=Y<HH-1?Y+1:HH-1, row=Y*HW;
+      for(let X=0;X<HW;X++){ const c=row+X, c3=c*3, wt=srWt[c], sInv=wt>1e-4?1/wt:0, conf=wt>=cthr?1:wt/cthr; let R,G,B;
+        if(conf>=0.999){ R=srBuf[c3]*sInv; G=srBuf[c3+1]*sInv; B=srBuf[c3+2]*sInv; covered++; }
+        else { const x0=X>0?X-1:0, x1=X<HW-1?X+1:HW-1; let sa0=0,sa1=0,sa2=0,sw=0;
+          for(let yy=y0;yy<=y1;yy++){ const rr=yy*HW; for(let xx=x0;xx<=x1;xx++){ const cc=rr+xx, cc3=cc*3; sa0+=srBuf[cc3]; sa1+=srBuf[cc3+1]; sa2+=srBuf[cc3+2]; sw+=srWt[cc]; } }
+          const smI=sw>1e-4?1/sw:0; R=conf*(srBuf[c3]*sInv)+(1-conf)*(sa0*smI); G=conf*(srBuf[c3+1]*sInv)+(1-conf)*(sa1*smI); B=conf*(srBuf[c3+2]*sInv)+(1-conf)*(sa2*smI); }
+        srFillBuf[c3]=R; srFillBuf[c3+1]=G; srFillBuf[c3+2]=B;
+        if(doHist){ let L=(R*0.299+G*0.587+B*0.114)|0; if(L<0)L=0;else if(L>255)L=255; hist[L]++; }
+      }
     }
+    if(doHist){ let cc=0; for(let b=0;b<256;b++){cc+=hist[b];if(cc>=HN*0.005){lo=b;break;}} cc=0; for(let b=255;b>=0;b--){cc+=hist[b];if(cc>=HN*0.005){hi=b;break;}} if(hi<=lo)hi=lo+1; }
     const scale=accStretch?255/(hi-lo):1, off=accStretch?lo:0;
-    for(let c=0;c<HN;c++){ const wt=srWt[c], p=c<<2, c3=c*3, inv=wt>1e-4?1/wt:0;
-      let r=(srBuf[c3]*inv-off)*scale,g=(srBuf[c3+1]*inv-off)*scale,b=(srBuf[c3+2]*inv-off)*scale;
-      od[p]=r<0?0:(r>255?255:r); od[p+1]=g<0?0:(g>255?255:g); od[p+2]=b<0?0:(b>255?255:b); od[p+3]=255;
-    }
+    for(let c=0;c<HN;c++){ const p=c<<2, c3=c*3; let r=(srFillBuf[c3]-off)*scale,g=(srFillBuf[c3+1]-off)*scale,b=(srFillBuf[c3+2]-off)*scale; od[p]=r<0?0:(r>255?255:r); od[p+1]=g<0?0:(g>255?255:g); od[p+2]=b<0?0:(b>255?255:b); od[p+3]=255; }
+    srCoverage=covered/HN;
     if(view.style.display==='none'){ view.style.display='block'; viewGPU.style.display='none'; }
     dctx.putImageData(out,0,0);
     settleUpdate(out.data, HN, srHolder, srAdded);
-    const st=$('srReadout'); if(st) st.innerHTML='Kept <b>'+srAccepted+'</b> / '+srCount+' \u00b7 out <b>'+HW+'\u00d7'+HH+'</b>'+(srFrozen?' \u00b7 <span style=\"color:#f2a63b\">frozen</span>':'')+'<br>'+settleText()+'<br><span style=\"color:#8ea0b2\">Save to see full resolution (view is fit-to-window)</span>';
+    const st=$('srReadout'); if(st) st.innerHTML='Kept <b>'+srAccepted+'</b> / '+srCount+' \u00b7 out <b>'+HW+'\u00d7'+HH+'</b> \u00b7 <b>'+Math.round(srCoverage*100)+'%</b> resolved'+(srFrozen?' \u00b7 <span style=\"color:#f2a63b\">frozen</span>':'')+'<br>'+settleText()+'<br><span style=\"color:#8ea0b2\">% resolved = grid filled with real samples (tap variedly to raise it). Save for full resolution.</span>';
     drawSRMeter();
   }
   function srUpdateReference(){
