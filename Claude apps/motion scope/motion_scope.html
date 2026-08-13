@@ -462,10 +462,10 @@
       <label class="field" style="margin-top:.4rem"><span class="row"><span>Min drift (reject too still)</span><span class="val" id="srMinV">0.15</span></span><input type="range" id="srMin" min="0" max="100" step="1" value="15"></label>
       <label class="field"><span class="row"><span>Max drift (reject too much)</span><span class="val" id="srMaxV">2.50</span></span><input type="range" id="srMax" min="20" max="500" step="5" value="250"></label>
       <p class="note"><b>Gently tap</b> the static camera to jog it a sub-pixel or two between frames — the meter shows if you're in the sweet spot, and frames outside the green band are thrown away. Aim at something with visible <b>detail/edges</b> (alignment needs texture). Finer grids (3×/4×) have a higher ceiling but need <b>more varied tapping</b> to fill — the convergence readout will take longer. Alignment auto-refreshes to the cleaned image as it builds. Hold <b>C</b> to compare against one raw frame.</p>
-      <div class="btns" style="margin-top:.5rem"><button class="act" id="srEnhanceBtn">Enhance (deconvolve)</button></div>
+      <div id="srIbpUI" style="display:none"><div class="btns" style="margin-top:.5rem"><button class="act" id="srEnhanceBtn">Enhance (deconvolve)</button></div>
       <label class="field"><span class="row"><span>Enhance strength</span><span class="val" id="srIbpStrV">80</span></span><input type="range" id="srIbpStr" min="10" max="150" step="5" value="80"></label>
       <label class="field"><span class="row"><span>Detail (sharpness)</span><span class="val" id="srIbpPsfV">70</span></span><input type="range" id="srIbpPsf" min="20" max="100" step="5" value="70"></label>
-      <p class="note"><b>Enhance</b> runs iterative back-projection on the converged crop — it deconvolves the lens/sensor blur to recover <b>real</b> detail, constrained by your frames (not invented). Best after it's converged. Higher strength/detail = crisper but can ring — back off if it looks crunchy. Reset to clear. (Region crops only.)</p>
+      <p class="note"><b>Enhance</b> runs iterative back-projection on the converged crop — it deconvolves the lens/sensor blur to recover <b>real</b> detail, constrained by your frames (not invented). Best after it's converged. Higher strength/detail = crisper but can ring — back off if it looks crunchy. Reset to clear. (Region crops only.)</p></div>
     </details>
     </div>
   </div>
@@ -498,7 +498,7 @@
   let accBuf=null, accCount=0, accFrozen=false, accStretch=true, accLastHash=0, accSub='stack'; let accCapCv=null, accCapCx=null; const ACC_MAXH=2160;
   let srBuf=null, srWt=null, srRef=null, srGray=null, srImg=null, srS=2, srHW=0, srHH=0, srCount=0, srAccepted=0, srFrozen=false, srMinDrift=0.15, srMaxDrift=2.5, srLastDrift=0, srStatus='good';
   let srCapCv=null, srCapCx=null, srW=0, srH=0; const SR_MAXH=900; let srAdded=false; let srFillBuf=null, srCoverage=0, srBaseA=null, srBaseW=null, srIsNative=false, srKa=null, srKb=null, srKc=null, srLo=-1, srHi=-1;
-  let srFrames=[], srEnhanced=false, srIbpOut=null, srIbpStrength=0.8, srIbpPsf=0.55, srLastSig=null; const SR_IBP_MAXPIX=620000, SR_IBP_MAXFRAMES=16, srIbpIters=7; let srPhase=new Int16Array(16), srPhaseCov=0;
+  let srFrames=[], srEnhanced=false, srIbpOut=null, srIbpStrength=0.8, srIbpPsf=0.55, srLastSig=null; const SR_IBP_MAXPIX=620000, SR_IBP_MAXFRAMES=16, srIbpIters=7, SR_IBP_ENABLED=false; let srPhase=new Int16Array(16), srPhaseCov=0;
   const srExpLUT=(()=>{ const a=new Float32Array(289); for(let i=0;i<289;i++)a[i]=Math.exp(-0.5*i/32); return a; })();
   let settleEMA=-1, settleD0=-1, settleFrames=0, settlePrev=-1; const accHolder={buf:null,ready:false}, srHolder={buf:null,ready:false};
   function settleReset(){ settleEMA=-1; settleD0=-1; settleFrames=0; settlePrev=-1; accHolder.ready=false; srHolder.ready=false; }
@@ -2255,7 +2255,7 @@ struct MRT { @location(0) phase:vec4f, @location(1) ema:vec4f, @location(2) scr:
       srKa[i]=cs*cs*i1+sn*sn*i2; srKb[i]=cs*sn*(i1-i2); srKc[i]=sn*sn*i1+cs*cs*i2;
     } }
   }
-  function srStoreFrame(px,dx,dy){ if(srW*srH>SR_IBP_MAXPIX){ srFrames.length=0; return; } srFrames.push({px:px.slice(),dx:dx,dy:dy}); if(srFrames.length>SR_IBP_MAXFRAMES) srFrames.shift(); }
+  function srStoreFrame(px,dx,dy){ if(!SR_IBP_ENABLED){ if(srFrames.length)srFrames.length=0; return; } if(srW*srH>SR_IBP_MAXPIX){ srFrames.length=0; return; } srFrames.push({px:px.slice(),dx:dx,dy:dy}); if(srFrames.length>SR_IBP_MAXFRAMES) srFrames.shift(); }
   function srEnhanceIBP(){
     if(!srBuf||!srWt||srFrames.length<3){ const st=$('srReadout'); if(st) st.innerHTML='<span style=\"color:#f2a63b\">Enhance needs a zoomed <b>Region</b> crop with a few frames \u2014 zoom \ud83d\udd0d into a target, tap to accumulate, then Enhance.</span>'; return; }
     const w=srW,h=srH,S=srS,HW=srHW,HH=srHH,HN=HW*HH,half=(S-1)/2;
