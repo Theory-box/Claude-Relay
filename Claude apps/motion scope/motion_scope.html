@@ -455,7 +455,13 @@
     </details>
     <details class="group" data-tab="superres" open>
       <summary><h3>Super-res</h3></summary>
-      <p class="note"><b>Coming next.</b> Gently tap the camera to create sub-pixel jitter; frames get measured and interleaved onto a finer grid for real added resolution. A drift meter will tell you when you're tapping just enough — not too still, not too much.</p>
+      <canvas id="srMeter" width="252" height="30" style="width:100%;height:30px;display:block;margin:.2rem 0"></canvas>
+      <p class="note" id="srReadout">Kept <b>0</b> / 0 frames</p>
+      <div class="seg" role="group" aria-label="Upscale factor"><button id="srS2" aria-pressed="true">2× grid</button><button id="srS3" aria-pressed="false">3× grid</button></div>
+      <div class="btns" style="margin-top:.4rem"><button class="act" id="srReset">Reset</button><button id="srFreeze" aria-pressed="false">Freeze</button><button id="srSave">Save frame</button></div>
+      <label class="field" style="margin-top:.4rem"><span class="row"><span>Min drift (reject too still)</span><span class="val" id="srMinV">0.15</span></span><input type="range" id="srMin" min="0" max="100" step="1" value="15"></label>
+      <label class="field"><span class="row"><span>Max drift (reject too much)</span><span class="val" id="srMaxV">2.50</span></span><input type="range" id="srMax" min="20" max="500" step="5" value="250"></label>
+      <p class="note"><b>Gently tap</b> the static camera to jog it a sub-pixel or two between frames — the meter shows if you're in the sweet spot, and frames outside the green band are thrown away. Aim at something with visible <b>detail/edges</b> (alignment needs texture). Hold <b>C</b> to compare against one raw frame.</p>
     </details>
     </div>
   </div>
@@ -486,6 +492,7 @@
   let procW = 0, procH = 0, initialized = false;
   let method = 'linear', mode = 'amp', compareMode = 'off', holdOrig = false, curProfile = 'linear';
   let accBuf=null, accCount=0, accFrozen=false, accStretch=true, accLastHash=0;
+  let srBuf=null, srWt=null, srRef=null, srGray=null, srImg=null, srS=2, srHW=0, srHH=0, srCount=0, srAccepted=0, srFrozen=false, srMinDrift=0.15, srMaxDrift=2.5, srLastDrift=0, srStatus='good';
   let backend = 'cpu';                       // active compute path (flips as GPU paths are ported)
   const caps = { webgpu:false, webgl2:false };
   let gain = 18, loHz = 0.5, hiHz = 6, targetH = 384, centerHz = 3.25, widthHz = 5.5, freqLog = false;
@@ -793,7 +800,13 @@
     { const ar=$('accReset'); if(ar)ar.onclick=()=>{ accBuf=null; accCount=0; accFrozen=false; const fb=$('accFreeze'); if(fb){fb.textContent='Freeze'; fb.setAttribute('aria-pressed',false);} };
       const af=$('accFreeze'); if(af)af.onclick=()=>{ accFrozen=!accFrozen; af.textContent=accFrozen?'Resume':'Freeze'; af.setAttribute('aria-pressed',accFrozen); };
       const asv=$('accSave'); if(asv)asv.onclick=()=>{ try{ const a=document.createElement('a'); a.download='stacked-'+accCount+'frames.png'; a.href=view.toDataURL('image/png'); a.click(); }catch(e){} };
-      const aso=$('accStretchOn'), asf=$('accStretchOff'); function setAccStretch(on){ accStretch=on; if(aso)aso.setAttribute('aria-pressed',on); if(asf)asf.setAttribute('aria-pressed',!on); } if(aso)aso.onclick=()=>setAccStretch(true); if(asf)asf.onclick=()=>setAccStretch(false); } const prR=$('prRegionSel'), prP=$('prPointsSel'), prA=$('prAutoSel'); function syncPrio(){ if(prR)prR.value=prRegion; if(prP)prP.value=prPoints; if(prA)prA.value=prAuto; } function setPrio(which,nv){ const cur={region:prRegion,points:prPoints,auto:prAuto}, oldV=cur[which]; for(const k in cur){ if(k!==which && cur[k]===nv){ cur[k]=oldV; break; } } cur[which]=nv; prRegion=cur.region; prPoints=cur.points; prAuto=cur.auto; syncPrio(); } if(prR)prR.onchange=()=>setPrio('region',+prR.value); if(prP)prP.onchange=()=>setPrio('points',+prP.value); if(prA)prA.onchange=()=>setPrio('auto',+prA.value); syncPrio(); stage.addEventListener('pointerdown',(e)=>{ if((!aAddMode&&!sAddMode)||compareMode!=='off'||!procW||e.button!==0) return; const p=stageToNorm(e.clientX,e.clientY); if(aAddMode) addTracker(aTrackers,p.nx,p.ny,'a'); else if(sAddMode) addTracker(sTrackers,p.nx,p.ny,'s'); e.preventDefault(); }); stage.addEventListener('contextmenu',(e)=>{ if(!aAddMode&&!sAddMode) return; e.preventDefault(); const p=stageToNorm(e.clientX,e.clientY), arr=aAddMode?aTrackers:sTrackers; let bi=-1,bd=1e9; for(let i=0;i<arr.length;i++){ const dx=arr[i].nx-p.nx,dy=arr[i].ny-p.ny,d=dx*dx+dy*dy; if(d<bd){ bd=d; bi=i; } } if(bi>=0 && Math.sqrt(bd)<0.045){ arr.splice(bi,1); if(arr===sTrackers) applyStab(); if(arr===aTrackers && !arr.length && $('trkStatus')) $('trkStatus').textContent=''; } }); })();
+      const aso=$('accStretchOn'), asf=$('accStretchOff'); function setAccStretch(on){ accStretch=on; if(aso)aso.setAttribute('aria-pressed',on); if(asf)asf.setAttribute('aria-pressed',!on); } if(aso)aso.onclick=()=>setAccStretch(true); if(asf)asf.onclick=()=>setAccStretch(false); }
+    { const srR=$('srReset'); if(srR)srR.onclick=()=>{ srBuf=null; srFrozen=false; const fb=$('srFreeze'); if(fb){fb.textContent='Freeze';fb.setAttribute('aria-pressed',false);} };
+      const srF=$('srFreeze'); if(srF)srF.onclick=()=>{ srFrozen=!srFrozen; srF.textContent=srFrozen?'Resume':'Freeze'; srF.setAttribute('aria-pressed',srFrozen); };
+      const srSv=$('srSave'); if(srSv)srSv.onclick=()=>{ try{ const a=document.createElement('a'); a.download='superres-'+srAccepted+'frames.png'; a.href=view.toDataURL('image/png'); a.click(); }catch(e){} };
+      const s2=$('srS2'), s3=$('srS3'); function setSrS(n){ srS=n; srBuf=null; if(s2)s2.setAttribute('aria-pressed',n===2); if(s3)s3.setAttribute('aria-pressed',n===3); } if(s2)s2.onclick=()=>setSrS(2); if(s3)s3.onclick=()=>setSrS(3);
+      const smn=$('srMin'); if(smn)smn.oninput=()=>{ srMinDrift=+smn.value/100; const v=$('srMinV'); if(v)v.textContent=srMinDrift.toFixed(2); };
+      const smx=$('srMax'); if(smx)smx.oninput=()=>{ srMaxDrift=+smx.value/100; const v=$('srMaxV'); if(v)v.textContent=srMaxDrift.toFixed(2); }; } const prR=$('prRegionSel'), prP=$('prPointsSel'), prA=$('prAutoSel'); function syncPrio(){ if(prR)prR.value=prRegion; if(prP)prP.value=prPoints; if(prA)prA.value=prAuto; } function setPrio(which,nv){ const cur={region:prRegion,points:prPoints,auto:prAuto}, oldV=cur[which]; for(const k in cur){ if(k!==which && cur[k]===nv){ cur[k]=oldV; break; } } cur[which]=nv; prRegion=cur.region; prPoints=cur.points; prAuto=cur.auto; syncPrio(); } if(prR)prR.onchange=()=>setPrio('region',+prR.value); if(prP)prP.onchange=()=>setPrio('points',+prP.value); if(prA)prA.onchange=()=>setPrio('auto',+prA.value); syncPrio(); stage.addEventListener('pointerdown',(e)=>{ if((!aAddMode&&!sAddMode)||compareMode!=='off'||!procW||e.button!==0) return; const p=stageToNorm(e.clientX,e.clientY); if(aAddMode) addTracker(aTrackers,p.nx,p.ny,'a'); else if(sAddMode) addTracker(sTrackers,p.nx,p.ny,'s'); e.preventDefault(); }); stage.addEventListener('contextmenu',(e)=>{ if(!aAddMode&&!sAddMode) return; e.preventDefault(); const p=stageToNorm(e.clientX,e.clientY), arr=aAddMode?aTrackers:sTrackers; let bi=-1,bd=1e9; for(let i=0;i<arr.length;i++){ const dx=arr[i].nx-p.nx,dy=arr[i].ny-p.ny,d=dx*dx+dy*dy; if(d<bd){ bd=d; bi=i; } } if(bi>=0 && Math.sqrt(bd)<0.045){ arr.splice(bi,1); if(arr===sTrackers) applyStab(); if(arr===aTrackers && !arr.length && $('trkStatus')) $('trkStatus').textContent=''; } }); })();
   // ---- Frequency analysis (FFT of a probed region's motion) ----
   const FFTN=128; let probeBox=null, probeMode=false, curProbe=null, probeRef=null, peakHz=0, _specCtr=0;
   const sigX=new Float32Array(FFTN), sigY=new Float32Array(FFTN); let sigPos=0, sigCount=0;
@@ -2117,6 +2130,83 @@ struct MRT { @location(0) phase:vec4f, @location(1) ema:vec4f, @location(2) scr:
     dctx.putImageData(id,0,0);
     const st=$('accStatus'); if(st) st.innerHTML='Frames: <b>'+accCount+'</b> \u00b7 noise \u2193 '+Math.sqrt(accCount).toFixed(1)+'\u00d7'+(accFrozen?' \u00b7 <span style=\"color:#f2a63b\">frozen</span>':'');
   }
+  function srEstShift(cur, ref, w, h){
+    let dx=0,dy=0;
+    for(let it=0;it<5;it++){
+      let Gxx=0,Gxy=0,Gyy=0,Gxt=0,Gyt=0;
+      for(let y=2;y<h-2;y+=2){ const row=y*w; for(let x=2;x<w-2;x+=2){
+        const sx=x+dx, sy=y+dy; if(sx<1||sx>=w-1||sy<1||sy>=h-1) continue;
+        const ix=Math.floor(sx),iy=Math.floor(sy),fx=sx-ix,fy=sy-iy, ci=iy*w+ix;
+        const cv=cur[ci]*(1-fx)*(1-fy)+cur[ci+1]*fx*(1-fy)+cur[ci+w]*(1-fx)*fy+cur[ci+w+1]*fx*fy;
+        const rv=ref[row+x], Ix=(ref[row+x+1]-ref[row+x-1])*0.5, Iy=(ref[row+w+x]-ref[row-w+x])*0.5, It=cv-rv;
+        Gxx+=Ix*Ix; Gxy+=Ix*Iy; Gyy+=Iy*Iy; Gxt+=Ix*It; Gyt+=Iy*It;
+      }}
+      const det=Gxx*Gyy-Gxy*Gxy; if(Math.abs(det)<1e-3) break;
+      const ddx=-(Gyy*Gxt-Gxy*Gyt)/det, ddy=-(Gxx*Gyt-Gxy*Gxt)/det;
+      dx+=ddx; dy+=ddy; if(!isFinite(dx)||!isFinite(dy)) return {dx:99,dy:99};
+      if(ddx*ddx+ddy*ddy<1e-4) break;
+    }
+    return {dx,dy};
+  }
+  function srSplat(px, dx, dy){
+    const w=procW,h=procH,S=srS,HW=srHW,HH=srHH;
+    for(let y=0;y<h;y++){ const hy=(y-dy)*S+(S-1)/2, iy=Math.floor(hy), fy=hy-iy, iy1=iy+1;
+      for(let x=0;x<w;x++){ const hx=(x-dx)*S+(S-1)/2, ix=Math.floor(hx), fx=hx-ix, ix1=ix+1, p=((y*w+x)<<2), r=px[p],g=px[p+1],b=px[p+2];
+        let wt,c; const inb0x=ix>=0&&ix<HW, inb1x=ix1>=0&&ix1<HW, inb0y=iy>=0&&iy<HH, inb1y=iy1>=0&&iy1<HH;
+        wt=(1-fx)*(1-fy); if(wt>0&&inb0x&&inb0y){ c=iy*HW+ix; srBuf[c*3]+=r*wt; srBuf[c*3+1]+=g*wt; srBuf[c*3+2]+=b*wt; srWt[c]+=wt; }
+        wt=fx*(1-fy); if(wt>0&&inb1x&&inb0y){ c=iy*HW+ix1; srBuf[c*3]+=r*wt; srBuf[c*3+1]+=g*wt; srBuf[c*3+2]+=b*wt; srWt[c]+=wt; }
+        wt=(1-fx)*fy; if(wt>0&&inb0x&&inb1y){ c=iy1*HW+ix; srBuf[c*3]+=r*wt; srBuf[c*3+1]+=g*wt; srBuf[c*3+2]+=b*wt; srWt[c]+=wt; }
+        wt=fx*fy; if(wt>0&&inb1x&&inb1y){ c=iy1*HW+ix1; srBuf[c*3]+=r*wt; srBuf[c*3+1]+=g*wt; srBuf[c*3+2]+=b*wt; srWt[c]+=wt; }
+      }
+    }
+  }
+  function drawSRMeter(){
+    const cv=$('srMeter'); if(!cv) return; const cx=cv.getContext('2d'), W=cv.width, H=cv.height; cx.clearRect(0,0,W,H);
+    const maxD=srMaxDrift*1.4, toX=(d)=>Math.max(0,Math.min(W, d/maxD*W));
+    cx.fillStyle='#242a34'; cx.fillRect(0,14,W,10);
+    cx.fillStyle='rgba(90,212,105,0.45)'; cx.fillRect(toX(srMinDrift),14, toX(srMaxDrift)-toX(srMinDrift),10);
+    const mx=toX(srLastDrift); cx.fillStyle='#fff'; cx.fillRect(mx-1,10,2,18);
+    const st=srStatus==='good'?'GOOD — keep tapping':srStatus==='still'?'TOO STILL — tap a little':srStatus==='much'?'TOO MUCH — ease off':'—';
+    const col=srStatus==='good'?'#5ad469':srStatus==='still'?'#8ea0b2':'#f2724b';
+    cx.fillStyle=col; cx.font='bold 11px ui-monospace,monospace'; cx.fillText(st,3,10); cx.fillStyle='#8ea0b2'; cx.fillText(srLastDrift.toFixed(2)+' px',W-56,10);
+  }
+  function srRenderAndShow(){
+    const HW=srHW,HH=srHH,HN=HW*HH;
+    let out=srImg; if(!out||out.width!==HW||out.height!==HH){ out=srImg=dctx.createImageData(HW,HH); }
+    const od=out.data; let lo=0,hi=255;
+    if(accStretch){ const hist=new Uint32Array(256); let tot=0;
+      for(let c=0;c<HN;c++){ const wt=srWt[c]; if(wt<1e-4)continue; const inv=1/wt, c3=c*3; let L=(srBuf[c3]*0.299+srBuf[c3+1]*0.587+srBuf[c3+2]*0.114)*inv|0; if(L<0)L=0;else if(L>255)L=255; hist[L]++; tot++; }
+      let c=0; for(let b=0;b<256;b++){c+=hist[b];if(c>=tot*0.005){lo=b;break;}} c=0; for(let b=255;b>=0;b--){c+=hist[b];if(c>=tot*0.005){hi=b;break;}} if(hi<=lo)hi=lo+1;
+    }
+    const scale=accStretch?255/(hi-lo):1, off=accStretch?lo:0;
+    for(let c=0;c<HN;c++){ const wt=srWt[c], p=c<<2, c3=c*3, inv=wt>1e-4?1/wt:0;
+      let r=(srBuf[c3]*inv-off)*scale,g=(srBuf[c3+1]*inv-off)*scale,b=(srBuf[c3+2]*inv-off)*scale;
+      od[p]=r<0?0:(r>255?255:r); od[p+1]=g<0?0:(g>255?255:g); od[p+2]=b<0?0:(b>255?255:b); od[p+3]=255;
+    }
+    if(view.style.display==='none'){ view.style.display='block'; viewGPU.style.display='none'; }
+    dctx.putImageData(out,0,0);
+    const st=$('srReadout'); if(st) st.innerHTML='Kept <b>'+srAccepted+'</b> / '+srCount+' frames \u00b7 '+srS+'\u00d7 grid'+(srFrozen?' \u00b7 <span style=\"color:#f2a63b\">frozen</span>':'');
+    drawSRMeter();
+  }
+  function superResFrame(){
+    if(!procW||!video.videoWidth) return;
+    const w=procW,h=procH,N=w*h,S=srS,HW=w*S,HH=h*S,HN=HW*HH;
+    if(view.width!==HW||view.height!==HH){ view.width=HW; view.height=HH; }
+    pctx.drawImage(video,0,0,w,h);
+    const id=pctx.getImageData(0,0,w,h), px=id.data;
+    if(!srGray||srGray.length!==N) srGray=new Float32Array(N);
+    for(let i=0,p=0;i<N;i++,p+=4) srGray[i]=px[p]*0.299+px[p+1]*0.587+px[p+2]*0.114;
+    if(!srBuf || srBuf.length!==HN*3 || srHW!==HW){
+      srBuf=new Float32Array(HN*3); srWt=new Float32Array(HN); srRef=new Float32Array(N); srRef.set(srGray); srHW=HW; srHH=HH; srCount=0; srAccepted=0; srLastDrift=0; srStatus='good';
+      srSplat(px,0,0); srCount=1; srAccepted=1; srRenderAndShow(); return;
+    }
+    const sh=srEstShift(srGray, srRef, w, h), drift=Math.sqrt(sh.dx*sh.dx+sh.dy*sh.dy);
+    srLastDrift=isFinite(drift)?drift:99; srCount++;
+    if(!isFinite(drift)||drift>srMaxDrift){ srStatus='much'; }
+    else if(drift<srMinDrift){ srStatus='still'; }
+    else { srStatus='good'; if(!srFrozen){ srSplat(px, sh.dx, sh.dy); srAccepted++; } }
+    srRenderAndShow();
+  }
   function loop(){
     if (!running) return;
     if (batchBusy){ raf=requestAnimationFrame(loop); return; }
@@ -2132,7 +2222,7 @@ struct MRT { @location(0) phase:vec4f, @location(1) ema:vec4f, @location(2) scr:
         if(view.style.display==='none'){ view.style.display='block'; viewGPU.style.display='none'; }
         drawReadout(); raf=requestAnimationFrame(loop); return;
       }
-      if(method==='accumulate'){ accumulateFrame(); drawReadout(); raf=requestAnimationFrame(loop); return; }
+      if(method==='accumulate'){ if(activeTab==='superres') superResFrame(); else accumulateFrame(); drawReadout(); raf=requestAnimationFrame(loop); return; }
       if(method==='neural' && (mode==='amp'||mode==='motion')){ neuralLoop(); drawReadout(); raf=requestAnimationFrame(loop); return; }
       const gpuActive = useGPU && gpu && !gpuFailed && gpuSupportedFor();
       const want = gpuActive ? 'webgpu' : 'cpu';
