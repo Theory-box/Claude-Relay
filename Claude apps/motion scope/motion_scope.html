@@ -493,6 +493,7 @@
   let method = 'linear', mode = 'amp', compareMode = 'off', holdOrig = false, curProfile = 'linear';
   let accBuf=null, accCount=0, accFrozen=false, accStretch=true, accLastHash=0;
   let srBuf=null, srWt=null, srRef=null, srGray=null, srImg=null, srS=2, srHW=0, srHH=0, srCount=0, srAccepted=0, srFrozen=false, srMinDrift=0.15, srMaxDrift=2.5, srLastDrift=0, srStatus='good';
+  let srCapCv=null, srCapCx=null, srW=0, srH=0; const SR_MAXH=540;
   let backend = 'cpu';                       // active compute path (flips as GPU paths are ported)
   const caps = { webgpu:false, webgl2:false };
   let gain = 18, loHz = 0.5, hiHz = 6, targetH = 384, centerHz = 3.25, widthHz = 5.5, freqLog = false;
@@ -2149,7 +2150,7 @@ struct MRT { @location(0) phase:vec4f, @location(1) ema:vec4f, @location(2) scr:
     return {dx,dy};
   }
   function srSplat(px, dx, dy){
-    const w=procW,h=procH,S=srS,HW=srHW,HH=srHH;
+    const w=srW,h=srH,S=srS,HW=srHW,HH=srHH;
     for(let y=0;y<h;y++){ const hy=(y-dy)*S+(S-1)/2, iy=Math.floor(hy), fy=hy-iy, iy1=iy+1;
       for(let x=0;x<w;x++){ const hx=(x-dx)*S+(S-1)/2, ix=Math.floor(hx), fx=hx-ix, ix1=ix+1, p=((y*w+x)<<2), r=px[p],g=px[p+1],b=px[p+2];
         let wt,c; const inb0x=ix>=0&&ix<HW, inb1x=ix1>=0&&ix1<HW, inb0y=iy>=0&&iy<HH, inb1y=iy1>=0&&iy1<HH;
@@ -2185,22 +2186,26 @@ struct MRT { @location(0) phase:vec4f, @location(1) ema:vec4f, @location(2) scr:
     }
     if(view.style.display==='none'){ view.style.display='block'; viewGPU.style.display='none'; }
     dctx.putImageData(out,0,0);
-    const st=$('srReadout'); if(st) st.innerHTML='Kept <b>'+srAccepted+'</b> / '+srCount+' frames \u00b7 '+srS+'\u00d7 grid'+(srFrozen?' \u00b7 <span style=\"color:#f2a63b\">frozen</span>':'');
+    const st=$('srReadout'); if(st) st.innerHTML='Kept <b>'+srAccepted+'</b> / '+srCount+' \u00b7 output <b>'+HW+'\u00d7'+HH+'</b> px'+(srFrozen?' \u00b7 <span style=\"color:#f2a63b\">frozen</span>':'')+'<br><span style=\"color:#8ea0b2\">Save to see full resolution (on-screen view is fit-to-window)</span>';
     drawSRMeter();
   }
   function superResFrame(){
-    if(!procW||!video.videoWidth) return;
-    const w=procW,h=procH,N=w*h,S=srS,HW=w*S,HH=h*S,HN=HW*HH;
+    if(!video.videoWidth) return;
+    const bh=Math.min(video.videoHeight, SR_MAXH), bw=Math.round(bh*(video.videoWidth/video.videoHeight));
+    const w=bw,h=bh,N=w*h,S=srS,HW=w*S,HH=h*S,HN=HW*HH;
     if(view.width!==HW||view.height!==HH){ view.width=HW; view.height=HH; }
-    pctx.drawImage(video,0,0,w,h);
-    const id=pctx.getImageData(0,0,w,h), px=id.data;
+    if(!srCapCv){ srCapCv=document.createElement('canvas'); srCapCx=srCapCv.getContext('2d',{willReadFrequently:true}); }
+    if(srCapCv.width!==bw||srCapCv.height!==bh){ srCapCv.width=bw; srCapCv.height=bh; }
+    srCapCx.imageSmoothingEnabled=false;  // point-sample: preserve aliasing that super-res needs
+    srCapCx.drawImage(video,0,0,bw,bh);
+    const id=srCapCx.getImageData(0,0,bw,bh), px=id.data; srW=bw; srH=bh;
     if(!srGray||srGray.length!==N) srGray=new Float32Array(N);
     for(let i=0,p=0;i<N;i++,p+=4) srGray[i]=px[p]*0.299+px[p+1]*0.587+px[p+2]*0.114;
     if(!srBuf || srBuf.length!==HN*3 || srHW!==HW){
       srBuf=new Float32Array(HN*3); srWt=new Float32Array(HN); srRef=new Float32Array(N); srRef.set(srGray); srHW=HW; srHH=HH; srCount=0; srAccepted=0; srLastDrift=0; srStatus='good';
       srSplat(px,0,0); srCount=1; srAccepted=1; srRenderAndShow(); return;
     }
-    const sh=srEstShift(srGray, srRef, w, h), drift=Math.sqrt(sh.dx*sh.dx+sh.dy*sh.dy);
+    const sh=srEstShift(srGray, srRef, srW, srH), drift=Math.sqrt(sh.dx*sh.dx+sh.dy*sh.dy);
     srLastDrift=isFinite(drift)?drift:99; srCount++;
     if(!isFinite(drift)||drift>srMaxDrift){ srStatus='much'; }
     else if(drift<srMinDrift){ srStatus='still'; }
