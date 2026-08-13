@@ -457,11 +457,11 @@
       <summary><h3>Super-res</h3></summary>
       <canvas id="srMeter" width="252" height="30" style="width:100%;height:30px;display:block;margin:.2rem 0"></canvas>
       <p class="note" id="srReadout">Kept <b>0</b> / 0 frames</p>
-      <div class="seg" role="group" aria-label="Upscale factor"><button id="srS2" aria-pressed="true">2× grid</button><button id="srS3" aria-pressed="false">3× grid</button></div>
+      <div class="seg" role="group" aria-label="Upscale factor"><button id="srS2" aria-pressed="true">2×</button><button id="srS3" aria-pressed="false">3×</button><button id="srS4" aria-pressed="false">4×</button></div>
       <div class="btns" style="margin-top:.4rem"><button class="act" id="srReset">Reset</button><button id="srFreeze" aria-pressed="false">Freeze</button><button id="srSave">Save frame</button></div>
       <label class="field" style="margin-top:.4rem"><span class="row"><span>Min drift (reject too still)</span><span class="val" id="srMinV">0.15</span></span><input type="range" id="srMin" min="0" max="100" step="1" value="15"></label>
       <label class="field"><span class="row"><span>Max drift (reject too much)</span><span class="val" id="srMaxV">2.50</span></span><input type="range" id="srMax" min="20" max="500" step="5" value="250"></label>
-      <p class="note"><b>Gently tap</b> the static camera to jog it a sub-pixel or two between frames — the meter shows if you're in the sweet spot, and frames outside the green band are thrown away. Aim at something with visible <b>detail/edges</b> (alignment needs texture). Hold <b>C</b> to compare against one raw frame.</p>
+      <p class="note"><b>Gently tap</b> the static camera to jog it a sub-pixel or two between frames — the meter shows if you're in the sweet spot, and frames outside the green band are thrown away. Aim at something with visible <b>detail/edges</b> (alignment needs texture). Finer grids (3×/4×) have a higher ceiling but need <b>more varied tapping</b> to fill — the convergence readout will take longer. Alignment auto-refreshes to the cleaned image as it builds. Hold <b>C</b> to compare against one raw frame.</p>
     </details>
     </div>
   </div>
@@ -810,7 +810,7 @@
     { const srR=$('srReset'); if(srR)srR.onclick=()=>{ srBuf=null; srFrozen=false; settleReset(); const fb=$('srFreeze'); if(fb){fb.textContent='Freeze';fb.setAttribute('aria-pressed',false);} };
       const srF=$('srFreeze'); if(srF)srF.onclick=()=>{ srFrozen=!srFrozen; srF.textContent=srFrozen?'Resume':'Freeze'; srF.setAttribute('aria-pressed',srFrozen); };
       const srSv=$('srSave'); if(srSv)srSv.onclick=()=>{ try{ const a=document.createElement('a'); a.download='superres-'+srAccepted+'frames.png'; a.href=view.toDataURL('image/png'); a.click(); }catch(e){} };
-      const s2=$('srS2'), s3=$('srS3'); function setSrS(n){ srS=n; srBuf=null; settleReset(); if(s2)s2.setAttribute('aria-pressed',n===2); if(s3)s3.setAttribute('aria-pressed',n===3); } if(s2)s2.onclick=()=>setSrS(2); if(s3)s3.onclick=()=>setSrS(3);
+      const s2=$('srS2'), s3=$('srS3'), s4=$('srS4'); function setSrS(n){ srS=n; srBuf=null; settleReset(); if(s2)s2.setAttribute('aria-pressed',n===2); if(s3)s3.setAttribute('aria-pressed',n===3); if(s4)s4.setAttribute('aria-pressed',n===4); } if(s2)s2.onclick=()=>setSrS(2); if(s3)s3.onclick=()=>setSrS(3); if(s4)s4.onclick=()=>setSrS(4);
       const smn=$('srMin'); if(smn)smn.oninput=()=>{ srMinDrift=+smn.value/100; const v=$('srMinV'); if(v)v.textContent=srMinDrift.toFixed(2); };
       const smx=$('srMax'); if(smx)smx.oninput=()=>{ srMaxDrift=+smx.value/100; const v=$('srMaxV'); if(v)v.textContent=srMaxDrift.toFixed(2); }; } const prR=$('prRegionSel'), prP=$('prPointsSel'), prA=$('prAutoSel'); function syncPrio(){ if(prR)prR.value=prRegion; if(prP)prP.value=prPoints; if(prA)prA.value=prAuto; } function setPrio(which,nv){ const cur={region:prRegion,points:prPoints,auto:prAuto}, oldV=cur[which]; for(const k in cur){ if(k!==which && cur[k]===nv){ cur[k]=oldV; break; } } cur[which]=nv; prRegion=cur.region; prPoints=cur.points; prAuto=cur.auto; syncPrio(); } if(prR)prR.onchange=()=>setPrio('region',+prR.value); if(prP)prP.onchange=()=>setPrio('points',+prP.value); if(prA)prA.onchange=()=>setPrio('auto',+prA.value); syncPrio(); stage.addEventListener('pointerdown',(e)=>{ if((!aAddMode&&!sAddMode)||compareMode!=='off'||!procW||e.button!==0) return; const p=stageToNorm(e.clientX,e.clientY); if(aAddMode) addTracker(aTrackers,p.nx,p.ny,'a'); else if(sAddMode) addTracker(sTrackers,p.nx,p.ny,'s'); e.preventDefault(); }); stage.addEventListener('contextmenu',(e)=>{ if(!aAddMode&&!sAddMode) return; e.preventDefault(); const p=stageToNorm(e.clientX,e.clientY), arr=aAddMode?aTrackers:sTrackers; let bi=-1,bd=1e9; for(let i=0;i<arr.length;i++){ const dx=arr[i].nx-p.nx,dy=arr[i].ny-p.ny,d=dx*dx+dy*dy; if(d<bd){ bd=d; bi=i; } } if(bi>=0 && Math.sqrt(bd)<0.045){ arr.splice(bi,1); if(arr===sTrackers) applyStab(); if(arr===aTrackers && !arr.length && $('trkStatus')) $('trkStatus').textContent=''; } }); })();
   // ---- Frequency analysis (FFT of a probed region's motion) ----
@@ -2196,9 +2196,15 @@ struct MRT { @location(0) phase:vec4f, @location(1) ema:vec4f, @location(2) scr:
     const st=$('srReadout'); if(st) st.innerHTML='Kept <b>'+srAccepted+'</b> / '+srCount+' \u00b7 out <b>'+HW+'\u00d7'+HH+'</b>'+(srFrozen?' \u00b7 <span style=\"color:#f2a63b\">frozen</span>':'')+'<br>'+settleText()+'<br><span style=\"color:#8ea0b2\">Save to see full resolution (view is fit-to-window)</span>';
     drawSRMeter();
   }
+  function srUpdateReference(){
+    if(!srBuf||!srWt||!srRef) return; const HW=srHW,HH=srHH,w=srW,h=srH,S=srS;
+    for(let y=0;y<h;y++){ const hy0=y*S; for(let x=0;x<w;x++){ const hx0=x*S; let sum=0,nn=0;
+      for(let dy=0;dy<S;dy++){ const yy=hy0+dy; if(yy>=HH)continue; const rowc=yy*HW; for(let dx=0;dx<S;dx++){ const xx=hx0+dx; if(xx>=HW)continue; const c=rowc+xx; if(srWt[c]>1e-4){ const inv=1/srWt[c], c3=c*3; sum+=(srBuf[c3]*0.299+srBuf[c3+1]*0.587+srBuf[c3+2]*0.114)*inv; nn++; } } }
+      if(nn) srRef[y*w+x]=sum/nn; } }
+  }
   function superResFrame(){
     if(!video.videoWidth) return;
-    const bh=Math.min(video.videoHeight, SR_MAXH), bw=Math.round(bh*(video.videoWidth/video.videoHeight));
+    const bh=Math.min(video.videoHeight, SR_MAXH, Math.floor(1500/srS)), bw=Math.round(bh*(video.videoWidth/video.videoHeight));
     const w=bw,h=bh,N=w*h,S=srS,HW=w*S,HH=h*S,HN=HW*HH;
     if(view.width!==HW||view.height!==HH){ view.width=HW; view.height=HH; }
     if(!srCapCv){ srCapCv=document.createElement('canvas'); srCapCx=srCapCv.getContext('2d',{willReadFrequently:true}); }
@@ -2216,7 +2222,7 @@ struct MRT { @location(0) phase:vec4f, @location(1) ema:vec4f, @location(2) scr:
     srLastDrift=isFinite(drift)?drift:99; srCount++; srAdded=false;
     if(!isFinite(drift)||drift>srMaxDrift){ srStatus='much'; }
     else if(drift<srMinDrift){ srStatus='still'; }
-    else { srStatus='good'; if(!srFrozen){ srSplat(px, sh.dx, sh.dy); srAccepted++; srAdded=true; } }
+    else { srStatus='good'; if(!srFrozen){ srSplat(px, sh.dx, sh.dy); srAccepted++; srAdded=true; if(srAccepted===12||srAccepted===25||(srAccepted>25&&srAccepted%40===0)) srUpdateReference(); } }
     srRenderAndShow();
   }
   function loop(){
