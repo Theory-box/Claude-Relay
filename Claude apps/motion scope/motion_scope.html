@@ -493,7 +493,7 @@
   let method = 'linear', mode = 'amp', compareMode = 'off', holdOrig = false, curProfile = 'linear';
   let accBuf=null, accCount=0, accFrozen=false, accStretch=true, accLastHash=0, accSub='stack';
   let srBuf=null, srWt=null, srRef=null, srGray=null, srImg=null, srS=2, srHW=0, srHH=0, srCount=0, srAccepted=0, srFrozen=false, srMinDrift=0.15, srMaxDrift=2.5, srLastDrift=0, srStatus='good';
-  let srCapCv=null, srCapCx=null, srW=0, srH=0; const SR_MAXH=540; let srAdded=false; let srFillBuf=null, srCoverage=0, srBaseA=null, srBaseW=null;
+  let srCapCv=null, srCapCx=null, srW=0, srH=0; const SR_MAXH=540; let srAdded=false; let srFillBuf=null, srCoverage=0, srBaseA=null, srBaseW=null, srIsNative=false;
   let settleEMA=-1, settleD0=-1, settleFrames=0, settlePrev=-1; const accHolder={buf:null,ready:false}, srHolder={buf:null,ready:false};
   function settleReset(){ settleEMA=-1; settleD0=-1; settleFrames=0; settlePrev=-1; accHolder.ready=false; srHolder.ready=false; }
   function pushSettle(delta){ if(!(delta>=0))return; settleFrames++; if(settleEMA<0)settleEMA=delta; else { settlePrev=settleEMA; settleEMA+=(delta-settleEMA)*0.2; } if(settleD0<0&&settleFrames>=6)settleD0=settleEMA; }
@@ -776,10 +776,10 @@
   function fmtMetric(m){ if(!m||m.raw<0.03) return ''; const red=(1-m.stab/m.raw)*100, col=red>=5?'#5ad469':(red<-5?'#ff5d73':'#8ea0b2'); return ' <span style="color:'+col+'">Raw '+m.raw.toFixed(2)+' → Stab '+m.stab.toFixed(2)+' px/f ('+(red>=0?'↓':'↑')+Math.abs(red).toFixed(0)+'%)</span>'; }
   function stabOverallStr(){ const wm=(stabView||autoStab||stabilize); if(!wm) return ''; if(!stabMaster) return ' &nbsp; stab <b style="color:#8ea0b2">OFF</b>'; if(!_stabOverall||_stabOverall.raw<0.03) return ''; const r=(1-_stabOverall.stab/_stabOverall.raw)*100, col=r>=5?'#5ad469':(r<-5?'#ff5d73':'#8ea0b2'); return ' &nbsp; stab <b style="color:'+col+'">'+(r>=0?'↓':'↑')+Math.abs(r).toFixed(0)+'%</b>'; }
   function stabMetric(){ const feats=autoStab?autoCorners.filter(t=>t._inlier):sTrackers.filter(t=>!t.lost); const Mc=_stabMApplied,Mp=_stabMAppliedPrev; let rs=0,ss=0,mc=0; for(const t of feats){ if(t.hist.length<2) continue; const c=t.hist[t.hist.length-1],p=t.hist[t.hist.length-2]; rs+=Math.hypot(c.x-p.x,c.y-p.y); if(Mc&&Mp){ const scx=Mc.a*c.x-Mc.b*c.y+Mc.tx,scy=Mc.b*c.x+Mc.a*c.y+Mc.ty,spx=Mp.a*p.x-Mp.b*p.y+Mp.tx,spy=Mp.b*p.x+Mp.a*p.y+Mp.ty; ss+=Math.hypot(scx-spx,scy-spy); } else ss+=Math.hypot(c.x-p.x,c.y-p.y); mc++; } if(mc<1) return ''; const raw=rs/mc,stab=ss/mc,red=raw>0.02?(1-stab/raw)*100:0,col=red>=5?'#5ad469':(red<-5?'#ff5d73':'#8ea0b2'); return ' · <span style="color:'+col+'">Raw '+raw.toFixed(2)+' → Stab '+stab.toFixed(2)+' px/f ('+(red>=0?'↓':'↑')+Math.abs(red).toFixed(0)+'%)</span>'; }
-  function applyStab(){ const clr=()=>{ const ct=(cropRect&&!cropCompute)?cropTransform():''; view.style.transformOrigin='0 0'; view.style.transform=ct; viewGPU.style.transformOrigin='0 0'; viewGPU.style.transform=ct; if(trkLayer) trkLayer.style.transform=''; };
+  function applyStab(){ const clr=()=>{ const ct=(cropRect&&!cropCompute&&!(method==='accumulate'&&accSub==='superres'))?cropTransform():''; view.style.transformOrigin='0 0'; view.style.transform=ct; viewGPU.style.transformOrigin='0 0'; viewGPU.style.transform=ct; if(trkLayer) trkLayer.style.transform=''; };
     if(!stabActive()||stabMode!=='post'||!procW){ clr(); return; } const M=_stabMApplied; if(!M){ clr(); return; } const R=videoDispRect(), k=R.w/(trkW||procW||1);
     const mat='matrix('+M.a.toFixed(5)+','+M.b.toFixed(5)+','+(-M.b).toFixed(5)+','+M.a.toFixed(5)+','+(M.tx*k).toFixed(2)+','+(M.ty*k).toFixed(2)+')';
-    const ct=(cropRect&&!cropCompute)?(cropTransform()+' '):''; view.style.transformOrigin='0 0'; view.style.transform=ct+mat; viewGPU.style.transformOrigin='0 0'; viewGPU.style.transform=ct+mat;
+    const ct=(cropRect&&!cropCompute&&!(method==='accumulate'&&accSub==='superres'))?(cropTransform()+' '):''; view.style.transformOrigin='0 0'; view.style.transform=ct+mat; viewGPU.style.transformOrigin='0 0'; viewGPU.style.transform=ct+mat;
     if(trkLayer){ trkLayer.style.transformOrigin=R.left+'px '+R.top+'px'; trkLayer.style.transform=mat; } }
   let anaGraphMode='spec'; let calMmPerPx=0, calLine=null, calDraw=false, calCur=null, calVal=10, calUnit='mm'; const CAL_UNITS={mm:1,cm:10,in:25.4};
   let phaseMapOn=false, phaseMapHz=3.0, phaseMapThresh=0.15, phaseMapGain=1.5, pmI=null, pmQ=null, pmDC=null, pmSig=null, pmMW=0, pmMH=0, pmRefPhase=0, pmLastT=0, pmCanvas=null, pmCtx=null, pmImg=null; let pmMode='phase', pmSource='pre', pmFBK=14, pmFBI=null, pmFBQ=null, pmFBFreqs=null, pmFBPhase=null, pmFBcc=null, pmFBss=null, pmBandE=null, pmBestK=null, pmBestA=null, pmDetecting=0, pmPeaks=[];
@@ -2208,7 +2208,7 @@ struct MRT { @location(0) phase:vec4f, @location(1) ema:vec4f, @location(2) scr:
     if(view.style.display==='none'){ view.style.display='block'; viewGPU.style.display='none'; }
     dctx.putImageData(out,0,0);
     settleUpdate(out.data, HN, srHolder, srAdded);
-    const st=$('srReadout'); if(st) st.innerHTML='Kept <b>'+srAccepted+'</b> / '+srCount+' \u00b7 out <b>'+HW+'\u00d7'+HH+'</b> \u00b7 <b>'+Math.round(srCoverage*100)+'%</b> resolved'+(srFrozen?' \u00b7 <span style=\"color:#f2a63b\">frozen</span>':'')+'<br>'+settleText()+'<br><span style=\"color:#8ea0b2\">% resolved = grid filled with real samples (tap variedly to raise it). Save for full resolution.</span>';
+    const st=$('srReadout'); if(st) st.innerHTML='Kept <b>'+srAccepted+'</b> / '+srCount+' \u00b7 out <b>'+HW+'\u00d7'+HH+'</b> \u00b7 <b>'+Math.round(srCoverage*100)+'%</b> resolved'+(srFrozen?' \u00b7 <span style=\"color:#f2a63b\">frozen</span>':'')+'<br>'+settleText()+'<br><span style=\"color:#8ea0b2\">'+(srIsNative?'<b style=\"color:#5ad469\">Region mode \u00b7 native pixels</b> \u2014 super-res works here.':'Full-frame: source already high-res, so this mostly denoises. <b>Zoom \ud83d\udd0d into a small target</b> to add real resolution.')+' Save for full res.</span>';
     drawSRMeter();
   }
   function srUpdateReference(){
@@ -2219,14 +2219,18 @@ struct MRT { @location(0) phase:vec4f, @location(1) ema:vec4f, @location(2) scr:
   }
   function superResFrame(){
     if(!video.videoWidth) return;
-    const bh=Math.min(video.videoHeight, SR_MAXH, Math.floor(1500/srS)), bw=Math.round(bh*(video.videoWidth/video.videoHeight));
-    const w=bw,h=bh,N=w*h,S=srS,HW=w*S,HH=h*S,HN=HW*HH;
+    const S=srS, vw=video.videoWidth, vh=video.videoHeight, maxBase=Math.floor(1500/S);
+    let bw,bh,scx,scy,scw,sch,srNative;
+    if(cropRect){ const R=cropRect; scx=R.x0*vw; scy=R.y0*vh; scw=Math.max(1,(R.x1-R.x0)*vw); sch=Math.max(1,(R.y1-R.y0)*vh); bw=Math.round(scw); bh=Math.round(sch);
+      if(bw>maxBase||bh>maxBase){ const k=maxBase/Math.max(bw,bh); bw=Math.max(1,Math.round(bw*k)); bh=Math.max(1,Math.round(bh*k)); srNative=false; } else srNative=true;
+    } else { bh=Math.min(vh, SR_MAXH, maxBase); bw=Math.round(bh*(vw/vh)); scx=0; scy=0; scw=vw; sch=vh; srNative=false; }
+    const w=bw,h=bh,N=w*h,HW=w*S,HH=h*S,HN=HW*HH;
     if(view.width!==HW||view.height!==HH){ view.width=HW; view.height=HH; }
     if(!srCapCv){ srCapCv=document.createElement('canvas'); srCapCx=srCapCv.getContext('2d',{willReadFrequently:true}); }
     if(srCapCv.width!==bw||srCapCv.height!==bh){ srCapCv.width=bw; srCapCv.height=bh; }
-    srCapCx.imageSmoothingEnabled=false;  // point-sample: preserve aliasing that super-res needs
-    srCapCx.drawImage(video,0,0,bw,bh);
-    const id=srCapCx.getImageData(0,0,bw,bh), px=id.data; srW=bw; srH=bh;
+    srCapCx.imageSmoothingEnabled = !srNative;  // native crop = 1:1 (real pixels); downsample = smooth (no alias artifacts)
+    srCapCx.drawImage(video, scx,scy,scw,sch, 0,0,bw,bh);
+    const id=srCapCx.getImageData(0,0,bw,bh), px=id.data; srW=bw; srH=bh; srIsNative=srNative;
     if(!srGray||srGray.length!==N) srGray=new Float32Array(N);
     for(let i=0,p=0;i<N;i++,p+=4) srGray[i]=px[p]*0.299+px[p+1]*0.587+px[p+2]*0.114;
     if(!srBuf || srBuf.length!==HN*3 || srHW!==HW){
