@@ -495,9 +495,9 @@
   let isoFade=0.03, confGate=true, phaseFlow=false, phaseScale=32, accelMode=false;
   let procW = 0, procH = 0, initialized = false;
   let method = 'linear', mode = 'amp', compareMode = 'off', holdOrig = false, curProfile = 'linear';
-  let accBuf=null, accCount=0, accFrozen=false, accStretch=true, accLastHash=0, accSub='stack'; let accCapCv=null, accCapCx=null; const ACC_MAXH=1440;
+  let accBuf=null, accCount=0, accFrozen=false, accStretch=true, accLastHash=0, accSub='stack'; let accCapCv=null, accCapCx=null; const ACC_MAXH=2160;
   let srBuf=null, srWt=null, srRef=null, srGray=null, srImg=null, srS=2, srHW=0, srHH=0, srCount=0, srAccepted=0, srFrozen=false, srMinDrift=0.15, srMaxDrift=2.5, srLastDrift=0, srStatus='good';
-  let srCapCv=null, srCapCx=null, srW=0, srH=0; const SR_MAXH=750; let srAdded=false; let srFillBuf=null, srCoverage=0, srBaseA=null, srBaseW=null, srIsNative=false, srKa=null, srKb=null, srKc=null, srLo=-1, srHi=-1;
+  let srCapCv=null, srCapCx=null, srW=0, srH=0; const SR_MAXH=900; let srAdded=false; let srFillBuf=null, srCoverage=0, srBaseA=null, srBaseW=null, srIsNative=false, srKa=null, srKb=null, srKc=null, srLo=-1, srHi=-1;
   let srFrames=[], srEnhanced=false, srIbpOut=null, srIbpStrength=0.8, srIbpPsf=0.55, srLastSig=null; const SR_IBP_MAXPIX=620000, SR_IBP_MAXFRAMES=16, srIbpIters=7; let srPhase=new Int16Array(16), srPhaseCov=0;
   const srExpLUT=(()=>{ const a=new Float32Array(289); for(let i=0;i<289;i++)a[i]=Math.exp(-0.5*i/32); return a; })();
   let settleEMA=-1, settleD0=-1, settleFrames=0, settlePrev=-1; const accHolder={buf:null,ready:false}, srHolder={buf:null,ready:false};
@@ -2292,11 +2292,11 @@ struct MRT { @location(0) phase:vec4f, @location(1) ema:vec4f, @location(2) scr:
   }
   function superResFrame(){
     if(!video.videoWidth) return;
-    const S=srS, vw=video.videoWidth, vh=video.videoHeight, maxBase=Math.floor(1500/S);
+    const S=srS, vw=video.videoWidth, vh=video.videoHeight, maxBase=Math.floor(1500/S), ffMax=Math.floor(1800/S);
     let bw,bh,scx,scy,scw,sch,srNative;
     if(cropRect){ const R=cropRect; scx=R.x0*vw; scy=R.y0*vh; scw=Math.max(1,(R.x1-R.x0)*vw); sch=Math.max(1,(R.y1-R.y0)*vh); bw=Math.round(scw); bh=Math.round(sch);
       if(bw>maxBase||bh>maxBase){ const k=maxBase/Math.max(bw,bh); bw=Math.max(1,Math.round(bw*k)); bh=Math.max(1,Math.round(bh*k)); srNative=false; } else srNative=true;
-    } else { bh=Math.min(vh, SR_MAXH, maxBase); bw=Math.round(bh*(vw/vh)); scx=0; scy=0; scw=vw; sch=vh; srNative=false; }
+    } else { bh=Math.min(vh, SR_MAXH, ffMax); bw=Math.round(bh*(vw/vh)); scx=0; scy=0; scw=vw; sch=vh; srNative=false; }
     const w=bw,h=bh,N=w*h,HW=w*S,HH=h*S,HN=HW*HH;
     if(view.width!==HW||view.height!==HH){ view.width=HW; view.height=HH; }
     if(!srCapCv){ srCapCv=document.createElement('canvas'); srCapCx=srCapCv.getContext('2d',{willReadFrequently:true}); }
