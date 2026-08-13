@@ -134,7 +134,7 @@
       <button class="tricon" id="mAccum" data-tip="Accumulate — stack frames to denoise &amp; brighten" aria-label="Accumulate — stack frames" aria-pressed="false">AC</button>
     <div id="viewIcons">
       <div class="trsep"></div>
-      <div class="trlabel">View</div>
+      <div class="trlabel" id="viewLabel">View</div>
       <button class="tricon" id="modeAmp" data-tip="Amplified — motion over the scene" aria-label="Amplified — motion over the scene" aria-pressed="true">A</button>
       <button class="tricon" id="modeMotion" data-tip="Motion only — bare motion signal" aria-label="Motion only — bare motion signal" aria-pressed="false">M</button>
       <div class="trsep"></div>
@@ -441,7 +441,7 @@
     <details class="group" data-tab="zoom" open>
       <summary><h3>Zoom</h3></summary>
       <div class="btns"><button class="act" id="zoomRestoreBtn">Restore full view</button></div>
-      <div class="seg" role="group" aria-label="Zoom mode" style="margin-top:.5rem"><button id="cropZoomOnly" aria-pressed="true">Zoom only</button><button id="cropProc" aria-pressed="false">Process crop</button></div>
+      <div class="seg" id="cropModeSeg" role="group" aria-label="Zoom mode" style="margin-top:.5rem"><button id="cropZoomOnly" aria-pressed="true">Zoom only</button><button id="cropProc" aria-pressed="false">Process crop</button></div>
       <p class="note"><b>Zoom only</b>: digital zoom; full-frame processing unchanged. <b>Process crop</b>: re-processes just this region as if it were the whole frame — sharper, and amplification/analysis adapt to the region (region is squared to avoid distortion; markers reset on switch). Tracking and stabilization operate on the cropped region.</p>
       <p class="note">You're zoomed into a region. This is a <b>digital zoom</b> of the processed output — full-frame processing is unchanged, so a deep zoom looks a little soft. Restore, then use the 🔍 icon to draw a new region.</p>
     </details>
@@ -491,7 +491,7 @@
   let isoFade=0.03, confGate=true, phaseFlow=false, phaseScale=32, accelMode=false;
   let procW = 0, procH = 0, initialized = false;
   let method = 'linear', mode = 'amp', compareMode = 'off', holdOrig = false, curProfile = 'linear';
-  let accBuf=null, accCount=0, accFrozen=false, accStretch=true, accLastHash=0;
+  let accBuf=null, accCount=0, accFrozen=false, accStretch=true, accLastHash=0, accSub='stack';
   let srBuf=null, srWt=null, srRef=null, srGray=null, srImg=null, srS=2, srHW=0, srHH=0, srCount=0, srAccepted=0, srFrozen=false, srMinDrift=0.15, srMaxDrift=2.5, srLastDrift=0, srStatus='good';
   let srCapCv=null, srCapCx=null, srW=0, srH=0; const SR_MAXH=540; let srAdded=false; let srFillBuf=null, srCoverage=0, srBaseA=null, srBaseW=null;
   let settleEMA=-1, settleD0=-1, settleFrames=0, settlePrev=-1; const accHolder={buf:null,ready:false}, srHolder={buf:null,ready:false};
@@ -576,7 +576,7 @@
     const set=(id,on)=>{ const b=$(id); if(b) b.setAttribute('aria-pressed', on?'true':'false'); };
     set('mLinear',eng==='linear'); set('mPhase',eng==='phase'); set('mRiesz',eng==='riesz'); set('mNeural',eng==='neural'); set('mWarp',eng==='warp'); set('mIsolate',eng==='isolate'); set('mAccum',eng==='accumulate');
     set('modeAmp',mode==='amp'); set('modeMotion',mode==='motion');
-    const vi=$('viewIcons'); if(vi) vi.style.display=(mode==='warp'||mode==='isolate'||method==='accumulate')?'none':'';
+    const vi=$('viewIcons'), _isAcc=method==='accumulate'; if(vi) vi.style.display=(mode==='warp'||mode==='isolate')?'none':''; { const vl=$('viewLabel'),ma=$('modeAmp'),mm=$('modeMotion'),cms=$('cropModeSeg'); if(vl)vl.style.display=_isAcc?'none':''; if(ma)ma.style.display=_isAcc?'none':''; if(mm)mm.style.display=_isAcc?'none':''; if(cms)cms.style.display=_isAcc?'none':''; if(_isAcc)cropCompute=false; }
     if(typeof updateSettingsGroups==='function') updateSettingsGroups(); if(typeof updateTabAvailability==='function') updateTabAvailability(); }
   function pickEngine(e){ if(e==='warp'||e==='isolate'){ setMode(e); } else { if(mode==='warp'||mode==='isolate') setMode(lastView); setMethod(e); } if(e==='neural' && typeof setTab==='function') setTab('settings'); refreshEngineUI(); }
   function pickView(v){ lastView=v; setMode(v); refreshEngineUI(); }
@@ -588,8 +588,8 @@
   if(window.mAccum) mAccum.onclick = () => pickEngine('accumulate');
   var activeTab='capture';
   function updateSettingsGroups(){ const inS=(activeTab==='settings'); const ng=$('neuralGroup'); if(ng) ng.style.display=(inS && method==='neural')?'':'none'; const wf=$('warpFieldGroup'); if(wf) wf.style.display=(inS && mode==='warp')?'':'none'; }
-  function setTab(t){ activeTab=t; document.querySelectorAll('.tabstrip button').forEach(b=>b.setAttribute('aria-selected', String(b.dataset.tab===t))); document.querySelectorAll('#tabcontent > .group').forEach(g=>{ g.style.display=(g.dataset.tab===t)?'':'none'; }); updateSettingsGroups(); }
-  function updateTabAvailability(){ const isAcc=method==='accumulate'; const off={ stabilize: method==='neural'||isAcc, smoothing: method==='neural'||isAcc, zoom: !cropRect||isAcc, settings: isAcc, process: isAcc, analysis: isAcc, stack: !isAcc, superres: !isAcc }; let hidActive=false; document.querySelectorAll('.tabstrip button').forEach(b=>{ const t=b.dataset.tab, hide=!!off[t]; b.style.display=hide?'none':''; if(hide && activeTab===t) hidActive=true; }); if(hidActive) setTab(method==='accumulate'?'stack':'settings'); }
+  function setTab(t){ activeTab=t; if(t==='stack'||t==='superres') accSub=t; document.querySelectorAll('.tabstrip button').forEach(b=>b.setAttribute('aria-selected', String(b.dataset.tab===t))); document.querySelectorAll('#tabcontent > .group').forEach(g=>{ g.style.display=(g.dataset.tab===t)?'':'none'; }); updateSettingsGroups(); }
+  function updateTabAvailability(){ const isAcc=method==='accumulate'; const off={ stabilize: method==='neural'||isAcc, smoothing: method==='neural'||isAcc, zoom: !cropRect, settings: isAcc, process: isAcc, analysis: isAcc, stack: !isAcc, superres: !isAcc }; let hidActive=false; document.querySelectorAll('.tabstrip button').forEach(b=>{ const t=b.dataset.tab, hide=!!off[t]; b.style.display=hide?'none':''; if(hide && activeTab===t) hidActive=true; }); if(hidActive) setTab(method==='accumulate'?'stack':'settings'); }
   document.querySelectorAll('.tabstrip button').forEach(b=>{ b.onclick=()=>setTab(b.dataset.tab); });
   setTab('capture'); updateTabAvailability();
   function setMethod(m){
@@ -2255,7 +2255,7 @@ struct MRT { @location(0) phase:vec4f, @location(1) ema:vec4f, @location(2) scr:
         if(view.style.display==='none'){ view.style.display='block'; viewGPU.style.display='none'; }
         drawReadout(); raf=requestAnimationFrame(loop); return;
       }
-      if(method==='accumulate'){ if(activeTab==='superres') superResFrame(); else accumulateFrame(); drawReadout(); raf=requestAnimationFrame(loop); return; }
+      if(method==='accumulate'){ if(accSub==='superres') superResFrame(); else accumulateFrame(); drawReadout(); raf=requestAnimationFrame(loop); return; }
       if(method==='neural' && (mode==='amp'||mode==='motion')){ neuralLoop(); drawReadout(); raf=requestAnimationFrame(loop); return; }
       const gpuActive = useGPU && gpu && !gpuFailed && gpuSupportedFor();
       const want = gpuActive ? 'webgpu' : 'cpu';
