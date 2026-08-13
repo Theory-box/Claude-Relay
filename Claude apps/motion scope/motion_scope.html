@@ -2260,11 +2260,23 @@ struct MRT { @location(0) phase:vec4f, @location(1) ema:vec4f, @location(2) scr:
     if(!srBuf||!srWt||srFrames.length<3){ const st=$('srReadout'); if(st) st.innerHTML='<span style=\"color:#f2a63b\">Enhance needs a zoomed <b>Region</b> crop with a few frames \u2014 zoom \ud83d\udd0d into a target, tap to accumulate, then Enhance.</span>'; return; }
     const w=srW,h=srH,S=srS,HW=srHW,HH=srHH,HN=HW*HH,half=(S-1)/2;
     const X=new Float32Array(HN*3);
-    for(let c=0;c<HN;c++){ const wt=srWt[c], inv=wt>1e-4?1/wt:0, c3=c*3; X[c3]=srBuf[c3]*inv; X[c3+1]=srBuf[c3+1]*inv; X[c3+2]=srBuf[c3+2]*inv; }
+    const bA=new Float32Array(w*h*3), bW=new Float32Array(w*h);
+    for(let Y=0;Y<HH;Y++){ const by=(Y/S)|0, byr=(by<h?by:h-1)*w, row=Y*HW; for(let Xx=0;Xx<HW;Xx++){ const c=row+Xx, c3=c*3, bx=(Xx/S)|0, bc=byr+(bx<w?bx:w-1); bA[bc*3]+=srBuf[c3]; bA[bc*3+1]+=srBuf[c3+1]; bA[bc*3+2]+=srBuf[c3+2]; bW[bc]+=srWt[c]; } }
+    let wsum=0; for(let c=0;c<HN;c++) wsum+=srWt[c]; const cthr=(wsum/HN)*0.5;
+    for(let Y=0;Y<HH;Y++){ const gy=(Y-half)/S; let by0=Math.floor(gy); if(by0<0)by0=0; else if(by0>h-2)by0=h-2>0?h-2:0; let fyv=gy-by0; if(fyv<0)fyv=0;else if(fyv>1)fyv=1; const row=Y*HW;
+      for(let Xx=0;Xx<HW;Xx++){ const c=row+Xx, c3=c*3, wt=srWt[c];
+        if(wt>=cthr && wt>1e-4){ const inv=1/wt; X[c3]=srBuf[c3]*inv; X[c3+1]=srBuf[c3+1]*inv; X[c3+2]=srBuf[c3+2]*inv; }
+        else { const gx=(Xx-half)/S; let bx0=Math.floor(gx); if(bx0<0)bx0=0; else if(bx0>w-2)bx0=w-2>0?w-2:0; let fxv=gx-bx0; if(fxv<0)fxv=0;else if(fxv>1)fxv=1;
+          const i00=by0*w+bx0,i10=i00+1,i01=i00+w,i11=i01+1,w00=(1-fxv)*(1-fyv),w10=fxv*(1-fyv),w01=(1-fxv)*fyv,w11=fxv*fyv, bwv=bW[i00]*w00+bW[i10]*w10+bW[i01]*w01+bW[i11]*w11, bInv=bwv>1e-4?1/bwv:0;
+          X[c3]=(bA[i00*3]*w00+bA[i10*3]*w10+bA[i01*3]*w01+bA[i11*3]*w11)*bInv; X[c3+1]=(bA[i00*3+1]*w00+bA[i10*3+1]*w10+bA[i01*3+1]*w01+bA[i11*3+1]*w11)*bInv; X[c3+2]=(bA[i00*3+2]*w00+bA[i10*3+2]*w10+bA[i01*3+2]*w01+bA[i11*3+2]*w11)*bInv;
+        }
+      }
+    }
     const sig=srIbpPsf, s2=1/(2*sig*sig), R=2, beta=srIbpStrength, frames=srFrames;
+    const nUse=Math.max(6,Math.min(frames.length,Math.floor(2500000/(w*h)))), fstart=Math.max(0,frames.length-nUse);
     const errHr=new Float32Array(HN*3), bpW=new Float32Array(HN);
     for(let it=0;it<srIbpIters;it++){ errHr.fill(0); bpW.fill(0);
-      for(let fi=0;fi<frames.length;fi++){ const fr=frames[fi], px=fr.px, dx=fr.dx, dy=fr.dy;
+      for(let fi=fstart;fi<frames.length;fi++){ const fr=frames[fi], px=fr.px, dx=fr.dx, dy=fr.dy;
         for(let y=0;y<h;y++){ for(let x=0;x<w;x++){
           const hx=(x-dx)*S+half, hy=(y-dy)*S+half, cx=Math.round(hx), cy=Math.round(hy);
           let s0=0,s1=0,s2v=0,sw=0;
