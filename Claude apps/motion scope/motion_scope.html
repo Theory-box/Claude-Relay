@@ -498,7 +498,7 @@
   let accBuf=null, accCount=0, accFrozen=false, accStretch=true, accLastHash=0, accSub='stack'; let accCapCv=null, accCapCx=null; const ACC_MAXH=1440;
   let srBuf=null, srWt=null, srRef=null, srGray=null, srImg=null, srS=2, srHW=0, srHH=0, srCount=0, srAccepted=0, srFrozen=false, srMinDrift=0.15, srMaxDrift=2.5, srLastDrift=0, srStatus='good';
   let srCapCv=null, srCapCx=null, srW=0, srH=0; const SR_MAXH=750; let srAdded=false; let srFillBuf=null, srCoverage=0, srBaseA=null, srBaseW=null, srIsNative=false, srKa=null, srKb=null, srKc=null, srLo=-1, srHi=-1;
-  let srFrames=[], srEnhanced=false, srIbpOut=null, srIbpStrength=0.8, srIbpPsf=0.55; const SR_IBP_MAXPIX=210000, SR_IBP_MAXFRAMES=16, srIbpIters=7;
+  let srFrames=[], srEnhanced=false, srIbpOut=null, srIbpStrength=0.8, srIbpPsf=0.55; const SR_IBP_MAXPIX=620000, SR_IBP_MAXFRAMES=16, srIbpIters=7; let srPhase=new Int16Array(16), srPhaseCov=0;
   const srExpLUT=(()=>{ const a=new Float32Array(289); for(let i=0;i<289;i++)a[i]=Math.exp(-0.5*i/32); return a; })();
   let settleEMA=-1, settleD0=-1, settleFrames=0, settlePrev=-1; const accHolder={buf:null,ready:false}, srHolder={buf:null,ready:false};
   function settleReset(){ settleEMA=-1; settleD0=-1; settleFrames=0; settlePrev=-1; accHolder.ready=false; srHolder.ready=false; }
@@ -813,10 +813,10 @@
       const af=$('accFreeze'); if(af)af.onclick=()=>{ accFrozen=!accFrozen; af.textContent=accFrozen?'Resume':'Freeze'; af.setAttribute('aria-pressed',accFrozen); };
       const asv=$('accSave'); if(asv)asv.onclick=()=>{ try{ const a=document.createElement('a'); a.download='stacked-'+accCount+'frames.png'; a.href=view.toDataURL('image/png'); a.click(); }catch(e){} };
       const aso=$('accStretchOn'), asf=$('accStretchOff'); function setAccStretch(on){ accStretch=on; if(aso)aso.setAttribute('aria-pressed',on); if(asf)asf.setAttribute('aria-pressed',!on); } if(aso)aso.onclick=()=>setAccStretch(true); if(asf)asf.onclick=()=>setAccStretch(false); }
-    { const srR=$('srReset'); if(srR)srR.onclick=()=>{ srBuf=null; srFrozen=false; srLo=-1; srHi=-1; srFrames.length=0; srEnhanced=false; srIbpOut=null; settleReset(); const fb=$('srFreeze'); if(fb){fb.textContent='Freeze';fb.setAttribute('aria-pressed',false);} };
+    { const srR=$('srReset'); if(srR)srR.onclick=()=>{ srBuf=null; srFrozen=false; srLo=-1; srHi=-1; srFrames.length=0; srEnhanced=false; srIbpOut=null; srPhase.fill(0); srPhaseCov=0; settleReset(); const fb=$('srFreeze'); if(fb){fb.textContent='Freeze';fb.setAttribute('aria-pressed',false);} };
       const srF=$('srFreeze'); if(srF)srF.onclick=()=>{ srFrozen=!srFrozen; srF.textContent=srFrozen?'Resume':'Freeze'; srF.setAttribute('aria-pressed',srFrozen); };
       const srSv=$('srSave'); if(srSv)srSv.onclick=()=>{ try{ const a=document.createElement('a'); a.download='superres-'+srAccepted+'frames.png'; a.href=view.toDataURL('image/png'); a.click(); }catch(e){} };
-      const s2=$('srS2'), s3=$('srS3'), s4=$('srS4'); function setSrS(n){ srS=n; srBuf=null; srLo=-1; srHi=-1; srFrames.length=0; srEnhanced=false; srIbpOut=null; settleReset(); if(s2)s2.setAttribute('aria-pressed',n===2); if(s3)s3.setAttribute('aria-pressed',n===3); if(s4)s4.setAttribute('aria-pressed',n===4); } if(s2)s2.onclick=()=>setSrS(2); if(s3)s3.onclick=()=>setSrS(3); if(s4)s4.onclick=()=>setSrS(4);
+      const s2=$('srS2'), s3=$('srS3'), s4=$('srS4'); function setSrS(n){ srS=n; srBuf=null; srLo=-1; srHi=-1; srFrames.length=0; srEnhanced=false; srIbpOut=null; srPhase.fill(0); srPhaseCov=0; settleReset(); if(s2)s2.setAttribute('aria-pressed',n===2); if(s3)s3.setAttribute('aria-pressed',n===3); if(s4)s4.setAttribute('aria-pressed',n===4); } if(s2)s2.onclick=()=>setSrS(2); if(s3)s3.onclick=()=>setSrS(3); if(s4)s4.onclick=()=>setSrS(4);
       const smn=$('srMin'); if(smn)smn.oninput=()=>{ srMinDrift=+smn.value/100; const v=$('srMinV'); if(v)v.textContent=srMinDrift.toFixed(2); };
       const smx=$('srMax'); if(smx)smx.oninput=()=>{ srMaxDrift=+smx.value/100; const v=$('srMaxV'); if(v)v.textContent=srMaxDrift.toFixed(2); };
       const seb=$('srEnhanceBtn'); if(seb)seb.onclick=()=>{ seb.textContent='Enhancing\u2026'; seb.disabled=true; setTimeout(()=>{ try{ srEnhanceIBP(); }catch(e){} seb.textContent='Enhance (deconvolve)'; seb.disabled=false; },30); };
@@ -2236,7 +2236,7 @@ struct MRT { @location(0) phase:vec4f, @location(1) ema:vec4f, @location(2) scr:
     if(view.style.display==='none'){ view.style.display='block'; viewGPU.style.display='none'; }
     dctx.putImageData(out,0,0);
     settleUpdate(out.data, HN, srHolder, srAdded);
-    const st=$('srReadout'); if(st) st.innerHTML='Kept <b>'+srAccepted+'</b> / '+srCount+' \u00b7 out <b>'+HW+'\u00d7'+HH+'</b> \u00b7 <b>'+Math.round(srCoverage*100)+'%</b> resolved'+(srFrozen?' \u00b7 <span style=\"color:#f2a63b\">frozen</span>':'')+'<br>'+settleText()+'<br><span style=\"color:#8ea0b2\">'+(srIsNative?'<b style=\"color:#5ad469\">Region mode \u00b7 native pixels</b> \u2014 super-res works here.':'Full-frame: source already high-res, so this mostly denoises. <b>Zoom \ud83d\udd0d into a small target</b> to add real resolution.')+' Save for full res.</span>';
+    const st=$('srReadout'); if(st) st.innerHTML='Kept <b>'+srAccepted+'</b> / '+srCount+' \u00b7 out <b>'+HW+'\u00d7'+HH+'</b> \u00b7 <b style=\"color:'+(srPhaseCov>0.75?'#5ad469':srPhaseCov>0.4?'#f2a63b':'#8ea0b2')+'\">'+Math.round(srPhaseCov*100)+'%</b> resolved'+(srFrozen?' \u00b7 <span style=\"color:#f2a63b\">frozen</span>':'')+'<br>'+settleText()+' <span style=\"color:#666\">(noise)</span><br><span style=\"color:#8ea0b2\"><b>% resolved</b> = distinct sub-pixel slots filled \u2014 needs <b>varied</b> jitter (little circles); a still camera stays low. '+(srIsNative?'<b style=\"color:#5ad469\">Region \u00b7 native.</b>':'<b>Zoom \ud83d\udd0d into a target</b> for real gain.')+'</span>';
     drawSRMeter();
   }
   function srUpdateReference(){
@@ -2257,7 +2257,7 @@ struct MRT { @location(0) phase:vec4f, @location(1) ema:vec4f, @location(2) scr:
   }
   function srStoreFrame(px,dx,dy){ if(srW*srH>SR_IBP_MAXPIX){ srFrames.length=0; return; } srFrames.push({px:px.slice(),dx:dx,dy:dy}); if(srFrames.length>SR_IBP_MAXFRAMES) srFrames.shift(); }
   function srEnhanceIBP(){
-    if(!srBuf||!srWt||srFrames.length<3){ const st=$('srReadout'); if(st) st.innerHTML='Need a converged crop first (Region mode, let it settle).'; return; }
+    if(!srBuf||!srWt||srFrames.length<3){ const st=$('srReadout'); if(st) st.innerHTML='<span style=\"color:#f2a63b\">Enhance needs a zoomed <b>Region</b> crop with a few frames \u2014 zoom \ud83d\udd0d into a target, tap to accumulate, then Enhance.</span>'; return; }
     const w=srW,h=srH,S=srS,HW=srHW,HH=srHH,HN=HW*HH,half=(S-1)/2;
     const X=new Float32Array(HN*3);
     for(let c=0;c<HN;c++){ const wt=srWt[c], inv=wt>1e-4?1/wt:0, c3=c*3; X[c3]=srBuf[c3]*inv; X[c3+1]=srBuf[c3+1]*inv; X[c3+2]=srBuf[c3+2]*inv; }
@@ -2296,13 +2296,13 @@ struct MRT { @location(0) phase:vec4f, @location(1) ema:vec4f, @location(2) scr:
     for(let i=0,p=0;i<N;i++,p+=4) srGray[i]=px[p]*0.299+px[p+1]*0.587+px[p+2]*0.114;
     if(!srBuf || srBuf.length!==HN*3 || srHW!==HW){
       srBuf=new Float32Array(HN*3); srWt=new Float32Array(HN); srRef=new Float32Array(N); srRef.set(srGray); srHW=HW; srHH=HH; srCount=0; srAccepted=0; srLastDrift=0; srStatus='good';
-      srSplat(px,0,0); srCount=1; srAccepted=1; srAdded=true; srFrames.length=0; srStoreFrame(px,0,0); srRenderAndShow(); return;
+      srSplat(px,0,0); srCount=1; srAccepted=1; srAdded=true; srFrames.length=0; srStoreFrame(px,0,0); srPhase.fill(0); srPhase[0]=1; srPhaseCov=0; srRenderAndShow(); return;
     }
     const sh=srEstShift(srGray, srRef, srW, srH), drift=Math.sqrt(sh.dx*sh.dx+sh.dy*sh.dy);
     srLastDrift=isFinite(drift)?drift:99; srCount++; srAdded=false;
     if(!isFinite(drift)||drift>srMaxDrift){ srStatus='much'; }
     else if(drift<srMinDrift){ srStatus='still'; }
-    else { srStatus='good'; if(!srFrozen){ srSplat(px, sh.dx, sh.dy); srAccepted++; srAdded=true; srEnhanced=false; srStoreFrame(px, sh.dx, sh.dy); if(srAccepted===12||srAccepted===25||(srAccepted>25&&srAccepted%40===0)) srUpdateReference(); } }
+    else { srStatus='good'; if(!srFrozen){ srSplat(px, sh.dx, sh.dy); srAccepted++; srAdded=true; srEnhanced=false; srStoreFrame(px, sh.dx, sh.dy); { const S2=srS, phx=((Math.round(-sh.dx*S2)%S2)+S2)%S2, phy=((Math.round(-sh.dy*S2)%S2)+S2)%S2, bn=phy*S2+phx; if(bn>=0&&bn<16)srPhase[bn]++; const nb=S2*S2; let hit=0; for(let k=0;k<nb;k++)if(srPhase[k]>=3)hit++; srPhaseCov=hit/nb; } if(srAccepted===12||srAccepted===25||(srAccepted>25&&srAccepted%40===0)) srUpdateReference(); } }
     srRenderAndShow();
   }
   function loop(){
