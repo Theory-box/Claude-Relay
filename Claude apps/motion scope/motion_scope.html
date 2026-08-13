@@ -493,7 +493,7 @@
   let method = 'linear', mode = 'amp', compareMode = 'off', holdOrig = false, curProfile = 'linear';
   let accBuf=null, accCount=0, accFrozen=false, accStretch=true, accLastHash=0;
   let srBuf=null, srWt=null, srRef=null, srGray=null, srImg=null, srS=2, srHW=0, srHH=0, srCount=0, srAccepted=0, srFrozen=false, srMinDrift=0.15, srMaxDrift=2.5, srLastDrift=0, srStatus='good';
-  let srCapCv=null, srCapCx=null, srW=0, srH=0; const SR_MAXH=540; let srAdded=false; let srFillBuf=null, srCoverage=0;
+  let srCapCv=null, srCapCx=null, srW=0, srH=0; const SR_MAXH=540; let srAdded=false; let srFillBuf=null, srCoverage=0, srBaseA=null, srBaseW=null;
   let settleEMA=-1, settleD0=-1, settleFrames=0, settlePrev=-1; const accHolder={buf:null,ready:false}, srHolder={buf:null,ready:false};
   function settleReset(){ settleEMA=-1; settleD0=-1; settleFrames=0; settlePrev=-1; accHolder.ready=false; srHolder.ready=false; }
   function pushSettle(delta){ if(!(delta>=0))return; settleFrames++; if(settleEMA<0)settleEMA=delta; else { settlePrev=settleEMA; settleEMA+=(delta-settleEMA)*0.2; } if(settleD0<0&&settleFrames>=6)settleD0=settleEMA; }
@@ -2180,16 +2180,23 @@ struct MRT { @location(0) phase:vec4f, @location(1) ema:vec4f, @location(2) scr:
   function srRenderAndShow(){
     const HW=srHW,HH=srHH,HN=HW*HH;
     let out=srImg; if(!out||out.width!==HW||out.height!==HH){ out=srImg=dctx.createImageData(HW,HH); }
-    const od=out.data;
+    const od=out.data, w=srW, h=srH, S=srS, half=(S-1)/2;
     if(!srFillBuf||srFillBuf.length!==HN*3) srFillBuf=new Float32Array(HN*3);
-    let wsum=0; for(let c=0;c<HN;c++) wsum+=srWt[c]; const wAvg=wsum/HN||1e-6, cthr=wAvg*0.8;
+    if(!srBaseA||srBaseA.length!==w*h*3){ srBaseA=new Float32Array(w*h*3); srBaseW=new Float32Array(w*h); }
+    srBaseA.fill(0); srBaseW.fill(0); let wsum=0;
+    for(let Y=0;Y<HH;Y++){ const by=(Y/S)|0, byr=(by<h?by:h-1)*w, row=Y*HW; for(let X=0;X<HW;X++){ const c=row+X, c3=c*3, bx=(X/S)|0, bc=byr+(bx<w?bx:w-1), bc3=bc*3, wv=srWt[c]; srBaseA[bc3]+=srBuf[c3]; srBaseA[bc3+1]+=srBuf[c3+1]; srBaseA[bc3+2]+=srBuf[c3+2]; srBaseW[bc]+=wv; wsum+=wv; } }
+    const wAvg=wsum/HN||1e-6, cthr=wAvg*0.8;
     let lo=0,hi=255, covered=0; const doHist=accStretch, hist=doHist?new Uint32Array(256):null;
-    for(let Y=0;Y<HH;Y++){ const y0=Y>0?Y-1:0, y1=Y<HH-1?Y+1:HH-1, row=Y*HW;
+    for(let Y=0;Y<HH;Y++){ const row=Y*HW, gy=(Y-half)/S; let by0=Math.floor(gy); if(by0<0)by0=0; else if(by0>h-2)by0=h-2>0?h-2:0; let fyv=gy-by0; if(fyv<0)fyv=0; else if(fyv>1)fyv=1;
       for(let X=0;X<HW;X++){ const c=row+X, c3=c*3, wt=srWt[c], sInv=wt>1e-4?1/wt:0, conf=wt>=cthr?1:wt/cthr; let R,G,B;
         if(conf>=0.999){ R=srBuf[c3]*sInv; G=srBuf[c3+1]*sInv; B=srBuf[c3+2]*sInv; covered++; }
-        else { const x0=X>0?X-1:0, x1=X<HW-1?X+1:HW-1; let sa0=0,sa1=0,sa2=0,sw=0;
-          for(let yy=y0;yy<=y1;yy++){ const rr=yy*HW; for(let xx=x0;xx<=x1;xx++){ const cc=rr+xx, cc3=cc*3; sa0+=srBuf[cc3]; sa1+=srBuf[cc3+1]; sa2+=srBuf[cc3+2]; sw+=srWt[cc]; } }
-          const smI=sw>1e-4?1/sw:0; R=conf*(srBuf[c3]*sInv)+(1-conf)*(sa0*smI); G=conf*(srBuf[c3+1]*sInv)+(1-conf)*(sa1*smI); B=conf*(srBuf[c3+2]*sInv)+(1-conf)*(sa2*smI); }
+        else { const gx=(X-half)/S; let bx0=Math.floor(gx); if(bx0<0)bx0=0; else if(bx0>w-2)bx0=w-2>0?w-2:0; let fxv=gx-bx0; if(fxv<0)fxv=0; else if(fxv>1)fxv=1;
+          const i00=by0*w+bx0, i10=i00+1, i01=i00+w, i11=i01+1, w00=(1-fxv)*(1-fyv), w10=fxv*(1-fyv), w01=(1-fxv)*fyv, w11=fxv*fyv;
+          const bwv=srBaseW[i00]*w00+srBaseW[i10]*w10+srBaseW[i01]*w01+srBaseW[i11]*w11, bInv=bwv>1e-4?1/bwv:0;
+          const fR=(srBaseA[i00*3]*w00+srBaseA[i10*3]*w10+srBaseA[i01*3]*w01+srBaseA[i11*3]*w11)*bInv;
+          const fG=(srBaseA[i00*3+1]*w00+srBaseA[i10*3+1]*w10+srBaseA[i01*3+1]*w01+srBaseA[i11*3+1]*w11)*bInv;
+          const fB=(srBaseA[i00*3+2]*w00+srBaseA[i10*3+2]*w10+srBaseA[i01*3+2]*w01+srBaseA[i11*3+2]*w11)*bInv;
+          R=conf*(srBuf[c3]*sInv)+(1-conf)*fR; G=conf*(srBuf[c3+1]*sInv)+(1-conf)*fG; B=conf*(srBuf[c3+2]*sInv)+(1-conf)*fB; }
         srFillBuf[c3]=R; srFillBuf[c3+1]=G; srFillBuf[c3+2]=B;
         if(doHist){ let L=(R*0.299+G*0.587+B*0.114)|0; if(L<0)L=0;else if(L>255)L=255; hist[L]++; }
       }
