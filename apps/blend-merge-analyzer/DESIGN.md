@@ -89,6 +89,28 @@ handling needed.
    merge possible or wanted.
 8. **Execute** — hands the accumulated plan to headless Blender, saves a *new* result
    file (original untouched), then opens that result in Blender for inspection.
+   - **Save as copy is ON by default** and writes a new `.blend`; the original is
+     never modified. An "overwrite original in place" toggle exists but is OFF by
+     default and, being destructive, must confirm before it will overwrite.
+   - Plan has two operation types: **merge** (make-single-user + join → 1 object) and
+     **delete** (remove objects entirely). Execute reports the delete count separately
+     and confirms it before running, since a wrong delete is worse than a wrong merge.
+
+### Merge vs delete (UI)
+
+Each grouping list carries two manual buttons: **Merge** (amber — collapses the
+group to one object) and **Delete** (red — removes the group's objects). They are
+visually distinct because they are different kinds of destructive action. Nothing
+runs until Execute.
+
+### Drill-in sub-cloud
+
+Clicking any cloud chip (a) toggles its list and (b) opens a scoped sub-cloud of the
+tokens that co-occur with that term (computed live from the matching groups, the
+selected term's own tokens removed). Clicking a sub-cloud chip behaves exactly like
+clicking a main-cloud chip; if that token isn't already in the main cloud it is
+promoted there so it's findable later. Chips can be removed (✕) or added (+ / type
+box). This replaces the earlier "click a more specific chip" narrowing model.
 
 ---
 
