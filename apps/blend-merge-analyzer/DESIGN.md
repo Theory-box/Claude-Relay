@@ -85,8 +85,14 @@ handling needed.
    objects that differ on that token.
 6. **Per-list Merge button** — manual, always. On click: make-single-user on the
    selection, then join; merged objects leave the pool and everything re-counts.
-7. **Leftover bucket** — the ~235 true one-offs (unique geometry) surface here; no
-   merge possible or wanted.
+7. **Leftover bucket** — the ~235 true one-offs (a name appearing on exactly one
+   object) surface here. A singleton can't be *merged* (nothing to join it to), but it
+   can still be **deleted**, and the bucket supports multi-select delete. "No safe
+   merge" applies only to count = 1 — it is never a reason a real group is blocked.
+8. **Merge eligibility** — any group resolving to 2+ objects always gets live Merge and
+   Delete buttons. A group does **not** need to share wording with any other group;
+   e.g. `Fire Extinguisher` → 40 objects is a normal, fully mergeable list. Only
+   count = 1 disables Merge (Delete still allowed).
 8. **Execute** — hands the accumulated plan to headless Blender, saves a *new* result
    file (original untouched), then opens that result in Blender for inspection.
    - **Save as copy is ON by default** and writes a new `.blend`; the original is
