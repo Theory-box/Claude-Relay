@@ -112,8 +112,13 @@ def extract_names(path, version=None):
     out = tempfile.mktemp(suffix=".json")
     try:
         r = _run(blender, path, DUMP_SRC, ["--out", out])
-        if "DUMP_OK" not in r.stdout:
-            raise RuntimeError(r.stderr[-800:] or "extraction failed")
+        # Verify by the OUTPUT FILE, not stdout: Windows GUI blender.exe stdout is
+        # unreliable when its console is hidden, but the file it writes is not.
+        if not (os.path.exists(out) and os.path.getsize(out) > 0):
+            msg = (r.stderr or r.stdout or "").strip()[-800:]
+            raise RuntimeError("Blender couldn't read this file. "
+                               "Make sure the selected Blender is the same version as the "
+                               "file or newer (an older Blender can't open a newer file).\n" + msg)
         data = json.load(open(out))
         data["detected"] = hdr
         return data
@@ -199,11 +204,15 @@ if include_untouched:
         appended_untouched+=len(got)
 
 bpy.ops.wm.save_as_mainfile(filepath=os.path.abspath(out))
-print("MERGE_OK merged_groups=%d merged_objs=%d deleted=%d untouched=%d remaining=%d "
-      "merge_time=%.1f total_time=%.1f out=%s" % (
-      merged_groups, merged_objs, len(deleted_names), appended_untouched,
-      len([o for o in bpy.data.objects if o.type=="MESH"]),
-      merge_t, time.time()-t0, os.path.abspath(out)))
+_stats = {"merged_groups": merged_groups, "merged_objs": merged_objs,
+          "deleted": len(deleted_names), "untouched": appended_untouched,
+          "remaining": len([o for o in bpy.data.objects if o.type=="MESH"]),
+          "merge_time": round(merge_t,1), "total_time": round(time.time()-t0,1),
+          "out": os.path.abspath(out)}
+sp = arg("--stats")
+if sp:
+    json.dump(_stats, open(sp, "w"))
+print("MERGE_OK " + json.dumps(_stats))
 '''
 
 def execute_plan(path, plan, version=None, out_path=None, overwrite=False,
@@ -218,25 +227,33 @@ def execute_plan(path, plan, version=None, out_path=None, overwrite=False,
     if os.path.abspath(out_path) == os.path.abspath(path):
         write_to = tempfile.mktemp(suffix=".blend")
     plan_file = tempfile.mktemp(suffix=".json")
+    stats_file = tempfile.mktemp(suffix=".json")
     json.dump(plan, open(plan_file, "w"))
     try:
         r = _run(blender, None, MERGE_SRC,
                  ["--source", os.path.abspath(path), "--plan", plan_file,
-                  "--out", write_to, "--untouched", "1" if include_untouched else "0"])
-        if "MERGE_OK" not in r.stdout:
-            raise RuntimeError(r.stderr[-1200:] or "merge failed")
+                  "--out", write_to, "--stats", stats_file,
+                  "--untouched", "1" if include_untouched else "0"])
+        # Verify by the STATS FILE (and the produced .blend), not stdout.
+        if not os.path.exists(stats_file):
+            if os.path.exists(write_to) and os.path.getsize(write_to) > 0:
+                stats = {"out": write_to, "note": "completed"}
+            else:
+                msg = (r.stderr or r.stdout or "").strip()[-1200:]
+                raise RuntimeError("Merge did not complete.\n" + msg)
+        else:
+            stats = json.load(open(stats_file))
         if write_to != out_path:                       # overwrite path: move temp over original
             import shutil
             shutil.move(write_to, out_path)
-        line = [l for l in r.stdout.splitlines() if l.startswith("MERGE_OK")][0]
-        stats = dict(kv.split("=", 1) for kv in line.split() if "=" in kv)
         stats["out"] = out_path
         if open_after:
-            subprocess.Popen([blender, out_path])
+            subprocess.Popen([blender, out_path])       # GUI open for inspection (shows a window)
         return stats
     finally:
-        if os.path.exists(plan_file):
-            os.unlink(plan_file)
+        for f in (plan_file, stats_file):
+            if os.path.exists(f):
+                os.unlink(f)
 
 if __name__ == "__main__":
     # tiny CLI for headless testing:  engine.py extract file.blend  |  engine.py plan file.blend plan.json

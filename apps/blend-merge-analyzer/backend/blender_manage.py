@@ -22,7 +22,27 @@ def _exe(folder):
     hits=glob.glob(os.path.join(folder,"**","blender*"), recursive=True)
     return next((h for h in hits if os.access(h,os.X_OK) and os.path.isfile(h)), None)
 
+def _version_from_layout(exe):
+    """Blender ships a version subfolder next to its executable
+    (…/Blender 4.2/4.2/ on Windows/Linux, …/Blender.app/Contents/Resources/4.2 on mac).
+    Reading that is reliable and needs no subprocess — avoids console popups and the
+    GUI-subsystem stdout-capture problem on Windows."""
+    d = os.path.dirname(exe)
+    for base in (d, os.path.join(os.path.dirname(d), "Resources"), os.path.dirname(d)):
+        try:
+            for name in sorted(os.listdir(base), reverse=True):
+                if re.fullmatch(r"\d+\.\d+", name) and os.path.isdir(os.path.join(base, name)):
+                    return name
+        except Exception:
+            pass
+    return None
+
 def _query_version(exe):
+    # Prefer the folder layout (no subprocess). Fall back to launching Blender only if
+    # that fails (stdout may be empty on Windows GUI builds, so this is best-effort).
+    v = _version_from_layout(exe)
+    if v:
+        return v
     try:
         out=subprocess.run([exe,"-b","--python-expr","import bpy;print('VER',bpy.app.version_string)"],
                            capture_output=True,text=True,timeout=60,
