@@ -11,11 +11,24 @@ import server
 def _free_port():
     s = socket.socket(); s.bind(("127.0.0.1", 0)); p = s.getsockname()[1]; s.close(); return p
 
+def _wait_ready(port, timeout=10):
+    """Make sure the local server is accepting connections before we point the window at
+    it — avoids an intermittent blank/frozen window from a startup race."""
+    end = time.time() + timeout
+    while time.time() < end:
+        try:
+            with socket.create_connection(("127.0.0.1", port), 0.25):
+                return True
+        except OSError:
+            time.sleep(0.05)
+    return False
+
 def main():
     port = _free_port()
     httpd = ThreadingHTTPServer(("127.0.0.1", port), server.H)
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
     url = f"http://127.0.0.1:{port}"
+    _wait_ready(port)
     try:
         import webview
         class Api:
@@ -31,7 +44,9 @@ def main():
         win = webview.create_window("blend-merge-analyzer", url, js_api=api,
                                     width=1300, height=880, min_size=(980, 640))
         api.window = win
-        webview.start()
+        # private_mode gives a fresh in-memory profile each launch, so a force-close
+        # can't leave a corrupted WebView2 profile that breaks the next run.
+        webview.start(private_mode=True)
     except Exception:
         # Native window backend unavailable — log why, then fall back to the browser.
         try:

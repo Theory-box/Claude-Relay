@@ -38,17 +38,9 @@ def _version_from_layout(exe):
     return None
 
 def _query_version(exe):
-    # Prefer the folder layout (no subprocess). Fall back to launching Blender only if
-    # that fails (stdout may be empty on Windows GUI builds, so this is best-effort).
-    v = _version_from_layout(exe)
-    if v:
-        return v
-    try:
-        out=subprocess.run([exe,"-b","--python-expr","import bpy;print('VER',bpy.app.version_string)"],
-                           capture_output=True,text=True,timeout=60,
-                           creationflags=_NO_WINDOW).stdout
-        m=re.search(r"VER ([\d.]+)",out); return m.group(1) if m else None
-    except Exception: return None
+    # Folder-layout only — never launches Blender, so discovery can't hang or pop a
+    # console. (Standard installs always have a version subfolder next to the exe.)
+    return _version_from_layout(exe)
 
 _DISCOVER_CACHE = None
 def discover(dev_config=None, force=False):

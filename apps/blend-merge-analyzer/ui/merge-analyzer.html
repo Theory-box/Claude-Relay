@@ -385,21 +385,26 @@ function wireCloudControls(){
   hi.oninput=()=>{freqHi=(+hi.value>=100?FMAX:posToCount(+hi.value)); if(freqHi<freqLo){freqLo=freqHi;lo.value=hi.value;} syncFreqLabels(); buildCloud();};
 }
 
-// rebuild the cloud from only the objects still in the pool
+// rebuild the cloud from only the objects still in the pool; also clears the current
+// selection so you get a clean slate to work the remaining tail.
 function refreshCloud(){
   const customs=cloudItems.filter(c=>c.kind==='custom');   // keep hand-added chips
   const live=DATA.groups.filter(g=>!gone.has(g.name));
-  const recount=(term)=>live.filter(g=>g.name.toLowerCase().includes(term.toLowerCase())).reduce((a,g)=>a+g.count,0);
-  cloudItems=[];
-  DATA.cats.forEach(c=>{const n=recount(c.t);if(n>0)cloudItems.push({t:c.t,n,kind:'cat'});});
-  DATA.facets.forEach((c,i)=>{const n=recount(c.t);if(n>0)cloudItems.push({t:c.t,n,kind:'facet',ti:i});});
-  DATA.compounds.forEach(c=>{const n=recount(c.t);if(n>0)cloudItems.push({t:c.t,n,kind:'comp'});});
-  // re-add customs that still have objects
+  const recount=(term)=>{const q=term.toLowerCase();
+    return live.reduce((a,g)=>a+(g.name.toLowerCase().includes(q)?g.count:0),0);};
+  cloudItems=[]; let fi=0;
+  (DATA.vocab||[]).forEach(v=>{const n=recount(v.t);
+    if(n>0){const it={t:v.t,n,tier:v.tier,kind:KINDOF[v.tier]};if(v.tier===1)it.ti=fi++;cloudItems.push(it);}});
   customs.forEach(c=>{const n=recount(c.t);if(n>0&&!cloudItems.find(x=>x.t===c.t))cloudItems.push({t:c.t,n,kind:'custom'});});
   removed=new Set([...removed].filter(t=>cloudItems.find(c=>c.t===t)));
-  selected=selected.filter(s=>recount(s.t)>0);
+  selected=[];                 // clear selection on refresh
+  instanceMode=false;
+  closeSub();
+  const ns=cloudItems.map(i=>i.n); FMIN=Math.max(1,Math.min(...ns,1)); FMAX=Math.max(...ns,1);
+  freqLo=FMIN; freqHi=FMAX;
+  const loS=document.getElementById('freqLoSlider'), hiS=document.getElementById('freqHiSlider');
+  if(loS)loS.value=0; if(hiS)hiS.value=100; syncFreqLabels();
   document.getElementById('refreshBtn').classList.remove('stale');
-  if(drillTerm&&recount(drillTerm)>0)openSub(drillTerm);else closeSub();
   buildCloud();refresh();
 }
 function addCloudItem(t,n,kind){if(cloudItems.find(c=>c.t.toLowerCase()===t.toLowerCase())){removed.delete(t);return;}

@@ -31,5 +31,9 @@ a = Analysis([os.path.join(HERE, "backend", "relay_app.py")],
              binaries=binaries, datas=datas, hiddenimports=hiddenimports,
              hookspath=[], runtime_hooks=[], excludes=[])
 pyz = PYZ(a.pure, a.zipped_data)
-exe = EXE(pyz, a.scripts, a.binaries, a.zipfiles, a.datas, [],
+# onedir build: fast startup (no per-launch unpack + antivirus rescan that a onefile exe
+# suffers). Ships as a folder (MergeAnalyzer/ with MergeAnalyzer.exe inside).
+exe = EXE(pyz, a.scripts, [], exclude_binaries=True,
           name="MergeAnalyzer", debug=False, strip=False, upx=False, console=False)
+coll = COLLECT(exe, a.binaries, a.zipfiles, a.datas,
+               strip=False, upx=False, name="MergeAnalyzer")
