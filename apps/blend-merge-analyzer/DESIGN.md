@@ -162,6 +162,36 @@ box). This replaces the earlier "click a more specific chip" narrowing model.
 
 ---
 
+## Performance — why the merge runs in a fresh file
+
+Blender's `join()` and `make_single_user` scale with **total objects in memory**, not
+just the selection — so merging inside a 52k-object file is punishingly slow even
+headless (the source file's own bloat, not the operation). Benchmarked on a 50k
+synthetic scene, Blender 4.4.3:
+
+| approach | merge 2,000 objects |
+| --- | --- |
+| in-place, inside the 50k file (operator) | **75 s** |
+| in-place, data-level bmesh | 37 s |
+| in a fresh file containing only those objects | **1.3 s** (~56× faster) |
+
+So the engine **never merges inside the big file**. It builds the result in a fresh
+empty file, and for each merge group it appends only that group's objects and joins
+them while the scene is still small. Per-group file reopen costs ~0.15 s (negligible);
+the only real cost is loading each group's geometry once. Deletes are simply never
+appended. Untouched objects are bulk-appended at the end (no joins) if a full-model
+result is requested.
+
+End-to-end on the 50k scene (merge 16,541 → 3 groups, delete 732): merge phase **57 s**;
+full-model rebuild (appending 32,727 untouched) ~130 s more. When most of the file is
+merged (the usual endgame), "untouched" is small and total time collapses toward the
+merge phase alone.
+
+**Result-contents toggle:** *full model* (merged + untouched, the safe default) or
+*merged only* (skips the untouched bulk-append — much faster when the user just wants
+the cleaned geometry). Original is never modified unless overwrite is chosen; overwrite
+writes to a temp file and moves it over the original only after a successful build.
+
 ## Delivery & packaging
 
 Single-entry requirement: the user touches exactly one thing. Two deliverables:

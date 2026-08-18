@@ -47,15 +47,18 @@ def _blender_for(version):
     return blender_manage.ensure(_mm(version), CFG)
 
 def _run(blender, blendfile, script_src, extra, background=True):
-    """Write script_src to a temp .py and run it inside Blender."""
+    """Write script_src to a temp .py and run it inside Blender. blendfile=None starts
+    from the default/empty file (used by the fast build-in-fresh-file merge path)."""
     sf = tempfile.NamedTemporaryFile("w", suffix=".py", delete=False)
     sf.write(script_src); sf.close()
     args = [blender]
     if background:
         args.append("-b")
-    args += [blendfile, "--python", sf.name, "--"] + extra
+    if blendfile:
+        args.append(blendfile)
+    args += ["--python", sf.name, "--"] + extra
     try:
-        return subprocess.run(args, capture_output=True, text=True, timeout=3600)
+        return subprocess.run(args, capture_output=True, text=True, timeout=7200)
     finally:
         os.unlink(sf.name)
 
@@ -102,92 +105,118 @@ def extract_names(path, version=None):
             os.unlink(out)
 
 # ---------------------------------------------------------------- execute plan
+# The result is built in a FRESH file, appending only what each merge group needs and
+# joining it while the scene is still small. Operators like join()/make_single_user
+# scale with total scene size, so this is ~50x faster than merging inside a huge file.
 # plan.json: {"merges":[{"label":..,"names":[objname,...]}, ...],
 #             "deletes":[{"label":..,"names":[...]}, ...]}
 MERGE_SRC = r'''
-import bpy, sys, os, json
+import bpy, sys, os, json, time
 def arg(n,d=None):
     a=sys.argv; a=a[a.index("--")+1:] if "--" in a else []
     return a[a.index(n)+1] if n in a and a.index(n)+1<len(a) else d
-plan=json.load(open(arg("--plan"))); out=arg("--out")
-overwrite=arg("--overwrite","0")=="1"
-BATCH=int(arg("--batch","5000"))
+SRC=arg("--source"); plan=json.load(open(arg("--plan"))); out=arg("--out")
+include_untouched = arg("--untouched","1")=="1"
+BATCH=int(arg("--batch","2000"))
+t0=time.time()
 
-def obj(name): return bpy.data.objects.get(name)
+bpy.ops.wm.read_factory_settings(use_empty=True)
+scene=bpy.context.scene
 
-merged_objs=0; merged_groups=0; deleted=0; errors=[]
+def obj(n): return bpy.data.objects.get(n)
 
-# ---- deletes first (removes objects entirely) ----
-for grp in plan.get("deletes",[]):
-    for nm in grp["names"]:
-        o=obj(nm)
-        if o:
-            bpy.data.objects.remove(o, do_unlink=True); deleted+=1
+def append(names):
+    """Append the given object names from the source file into the current (empty-ish)
+    scene. Returns the linked objects."""
+    names=set(names)
+    with bpy.data.libraries.load(SRC) as (src, dst):
+        dst.objects=[n for n in src.objects if n in names]
+    got=[o for o in dst.objects if o is not None]
+    for o in got:
+        scene.collection.objects.link(o)
+    return got
 
-# ---- merges: make-single-user then join, in batches ----
-def join_batch(names, target_name):
-    objs=[obj(n) for n in names]; objs=[o for o in objs if o and o.type=="MESH"]
-    if len(objs)<1: return None
+def join_batch(objs, target_name):
+    objs=[o for o in objs if o and o.type=="MESH"]
+    if not objs: return None
     bpy.ops.object.select_all(action="DESELECT")
-    for o in objs:
-        o.select_set(True)
+    for o in objs: o.select_set(True)
     bpy.context.view_layer.objects.active=objs[0]
-    # break instancing so joined geometry is real & independent
-    bpy.ops.object.make_single_user(object=True, obdata=True)
+    bpy.ops.object.make_single_user(object=True, obdata=True)  # collapse instances
     if len(objs)>1:
         bpy.ops.object.join()
-    result=bpy.context.view_layer.objects.active
-    result.name=target_name
-    return result
+    r=bpy.context.view_layer.objects.active
+    r.name=target_name
+    return r
 
-for grp in plan.get("merges",[]):
-    names=[n for n in grp["names"] if obj(n)]
+merged_groups=0; merged_objs=0
+# ---- merges: one group at a time, in isolation ----
+for grp in plan.get("merges", []):
+    names=grp["names"]
     if not names: continue
+    got=append(names)
+    if not got: continue
     target=grp.get("label","merged")
-    # batch large groups to stay well within operator limits
-    if len(names)>BATCH:
+    if len(got)>BATCH:
         partials=[]
-        for i in range(0,len(names),BATCH):
-            r=join_batch(names[i:i+BATCH], f"{target}__part{i//BATCH}")
-            if r: partials.append(r.name)
-        # final join of the partials
-        if partials:
-            res=join_batch(partials, target)
+        for i in range(0,len(got),BATCH):
+            r=join_batch(got[i:i+BATCH], f"{target}__p{i//BATCH}")
+            if r: partials.append(r)
+        if partials: join_batch(partials, target)
     else:
-        res=join_batch(names, target)
-    merged_groups+=1
-    merged_objs+=len(names)
+        join_batch(got, target)
+    merged_groups+=1; merged_objs+=len(got)
+merge_t=time.time()-t0
 
-# save
-target_path = os.path.abspath(out)
-bpy.ops.wm.save_as_mainfile(filepath=target_path)
-print("MERGE_OK merged_groups=%d merged_objs=%d deleted=%d remaining=%d out=%s" % (
-    merged_groups, merged_objs, deleted,
-    len([o for o in bpy.data.objects if o.type=="MESH"]), target_path))
+# ---- untouched: bulk-append everything not merged and not deleted (no joins) ----
+deleted_names=set(n for g in plan.get("deletes",[]) for n in g["names"])
+merged_names =set(n for g in plan.get("merges",[])  for n in g["names"])
+appended_untouched=0
+if include_untouched:
+    with bpy.data.libraries.load(SRC) as (src, dst):
+        all_names=list(src.objects)
+    untouched=[n for n in all_names if n not in deleted_names and n not in merged_names]
+    # append in chunks to keep memory steady
+    for i in range(0, len(untouched), 5000):
+        got=append(untouched[i:i+5000])
+        appended_untouched+=len(got)
+
+bpy.ops.wm.save_as_mainfile(filepath=os.path.abspath(out))
+print("MERGE_OK merged_groups=%d merged_objs=%d deleted=%d untouched=%d remaining=%d "
+      "merge_time=%.1f total_time=%.1f out=%s" % (
+      merged_groups, merged_objs, len(deleted_names), appended_untouched,
+      len([o for o in bpy.data.objects if o.type=="MESH"]),
+      merge_t, time.time()-t0, os.path.abspath(out)))
 '''
 
 def execute_plan(path, plan, version=None, out_path=None, overwrite=False,
-                 open_after=False):
+                 open_after=False, include_untouched=True):
     ver = version or detect_version(path)
     blender = _blender_for(ver)
     if not out_path:
         base, ext = os.path.splitext(path)
         out_path = path if overwrite else base + "_merged.blend"
+    # never write straight over the source while reading from it; use a temp then move
+    write_to = out_path
+    if os.path.abspath(out_path) == os.path.abspath(path):
+        write_to = tempfile.mktemp(suffix=".blend")
     plan_file = tempfile.mktemp(suffix=".json")
     json.dump(plan, open(plan_file, "w"))
     try:
-        # always operate on the original as READ-only; Blender loads it and saves to out
-        r = _run(blender, path, MERGE_SRC,
-                 ["--plan", plan_file, "--out", out_path,
-                  "--overwrite", "1" if overwrite else "0"])
+        r = _run(blender, None, MERGE_SRC,
+                 ["--source", os.path.abspath(path), "--plan", plan_file,
+                  "--out", write_to, "--untouched", "1" if include_untouched else "0"])
         if "MERGE_OK" not in r.stdout:
-            raise RuntimeError(r.stderr[-1000:] or "merge failed")
+            raise RuntimeError(r.stderr[-1200:] or "merge failed")
+        if write_to != out_path:                       # overwrite path: move temp over original
+            import shutil
+            shutil.move(write_to, out_path)
         line = [l for l in r.stdout.splitlines() if l.startswith("MERGE_OK")][0]
-        stats = dict(kv.split("=") for kv in line.split()[1:] if "=" in kv)
+        stats = dict(kv.split("=", 1) for kv in line.split() if "=" in kv)
+        stats["out"] = out_path
         if open_after:
-            # fire-and-forget GUI open of the result for inspection
             subprocess.Popen([blender, out_path])
-        return {"out": out_path, **stats}
+        return stats
     finally:
         if os.path.exists(plan_file):
             os.unlink(plan_file)

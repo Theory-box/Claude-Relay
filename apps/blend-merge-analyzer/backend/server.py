@@ -68,6 +68,7 @@ class H(BaseHTTPRequestHandler):
                     version=req.get("version"),
                     overwrite=bool(req.get("overwrite")),
                     open_after=bool(req.get("open_after")),
+                    include_untouched=req.get("include_untouched", True),
                 )
                 self._send(200, json.dumps(res))
             else:
