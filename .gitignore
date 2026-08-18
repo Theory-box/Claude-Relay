@@ -1,3 +1,4 @@
 **/__pycache__/
 *.pyc
 *.pyo
+apps/blend-merge-analyzer/backend/blenders.json

@@ -1,0 +1,610 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>blend-merge-analyzer — UI mockup</title>
+<style>
+  :root{
+    --bg:#14161b; --panel:#1a1d24; --panel-2:#20242d; --raise:#252a34; --rail:#111318;
+    --line:#2c313c; --line-2:#39404d;
+    --ink:#e7eaf1; --muted:#8b93a3; --dim:#5b6470;
+    --sel:#3dd7bf; --sel-dim:rgba(61,215,191,.13); --sel-line:rgba(61,215,191,.45);
+    --warn:#f2913d; --warn-dim:rgba(242,145,61,.13); --warn-line:rgba(242,145,61,.5);
+    --del:#f2647a; --del-dim:rgba(242,100,122,.12); --del-line:rgba(242,100,122,.5);
+    --ix:#c98bff; --ix-dim:rgba(201,139,255,.13); --ix-line:rgba(201,139,255,.45);
+    --mono:ui-monospace,"JetBrains Mono","SF Mono",Menlo,Consolas,monospace;
+    --sans:"Inter",system-ui,-apple-system,"Segoe UI",sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:14px;
+    line-height:1.4;display:flex;flex-direction:column;height:100vh;overflow:hidden;-webkit-font-smoothing:antialiased}
+  ::-webkit-scrollbar{width:10px;height:10px}
+  ::-webkit-scrollbar-thumb{background:var(--line-2);border-radius:6px;border:2px solid var(--bg)}
+  ::-webkit-scrollbar-track{background:transparent}
+
+  .topbar{display:flex;align-items:center;gap:16px;padding:0 18px;height:52px;flex:0 0 auto;
+    background:linear-gradient(180deg,#1c2028,#171a20);border-bottom:1px solid var(--line)}
+  .brand{display:flex;align-items:center;gap:10px;font-weight:600;letter-spacing:.2px}
+  .brand .glyph{width:22px;height:22px;border-radius:5px;background:
+    conic-gradient(from 210deg,var(--sel),#2a8f9e 40%,var(--ix) 75%,var(--sel));box-shadow:inset 0 0 0 1px rgba(255,255,255,.1)}
+  .brand small{color:var(--dim);font-weight:500;font-family:var(--mono);font-size:11px;margin-left:2px}
+  .filechip{display:flex;align-items:center;gap:10px;margin-left:6px;padding:5px 12px;border-radius:8px;
+    background:var(--panel-2);border:1px solid var(--line);font-family:var(--mono);font-size:12px}
+  .filechip b{color:var(--ink);font-weight:500}.filechip .sep{color:var(--dim)}.filechip .cnt{color:var(--sel)}
+  .topbar .spacer{flex:1}
+  .reduce{font-size:12px;color:var(--muted);display:flex;align-items:center;gap:8px;font-family:var(--mono)}
+  .reduce b{color:var(--ink)}.reduce .arrow{color:var(--sel)}
+
+  .body{display:flex;flex:1;min-height:0}
+
+  /* ---- left: tab rail + tab body ---- */
+  .left{flex:0 0 372px;border-right:1px solid var(--line);display:flex;min-height:0;overflow:hidden}
+  .tabrail{flex:0 0 62px;background:var(--rail);border-right:1px solid var(--line);
+    display:flex;flex-direction:column;padding-top:8px}
+  .tab{cursor:pointer;background:transparent;border:none;border-left:3px solid transparent;
+    color:var(--muted);font-family:var(--sans);font-size:10.5px;font-weight:600;line-height:1.15;
+    padding:14px 4px;display:flex;flex-direction:column;align-items:center;gap:6px;transition:.12s}
+  .tab .ti{font-size:19px;line-height:1}
+  .tab:hover{color:var(--ink);background:rgba(255,255,255,.02)}
+  .tab.on{color:var(--sel);border-left-color:var(--sel);background:var(--sel-dim)}
+  .tabbody{flex:1;min-width:0;background:var(--panel);display:flex;min-height:0}
+  .tabpane{flex:1;min-width:0;min-height:0;display:flex;flex-direction:column;padding:14px 14px 14px}
+  .tabpane.hide{display:none}
+
+  .section-h{display:flex;align-items:center;gap:8px;margin:14px 2px 9px;font-size:11px;
+    text-transform:uppercase;letter-spacing:.13em;color:var(--muted);font-weight:600;flex:0 0 auto}
+  .section-h.first{margin-top:2px}
+  .section-h .n{margin-left:auto;font-family:var(--mono);color:var(--dim);letter-spacing:0;text-transform:none}
+  .refresh{margin-left:8px;cursor:pointer;font-family:var(--mono);font-size:11px;letter-spacing:0;
+    text-transform:none;color:var(--dim);border:1px solid var(--line);border-radius:14px;padding:2px 9px;transition:.12s}
+  .refresh:hover{color:var(--ink);border-color:var(--line-2)}
+  .refresh.stale{color:var(--sel);border-color:var(--sel-line);background:var(--sel-dim);animation:pulse 2s ease-in-out infinite}
+  @keyframes pulse{0%,100%{box-shadow:0 0 0 0 var(--sel-dim)}50%{box-shadow:0 0 0 3px var(--sel-dim)}}
+  .section-h .tog{margin-left:auto;color:var(--dim);font-family:var(--mono);font-size:11px;letter-spacing:0}
+
+  .search{position:relative;margin:0 2px 2px;flex:0 0 auto}
+  .search input{width:100%;background:var(--panel-2);border:1px solid var(--line);border-radius:9px;
+    color:var(--ink);font-family:var(--mono);font-size:13px;padding:9px 11px 9px 32px;outline:none}
+  .search input:focus{border-color:var(--sel-line);box-shadow:0 0 0 3px var(--sel-dim)}
+  .search input::placeholder{color:var(--dim)}
+  .search .mag{position:absolute;left:11px;top:9px;color:var(--dim);font-size:13px}
+
+  /* cloud tab split */
+  #pane-cloud{gap:0}
+  .cloudscroll{flex:1 1 auto;min-height:0;overflow-y:auto;padding-right:2px}
+  #pane-cloud.subon .cloudscroll{flex:7 1 0}
+  .cloud{display:flex;flex-wrap:wrap;gap:6px;margin:2px 2px 6px}
+
+  .chip{--tint:var(--muted);position:relative;cursor:pointer;border:1px solid var(--line);
+    background:var(--panel-2);color:var(--ink);border-radius:20px;padding:4px 11px;line-height:1.2;
+    display:inline-flex;align-items:baseline;gap:6px;user-select:none;transition:.12s;font-family:var(--mono)}
+  .chip:hover{border-color:var(--line-2);background:var(--raise)}
+  .chip .c{font-size:10px;color:var(--dim)}
+  .chip.kind-facet{border-left:3px solid var(--tint)}
+  .chip.kind-custom{border-style:dashed}
+  .chip.on{background:var(--sel-dim);border-color:var(--sel-line);color:#eafffb;box-shadow:0 0 0 1px var(--sel-line) inset}
+  .chip.on .c{color:var(--sel)}
+  .chip.claimed{opacity:.32;cursor:not-allowed;text-decoration:line-through;text-decoration-color:var(--dim)}
+  .chip.claimed:hover{background:var(--panel-2);border-color:var(--line)}
+  .chip.claimed .c{color:var(--dim);text-decoration:none}
+  .chip .kill{display:none;position:absolute;top:-6px;right:-6px;width:15px;height:15px;border-radius:50%;
+    background:var(--del);color:#1a0508;font-size:10px;line-height:15px;text-align:center;font-family:var(--sans);box-shadow:0 0 0 2px var(--panel)}
+  .chip:hover .kill{display:block}.chip .kill:hover{background:#ff8497}
+  .addchip{cursor:pointer;border:1px dashed var(--line-2);background:transparent;color:var(--muted);
+    border-radius:20px;padding:4px 12px;font-family:var(--mono);font-size:13px;transition:.12s}
+  .addchip:hover{color:var(--sel);border-color:var(--sel-line)}
+
+  .subwrap{flex:3 1 0;min-height:0;display:flex;flex-direction:column;margin:8px 2px 2px;
+    border:1px solid var(--sel-line);border-radius:11px;background:linear-gradient(180deg,var(--sel-dim),transparent);overflow:hidden}
+  .subwrap.hide{display:none}
+  .subhead{flex:0 0 auto;display:flex;align-items:center;gap:8px;padding:9px 11px;border-bottom:1px solid var(--line);
+    font-family:var(--mono);font-size:12px;color:var(--muted)}
+  .subhead b{color:#d6fff8;font-weight:600}
+  .subhead .x{margin-left:auto;cursor:pointer;color:var(--dim);padding:0 4px;font-size:14px}
+  .subhead .x:hover{color:var(--ink)}
+  .subscroll{flex:1 1 auto;min-height:0;overflow-y:auto}
+  .subcloud{display:flex;flex-wrap:wrap;gap:5px;padding:10px 11px}
+  .subcloud .chip{background:var(--panel);font-size:12px}
+
+  /* rules tab */
+  #pane-rules{overflow-y:auto}
+  .rows{margin:2px;display:flex;flex-direction:column;gap:6px;flex:0 0 auto}
+  .row{display:flex;align-items:center;gap:8px;background:var(--panel-2);border:1px solid var(--line);
+    border-radius:8px;padding:6px 8px 6px 10px;font-family:var(--mono);font-size:12px}
+  .row input{flex:1;background:transparent;border:none;color:var(--ink);font-family:var(--mono);font-size:12px;outline:none}
+  .row .tag{font-size:9px;color:var(--dim);text-transform:uppercase;letter-spacing:.1em}
+  .row .x{cursor:pointer;color:var(--dim);padding:0 3px}.row .x:hover{color:var(--del)}
+  .row.def .tag{color:var(--sel)}
+  .addrow{display:flex;align-items:center;gap:8px;border:1px dashed var(--line-2);border-radius:8px;
+    padding:6px 10px;color:var(--dim);font-family:var(--mono);font-size:12px;cursor:text;margin:6px 2px 0}
+  .addrow input{flex:1;background:transparent;border:none;color:var(--ink);font-family:var(--mono);font-size:12px;outline:none}
+  .tipdef{margin:10px 2px 4px;border:1px solid var(--line);border-radius:9px;background:var(--panel-2);
+    padding:10px 12px;font-size:11.5px;color:var(--muted);line-height:1.55}
+  .tipdef b{display:block;color:var(--ink);font-size:11px;text-transform:uppercase;letter-spacing:.1em;margin-bottom:5px;font-weight:600}
+  .tipdef code{font-family:var(--mono);color:var(--sel);background:var(--sel-dim);padding:1px 5px;border-radius:5px;font-size:11px}
+  .tipdef .k{color:var(--warn)}
+
+  /* results tab */
+  #pane-results{overflow:hidden}
+  .rsummary{display:flex;gap:8px;flex:0 0 auto;margin:2px 2px 10px;flex-wrap:wrap}
+  .rstat{flex:1 1 auto;min-width:72px;background:var(--panel-2);border:1px solid var(--line);
+    border-radius:9px;padding:8px 10px;display:flex;flex-direction:column;gap:1px}
+  .rstat b{font-family:var(--mono);font-size:16px;font-weight:600;color:var(--ink)}
+  .rstat span{font-size:9.5px;color:var(--muted);font-family:var(--mono);letter-spacing:.02em}
+  .rstat.after{border-color:var(--sel-line)}.rstat.after b{color:var(--sel)}
+  .rstat.m b{color:var(--warn)}.rstat.d b{color:var(--del)}.rstat.u b{color:var(--muted)}
+  .rscroll{flex:1 1 auto;min-height:0;overflow-y:auto;padding-right:2px}
+  .rgroup{border:1px solid var(--line);border-radius:10px;background:var(--panel-2);margin:0 2px 8px;overflow:hidden}
+  .rgroup.m{border-left:3px solid var(--warn)}.rgroup.d{border-left:3px solid var(--del)}.rgroup.u{border-left:3px solid var(--line-2)}
+  .rgroup h4{margin:0;padding:8px 11px;font-family:var(--mono);font-size:12px;font-weight:600;
+    display:flex;justify-content:space-between;gap:10px;border-bottom:1px solid var(--line);color:var(--ink)}
+  .rgroup h4 span:first-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .rgroup .rq{color:var(--muted);font-weight:500;flex:0 0 auto}
+  .rgroup.m .rq{color:var(--warn)}.rgroup.d .rq{color:var(--del)}
+  .rgroup .unq{flex:0 0 auto;cursor:pointer;color:var(--dim);font-size:13px;padding:0 2px 0 8px;line-height:1}
+  .rgroup .unq:hover{color:var(--del)}
+  .rlist{max-height:290px;overflow-y:auto;padding:6px 11px}
+
+  /* right */
+  .right{flex:1;overflow-y:auto;padding:18px 20px 90px;background:var(--bg)}
+  .rightHead{display:flex;align-items:baseline;gap:12px;margin:0 2px 14px}
+  .rightHead h2{font-size:15px;margin:0;font-weight:600}
+  .rightHead .sub{color:var(--muted);font-size:12.5px;font-family:var(--mono)}
+  .empty{margin:40px auto;max-width:430px;text-align:center;color:var(--muted)}
+  .empty .big{font-size:15px;color:var(--ink);margin-bottom:6px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden;display:flex;flex-direction:column;transition:.15s}
+  .card.ix{border-color:var(--ix-line);box-shadow:0 0 0 1px var(--ix-line) inset,0 8px 30px -18px var(--ix)}
+  .card.union{border-color:var(--sel-line);border-style:dashed}
+  .card.union h3{color:#eafffb}
+  .card.union .badge{background:var(--sel-dim);color:var(--sel);border-color:var(--sel-line)}
+  .card.leftover{border-style:dashed;background:transparent}
+  .card.gone{opacity:.45;filter:grayscale(.4)}
+  .card h3{margin:0;padding:12px 14px 10px;font-size:13px;font-weight:600;display:flex;align-items:center;gap:8px;border-bottom:1px solid var(--line);font-family:var(--mono)}
+  .card.ix h3{color:#f2e9ff}
+  .badge{font-family:var(--mono);font-size:10px;padding:2px 7px;border-radius:20px;font-weight:600;background:var(--sel-dim);color:var(--sel);border:1px solid var(--sel-line);white-space:nowrap}
+  .card.ix .badge{background:var(--ix-dim);color:var(--ix);border-color:var(--ix-line)}
+  .card h3 .term{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
+  .ixmark{color:var(--ix);font-weight:700;padding:0 1px}
+  .card .meta{padding:9px 14px;color:var(--muted);font-size:11.5px;font-family:var(--mono);display:flex;gap:14px;border-bottom:1px solid var(--line)}
+  .card .meta b{color:var(--ink);font-weight:600}
+  .names{padding:8px 14px;overflow-y:auto;max-height:150px;flex:1}
+  .nameline{font-family:var(--mono);font-size:11.5px;color:var(--muted);padding:3px 0;display:flex;justify-content:space-between;gap:10px}
+  .nameline span:first-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .nameline .qty{color:var(--dim);flex:0 0 auto}
+  .card .foot{padding:11px 14px;border-top:1px solid var(--line);display:flex;align-items:center;gap:8px}
+  .mergebtn{flex:1;cursor:pointer;border:1px solid var(--warn-line);background:var(--warn-dim);color:var(--warn);
+    font-family:var(--sans);font-weight:600;font-size:12.5px;padding:8px 10px;border-radius:8px;transition:.12s;display:flex;align-items:center;justify-content:center;gap:7px}
+  .mergebtn:hover{background:var(--warn);color:#1a1206}
+  .delbtn{cursor:pointer;border:1px solid var(--del-line);background:var(--del-dim);color:var(--del);
+    font-family:var(--sans);font-weight:600;font-size:12.5px;padding:8px 12px;border-radius:8px;transition:.12s}
+  .delbtn:hover{background:var(--del);color:#1a0508}
+  .foot.done .mergebtn,.foot.done .delbtn{pointer-events:none}
+  .doneTag{flex:1;text-align:center;font-family:var(--sans);font-size:12.5px;font-weight:600;color:var(--dim)}
+  .doneTag.wasdel{color:var(--del)}
+
+  .bottom{flex:0 0 auto;height:60px;border-top:1px solid var(--line);background:linear-gradient(0deg,#191c23,#15171d);display:flex;align-items:center;gap:16px;padding:0 20px}
+  .queue{font-family:var(--mono);font-size:12.5px;color:var(--muted);display:flex;align-items:center;gap:8px}
+  .pill{border-radius:20px;padding:3px 10px;font-weight:600;font-family:var(--mono)}
+  .pill.m{background:var(--warn-dim);border:1px solid var(--warn-line);color:var(--warn)}
+  .pill.d{background:var(--del-dim);border:1px solid var(--del-line);color:var(--del)}
+  .bottom .spacer{flex:1}
+  .execbtn{cursor:pointer;font-family:var(--sans);font-weight:600;font-size:13.5px;color:#062018;background:linear-gradient(180deg,#49e6cd,#2fbfa9);border:none;padding:11px 22px;border-radius:10px;display:flex;align-items:center;gap:9px;box-shadow:0 6px 22px -10px var(--sel)}
+  .execbtn:disabled{background:var(--panel-2);color:var(--dim);box-shadow:none;cursor:not-allowed;border:1px solid var(--line)}
+  .execbtn .k{font-family:var(--mono);font-size:11px;opacity:.8}
+  .note{font-size:11px;color:var(--dim);font-family:var(--mono)}
+  .savechip{display:flex;align-items:center;gap:7px;font-family:var(--mono);font-size:11.5px;color:var(--muted);cursor:pointer;user-select:none}
+  .savechip input{accent-color:var(--sel)}
+  .savechip .dot{width:8px;height:8px;border-radius:50%;background:var(--sel);box-shadow:0 0 8px var(--sel)}
+  .openbtn{cursor:pointer;font-family:var(--sans);font-weight:600;font-size:12.5px;color:#062018;
+    background:linear-gradient(180deg,#49e6cd,#2fbfa9);border:none;padding:7px 14px;border-radius:8px}
+  .verlbl{font-family:var(--mono);font-size:11px;color:var(--muted);display:flex;align-items:center;gap:6px}
+  .versel{background:var(--panel-2);border:1px solid var(--line);color:var(--ink);font-family:var(--mono);
+    font-size:11px;border-radius:7px;padding:4px 6px;outline:none}
+  .execbtn.ghost{background:transparent;color:var(--sel);border:1px solid var(--sel-line);box-shadow:none}
+  .execbtn.ghost:disabled{color:var(--dim);border-color:var(--line)}
+  /* start screen */
+  .startscreen{position:fixed;inset:0;z-index:50;background:radial-gradient(1200px 600px at 50% -10%,#1c2230,var(--bg));
+    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px;text-align:center}
+  .startscreen.hide{display:none}
+  .startscreen .logo{width:64px;height:64px;border-radius:16px;background:
+    conic-gradient(from 210deg,var(--sel),#2a8f9e 40%,var(--ix) 75%,var(--sel));box-shadow:0 12px 50px -12px var(--sel)}
+  .startscreen h1{margin:0;font-size:22px;font-weight:600}
+  .startscreen p{margin:0;color:var(--muted);max-width:440px;line-height:1.6;font-size:13.5px}
+  .startscreen .bigopen{cursor:pointer;font-family:var(--sans);font-weight:600;font-size:15px;color:#062018;
+    background:linear-gradient(180deg,#49e6cd,#2fbfa9);border:none;padding:13px 28px;border-radius:12px;box-shadow:0 8px 30px -10px var(--sel)}
+  .startscreen .verrow{font-family:var(--mono);font-size:12px;color:var(--muted);display:flex;align-items:center;gap:8px}
+  /* busy overlay */
+  .busy{position:fixed;inset:0;z-index:60;background:rgba(10,12,16,.82);display:none;align-items:center;justify-content:center;flex-direction:column;gap:14px}
+  .busy.show{display:flex}
+  .busy .spin{width:38px;height:38px;border-radius:50%;border:3px solid var(--line);border-top-color:var(--sel);animation:spin .8s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .busy .msg{font-family:var(--mono);font-size:13px;color:var(--ink)}
+  .toast{position:fixed;bottom:74px;left:50%;transform:translateX(-50%);z-index:70;background:var(--panel-2);
+    border:1px solid var(--sel-line);color:var(--ink);font-family:var(--mono);font-size:12.5px;padding:10px 16px;
+    border-radius:10px;box-shadow:0 10px 40px -12px #000;display:none}
+  .toast.show{display:block}.toast.err{border-color:var(--del-line);color:var(--del)}
+</style>
+</head>
+<body>
+  <div class="startscreen" id="startScreen">
+    <div class="logo"></div>
+    <h1>blend-merge-analyzer</h1>
+    <p>Open a Revit-exported <b>.blend</b>. The app reads every object name, finds the naming patterns on its own, and lets you group, merge, and delete — without ever touching your original file.</p>
+    <button class="bigopen" onclick="openBlend()">Open a .blend file…</button>
+    <div class="verrow">Blender <select id="verSelStart" class="versel"></select></div>
+  </div>
+  <div class="busy" id="busy"><div class="spin"></div><div class="msg" id="busyMsg">Reading…</div></div>
+  <div class="toast" id="toast"></div>
+
+  <div class="topbar">
+    <div class="brand"><span class="glyph"></span>blend-merge-analyzer <small>v0 mockup</small></div>
+    <button class="openbtn" id="openBtn" onclick="openBlend()">Open .blend…</button>
+    <div class="filechip" id="fileChip" style="display:none"><b id="fileName">—</b>
+      <span class="sep">·</span><span class="cnt" id="fileCount">0</span>&nbsp;objects
+      <span class="sep">·</span><span id="fileGroups">0</span> name-groups</div>
+    <div class="spacer"></div>
+    <label class="verlbl">Blender <select id="verSel" class="versel"></select></label>
+    <div class="reduce">after plan&nbsp; <b id="afterCount">0</b> <span class="arrow">→</span> remaining</div>
+  </div>
+
+  <div class="body">
+    <div class="left">
+      <div class="tabrail">
+        <button class="tab on" data-tab="cloud"><span class="ti">❖</span>Word<br>cloud</button>
+        <button class="tab" data-tab="rules"><span class="ti">⚙</span>Rules</button>
+        <button class="tab" data-tab="results"><span class="ti">▤</span>Results</button>
+      </div>
+      <div class="tabbody">
+        <!-- ===== CLOUD TAB ===== -->
+        <div class="tabpane" id="pane-cloud">
+          <div class="search"><span class="mag">⌕</span>
+            <input id="typeBox" placeholder="type a term & Enter — adds it to the cloud" autocomplete="off"></div>
+          <div class="section-h first">Word cloud <span class="n" id="cloudN"></span>
+            <span class="refresh" id="refreshBtn" title="rebuild the cloud from the objects still in the pool" onclick="refreshCloud()">↻ refresh</span></div>
+          <div class="cloudscroll"><div class="cloud" id="cloud"></div></div>
+          <div class="subwrap hide" id="subwrap">
+            <div class="subhead">words that appear with <b id="subTerm"></b>
+              <span class="x" onclick="closeSub()">✕</span></div>
+            <div class="subscroll"><div class="subcloud" id="subcloud"></div></div>
+          </div>
+        </div>
+        <!-- ===== RULES TAB ===== -->
+        <div class="tabpane hide" id="pane-rules">
+          <div class="section-h first">Ignore rules <span class="tog">wildcards ✓</span></div>
+          <div class="rows" id="ignoreRows"></div>
+          <div class="addrow" onclick="this.querySelector('input').focus()">
+            <span>+</span><input placeholder="add pattern to strip…" onkeydown="if(event.key==='Enter')addIgnore(this)"></div>
+          <div class="tipdef"><b>How ignore works</b>
+            Strips junk from every name <i>before</i> grouping — Revit IDs like <code>[5114268]</code>, Blender's <code>.001</code> duplicate tags, name hashes — so two identical objects aren't split apart by a barcode. Wildcards: <code>#</code> = any digit, <code>*</code> = anything. The defaults are a starting point; <span class="k">edit or delete</span> any rule.</div>
+
+          <div class="section-h">Splitters</div>
+          <div class="rows" id="splitRows"></div>
+          <div class="addrow" onclick="this.querySelector('input').focus()">
+            <span>+</span><input placeholder="add hard-splitter… e.g. PT##" onkeydown="if(event.key==='Enter')addSplit(this)"></div>
+          <div class="tipdef"><b>How splitters work</b>
+            Tokens the tool must <span class="k">never merge across</span>. Add <code>PT##</code> and <code>PT-01</code> stays separate from <code>PT-02</code> even when you've selected a broader group like <code>Fascia</code>. Wildcards: <code>#</code> = any digit, <code>*</code> = anything. This is how you protect finish and material codes from being collapsed together.</div>
+        </div>
+        <!-- ===== RESULTS TAB ===== -->
+        <div class="tabpane hide" id="pane-results"></div>
+      </div>
+    </div>
+
+    <div class="right">
+      <div class="rightHead"><h2>Grouping lists</h2><span class="sub" id="selSummary">nothing selected</span></div>
+      <div id="listArea"></div>
+    </div>
+  </div>
+
+  <div class="bottom">
+    <div class="queue">plan
+      <span class="pill m"><span id="qMerge">0</span> merge</span>
+      <span class="pill d"><span id="qDel">0</span> delete</span>
+      <span id="qObjs" class="note"></span></div>
+    <div class="spacer"></div>
+    <label class="savechip" title="off = overwrite the original (asks first)"><input type="checkbox" id="saveCopy" checked><span class="dot"></span>save as copy</label>
+    <button class="execbtn ghost" id="execBtn" disabled onclick="doExecute(false)">Execute</button>
+    <button class="execbtn" id="execOpenBtn" disabled onclick="doExecute(true)">Execute &amp; open <span class="k">↵</span></button>
+  </div>
+
+<script>
+let DATA=null;
+const TINTS=['#e06c9f','#6c9fe0','#8bd46c','#e0b56c','#c98bff','#6ce0d4','#e0806c','#a0a8b8','#d46cae','#7cc4e0','#b6d46c','#e0a06c','#9b8bff','#6cd4b0','#d47c6c','#8b93a3'];
+const nf=n=>n.toLocaleString('en-US');
+let cloudItems=[], removed=new Set(), selected=[], gone=new Set(), mergeQ=[], delQ=[], drillTerm=null;
+const splitters=['PT##','SIDING ##'];
+
+/* tabs */
+document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>{
+  document.querySelectorAll('.tab').forEach(x=>x.classList.toggle('on',x===t));
+  const id=t.dataset.tab;
+  ['cloud','rules','results'].forEach(p=>document.getElementById('pane-'+p).classList.toggle('hide',p!==id));
+  if(id==='results') renderResults();
+});
+
+function seedCloud(){cloudItems=[];
+  DATA.cats.forEach(c=>cloudItems.push({t:c.t,n:c.n,kind:'cat'}));
+  DATA.facets.forEach((c,i)=>cloudItems.push({t:c.t,n:c.n,kind:'facet',ti:i}));
+  DATA.compounds.forEach(c=>cloudItems.push({t:c.t,n:c.n,kind:'comp'}));}
+
+// rebuild the cloud from only the objects still in the pool
+function refreshCloud(){
+  const customs=cloudItems.filter(c=>c.kind==='custom');   // keep hand-added chips
+  const live=DATA.groups.filter(g=>!gone.has(g.name));
+  const recount=(term)=>live.filter(g=>g.name.toLowerCase().includes(term.toLowerCase())).reduce((a,g)=>a+g.count,0);
+  cloudItems=[];
+  DATA.cats.forEach(c=>{const n=recount(c.t);if(n>0)cloudItems.push({t:c.t,n,kind:'cat'});});
+  DATA.facets.forEach((c,i)=>{const n=recount(c.t);if(n>0)cloudItems.push({t:c.t,n,kind:'facet',ti:i});});
+  DATA.compounds.forEach(c=>{const n=recount(c.t);if(n>0)cloudItems.push({t:c.t,n,kind:'comp'});});
+  // re-add customs that still have objects
+  customs.forEach(c=>{const n=recount(c.t);if(n>0&&!cloudItems.find(x=>x.t===c.t))cloudItems.push({t:c.t,n,kind:'custom'});});
+  removed=new Set([...removed].filter(t=>cloudItems.find(c=>c.t===t)));
+  selected=selected.filter(s=>recount(s.t)>0);
+  document.getElementById('refreshBtn').classList.remove('stale');
+  if(drillTerm&&recount(drillTerm)>0)openSub(drillTerm);else closeSub();
+  buildCloud();refresh();
+}
+function addCloudItem(t,n,kind){if(cloudItems.find(c=>c.t.toLowerCase()===t.toLowerCase())){removed.delete(t);return;}
+  cloudItems.push({t,n:n||0,kind:kind||'custom'});}
+
+function buildCloud(){
+  const cloud=document.getElementById('cloud');cloud.innerHTML='';
+  const items=cloudItems.filter(i=>!removed.has(i.t));
+  const ns=items.map(i=>i.n||1),max=Math.max(...ns),min=Math.min(...ns);
+  items.slice().sort((a,b)=>(b.n||0)-(a.n||0)).forEach(it=>{
+    const size=11.5+(Math.sqrt(it.n||1)-Math.sqrt(min))/((Math.sqrt(max)-Math.sqrt(min))||1)*7;
+    const live=liveCount(it.t), claimed=live===0 && totalCount(it.t)>0;
+    const el=document.createElement('span');
+    el.className='chip kind-'+it.kind+(selected.find(s=>s.t===it.t)?' on':'')+(claimed?' claimed':'');
+    el.style.fontSize=size.toFixed(1)+'px';
+    if(it.kind==='facet')el.style.setProperty('--tint',TINTS[(it.ti||0)%TINTS.length]);
+    const cnt = claimed?'claimed':(live<(it.n||0)&&live>0?nf(live):(it.n?nf(it.n):''));
+    el.innerHTML=`${esc(it.t)}${cnt?`<span class="c">${cnt}</span>`:''}<span class="kill" title="remove chip">✕</span>`;
+    el.querySelector('.kill').onclick=e=>{e.stopPropagation();removed.add(it.t);selected=selected.filter(s=>s.t!==it.t);if(drillTerm===it.t)closeSub();buildCloud();refresh();};
+    el.onclick=()=>{if(claimed)return;clickTerm(it.t);};
+    cloud.appendChild(el);
+  });
+  const add=document.createElement('span');add.className='addchip';add.textContent='+ add';
+  add.onclick=()=>document.getElementById('typeBox').focus();cloud.appendChild(add);
+  document.getElementById('cloudN').textContent=items.length+' terms';
+}
+function clickTerm(t){const i=selected.findIndex(s=>s.t===t);
+  if(i>=0)selected.splice(i,1);else selected.push({t});
+  openSub(t);buildCloud();refresh();}
+
+function openSub(t){drillTerm=t;
+  const gs=groupsFor(t);
+  const drop=new Set(t.toLowerCase().split(/[\s_\-\/]+/).filter(Boolean));
+  const counts={};
+  gs.forEach(g=>{const seen=new Set();tokenize(g.name).forEach(tok=>{const low=tok.toLowerCase();
+    if(drop.has(low)||!low)return;if(seen.has(low))return;seen.add(low);counts[tok]=(counts[tok]||0)+g.count;});});
+  const toks=Object.entries(counts).sort((a,b)=>b[1]-a[1]).slice(0,20);
+  const sc=document.getElementById('subcloud');sc.innerHTML='';
+  if(!toks.length){closeSub();return;}
+  document.getElementById('subTerm').textContent=t;
+  const max=Math.max(...toks.map(x=>x[1])),min=Math.min(...toks.map(x=>x[1]));
+  toks.forEach(([tok,n])=>{const size=11+(Math.sqrt(n)-Math.sqrt(min))/((Math.sqrt(max)-Math.sqrt(min))||1)*5;
+    const live=liveCount(tok), claimed=live===0&&totalCount(tok)>0;
+    const el=document.createElement('span');el.className='chip'+(selected.find(s=>s.t===tok)?' on':'')+(claimed?' claimed':'');
+    el.style.fontSize=size.toFixed(1)+'px';el.innerHTML=`${esc(tok)}<span class="c">${claimed?'claimed':nf(n)}</span>`;
+    el.onclick=()=>{if(claimed)return;addCloudItem(tok,n,'custom');clickTerm(tok);};sc.appendChild(el);});
+  document.getElementById('subwrap').classList.remove('hide');
+  document.getElementById('pane-cloud').classList.add('subon');
+}
+function closeSub(){drillTerm=null;document.getElementById('subwrap').classList.add('hide');
+  document.getElementById('pane-cloud').classList.remove('subon');}
+function tokenize(name){return name.split(/[\s_\/]+|(?<=[a-zA-Z])-(?=[A-Z])/).map(s=>s.trim()).filter(s=>s.length&&s!=='x'&&s!=='-');}
+
+document.getElementById('typeBox').addEventListener('keydown',e=>{
+  if(e.key==='Enter'&&e.target.value.trim()){const t=e.target.value.trim();
+    addCloudItem(t,groupsFor(t).reduce((a,g)=>a+g.count,0),'custom');
+    if(!selected.find(s=>s.t===t))selected.push({t});openSub(t);e.target.value='';buildCloud();refresh();}});
+
+function buildRows(){const ig=[{p:'[ ####### ]',tag:'revit id'},{p:'.###',tag:'blender dup'},{p:'_<hex7>',tag:'name hash'},{p:' Geometry',tag:'suffix'}];
+  document.getElementById('ignoreRows').innerHTML=ig.map(r=>`<div class="row def"><input value="${r.p}"><span class="tag">${r.tag}</span><span class="x" onclick="this.parentElement.remove()">✕</span></div>`).join('');renderSplit();}
+function renderSplit(){document.getElementById('splitRows').innerHTML=splitters.map(s=>`<div class="row"><input value="${s}"><span class="tag">split</span><span class="x" onclick="rmSplit('${s}')">✕</span></div>`).join('');}
+function addIgnore(inp){if(!inp.value.trim())return;const d=document.createElement('div');d.className='row';d.innerHTML=`<input value="${inp.value.trim()}"><span class="tag">custom</span><span class="x" onclick="this.parentElement.remove()">✕</span>`;document.getElementById('ignoreRows').appendChild(d);inp.value='';}
+function addSplit(inp){if(!inp.value.trim())return;splitters.push(inp.value.trim());inp.value='';renderSplit();refresh();}
+function rmSplit(s){splitters.splice(splitters.indexOf(s),1);renderSplit();refresh();}
+
+function groupsFor(term){const q=term.toLowerCase();return DATA.groups.filter(g=>!gone.has(g.name)&&g.name.toLowerCase().includes(q));}
+// live object count still in the pool for a term (0 => fully claimed => grey out)
+function liveCount(term){return groupsFor(term).reduce((a,g)=>a+g.count,0);}
+function totalCount(term){const q=term.toLowerCase();return DATA.groups.filter(g=>g.name.toLowerCase().includes(q)).reduce((a,g)=>a+g.count,0);}
+
+function refresh(){
+  const area=document.getElementById('listArea'),sum=document.getElementById('selSummary');
+  if(!selected.length){area.innerHTML=`<div class="empty"><div class="big">Pick terms on the left to build lists.</div>
+    Each term becomes its own list. Select two and any overlap shows as an extra <span class="ixmark">∩</span> list. Merge and Delete are always buttons you press.</div>`;
+    sum.textContent='nothing selected';updateBottom();return;}
+  sum.textContent=selected.length+' term'+(selected.length>1?'s':'')+' selected · live';
+  const cards=[];
+  selected.forEach(s=>{const gs=groupsFor(s.t),objs=gs.reduce((a,g)=>a+g.count,0);if(gs.length)cards.push(card(s.t,gs,objs,false));});
+  for(let i=0;i<selected.length;i++)for(let j=i+1;j<selected.length;j++){const a=selected[i].t,b=selected[j].t;
+    const gs=DATA.groups.filter(g=>!gone.has(g.name)&&g.name.toLowerCase().includes(a.toLowerCase())&&g.name.toLowerCase().includes(b.toLowerCase()));
+    if(gs.length){const objs=gs.reduce((x,g)=>x+g.count,0);cards.push(card(a+' ∩ '+b,gs,objs,true));}}
+  // union of everything selected — merge/delete regardless of shared wording
+  if(selected.length>1){
+    const seen=new Set(), ug=[];
+    selected.forEach(s=>groupsFor(s.t).forEach(g=>{if(!seen.has(g.name)){seen.add(g.name);ug.push(g);}}));
+    if(ug.length){const objs=ug.reduce((a,g)=>a+g.count,0);
+      cards.push(card('All selected ('+selected.length+' terms)',ug,objs,false,true));}
+  }
+  const singles=DATA.groups.filter(g=>g.count===1&&!gone.has(g.name));
+  if(singles.length){
+    const loGone=gone.has('CARD::__leftover__');
+    const sObj=singles.length;
+    const sample=singles.slice(0,6).map(g=>`<div class="nameline"><span>${esc(g.name)}</span><span class="qty">×1</span></div>`).join('');
+    cards.push(`<div class="card leftover ${loGone?'gone':''}"><h3><span class="term">one-offs</span><span class="badge" style="background:transparent;color:var(--dim);border-color:var(--line)">${nf(sObj)} singletons</span></h3>
+      <div class="meta"><span>each name is on <b>1</b> object — nothing to merge into</span></div>
+      <div class="names">${sample}${singles.length>6?`<div class="nameline" style="color:var(--dim)"><span>+ ${nf(singles.length-6)} more single objects</span><span></span></div>`:''}</div>
+      ${loGone?`<div class="foot done"><div class="doneTag wasdel">✓ queued for delete</div></div>`
+        :`<div class="foot"><div class="doneTag" style="text-align:left;flex:1;color:var(--dim);font-family:var(--mono);font-size:11px">merge n/a — count is 1</div>
+          <button class="delbtn" onclick="doOp('delete','__leftover__',${sObj})" title="delete these single objects">Delete</button></div>`}
+      </div>`);
+  }
+  area.innerHTML='<div class="grid">'+cards.join('')+'</div>';updateBottom();
+}
+function card(title,gs,objs,isIx,isUnion){const key=title;
+  const state=gone.has('CARD::'+key)?(gone.has('DEL::'+key)?'del':'merge'):null;
+  const rows=gs.slice(0,7).map(g=>`<div class="nameline"><span>${esc(g.name)}</span><span class="qty">×${nf(g.count)}</span></div>`).join('')+(gs.length>7?`<div class="nameline" style="color:var(--dim)"><span>+ ${gs.length-7} more name-groups</span><span></span></div>`:'');
+  const foot=state?`<div class="foot done"><div class="doneTag ${state==='del'?'wasdel':''}">${state==='del'?'✓ queued for delete':'✓ queued to merge → left the pool'}</div></div>`
+    :`<div class="foot"><button class="mergebtn" onclick="doOp('merge','${encodeURIComponent(key)}',${objs})">Merge ${nf(objs)} → 1</button>
+      <button class="delbtn" onclick="doOp('delete','${encodeURIComponent(key)}',${objs})" title="delete these objects">Delete</button></div>`;
+  const cls=isIx?'ix':(isUnion?'union':'');
+  return `<div class="card ${cls} ${state?'gone':''}"><h3><span class="term">${isIx?esc(title).replace('∩','<span class=ixmark>∩</span>'):esc(title)}</span><span class="badge">${nf(objs)} obj</span></h3>
+    <div class="meta"><span><b>${gs.length}</b> name-groups</span><span>${isIx?'overlap':(isUnion?'union · no shared wording needed':'collapses to <b>1</b>')}</span></div>
+    <div class="names">${rows}</div>${foot}</div>`;
+}
+function doOp(kind,key,objs){key=decodeURIComponent(key);
+  const names=namesForKey(key);            // capture BEFORE claiming (namesForKey skips gone)
+  gone.add('CARD::'+key);if(kind==='delete')gone.add('DEL::'+key);
+  const grps=[];
+  if(key==='__leftover__'){grps.push({name:'one-off objects (unique names)',count:names.length});}
+  else DATA.groups.forEach(g=>{if(cardMatch(key,g.name)){gone.add(g.name);grps.push({name:g.name,count:g.count});}});
+  const label=key==='__leftover__'?'one-offs':key;
+  (kind==='merge'?mergeQ:delQ).push({label,objs,groups:grps,names});
+  if(drillTerm)openSub(drillTerm);buildCloud();refresh();}
+function cardMatch(key,name){
+  if(key.startsWith('All selected')){return selected.some(s=>name.toLowerCase().includes(s.t.toLowerCase()));}
+  if(key.includes(' ∩ ')){const[a,b]=key.split(' ∩ ');return name.toLowerCase().includes(a.toLowerCase())&&name.toLowerCase().includes(b.toLowerCase());}
+  return name.toLowerCase().includes(key.toLowerCase());}
+function updateBottom(){document.getElementById('qMerge').textContent=mergeQ.length;document.getElementById('qDel').textContent=delQ.length;
+  const mObj=mergeQ.reduce((a,q)=>a+q.objs,0),dObj=delQ.reduce((a,q)=>a+q.objs,0);
+  document.getElementById('qObjs').textContent=(mergeQ.length||delQ.length)?`· ${nf(mObj+dObj)} objects affected`:'';
+  document.getElementById('afterCount').textContent=nf(Math.max(DATA.total-mObj+mergeQ.length-dObj,0));
+  document.getElementById('execBtn').disabled=(mergeQ.length+delQ.length)===0;
+  const rb=document.getElementById('refreshBtn'); if(rb) rb.classList.toggle('stale',(mergeQ.length+delQ.length)>0);
+  renderResults();}
+
+function resultGroup(q,kind){
+  const grps=q.groups||[{name:q.label,count:q.objs}];
+  const rows=grps.map(g=>`<div class="nameline"><span>${esc(g.name)}</span><span class="qty">×${nf(g.count)}</span></div>`).join('');
+  return `<div class="rgroup ${kind==='merge'?'m':'d'}">
+    <h4><span>${esc(q.label)}</span>
+        <span class="rq">${nf(q.objs)} obj ${kind==='merge'?'→ 1':'✕ removed'}</span>
+        <span class="unq" title="remove from plan — puts these objects back" onclick="unqueue('${kind}','${jsSafe(q.label)}')">✕</span></h4>
+    <div class="rlist">${rows}</div></div>`;
+}
+function unqueue(kind,label){
+  const arr=kind==='merge'?mergeQ:delQ;
+  const i=arr.findIndex(q=>q.label===label);
+  if(i<0)return;
+  const q=arr[i];
+  // return objects to the pool
+  (q.groups||[]).forEach(g=>gone.delete(g.name));
+  gone.delete('CARD::'+(label==='one-offs'?'__leftover__':label));
+  gone.delete('DEL::'+(label==='one-offs'?'__leftover__':label));
+  arr.splice(i,1);
+  if(drillTerm)openSub(drillTerm);
+  buildCloud(); refresh();   // refresh() -> updateBottom() -> renderResults()
+}
+function renderResults(){
+  const pane=document.getElementById('pane-results');
+  const mObj=mergeQ.reduce((a,q)=>a+q.objs,0), dObj=delQ.reduce((a,q)=>a+q.objs,0);
+  const after=Math.max(DATA.total-mObj+mergeQ.length-dObj,0);
+  const untouched=Math.max(DATA.total-mObj-dObj,0);
+  let h=`<div class="rsummary">
+    <div class="rstat after"><b>${nf(after)}</b><span>OBJECTS AFTER</span></div>
+    <div class="rstat m"><b>${nf(mObj)}</b><span>MERGED → ${mergeQ.length}</span></div>
+    <div class="rstat d"><b>${nf(dObj)}</b><span>DELETED</span></div>
+    <div class="rstat u"><b>${nf(untouched)}</b><span>UNTOUCHED</span></div>
+  </div><div class="rscroll">`;
+  if(!mergeQ.length&&!delQ.length){
+    h+=`<div class="empty" style="margin:30px auto"><div class="big">Nothing queued yet.</div>
+      Queue merges or deletes on the Word&nbsp;cloud tab and the full plan shows here before you Execute.</div>`;
+  }
+  if(mergeQ.length){h+=`<div class="section-h first">Merges <span class="n">${mergeQ.length} groups → ${mergeQ.length} objects</span></div>`;
+    mergeQ.forEach(q=>h+=resultGroup(q,'merge'));}
+  if(delQ.length){h+=`<div class="section-h">Deletes <span class="n">${nf(dObj)} objects removed</span></div>`;
+    delQ.forEach(q=>h+=resultGroup(q,'delete'));}
+  const ug=DATA.groups.filter(g=>!gone.has(g.name));
+  h+=`<div class="section-h ${mergeQ.length||delQ.length?'':'first'}">Untouched <span class="n">${nf(untouched)} objects · left as-is</span></div>`;
+  h+=`<div class="rgroup u"><h4><span>not in any merge or delete</span><span class="rq">${nf(untouched)} obj</span></h4>
+    <div class="rlist">${ug.map(g=>`<div class="nameline"><span>${esc(g.name)}</span><span class="qty">×${nf(g.count)}</span></div>`).join('')
+      ||'<div class="nameline" style="color:var(--dim)"><span>everything is queued</span><span></span></div>'}
+</div></div>`;
+  h+=`</div>`;
+  pane.innerHTML=h;
+}
+function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+function jsSafe(s){return String(s).replace(/\\/g,'').replace(/'/g,'').replace(/"/g,'');}
+
+/* ---------------- live backend wiring ---------------- */
+let CURRENT_PATH=null;
+function busy(on,msg){document.getElementById('busy').classList.toggle('show',!!on);
+  if(msg)document.getElementById('busyMsg').textContent=msg;}
+function toast(msg,isErr){const t=document.getElementById('toast');t.textContent=msg;
+  t.className='toast show'+(isErr?' err':'');setTimeout(()=>t.className='toast',4200);}
+
+async function api(path,body){
+  const r=await fetch(path,{method:body?'POST':'GET',headers:{'Content-Type':'application/json'},
+    body:body?JSON.stringify(body):undefined});
+  const j=await r.json();
+  if(!r.ok||j.error)throw new Error(j.error||('HTTP '+r.status));
+  return j;
+}
+async function loadBlenders(){
+  try{const bl=await api('/api/blenders');
+    const opts=Object.keys(bl).map(v=>`<option value="${v}">${v}</option>`).join('')||'<option>auto</option>';
+    ['verSel','verSelStart'].forEach(id=>{const el=document.getElementById(id);if(el)el.innerHTML=opts;});
+  }catch(e){/* discovery optional */}
+}
+async function openBlend(){
+  try{
+    let path=null;
+    if(window.pywebview&&window.pywebview.api&&window.pywebview.api.pick_blend){
+      path=await window.pywebview.api.pick_blend();
+    }else{ path=prompt('Path to .blend (browser mode):'); }
+    if(!path)return;
+    CURRENT_PATH=path;
+    busy(true,'Reading names via Blender…');
+    const res=await api('/api/analyze',{path});
+    DATA={total:res.total,unique:res.unique,singletons:res.singletons,
+          groups:res.groups,facets:res.facets,compounds:res.compounds,cats:res.cats};
+    // reset session state
+    removed=new Set();selected=[];gone=new Set();mergeQ=[];delQ=[];drillTerm=null;
+    document.getElementById('startScreen').classList.add('hide');
+    document.getElementById('fileChip').style.display='';
+    document.getElementById('fileName').textContent=path.split(/[\\/]/).pop();
+    document.getElementById('fileCount').textContent=nf(DATA.total);
+    document.getElementById('fileGroups').textContent=nf(DATA.unique);
+    seedCloud();buildCloud();buildRows();refresh();
+    busy(false);
+    toast(`Loaded ${nf(DATA.total)} objects · ${nf(DATA.unique)} name-groups`);
+  }catch(e){busy(false);toast('Could not read file: '+e.message,true);}
+}
+
+/* resolve a plan group's raw object names from the matched (live) groups */
+function namesForKey(key){
+  const out=[];
+  if(key==='__leftover__'){ DATA.groups.forEach(g=>{if(g.count===1&&!gone.has(g.name))out.push(...(g.names||[]));}); return out; }
+  DATA.groups.forEach(g=>{ if(!gone.has(g.name)&&cardMatch(key,g.name)) out.push(...(g.names||[])); });
+  return out;
+}
+
+async function doExecute(openAfter){
+  if(!mergeQ.length&&!delQ.length)return;
+  const overwrite=!document.getElementById('saveCopy').checked;
+  if(overwrite && !confirm('Overwrite the ORIGINAL file in place? This cannot be undone.\nLeave "save as copy" checked to keep the original safe.'))return;
+  if(delQ.length && !confirm(`This plan DELETES ${nf(delQ.reduce((a,q)=>a+q.objs,0))} objects across ${delQ.length} group(s). Continue?`))return;
+  const plan={
+    merges:mergeQ.map(q=>({label:q.label,names:q.names||[]})),
+    deletes:delQ.map(q=>({label:q.label,names:q.names||[]})),
+  };
+  const version=document.getElementById('verSel').value||undefined;
+  try{
+    busy(true, openAfter?'Merging, then opening Blender…':'Merging in Blender…');
+    const res=await api('/api/execute',{path:CURRENT_PATH,plan,version,overwrite,open_after:openAfter});
+    busy(false);
+    toast(`Done — ${res.merged_groups} merged, ${res.deleted} deleted · ${res.remaining} objects → ${res.out.split(/[\\/]/).pop()}`);
+  }catch(e){busy(false);toast('Execute failed: '+e.message,true);}
+}
+
+loadBlenders();
+// no data yet — UI waits on the start screen until a file is opened
+</script>
+</body>
+</html>

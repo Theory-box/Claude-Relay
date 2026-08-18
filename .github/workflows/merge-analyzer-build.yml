@@ -1,0 +1,55 @@
+name: Build MergeAnalyzer
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ['feature/blend-merge-analyzer']
+    paths: ['apps/blend-merge-analyzer/**']
+    tags: ['ma-v*']
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install build deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyinstaller pywebview zstandard
+      - name: Build executable
+        run: pyinstaller apps/blend-merge-analyzer/merge-analyzer.spec
+      - name: Upload build
+        uses: actions/upload-artifact@v4
+        with:
+          name: MergeAnalyzer-windows
+          path: dist/MergeAnalyzer.exe
+      - name: Attach to release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/MergeAnalyzer.exe
+
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install build deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyinstaller pywebview pyobjc zstandard
+      - name: Build executable
+        run: pyinstaller apps/blend-merge-analyzer/merge-analyzer.spec
+      - name: Upload build
+        uses: actions/upload-artifact@v4
+        with:
+          name: MergeAnalyzer-macos
+          path: dist/MergeAnalyzer
