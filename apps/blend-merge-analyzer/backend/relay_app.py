@@ -23,6 +23,10 @@ def main():
                 r = self.window.create_file_dialog(
                     webview.OPEN_DIALOG, file_types=("Blender file (*.blend)",))
                 return r[0] if r else None
+            def pick_blender(self):
+                # let the user point directly at a Blender executable / app
+                r = self.window.create_file_dialog(webview.OPEN_DIALOG)
+                return r[0] if r else None
         api = Api()
         win = webview.create_window("blend-merge-analyzer", url, js_api=api,
                                     width=1300, height=880, min_size=(980, 640))

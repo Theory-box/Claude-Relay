@@ -19,7 +19,7 @@ else:
     APP = os.path.dirname(HERE)
     UI = os.path.join(APP, "ui", "merge-analyzer.html")
 sys.path.insert(0, HERE)
-import engine, analyze
+import engine, analyze, blender_manage
 
 class H(BaseHTTPRequestHandler):
     def log_message(self, *a): pass
@@ -56,12 +56,15 @@ class H(BaseHTTPRequestHandler):
             req = self._body()
             if self.path == "/api/analyze":
                 path = req["path"]
-                ver = engine.detect_version(path)
-                data = engine.extract_names(path, ver)
+                data = engine.extract_names(path, req.get("version"))   # use selected build
                 out = analyze.analyze(data["objects"], req.get("ignore_rules"))
-                out["detected"] = ver
+                out["detected"] = data.get("detected")
                 out["object_total"] = len(data["objects"])
                 self._send(200, json.dumps(out))
+            elif self.path == "/api/add_blender":
+                added = blender_manage.add_blender(req.get("path"))
+                self._send(200, json.dumps({"added": added,
+                                            "blenders": blender_manage.discover(engine.CFG)}))
             elif self.path == "/api/execute":
                 res = engine.execute_plan(
                     req["path"], req["plan"],

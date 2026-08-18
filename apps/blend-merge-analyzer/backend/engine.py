@@ -14,6 +14,7 @@ sys.path.insert(0, HERE)
 import blender_manage
 
 CFG = os.path.join(HERE, "blenders.json")   # optional dev override
+_NO_WINDOW = 0x08000000 if sys.platform == "win32" else 0  # no console popups on Windows
 
 # ---------------------------------------------------------------- version header
 def detect_version(path):
@@ -41,10 +42,25 @@ def blenders():
     return blender_manage.discover(CFG)
 
 def _mm(v):
-    return ".".join(v.replace("LTS", "").strip().split(".")[:2])
+    return ".".join(v.replace("LTS", "").strip().split(".")[:2]) if v else ""
 
 def _blender_for(version):
-    return blender_manage.ensure(_mm(version), CFG)
+    """Resolve a Blender exe. Prefer the exact selected version key, then a matching
+    major.minor, then ANY discovered Blender. Never auto-downloads (that would hang the
+    UI); if nothing is installed, raise a clear error instead."""
+    found = blender_manage.discover(CFG)
+    if version and version in found:
+        return found[version]                       # exact key the user picked
+    if version:
+        mm = _mm(version)
+        for v, exe in found.items():
+            if v.startswith(mm):
+                return exe                          # same major.minor
+    if found:
+        return next(iter(found.values()))           # any Blender we can see
+    raise RuntimeError(
+        "No Blender was found on this machine. Install Blender, or make sure it's in a "
+        "standard location (Program Files / Applications).")
 
 def _run(blender, blendfile, script_src, extra, background=True):
     """Write script_src to a temp .py and run it inside Blender. blendfile=None starts
@@ -58,7 +74,8 @@ def _run(blender, blendfile, script_src, extra, background=True):
         args.append(blendfile)
     args += ["--python", sf.name, "--"] + extra
     try:
-        return subprocess.run(args, capture_output=True, text=True, timeout=7200)
+        return subprocess.run(args, capture_output=True, text=True, timeout=7200,
+                              creationflags=(_NO_WINDOW if background else 0))
     finally:
         os.unlink(sf.name)
 
@@ -88,17 +105,17 @@ print("DUMP_OK count=%d" % len(objs))
 '''
 
 def extract_names(path, version=None):
-    ver = version or detect_version(path)
-    if not ver:
-        raise RuntimeError("not a .blend file (no version header)")
-    blender = _blender_for(ver)
+    hdr = detect_version(path)
+    if not hdr:
+        raise RuntimeError("This doesn't look like a .blend file (no version header).")
+    blender = _blender_for(version or hdr)   # prefer the Blender the user selected
     out = tempfile.mktemp(suffix=".json")
     try:
         r = _run(blender, path, DUMP_SRC, ["--out", out])
         if "DUMP_OK" not in r.stdout:
             raise RuntimeError(r.stderr[-800:] or "extraction failed")
         data = json.load(open(out))
-        data["detected"] = ver
+        data["detected"] = hdr
         return data
     finally:
         if os.path.exists(out):

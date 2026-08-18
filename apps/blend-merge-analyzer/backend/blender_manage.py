@@ -4,6 +4,8 @@ portable builds (self-contained folders; no system install). App-managed builds
 live under the Relay app-data folder."""
 import os, sys, glob, platform, urllib.request, re, tarfile, zipfile, tempfile, subprocess, json
 _UA={"User-Agent":"Mozilla/5.0 (Relay blend-compat)"}
+# On Windows, don't pop a console window for each headless Blender probe/run.
+_NO_WINDOW = 0x08000000 if sys.platform == "win32" else 0
 def _open(url):
     return urllib.request.urlopen(urllib.request.Request(url, headers=_UA), timeout=30)
 
@@ -23,12 +25,18 @@ def _exe(folder):
 def _query_version(exe):
     try:
         out=subprocess.run([exe,"-b","--python-expr","import bpy;print('VER',bpy.app.version_string)"],
-                           capture_output=True,text=True,timeout=60).stdout
+                           capture_output=True,text=True,timeout=60,
+                           creationflags=_NO_WINDOW).stdout
         m=re.search(r"VER ([\d.]+)",out); return m.group(1) if m else None
     except Exception: return None
 
-def discover(dev_config=None):
-    """Return {version_string: exe_path} from dev config + real installs + app-managed."""
+_DISCOVER_CACHE = None
+def discover(dev_config=None, force=False):
+    """Return {version_string: exe_path} from dev config + real installs + app-managed.
+    Cached after first call (probing every Blender is slow); pass force=True to refresh."""
+    global _DISCOVER_CACHE
+    if _DISCOVER_CACHE is not None and not force:
+        return _DISCOVER_CACHE
     found={}
     if dev_config and os.path.exists(dev_config): found.update(json.load(open(dev_config)))
     roots=[]
@@ -41,7 +49,23 @@ def discover(dev_config=None):
         if exe:
             v=_query_version(exe)
             if v: found[v]=exe
+    _DISCOVER_CACHE=found
     return found
+
+def add_blender(p):
+    """Register a manually-located Blender (exe, folder, or .app). Probes its version,
+    adds it to the discovery cache, and returns {version: exe} or None."""
+    global _DISCOVER_CACHE
+    exe = p if (p and os.path.isfile(p)) else _exe(p) if p else None
+    if not exe or not os.path.exists(exe):
+        return None
+    v = _query_version(exe)
+    if not v:
+        return None
+    if _DISCOVER_CACHE is None:
+        _DISCOVER_CACHE = {}
+    _DISCOVER_CACHE[v] = exe
+    return {v: exe}
 
 def _plat():
     m=platform.machine().lower()

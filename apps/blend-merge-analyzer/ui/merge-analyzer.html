@@ -203,6 +203,8 @@
   .verlbl{font-family:var(--mono);font-size:11px;color:var(--muted);display:flex;align-items:center;gap:6px}
   .versel{background:var(--panel-2);border:1px solid var(--line);color:var(--ink);font-family:var(--mono);
     font-size:11px;border-radius:7px;padding:4px 6px;outline:none}
+  .locate{cursor:pointer;color:var(--sel);font-family:var(--mono);font-size:11px;text-decoration:underline;margin-left:2px}
+  .locate:hover{color:#eafffb}
   .execbtn.ghost{background:transparent;color:var(--sel);border:1px solid var(--sel-line);box-shadow:none}
   .execbtn.ghost:disabled{color:var(--dim);border-color:var(--line)}
   /* start screen */
@@ -224,8 +226,11 @@
   .busy .msg{font-family:var(--mono);font-size:13px;color:var(--ink)}
   .toast{position:fixed;bottom:74px;left:50%;transform:translateX(-50%);z-index:70;background:var(--panel-2);
     border:1px solid var(--sel-line);color:var(--ink);font-family:var(--mono);font-size:12.5px;padding:10px 16px;
-    border-radius:10px;box-shadow:0 10px 40px -12px #000;display:none}
-  .toast.show{display:block}.toast.err{border-color:var(--del-line);color:var(--del)}
+    border-radius:10px;box-shadow:0 10px 40px -12px #000;display:none;max-width:min(760px,86vw);
+    white-space:normal;line-height:1.5;text-align:left}
+  .toast.show{display:block}.toast.err{border-color:var(--del-line);color:#ffd7de}
+  .toast.err b{color:var(--del)}
+  .toast .dismiss{display:inline-block;margin-left:10px;color:var(--del);cursor:pointer;text-decoration:underline;white-space:nowrap}
 </style>
 </head>
 <body>
@@ -234,7 +239,8 @@
     <h1>blend-merge-analyzer</h1>
     <p>Open a Revit-exported <b>.blend</b>. The app reads every object name, finds the naming patterns on its own, and lets you group, merge, and delete — without ever touching your original file.</p>
     <button class="bigopen" onclick="openBlend()">Open a .blend file…</button>
-    <div class="verrow">Blender <select id="verSelStart" class="versel"></select></div>
+    <div class="verrow">Blender <select id="verSelStart" class="versel"></select>
+      <span class="locate" onclick="locateBlender()">locate…</span></div>
   </div>
   <div class="busy" id="busy"><div class="spin"></div><div class="msg" id="busyMsg">Reading…</div></div>
   <div class="toast" id="toast"></div>
@@ -246,7 +252,8 @@
       <span class="sep">·</span><span class="cnt" id="fileCount">0</span>&nbsp;objects
       <span class="sep">·</span><span id="fileGroups">0</span> name-groups</div>
     <div class="spacer"></div>
-    <label class="verlbl">Blender <select id="verSel" class="versel"></select></label>
+    <label class="verlbl">Blender <select id="verSel" class="versel"></select>
+      <span class="locate" onclick="locateBlender()">locate…</span></label>
     <div class="reduce">after plan&nbsp; <b id="afterCount">0</b> <span class="arrow">→</span> remaining</div>
   </div>
 
@@ -537,8 +544,17 @@ function jsSafe(s){return String(s).replace(/\\/g,'').replace(/'/g,'').replace(/
 let CURRENT_PATH=null;
 function busy(on,msg){document.getElementById('busy').classList.toggle('show',!!on);
   if(msg)document.getElementById('busyMsg').textContent=msg;}
-function toast(msg,isErr){const t=document.getElementById('toast');t.textContent=msg;
-  t.className='toast show'+(isErr?' err':'');setTimeout(()=>t.className='toast',4200);}
+let _toastTimer=null;
+function toast(msg,isErr){const t=document.getElementById('toast');
+  if(_toastTimer){clearTimeout(_toastTimer);_toastTimer=null;}
+  if(isErr){
+    t.innerHTML='<b>Error</b> '+esc(String(msg))+' <span class="dismiss">dismiss ✕</span>';
+    t.className='toast show err';
+    t.querySelector('.dismiss').onclick=()=>{t.className='toast';};
+  }else{
+    t.textContent=msg; t.className='toast show';
+    _toastTimer=setTimeout(()=>t.className='toast',4200);
+  }}
 
 async function api(path,body){
   const r=await fetch(path,{method:body?'POST':'GET',headers:{'Content-Type':'application/json'},
@@ -553,6 +569,21 @@ async function loadBlenders(){
     ['verSel','verSelStart'].forEach(id=>{const el=document.getElementById(id);if(el)el.innerHTML=opts;});
   }catch(e){/* discovery optional */}
 }
+async function locateBlender(){
+  let path=null;
+  try{
+    if(window.pywebview&&window.pywebview.api&&window.pywebview.api.pick_blender)
+      path=await window.pywebview.api.pick_blender();
+    else path=prompt('Full path to your Blender executable (e.g. blender.exe):');
+    if(!path)return;
+    const r=await api('/api/add_blender',{path});
+    if(!r.added){toast('That file did not report a Blender version — pick the Blender executable itself.',true);return;}
+    await loadBlenders();
+    const v=Object.keys(r.added)[0];
+    ['verSel','verSelStart'].forEach(id=>{const el=document.getElementById(id);if(el&&[...el.options].some(o=>o.value===v))el.value=v;});
+    toast('Using Blender '+v);
+  }catch(e){toast('Could not add that Blender — '+e.message,true);}
+}
 async function openBlend(){
   try{
     let path=null;
@@ -562,7 +593,8 @@ async function openBlend(){
     if(!path)return;
     CURRENT_PATH=path;
     busy(true,'Reading names via Blender…');
-    const res=await api('/api/analyze',{path});
+    const version=(document.getElementById('verSelStart').value||document.getElementById('verSel').value||undefined);
+    const res=await api('/api/analyze',{path,version});
     DATA={total:res.total,unique:res.unique,singletons:res.singletons,
           groups:res.groups,facets:res.facets,compounds:res.compounds,cats:res.cats};
     // reset session state
@@ -575,7 +607,7 @@ async function openBlend(){
     seedCloud();buildCloud();buildRows();refresh();
     busy(false);
     toast(`Loaded ${nf(DATA.total)} objects · ${nf(DATA.unique)} name-groups`);
-  }catch(e){busy(false);toast('Could not read file: '+e.message,true);}
+  }catch(e){busy(false);toast('Could not read file — '+e.message,true);}
 }
 
 /* resolve a plan group's raw object names from the matched (live) groups */
