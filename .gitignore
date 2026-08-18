@@ -2,3 +2,6 @@
 *.pyc
 *.pyo
 apps/blend-merge-analyzer/backend/blenders.json
+/dist/
+/build/
+*.pyc
