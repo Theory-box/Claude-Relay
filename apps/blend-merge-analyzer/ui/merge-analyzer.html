@@ -74,6 +74,15 @@
   /* cloud tab split */
   #pane-cloud{gap:0}
   .cloudscroll{flex:1 1 auto;min-height:0;overflow-y:auto;padding-right:2px}
+  .cloudctl{flex:0 0 auto;margin:2px 2px 8px;padding:8px 10px;border:1px solid var(--line);border-radius:9px;
+    background:var(--panel-2);display:flex;flex-direction:column;gap:6px}
+  .ctlrow{display:flex;align-items:center;gap:9px}
+  .ctllbl{font-family:var(--mono);font-size:10px;color:var(--muted);width:56px;flex:0 0 auto;text-transform:uppercase;letter-spacing:.06em}
+  .ctlrow input[type=range]{flex:1;accent-color:var(--sel);height:3px}
+  .ctlval{font-family:var(--mono);font-size:11px;color:var(--sel);width:70px;flex:0 0 auto;text-align:right}
+  .chip.kind-token{opacity:.68}
+  .chip.kind-dim{opacity:.46;color:var(--muted)}
+  .chip.on{opacity:1}
   #pane-cloud.subon .cloudscroll{flex:7 1 0}
   .cloud{display:flex;flex-wrap:wrap;gap:6px;margin:2px 2px 6px}
 
@@ -271,6 +280,17 @@
             <input id="typeBox" placeholder="type a term & Enter — adds it to the cloud" autocomplete="off"></div>
           <div class="section-h first">Word cloud <span class="n" id="cloudN"></span>
             <span class="refresh" id="refreshBtn" title="rebuild the cloud from the objects still in the pool" onclick="refreshCloud()">↻ refresh</span></div>
+          <div class="cloudctl">
+            <div class="ctlrow"><span class="ctllbl">breadth</span>
+              <input type="range" id="breadthSlider" min="1" max="5" step="1" value="3">
+              <span class="ctlval" id="breadthVal">+ categories</span></div>
+            <div class="ctlrow"><span class="ctllbl">min uses</span>
+              <input type="range" id="freqLoSlider" min="0" max="100" step="1" value="0">
+              <span class="ctlval" id="freqLoVal">1</span></div>
+            <div class="ctlrow"><span class="ctllbl">max uses</span>
+              <input type="range" id="freqHiSlider" min="0" max="100" step="1" value="100">
+              <span class="ctlval" id="freqHiVal">all</span></div>
+          </div>
           <div class="cloudscroll"><div class="cloud" id="cloud"></div></div>
           <div class="subwrap hide" id="subwrap">
             <div class="subhead">words that appear with <b id="subTerm"></b>
@@ -332,10 +352,26 @@ document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>{
   if(id==='results') renderResults();
 });
 
-function seedCloud(){cloudItems=[];
-  DATA.cats.forEach(c=>cloudItems.push({t:c.t,n:c.n,kind:'cat'}));
-  DATA.facets.forEach((c,i)=>cloudItems.push({t:c.t,n:c.n,kind:'facet',ti:i}));
-  DATA.compounds.forEach(c=>cloudItems.push({t:c.t,n:c.n,kind:'comp'}));}
+const KINDOF={1:'facet',2:'comp',3:'cat',4:'token',5:'dim'};
+const BREADTHLBL={1:'facets only',2:'+ compounds',3:'+ categories',4:'+ all words',5:'+ dimensions'};
+let breadth=3, freqLo=1, freqHi=Infinity, FMIN=1, FMAX=1;
+function seedCloud(){cloudItems=[]; let fi=0;
+  (DATA.vocab||[]).forEach(v=>{const it={t:v.t,n:v.n,tier:v.tier,kind:KINDOF[v.tier]};
+    if(v.tier===1)it.ti=fi++; cloudItems.push(it);});
+  const ns=cloudItems.map(i=>i.n); FMIN=Math.max(1,Math.min(...ns)); FMAX=Math.max(...ns,1);
+  freqLo=FMIN; freqHi=FMAX; syncFreqLabels();}
+function posToCount(pos){const a=Math.log(FMIN),b=Math.log(FMAX);
+  return Math.round(Math.exp(a+(pos/100)*(b-a)));}
+function syncFreqLabels(){
+  const lo=document.getElementById('freqLoVal'), hi=document.getElementById('freqHiVal');
+  if(lo)lo.textContent=nf(freqLo); if(hi)hi.textContent=(freqHi>=FMAX?'all':nf(freqHi));}
+function wireCloudControls(){
+  const b=document.getElementById('breadthSlider');
+  b.oninput=()=>{breadth=+b.value;document.getElementById('breadthVal').textContent=BREADTHLBL[breadth];buildCloud();};
+  const lo=document.getElementById('freqLoSlider'), hi=document.getElementById('freqHiSlider');
+  lo.oninput=()=>{freqLo=posToCount(+lo.value); if(freqLo>freqHi){freqHi=freqLo;hi.value=lo.value;} syncFreqLabels(); buildCloud();};
+  hi.oninput=()=>{freqHi=(+hi.value>=100?FMAX:posToCount(+hi.value)); if(freqHi<freqLo){freqLo=freqHi;lo.value=hi.value;} syncFreqLabels(); buildCloud();};
+}
 
 // rebuild the cloud from only the objects still in the pool
 function refreshCloud(){
@@ -359,7 +395,7 @@ function addCloudItem(t,n,kind){if(cloudItems.find(c=>c.t.toLowerCase()===t.toLo
 
 function buildCloud(){
   const cloud=document.getElementById('cloud');cloud.innerHTML='';
-  const items=cloudItems.filter(i=>!removed.has(i.t));
+  const items=cloudItems.filter(i=>!removed.has(i.t)&&(i.tier||1)<=breadth&&i.n>=freqLo&&i.n<=freqHi);
   const ns=items.map(i=>i.n||1),max=Math.max(...ns),min=Math.min(...ns);
   items.slice().sort((a,b)=>(b.n||0)-(a.n||0)).forEach(it=>{
     const size=11.5+(Math.sqrt(it.n||1)-Math.sqrt(min))/((Math.sqrt(max)-Math.sqrt(min))||1)*7;
@@ -376,7 +412,7 @@ function buildCloud(){
   });
   const add=document.createElement('span');add.className='addchip';add.textContent='+ add';
   add.onclick=()=>document.getElementById('typeBox').focus();cloud.appendChild(add);
-  document.getElementById('cloudN').textContent=items.length+' terms';
+  document.getElementById('cloudN').textContent=items.length+' / '+cloudItems.filter(i=>!removed.has(i.t)).length;
 }
 function clickTerm(t){const i=selected.findIndex(s=>s.t===t);
   if(i>=0)selected.splice(i,1);else selected.push({t});
@@ -596,7 +632,7 @@ async function openBlend(){
     const version=(document.getElementById('verSelStart').value||document.getElementById('verSel').value||undefined);
     const res=await api('/api/analyze',{path,version});
     DATA={total:res.total,unique:res.unique,singletons:res.singletons,
-          groups:res.groups,facets:res.facets,compounds:res.compounds,cats:res.cats};
+          groups:res.groups,facets:res.facets,compounds:res.compounds,cats:res.cats,vocab:res.vocab};
     // reset session state
     removed=new Set();selected=[];gone=new Set();mergeQ=[];delQ=[];drillTerm=null;
     document.getElementById('startScreen').classList.add('hide');
@@ -637,7 +673,7 @@ async function doExecute(openAfter){
   }catch(e){busy(false);toast('Execute failed: '+e.message,true);}
 }
 
-loadBlenders();
+loadBlenders(); wireCloudControls();
 // no data yet — UI waits on the start screen until a file is opened
 </script>
 </body>

@@ -76,7 +76,7 @@ def analyze(records, ignore_rules=None, min_group=1):
     for k, c in key_counts.items():
         for m in set(re.findall(r"\b([A-Z]{1,6})_", k)):
             facet[m] += c
-    facets = [{"t": f"{m}_", "n": n} for m, n in facet.most_common(24)]
+    facets = [{"t": f"{m}_", "n": n} for m, n in facet.most_common()]
 
     # category chips: leading token, weighted
     cat = Counter()
@@ -84,7 +84,7 @@ def analyze(records, ignore_rules=None, min_group=1):
         toks = tokenize(k)
         if toks:
             cat[toks[0]] += c
-    cats = [{"t": t, "n": n} for t, n in cat.most_common(12)]
+    cats = [{"t": t, "n": n} for t, n in cat.most_common()]
 
     # sticky compounds via collocation (Mikolov-style phrase score)
     uni = Counter(); big = Counter(); N = 0
@@ -132,10 +132,30 @@ def analyze(records, ignore_rules=None, min_group=1):
             continue
         seen.add(comp)
         compounds.append({"t": comp, "n": cab})
-        if len(compounds) >= 24:
-            break
 
     singletons = sum(1 for c in key_counts.values() if c == 1)
+
+    # ---- unified tiered vocabulary for the breadth slider ----
+    # tier 1 facets, 2 compounds, 3 categories, 4 remaining word tokens, 5 dimension/number bits.
+    def _is_dim(t):
+        return bool(re.fullmatch(r"\d+([./]\d+)?", t)) or t in ("W", "H", "D", "L", "x", "X", "Ø", "in")
+    tokfreq = Counter()
+    for k, c in key_counts.items():
+        for tok in set(tokenize(k)):
+            tokfreq[tok] += c
+    cat_set = {c["t"] for c in cats}
+    facet_codes = {f["t"] for f in facets}
+    vocab = []
+    for f in facets:    vocab.append({"t": f["t"], "n": f["n"], "tier": 1})
+    for c in compounds: vocab.append({"t": c["t"], "n": c["n"], "tier": 2})
+    for c in cats:      vocab.append({"t": c["t"], "n": c["n"], "tier": 3})
+    seen = {v["t"] for v in vocab}
+    for tok, n in tokfreq.most_common():
+        if tok in seen or tok in cat_set or (tok + "_") in facet_codes:
+            continue
+        vocab.append({"t": tok, "n": n, "tier": 5 if _is_dim(tok) else 4})
+        seen.add(tok)
+
     return {
         "total": total,
         "unique": len(key_counts),
@@ -144,6 +164,7 @@ def analyze(records, ignore_rules=None, min_group=1):
         "facets": facets,
         "cats": cats,
         "compounds": compounds,
+        "vocab": vocab,
     }
 
 def resolve(term, groups, gone=None):
