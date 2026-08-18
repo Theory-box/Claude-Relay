@@ -77,6 +77,19 @@ handling needed.
    list, the `PT01` list, **and** the combined list (user's explicit choice — single
    lists are full sets; overlaps are extra lists on top). The combined list existing
    is what lets the user pick the finer grain before merging.
+   - **Claiming.** When a group is merged or deleted, its objects leave the pool. Every
+     list recomputes against what remains, so a later group can never re-include
+     already-claimed objects — this is what prevents the "merge Patio Railing, then
+     merge Railing" double-claim. No separate conflict section is needed.
+   - **Grey-out.** A cloud chip greys out only when **zero** of its objects remain in
+     the pool (all claimed). If some remain it stays live with a reduced count — so
+     merging broad `Railing` greys narrow `Patio Railing` (fully claimed), while
+     merging narrow `Patio Railing` only shrinks `Railing`'s count. Greyed chips are
+     not deleted; the user can still remove them manually.
+   - The **∩ overlap card** remains the pre-merge decision surface: two still-live terms
+     that share objects show a combined card so the user chooses which bucket the shared
+     objects go to; once one side is merged, the shared objects leave and the overlap
+     dissolves.
 4. **Ignore box** — visible, editable, wildcard-capable, pre-filled with the default
    junk-strip patterns (`[digits]`, `.NNN`, hex hash, ` Geometry`). The user can see
    and change every rule; nothing is stripped invisibly.
