@@ -11,10 +11,20 @@ datas = [
     (os.path.join(HERE, "backend"),                    "blend-merge-analyzer/backend"),
 ]
 binaries = []
-hiddenimports = ["engine", "server", "analyze", "blender_manage"]
+hiddenimports = ["engine", "server", "analyze", "blender_manage",
+                 "clr", "clr_loader",
+                 "webview.platforms.edgechromium", "webview.platforms.winforms",
+                 "webview.platforms.cocoa", "webview.platforms.gtk", "webview.platforms.qt"]
 for pkg in ("webview",):
     d, b, h = collect_all(pkg)
     datas += d; binaries += b; hiddenimports += h
+# pythonnet (clr) powers pywebview's WebView2 window on Windows
+try:
+    for pkg in ("pythonnet", "clr_loader"):
+        d, b, h = collect_all(pkg)
+        datas += d; binaries += b; hiddenimports += h
+except Exception:
+    pass
 
 a = Analysis([os.path.join(HERE, "backend", "relay_app.py")],
              pathex=[os.path.join(HERE, "backend")],

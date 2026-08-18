@@ -4,7 +4,7 @@ REM Double-click this file to start the app.
 setlocal
 cd /d "%~dp0"
 echo Checking Python and dependencies...
-python -m pip install --quiet --disable-pip-version-check pywebview zstandard 2>nul
+python -m pip install --quiet --disable-pip-version-check pywebview pythonnet zstandard 2>nul
 python "backend\relay_app.py"
 if errorlevel 1 (
   echo.

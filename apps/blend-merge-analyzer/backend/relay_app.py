@@ -33,6 +33,16 @@ def main():
         api.window = win
         webview.start()
     except Exception:
+        # Native window backend unavailable — log why, then fall back to the browser.
+        try:
+            base = os.path.dirname(sys.executable) if getattr(sys, "frozen", False) \
+                   else os.path.dirname(os.path.abspath(__file__))
+            import traceback
+            with open(os.path.join(base, "merge-analyzer-startup.log"), "w") as f:
+                f.write("pywebview could not start; opened in browser instead.\n\n")
+                f.write(traceback.format_exc())
+        except Exception:
+            pass
         import webbrowser
         webbrowser.open(url)
         try:

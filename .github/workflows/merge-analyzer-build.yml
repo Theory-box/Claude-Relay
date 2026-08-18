@@ -21,7 +21,7 @@ jobs:
       - name: Install build deps
         run: |
           python -m pip install --upgrade pip
-          pip install pyinstaller pywebview zstandard
+          pip install pyinstaller pywebview pythonnet zstandard
       - name: Build executable
         run: pyinstaller apps/blend-merge-analyzer/merge-analyzer.spec
       - name: Upload build
