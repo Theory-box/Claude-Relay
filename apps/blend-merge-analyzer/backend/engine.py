@@ -139,6 +139,7 @@ def arg(n,d=None):
     return a[a.index(n)+1] if n in a and a.index(n)+1<len(a) else d
 SRC=arg("--source"); plan=json.load(open(arg("--plan"))); out=arg("--out")
 include_untouched = arg("--untouched","1")=="1"
+tag_materials = arg("--materials","0")=="1"
 BATCH=int(arg("--batch","2000"))
 t0=time.time()
 
@@ -165,6 +166,14 @@ def join_batch(objs, target_name):
     for o in objs: o.select_set(True)
     bpy.context.view_layer.objects.active=objs[0]
     bpy.ops.object.make_single_user(object=True, obdata=True)  # collapse instances
+    if tag_materials:
+        # per-object backup material named after the object, so the merge can be
+        # reversed later with Separate > By Material. Only add when the object has
+        # none of its own (don't clobber real materials).
+        for o in objs:
+            if o.type=="MESH" and len(o.data.materials)==0:
+                m=bpy.data.materials.new(o.name)
+                o.data.materials.append(m)
     if len(objs)>1:
         bpy.ops.object.join()
     r=bpy.context.view_layer.objects.active
@@ -216,7 +225,7 @@ print("MERGE_OK " + json.dumps(_stats))
 '''
 
 def execute_plan(path, plan, version=None, out_path=None, overwrite=False,
-                 open_after=False, include_untouched=True):
+                 open_after=False, include_untouched=True, tag_materials=True):
     ver = version or detect_version(path)
     blender = _blender_for(ver)
     if not out_path:
@@ -233,7 +242,8 @@ def execute_plan(path, plan, version=None, out_path=None, overwrite=False,
         r = _run(blender, None, MERGE_SRC,
                  ["--source", os.path.abspath(path), "--plan", plan_file,
                   "--out", write_to, "--stats", stats_file,
-                  "--untouched", "1" if include_untouched else "0"])
+                  "--untouched", "1" if include_untouched else "0",
+                  "--materials", "1" if tag_materials else "0"])
         # Verify by the STATS FILE (and the produced .blend), not stdout.
         if not os.path.exists(stats_file):
             if os.path.exists(write_to) and os.path.getsize(write_to) > 0:

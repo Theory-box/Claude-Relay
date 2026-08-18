@@ -72,6 +72,7 @@ class H(BaseHTTPRequestHandler):
                     overwrite=bool(req.get("overwrite")),
                     open_after=bool(req.get("open_after")),
                     include_untouched=req.get("include_untouched", True),
+                    tag_materials=req.get("tag_materials", True),
                 )
                 self._send(200, json.dumps(res))
             else:

@@ -333,6 +333,7 @@
     <div class="spacer"></div>
     <label class="savechip" title="off = overwrite the original (asks first)"><input type="checkbox" id="saveCopy" checked><span class="dot"></span>save as copy</label>
     <label class="savechip" title="off = result contains only the merged objects (faster)"><input type="checkbox" id="fullModel" checked>full model</label>
+    <label class="savechip" title="give each object a material named after it so you can Separate by Material to un-merge later"><input type="checkbox" id="tagMats" checked>un-merge tags</label>
     <button class="execbtn ghost" id="execBtn" disabled onclick="doExecute(false)">Execute</button>
     <button class="execbtn" id="execOpenBtn" disabled onclick="doExecute(true)">Execute &amp; open <span class="k">↵</span></button>
   </div>
@@ -667,7 +668,8 @@ async function doExecute(openAfter){
   try{
     busy(true, openAfter?'Merging, then opening Blender…':'Merging in Blender…');
     const include_untouched=document.getElementById('fullModel').checked;
-    const res=await api('/api/execute',{path:CURRENT_PATH,plan,version,overwrite,open_after:openAfter,include_untouched});
+    const tag_materials=document.getElementById('tagMats').checked;
+    const res=await api('/api/execute',{path:CURRENT_PATH,plan,version,overwrite,open_after:openAfter,include_untouched,tag_materials});
     busy(false);
     toast(`Done — ${res.merged_groups} merged, ${res.deleted} deleted · ${res.remaining} objects → ${res.out.split(/[\\/]/).pop()}`);
   }catch(e){busy(false);toast('Execute failed: '+e.message,true);}
