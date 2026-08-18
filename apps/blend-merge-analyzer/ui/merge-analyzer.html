@@ -90,6 +90,12 @@
   .chip.instanced .c{color:inherit;opacity:.8}
   .card.inst{border-color:var(--ix-line)}
   .card.inst .badge.inst{background:rgba(167,139,250,.16);color:var(--ix);border-color:var(--ix-line)}
+  .chip.merged{border-color:var(--sel-line);color:var(--sel);background:linear-gradient(180deg,rgba(73,230,205,.14),rgba(73,230,205,.05));font-weight:600}
+  .chip.merged:hover{border-color:var(--sel)}
+  .chip.merged.on{background:var(--sel);color:#062018;border-color:var(--sel)}
+  .instbulk{display:flex;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap}
+  .mergebtn.big{font-size:13px;padding:9px 16px}
+  .instbulk .hint{font-family:var(--mono);font-size:11px;color:var(--muted)}
   #pane-cloud.subon .cloudscroll{flex:7 1 0}
   .cloud{display:flex;flex-wrap:wrap;gap:6px;margin:2px 2px 6px}
 
@@ -351,6 +357,11 @@ const TINTS=['#e06c9f','#6c9fe0','#8bd46c','#e0b56c','#c98bff','#6ce0d4','#e0806
 const nf=n=>n.toLocaleString('en-US');
 let cloudItems=[], removed=new Set(), selected=[], gone=new Set(), mergeQ=[], delQ=[], drillTerm=null;
 let instanceMode=false;
+// merged results re-enter the pool as "synthetic" groups so they can be merged again
+// (e.g. merge instanced railings, then merge that result with the stairs). Each carries
+// the underlying original object names and a back-ref to its queued merge bin.
+let synthGroups=[];
+function effGroups(){return DATA.groups.filter(g=>!gone.has(g.name)).concat(synthGroups);}
 // every queued op stores its object names; their union is the single source of truth for
 // what's already claimed, so name-based and instance-based merges never double-claim.
 function claimedNames(){const s=new Set();[...mergeQ,...delQ].forEach(q=>(q.names||[]).forEach(n=>s.add(n)));return s;}
@@ -399,6 +410,7 @@ function refreshCloud(){
   removed=new Set([...removed].filter(t=>cloudItems.find(c=>c.t===t)));
   selected=[];                 // clear selection on refresh
   instanceMode=false;
+  synthGroups=[];
   closeSub();
   const ns=cloudItems.map(i=>i.n); FMIN=Math.max(1,Math.min(...ns,1)); FMAX=Math.max(...ns,1);
   freqLo=FMIN; freqHi=FMAX;
@@ -423,6 +435,16 @@ function buildCloud(){
     el.onclick=()=>{instanceMode=!instanceMode;closeSub();buildCloud();refresh();};
     cloud.appendChild(el);
   }
+  // merged results re-enter the pool as selectable green chips
+  synthGroups.forEach(sg=>{
+    const el=document.createElement('span');
+    el.className='chip merged'+(selected.find(s=>s.t===sg.name)?' on':'');
+    el.style.fontSize='13px';
+    el.innerHTML=`\u2713 ${esc(sg.name)}<span class="c">${nf(sg.names.length)}</span>`;
+    el.title='a merged result — select it to merge again with other groups';
+    el.onclick=()=>{clickTerm(sg.name);};
+    cloud.appendChild(el);
+  });
   const items=cloudItems.filter(i=>!removed.has(i.t)&&(i.tier||1)<=breadth&&i.n>=freqLo&&i.n<=freqHi);
   const ns=items.map(i=>i.n||1),max=Math.max(...ns),min=Math.min(...ns);
   items.slice().sort((a,b)=>(b.n||0)-(a.n||0)).forEach(it=>{
@@ -481,7 +503,9 @@ function addIgnore(inp){if(!inp.value.trim())return;const d=document.createEleme
 function addSplit(inp){if(!inp.value.trim())return;splitters.push(inp.value.trim());inp.value='';renderSplit();refresh();}
 function rmSplit(s){splitters.splice(splitters.indexOf(s),1);renderSplit();refresh();}
 
-function groupsFor(term){const q=term.toLowerCase();return DATA.groups.filter(g=>!gone.has(g.name)&&g.name.toLowerCase().includes(q));}
+function groupsFor(term){const q=term.toLowerCase();
+  return DATA.groups.filter(g=>!gone.has(g.name)&&g.name.toLowerCase().includes(q))
+    .concat(synthGroups.filter(sg=>sg.name.toLowerCase().includes(q)));}
 // live object count still in the pool for a term (0 => fully claimed => grey out)
 function liveCount(term){return groupsFor(term).reduce((a,g)=>a+g.count,0);}
 function totalCount(term){const q=term.toLowerCase();return DATA.groups.filter(g=>g.name.toLowerCase().includes(q)).reduce((a,g)=>a+g.count,0);}
@@ -496,7 +520,7 @@ function refresh(){
   const cards=[];
   selected.forEach(s=>{const gs=groupsFor(s.t),objs=gs.reduce((a,g)=>a+g.count,0);if(gs.length)cards.push(card(s.t,gs,objs,false));});
   for(let i=0;i<selected.length;i++)for(let j=i+1;j<selected.length;j++){const a=selected[i].t,b=selected[j].t;
-    const gs=DATA.groups.filter(g=>!gone.has(g.name)&&g.name.toLowerCase().includes(a.toLowerCase())&&g.name.toLowerCase().includes(b.toLowerCase()));
+    const gs=effGroups().filter(g=>g.name.toLowerCase().includes(a.toLowerCase())&&g.name.toLowerCase().includes(b.toLowerCase()));
     if(gs.length){const objs=gs.reduce((x,g)=>x+g.count,0);cards.push(card(a+' ∩ '+b,gs,objs,true));}}
   // union of everything selected — merge/delete regardless of shared wording
   if(selected.length>1){
@@ -532,24 +556,45 @@ function card(title,gs,objs,isIx,isUnion){const key=title;
     <div class="names">${rows}</div>${foot}</div>`;
 }
 function doOp(kind,key,objs){key=decodeURIComponent(key);
-  const names=namesForKey(key);            // capture BEFORE claiming (namesForKey skips gone)
+  // gather underlying object names from real (unclaimed) groups AND any merged results
+  // this op includes; absorbing a merged result folds it into this larger merge.
+  let names=[]; const grps=[]; const absorbed=[];
+  if(key==='__leftover__'){
+    DATA.groups.forEach(g=>{if(g.count===1&&!gone.has(g.name)){names.push(...(g.names||[]));}});
+    grps.push({name:'one-off objects (unique names)',count:names.length});
+  }else{
+    DATA.groups.forEach(g=>{if(!gone.has(g.name)&&cardMatch(key,g.name)){gone.add(g.name);names.push(...(g.names||[]));grps.push({name:g.name,count:g.count});}});
+    synthGroups=synthGroups.filter(sg=>{
+      if(cardMatch(key,sg.name)){names.push(...sg.names);absorbed.push(sg);grps.push({name:sg.name+' (merged)',count:sg.names.length});return false;}
+      return true;});
+  }
+  // remove absorbed merge bins — their objects move into this op
+  absorbed.forEach(sg=>{const i=mergeQ.indexOf(sg.bin);if(i>=0)mergeQ.splice(i,1);});
+  // exclude anything already claimed in OTHER bins/deletes; de-dupe
+  const claimed=claimedNames();
+  names=[...new Set(names)].filter(n=>!claimed.has(n));
+  if(!names.length){buildCloud();refresh();return;}
   gone.add('CARD::'+key);if(kind==='delete')gone.add('DEL::'+key);
-  const grps=[];
-  if(key==='__leftover__'){grps.push({name:'one-off objects (unique names)',count:names.length});}
-  else DATA.groups.forEach(g=>{if(cardMatch(key,g.name)){gone.add(g.name);grps.push({name:g.name,count:g.count});}});
   const label=key==='__leftover__'?'one-offs':key;
-  (kind==='merge'?mergeQ:delQ).push({label,objs,groups:grps,names});
+  const entry={label,objs:names.length,groups:grps,names};
+  (kind==='merge'?mergeQ:delQ).push(entry);
+  if(kind==='merge')synthGroups.push({name:label,count:names.length,names,bin:entry,merged:true});
   if(drillTerm)openSub(drillTerm);buildCloud();refresh();}
 function renderInstanceView(area,sum){
   const claimed=claimedNames();
   const groups=DATA.instance_groups.map((g,i)=>({g,i,live:g.names.filter(n=>!claimed.has(n)).length}));
   const liveTotal=groups.reduce((a,x)=>a+x.live,0);
+  const liveGroups=groups.filter(x=>x.live>0 && !gone.has('ICARD::'+x.i)).length;
   sum.textContent=DATA.instance_groups.length+' instance groups · '+nf(liveTotal)+' objects share a source mesh';
+  const bulk=liveGroups>0
+    ? `<div class="instbulk"><button class="mergebtn big" onclick="mergeAllInstances()">Merge all instances (${nf(liveGroups)} groups → ${nf(liveGroups)} objects)</button>
+        <span class="hint">each source mesh collapses to one object; results stay mergeable</span></div>`
+    : '';
   const cards=groups.map(({g,i,live})=>{
     const state=gone.has('ICARD::'+i)?(gone.has('IDEL::'+i)?'del':'merge'):null;
     const gclaimed = live===0 && !state;
     const foot = state
-      ? `<div class="foot done"><div class="doneTag ${state==='del'?'wasdel':''}">${state==='del'?'✓ queued for delete':'✓ queued to merge → left the pool'}</div></div>`
+      ? `<div class="foot done"><div class="doneTag ${state==='del'?'wasdel':''}">${state==='del'?'✓ queued for delete':'✓ queued to merge → back in the pool'}</div></div>`
       : gclaimed ? `<div class="foot done"><div class="doneTag">all claimed elsewhere</div></div>`
       : `<div class="foot"><button class="mergebtn" onclick="doOpInstance('merge',${i})">Merge ${nf(live)} → 1</button>
          <button class="delbtn" onclick="doOpInstance('delete',${i})" title="delete these instances">Delete</button></div>`;
@@ -558,16 +603,24 @@ function renderInstanceView(area,sum){
       <div class="names"><div class="nameline"><span>${esc(g.names[0])}</span><span class="qty">×1</span></div>
       ${g.names.length>1?`<div class="nameline" style="color:var(--dim)"><span>+ ${nf(g.names.length-1)} more sharing this mesh</span><span></span></div>`:''}</div>${foot}</div>`;
   });
-  area.innerHTML='<div class="grid">'+cards.join('')+'</div>';
+  area.innerHTML=bulk+'<div class="grid">'+cards.join('')+'</div>';
 }
-function doOpInstance(kind,i){
+function queueInstance(i,kind){
   const g=DATA.instance_groups[i];
   const claimed=claimedNames();
   const names=g.names.filter(n=>!claimed.has(n));
-  if(!names.length)return;
+  if(!names.length)return false;
   gone.add('ICARD::'+i); if(kind==='delete')gone.add('IDEL::'+i);
-  (kind==='merge'?mergeQ:delQ).push({label:g.label,objs:names.length,
-    groups:[{name:g.label+' (instanced)',count:names.length}],names,instance:i});
+  const entry={label:g.label,objs:names.length,groups:[{name:g.label+' (instanced)',count:names.length}],names,instance:i};
+  (kind==='merge'?mergeQ:delQ).push(entry);
+  if(kind==='merge')synthGroups.push({name:g.label,count:names.length,names,bin:entry,merged:true});
+  return true;
+}
+function doOpInstance(kind,i){ if(queueInstance(i,kind)){buildCloud();refresh();} }
+function mergeAllInstances(){
+  let added=0;
+  DATA.instance_groups.forEach((g,i)=>{ if(!gone.has('ICARD::'+i)&&queueInstance(i,'merge'))added++; });
+  if(added){toast(`Queued ${nf(added)} instance groups to merge`);}
   buildCloud();refresh();
 }
 function cardMatch(key,name){
@@ -601,6 +654,7 @@ function unqueue(kind,label){
   gone.delete('CARD::'+(label==='one-offs'?'__leftover__':label));
   gone.delete('DEL::'+(label==='one-offs'?'__leftover__':label));
   if(q.instance!==undefined){ gone.delete('ICARD::'+q.instance); gone.delete('IDEL::'+q.instance); }
+  synthGroups=synthGroups.filter(sg=>sg.bin!==q);   // drop its merged-result pool item
   arr.splice(i,1);
   if(drillTerm)openSub(drillTerm);
   buildCloud(); refresh();   // refresh() -> updateBottom() -> renderResults()
@@ -696,7 +750,7 @@ async function openBlend(){
           instance_groups:res.instance_groups||[],instance_total:res.instance_total||0};
     instanceMode=false;
     // reset session state
-    removed=new Set();selected=[];gone=new Set();mergeQ=[];delQ=[];drillTerm=null;
+    removed=new Set();selected=[];gone=new Set();mergeQ=[];delQ=[];drillTerm=null;synthGroups=[];
     document.getElementById('startScreen').classList.add('hide');
     document.getElementById('fileChip').style.display='';
     document.getElementById('fileName').textContent=path.split(/[\\/]/).pop();
