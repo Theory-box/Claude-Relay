@@ -121,6 +121,18 @@ handling needed.
      **delete** (remove objects entirely). Execute reports the delete count separately
      and confirms it before running, since a wrong delete is worse than a wrong merge.
 
+### Cloud refresh
+
+As merges and deletes claim objects, the pool shrinks and the initial cloud (ranked
+on the full 52k) goes stale. A **Refresh** control rebuilds the cloud from only the
+objects still in the pool: chip frequencies re-rank, fully-claimed terms drop out, and
+terms too rare to surface at the start can now appear — letting the user work down
+through the remaining "untouched" objects until the file is clean. Refresh re-runs
+facet detection and sticky-compound analysis on the remaining names; hand-added custom
+chips are preserved if they still have objects, and current selection is kept where
+its terms still resolve. The Refresh button shows a subtle "stale" state once anything
+is queued, signalling when a rebuild is worthwhile.
+
 ### Undo / un-queue
 
 Nothing is permanent until Execute, so the plan is fully reversible. In the **Results**
