@@ -131,11 +131,24 @@ def op_py_conditional_module(lines, guard, anchor, already, module, rna_type):
     return lines[:j] + ins + lines[j:]
 
 
+def op_insert_block(lines, guard, anchor, already, text, position, marker):
+    """Insert a literal block (from the manifest) before/after a unique anchor.
+    Idempotent via a unique marker substring that the block must contain."""
+    if any(marker in ln for ln in lines):
+        already.append(anchor)
+        return lines
+    i = _find_unique_line(lines, anchor)
+    block = [ln if ln.endswith("\n") else ln + "\n" for ln in text]
+    if position == "before":
+        return lines[:i] + block + lines[i:]
+    return lines[:i + 1] + block + lines[i + 1:]
+
+
 OPS = {
     "c_ifdef_line": op_c_ifdef_line,
     "c_ifdef_block": op_c_ifdef_block,
     "cmake_if_wrap": op_cmake_if_wrap,
-    "cmake_option_block": op_cmake_option_block,
+    "insert_block": op_insert_block,
     "py_conditional_module": op_py_conditional_module,
 }
 
@@ -164,6 +177,10 @@ def instrument(manifest_path, chunk, tree):
         if e["op"] == "py_conditional_module":
             kw["module"] = e["module"]
             kw["rna_type"] = e["rna_type"]
+        if e["op"] == "insert_block":
+            kw["text"] = e["text"]
+            kw["position"] = e.get("position", "after")
+            kw["marker"] = e["marker"]
         new = op(lines, guard, e["anchor"], already, **kw)
         if new is not lines:
             _write(path, "".join(new))
@@ -205,6 +222,8 @@ def verify(manifest_path, chunk, tree):
         # presence check
         if e["op"] in ("c_ifdef_line", "c_ifdef_block", "cmake_if_wrap"):
             present = (f"#ifdef {guard}" in text or f"if({guard})" in text)
+        elif e["op"] == "insert_block":
+            present = e["marker"] in text
         else:
             present = f"[chunk] {guard}" in text
         if not present:

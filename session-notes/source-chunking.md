@@ -7,7 +7,7 @@ injection), for building minimal purpose-built Blenders and a customize-and-rebu
 ## Status
 - Design validated against real Blender **v4.4.0** source (cloned separately, not in repo).
 - Engine `source-chunking/engine/chunk_engine.py` works end-to-end on the **console** chunk:
-  instrument / verify / status; idempotent; reversible via git; 17 insertions / 1 deletion.
+  instrument / verify / status; idempotent; reversible via git; 24 insertions / 1 deletion; 8 edits / 6 files.
 - Manifest `source-chunking/manifests/blender-4.4.json` defines the console chunk (5 plug points).
 - ccache + unity + path-normalization findings measured and written up in
   `source-chunking/experiments/ccache/RESULTS.md`.
@@ -21,8 +21,9 @@ injection), for building minimal purpose-built Blenders and a customize-and-rebu
 - Python UI self-adapts via `hasattr(bpy.types, "SpaceX")` (no new bpy.app.build_options entry).
 
 ## Open / next
-- NOT YET COMPILED. Confirm CMake `-DWITH_SPACE_*` propagation reaches both the editors lib
-  and the makesrna generator on a real build.
+- CMake propagation RESOLVED: define declared per-directory in editors/ and makesrna/intern/
+  (mirrors Blender's own WITH_* re-declaration); confirmed by a standalone CMake replica.
+- NOT YET COMPILED. A full build would confirm end-to-end drop + stock .blend still loads.
 - Add clean-leaf chunks to manifest: text, info, spreadsheet, outliner.
 - Handle coupled clusters: image editor (paint/uv), node editor (nodes), animation editors.
 - Consider splitting `rna_space.cc` into per-editor fragments (keystone for truly clean source).

@@ -1,6 +1,6 @@
 {
   "blender_version": "4.4",
-  "notes": "Plug-point map for making Blender editors into toggleable compile-time chunks. Anchors are exact substrings from the v4.4.0 source tree. Each chunk becomes a WITH_SPACE_<NAME> CMake option (default ON) that gates its folder, its space-type registration, its RNA, and its Python UI. Because a chunk's RNA type only exists when compiled, the Python side self-adapts via a hasattr() guard, so no bpy.app.build_options entry is required.",
+  "notes": "Plug-point map for making Blender editors into toggleable compile-time chunks. Anchors are exact substrings from the v4.4.0 source tree. Each chunk becomes a WITH_SPACE_<NAME> CMake option (default ON). The -D<GUARD> define is declared PER-DIRECTORY (editors/ for spacetypes.cc, makesrna/intern/ for rna_space.cc) mirroring how Blender itself re-declares WITH_PYTHON/WITH_CYCLES/etc in makesrna - this guarantees the define reaches both the editors library and the makesrna generator. The Python UI self-adapts via hasattr(bpy.types, ...), so no bpy.app.build_options entry is needed.",
   "chunks": {
     "space_console": {
       "guard": "WITH_SPACE_CONSOLE",
@@ -11,9 +11,44 @@
         {
           "id": "cmake_option",
           "file": "CMakeLists.txt",
-          "op": "cmake_option_block",
+          "op": "insert_block",
           "anchor": "option(WITH_HEADLESS \"Build without graphical support (renderfarm, server mode only)\" OFF)",
-          "option_text": "Include the Python console editor (space_console)"
+          "position": "after",
+          "marker": "# [chunk] WITH_SPACE_CONSOLE",
+          "text": [
+            "# [chunk] WITH_SPACE_CONSOLE",
+            "option(WITH_SPACE_CONSOLE \"Include the Python console editor (space_console)\" ON)"
+          ]
+        },
+        {
+          "id": "editors_define",
+          "file": "source/blender/editors/CMakeLists.txt",
+          "op": "insert_block",
+          "anchor": "  add_subdirectory(animation)",
+          "position": "before",
+          "marker": "# [chunk-def] WITH_SPACE_CONSOLE",
+          "text": [
+            "  # [chunk-def] WITH_SPACE_CONSOLE",
+            "  if(WITH_SPACE_CONSOLE)",
+            "    add_definitions(-DWITH_SPACE_CONSOLE)",
+            "  endif() # WITH_SPACE_CONSOLE",
+            ""
+          ]
+        },
+        {
+          "id": "makesrna_define",
+          "file": "source/blender/makesrna/intern/CMakeLists.txt",
+          "op": "insert_block",
+          "anchor": "if(WITH_PYTHON)",
+          "position": "before",
+          "marker": "# [chunk-def] WITH_SPACE_CONSOLE",
+          "text": [
+            "# [chunk-def] WITH_SPACE_CONSOLE",
+            "if(WITH_SPACE_CONSOLE)",
+            "  add_definitions(-DWITH_SPACE_CONSOLE)",
+            "endif() # WITH_SPACE_CONSOLE",
+            ""
+          ]
         },
         {
           "id": "cmake_subdir",

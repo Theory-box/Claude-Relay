@@ -43,16 +43,32 @@ Two invariants keep removal clean:
 
 For chunk `X` (see `manifests/blender-4.4.json` for the console instance):
 
-1. `CMakeLists.txt` - add `option(WITH_SPACE_X ... ON)` + `add_definitions(-DWITH_SPACE_X)`.
-2. `editors/CMakeLists.txt` - `if(WITH_SPACE_X)` around `add_subdirectory(space_X)`.
-3. `editors/space_api/spacetypes.cc` - `#ifdef WITH_SPACE_X` around `ED_spacetype_X();`.
-4. `makesrna/intern/rna_space.cc` - `#ifdef` around both `rna_def_space_X()` and its
+1. `CMakeLists.txt` - add `option(WITH_SPACE_X ... ON)` (declaration only).
+2. `editors/CMakeLists.txt` - `if(WITH_SPACE_X) add_definitions(-DWITH_SPACE_X)` near the
+   top (before the subdirs, so it reaches `spacetypes.cc`), plus `if(WITH_SPACE_X)` around
+   `add_subdirectory(space_X)`.
+3. `makesrna/intern/CMakeLists.txt` - `if(WITH_SPACE_X) add_definitions(-DWITH_SPACE_X)`
+   so the define reaches the **makesrna generator** that compiles `rna_space.cc`. This
+   per-directory declaration mirrors how Blender itself re-declares WITH_PYTHON / WITH_CYCLES
+   there, and is the guaranteed-correct propagation (see "CMake propagation" below).
+4. `editors/space_api/spacetypes.cc` - `#ifdef WITH_SPACE_X` around `ED_spacetype_X();`.
+5. `makesrna/intern/rna_space.cc` - `#ifdef` around both `rna_def_space_X()` and its
    dispatch call. (This shared file is the one spot the "just drop a folder" model
    breaks; a future cleanup splits it into per-editor fragments.)
-5. `scripts/startup/bl_ui/__init__.py` - register the UI only `if hasattr(bpy.types,
+6. `scripts/startup/bl_ui/__init__.py` - register the UI only `if hasattr(bpy.types,
    "SpaceX")`. Because the RNA type only exists when the chunk is compiled, the
    Python side self-adapts with no extra build-option needed. Mirrors Blender's own
    `bpy.app.build_options.freestyle` pattern.
+
+### CMake propagation (resolved)
+
+The `-DWITH_SPACE_X` define must reach two separate targets: the editors library
+(compiles `spacetypes.cc`) and the makesrna generator (compiles `rna_space.cc`, whose
+`#ifdef` decides what RNA gets emitted). A standalone CMake replica confirmed that
+top-level `add_definitions` *does* inherit into a nested generator subdirectory - but
+per-directory declaration also works and is what Blender ships, so the manifest declares
+the define in `editors/` and `makesrna/intern/` directly. This removes the propagation
+risk that was previously open.
 
 ## The engine
 
@@ -70,14 +86,16 @@ Every guard emitted is tagged (`#endif /* WITH_X */`, `endif() # WITH_X`) so
 
 ### Validation (console chunk, real v4.4.0 tree)
 
-- 6 edits applied across 5 files; footprint = 17 insertions, 1 deletion.
+- 8 edits applied across 6 files; footprint = 24 insertions, 1 deletion.
 - `verify`: all guard blocks balanced -> PASS.
 - **Idempotent**: 2nd `instrument` applies 0 edits (identical diff).
 - **Reversible**: `git checkout --` returns the tree byte-identical.
+- **CMake propagation resolved** via replica + convention-matching (see above).
 
-Not yet done: a real compile. The transform is proven correct textually; the exact
-CMake macro-propagation point (top-level `add_definitions` vs per-target) still
-needs confirmation on an actual build.
+Not yet done: a real compile. The transform is proven correct textually, and the
+macro-propagation path is now settled; a full build (needs the prebuilt lib set and
+significant time) would confirm end-to-end that a `-DWITH_SPACE_CONSOLE=OFF` build
+drops the editor cleanly and still loads a stock `.blend`.
 
 ## Build speed (see experiments/ccache/RESULTS.md)
 
