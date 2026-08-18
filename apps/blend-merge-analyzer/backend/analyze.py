@@ -156,6 +156,23 @@ def analyze(records, ignore_rules=None, min_group=1):
         vocab.append({"t": tok, "n": n, "tier": 5 if _is_dim(tok) else 4})
         seen.add(tok)
 
+    # ---- instance groups: objects sharing one source mesh (linked duplicates) ----
+    # Grouped by data_name, not object name: 200 lights on source A and 200 on source B
+    # are two groups. Only meshes used by >1 object count as instanced.
+    inst = defaultdict(list)
+    for rec in records:
+        dn = rec.get("data_name")
+        if dn:
+            inst[dn].append(rec["name"])
+    instance_groups = []
+    for dn, nms in inst.items():
+        if len(nms) < 2:
+            continue
+        lbl = Counter(clean_name(n, ignore_regexes) or n for n in nms).most_common(1)[0][0]
+        instance_groups.append({"label": lbl, "count": len(nms), "names": nms})
+    instance_groups.sort(key=lambda g: -g["count"])
+    instance_total = sum(g["count"] for g in instance_groups)
+
     return {
         "total": total,
         "unique": len(key_counts),
@@ -165,6 +182,8 @@ def analyze(records, ignore_rules=None, min_group=1):
         "cats": cats,
         "compounds": compounds,
         "vocab": vocab,
+        "instance_groups": instance_groups,
+        "instance_total": instance_total,
     }
 
 def resolve(term, groups, gone=None):

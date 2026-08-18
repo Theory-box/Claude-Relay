@@ -83,6 +83,13 @@
   .chip.kind-token{opacity:.68}
   .chip.kind-dim{opacity:.46;color:var(--muted)}
   .chip.on{opacity:1}
+  /* the special Instanced chip + its cards use a distinct violet accent */
+  .chip.instanced{border-color:var(--ix-line);color:var(--ix);background:linear-gradient(180deg,rgba(167,139,250,.14),rgba(167,139,250,.05));font-weight:600}
+  .chip.instanced:hover{border-color:var(--ix);box-shadow:0 0 0 1px var(--ix-line)}
+  .chip.instanced.on{background:var(--ix);color:#160e2e;border-color:var(--ix)}
+  .chip.instanced .c{color:inherit;opacity:.8}
+  .card.inst{border-color:var(--ix-line)}
+  .card.inst .badge.inst{background:rgba(167,139,250,.16);color:var(--ix);border-color:var(--ix-line)}
   #pane-cloud.subon .cloudscroll{flex:7 1 0}
   .cloud{display:flex;flex-wrap:wrap;gap:6px;margin:2px 2px 6px}
 
@@ -343,6 +350,10 @@ let DATA=null;
 const TINTS=['#e06c9f','#6c9fe0','#8bd46c','#e0b56c','#c98bff','#6ce0d4','#e0806c','#a0a8b8','#d46cae','#7cc4e0','#b6d46c','#e0a06c','#9b8bff','#6cd4b0','#d47c6c','#8b93a3'];
 const nf=n=>n.toLocaleString('en-US');
 let cloudItems=[], removed=new Set(), selected=[], gone=new Set(), mergeQ=[], delQ=[], drillTerm=null;
+let instanceMode=false;
+// every queued op stores its object names; their union is the single source of truth for
+// what's already claimed, so name-based and instance-based merges never double-claim.
+function claimedNames(){const s=new Set();[...mergeQ,...delQ].forEach(q=>(q.names||[]).forEach(n=>s.add(n)));return s;}
 const splitters=['PT##','SIDING ##'];
 
 /* tabs */
@@ -396,6 +407,17 @@ function addCloudItem(t,n,kind){if(cloudItems.find(c=>c.t.toLowerCase()===t.toLo
 
 function buildCloud(){
   const cloud=document.getElementById('cloud');cloud.innerHTML='';
+  if((DATA.instance_groups||[]).length){
+    const claimed=claimedNames();
+    const liveInst=DATA.instance_groups.reduce((a,g)=>a+g.names.filter(n=>!claimed.has(n)).length,0);
+    const el=document.createElement('span');
+    el.className='chip instanced'+(instanceMode?' on':'')+(liveInst===0?' claimed':'');
+    el.style.fontSize='15px';
+    el.innerHTML=`\u21bb Instanced<span class="c">${liveInst===0?'done':nf(liveInst)}</span>`;
+    el.title='objects that share a source mesh (linked duplicates), grouped by source';
+    el.onclick=()=>{instanceMode=!instanceMode;closeSub();buildCloud();refresh();};
+    cloud.appendChild(el);
+  }
   const items=cloudItems.filter(i=>!removed.has(i.t)&&(i.tier||1)<=breadth&&i.n>=freqLo&&i.n<=freqHi);
   const ns=items.map(i=>i.n||1),max=Math.max(...ns),min=Math.min(...ns);
   items.slice().sort((a,b)=>(b.n||0)-(a.n||0)).forEach(it=>{
@@ -461,6 +483,7 @@ function totalCount(term){const q=term.toLowerCase();return DATA.groups.filter(g
 
 function refresh(){
   const area=document.getElementById('listArea'),sum=document.getElementById('selSummary');
+  if(instanceMode){renderInstanceView(area,sum);updateBottom();return;}
   if(!selected.length){area.innerHTML=`<div class="empty"><div class="big">Pick terms on the left to build lists.</div>
     Each term becomes its own list. Select two and any overlap shows as an extra <span class="ixmark">∩</span> list. Merge and Delete are always buttons you press.</div>`;
     sum.textContent='nothing selected';updateBottom();return;}
@@ -512,6 +535,36 @@ function doOp(kind,key,objs){key=decodeURIComponent(key);
   const label=key==='__leftover__'?'one-offs':key;
   (kind==='merge'?mergeQ:delQ).push({label,objs,groups:grps,names});
   if(drillTerm)openSub(drillTerm);buildCloud();refresh();}
+function renderInstanceView(area,sum){
+  const claimed=claimedNames();
+  const groups=DATA.instance_groups.map((g,i)=>({g,i,live:g.names.filter(n=>!claimed.has(n)).length}));
+  const liveTotal=groups.reduce((a,x)=>a+x.live,0);
+  sum.textContent=DATA.instance_groups.length+' instance groups · '+nf(liveTotal)+' objects share a source mesh';
+  const cards=groups.map(({g,i,live})=>{
+    const state=gone.has('ICARD::'+i)?(gone.has('IDEL::'+i)?'del':'merge'):null;
+    const gclaimed = live===0 && !state;
+    const foot = state
+      ? `<div class="foot done"><div class="doneTag ${state==='del'?'wasdel':''}">${state==='del'?'✓ queued for delete':'✓ queued to merge → left the pool'}</div></div>`
+      : gclaimed ? `<div class="foot done"><div class="doneTag">all claimed elsewhere</div></div>`
+      : `<div class="foot"><button class="mergebtn" onclick="doOpInstance('merge',${i})">Merge ${nf(live)} → 1</button>
+         <button class="delbtn" onclick="doOpInstance('delete',${i})" title="delete these instances">Delete</button></div>`;
+    return `<div class="card inst ${state||gclaimed?'gone':''}"><h3><span class="term">${esc(g.label)}</span><span class="badge inst">⟳ ${nf(live)}</span></h3>
+      <div class="meta"><span>share <b>one</b> source mesh · linked duplicates</span><span>collapses to <b>1</b></span></div>
+      <div class="names"><div class="nameline"><span>${esc(g.names[0])}</span><span class="qty">×1</span></div>
+      ${g.names.length>1?`<div class="nameline" style="color:var(--dim)"><span>+ ${nf(g.names.length-1)} more sharing this mesh</span><span></span></div>`:''}</div>${foot}</div>`;
+  });
+  area.innerHTML='<div class="grid">'+cards.join('')+'</div>';
+}
+function doOpInstance(kind,i){
+  const g=DATA.instance_groups[i];
+  const claimed=claimedNames();
+  const names=g.names.filter(n=>!claimed.has(n));
+  if(!names.length)return;
+  gone.add('ICARD::'+i); if(kind==='delete')gone.add('IDEL::'+i);
+  (kind==='merge'?mergeQ:delQ).push({label:g.label,objs:names.length,
+    groups:[{name:g.label+' (instanced)',count:names.length}],names,instance:i});
+  buildCloud();refresh();
+}
 function cardMatch(key,name){
   if(key.startsWith('All selected')){return selected.some(s=>name.toLowerCase().includes(s.t.toLowerCase()));}
   if(key.includes(' ∩ ')){const[a,b]=key.split(' ∩ ');return name.toLowerCase().includes(a.toLowerCase())&&name.toLowerCase().includes(b.toLowerCase());}
@@ -542,6 +595,7 @@ function unqueue(kind,label){
   (q.groups||[]).forEach(g=>gone.delete(g.name));
   gone.delete('CARD::'+(label==='one-offs'?'__leftover__':label));
   gone.delete('DEL::'+(label==='one-offs'?'__leftover__':label));
+  if(q.instance!==undefined){ gone.delete('ICARD::'+q.instance); gone.delete('IDEL::'+q.instance); }
   arr.splice(i,1);
   if(drillTerm)openSub(drillTerm);
   buildCloud(); refresh();   // refresh() -> updateBottom() -> renderResults()
@@ -633,7 +687,9 @@ async function openBlend(){
     const version=(document.getElementById('verSelStart').value||document.getElementById('verSel').value||undefined);
     const res=await api('/api/analyze',{path,version});
     DATA={total:res.total,unique:res.unique,singletons:res.singletons,
-          groups:res.groups,facets:res.facets,compounds:res.compounds,cats:res.cats,vocab:res.vocab};
+          groups:res.groups,facets:res.facets,compounds:res.compounds,cats:res.cats,vocab:res.vocab,
+          instance_groups:res.instance_groups||[],instance_total:res.instance_total||0};
+    instanceMode=false;
     // reset session state
     removed=new Set();selected=[];gone=new Set();mergeQ=[];delQ=[];drillTerm=null;
     document.getElementById('startScreen').classList.add('hide');
@@ -652,7 +708,8 @@ function namesForKey(key){
   const out=[];
   if(key==='__leftover__'){ DATA.groups.forEach(g=>{if(g.count===1&&!gone.has(g.name))out.push(...(g.names||[]));}); return out; }
   DATA.groups.forEach(g=>{ if(!gone.has(g.name)&&cardMatch(key,g.name)) out.push(...(g.names||[])); });
-  return out;
+  const claimed=claimedNames();
+  return out.filter(n=>!claimed.has(n));
 }
 
 async function doExecute(openAfter){
