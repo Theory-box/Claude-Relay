@@ -86,6 +86,12 @@ handling needed.
      merging broad `Railing` greys narrow `Patio Railing` (fully claimed), while
      merging narrow `Patio Railing` only shrinks `Railing`'s count. Greyed chips are
      not deleted; the user can still remove them manually.
+   - **Union card.** Whenever 2+ terms are selected, the grouping list also shows an
+     **"All selected"** card: the de-duplicated union of every object matched by any
+     selected chip, regardless of shared wording. It carries its own Merge and Delete
+     buttons, so terms that never co-occur in a name (e.g. `hand` + `railing`) can still
+     be merged or deleted together. Objects matching several selected terms count once;
+     the card respects claiming like any other.
    - The **∩ overlap card** remains the pre-merge decision surface: two still-live terms
      that share objects show a combined card so the user chooses which bucket the shared
      objects go to; once one side is merged, the shared objects leave and the overlap
