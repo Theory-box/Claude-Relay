@@ -207,6 +207,7 @@ _state = {
     "seen_target_key": None,  # (material_name, node_name) last noticed as active
     "last_device": "",        # what the last render actually ran on
     "worker": None,           # persistent warm worker Popen (live mode only)
+    "notice": "",             # persistent info note (e.g. EEVEE fell back)
 }
 
 
@@ -472,7 +473,7 @@ def _remove_created(created):
                 pass
 
 
-def start_job(context, warm=False):
+def start_job(context, warm=False, engine_override=None):
     """Build the temp scene, write it to a .blend, and render it.
 
     warm=True routes to the persistent live worker; otherwise a one-shot
@@ -489,7 +490,9 @@ def start_job(context, warm=False):
     tiling = int(context.scene.np_tiling)
     samples = int(context.scene.np_samples)
     mode = _get_device_mode()
-    engine = getattr(context.scene, "np_engine", "CYCLES")
+    engine = engine_override or getattr(context.scene, "np_engine", "CYCLES")
+    if engine_override is None:
+        _state["notice"] = ""   # a fresh user-initiated render clears the note
     _state["last_target_key"] = (mat.name, node.name)
 
     _state["busy"] = True
@@ -526,7 +529,7 @@ def start_job(context, warm=False):
             pass
         if _send_warm_job(blend, JOB_SCENE_NAME, png, samples, mode, engine):
             _state["job"] = {"warm": True, "blend": blend, "png": png, "done": done,
-                             "tiling": tiling, "started": time.time()}
+                             "tiling": tiling, "engine": engine, "started": time.time()}
             _state["busy"] = False
             _state["cooldown_until"] = time.time() + 0.05
             _ensure_timer()
@@ -554,7 +557,8 @@ def start_job(context, warm=False):
         return False, "Could not launch background Blender: %s" % exc
 
     _state["job"] = {"warm": False, "proc": proc, "blend": blend, "png": png,
-                     "status": status, "tiling": tiling, "started": time.time()}
+                     "status": status, "tiling": tiling, "engine": engine,
+                     "started": time.time()}
     _state["busy"] = False
     _state["cooldown_until"] = time.time() + 0.05
     _ensure_timer()
@@ -615,6 +619,25 @@ def _store_result(png_path, tiling):
     return res_img
 
 
+def _fallback_eevee_to_cycles(job):
+    """An EEVEE job failed (EEVEE is unreliable in Blender's background mode).
+    Switch to Cycles and retry immediately. Returns True if it did."""
+    if job.get("engine") != "EEVEE":
+        return False
+    try:
+        bpy.context.scene.np_engine = "CYCLES"
+    except Exception:
+        pass
+    _cleanup_job_files(job)
+    _state["job"] = None
+    _state["busy"] = False
+    _state["notice"] = "EEVEE couldn't render in background — using Cycles."
+    _state["last_error"] = ""
+    start_job(bpy.context, warm=job.get("warm", False), engine_override="CYCLES")
+    _redraw_node_editors()
+    return True
+
+
 def _complete_job():
     """If the in-flight job finished, load its result. Returns True if done."""
     job = _state["job"]
@@ -624,9 +647,15 @@ def _complete_job():
     if job.get("warm"):
         # Warm worker signals completion by writing the .done sidecar.
         if not os.path.exists(job["done"]):
-            if time.time() - job["started"] > 120.0:
-                # Something stuck — drop this job and recycle the worker.
-                _state["last_error"] = "Preview render timed out."
+            worker_dead = not _warm_alive()
+            timed_out = time.time() - job["started"] > 120.0
+            if worker_dead or timed_out:
+                # A crash (e.g. EEVEE in background) kills the worker with no
+                # .done. Try Cycles before giving up.
+                if _fallback_eevee_to_cycles(job):
+                    return True
+                _state["last_error"] = ("Background worker crashed."
+                                        if worker_dead else "Preview render timed out.")
                 _stop_warm_worker()
                 _cleanup_job_files(job)
                 _state["job"] = None
@@ -639,21 +668,25 @@ def _complete_job():
                     payload = f.read().strip()
             except Exception:
                 payload = ""
-            if payload.startswith("ERR:"):
-                _state["last_error"] = "Background render failed: " + payload[4:]
-            elif os.path.exists(job["png"]):
+            if payload.startswith("ERR:") or not os.path.exists(job["png"]):
+                if _fallback_eevee_to_cycles(job):
+                    _state["busy"] = False
+                    return True
+                _state["last_error"] = ("Background render failed: " + payload[4:]
+                                        if payload.startswith("ERR:")
+                                        else "Background render produced no image.")
+            else:
                 _state["last_device"] = payload
                 _store_result(job["png"], job["tiling"])
                 _state["last_error"] = ""
-            else:
-                _state["last_error"] = "Background render produced no image."
         except Exception as exc:
             _state["last_error"] = "Loading preview failed: %s" % exc
         finally:
-            _cleanup_job_files(job)
-            _state["job"] = None
-            _state["busy"] = False
-            _state["cooldown_until"] = time.time() + 0.05
+            if _state["job"] is job:      # not already replaced by a fallback
+                _cleanup_job_files(job)
+                _state["job"] = None
+                _state["busy"] = False
+                _state["cooldown_until"] = time.time() + 0.05
         _redraw_node_editors()
         return True
 
@@ -666,6 +699,8 @@ def _complete_job():
                 proc.wait(timeout=5)
             except Exception:
                 pass
+            if _fallback_eevee_to_cycles(job):
+                return True
             _state["last_error"] = "Preview render timed out."
             _cleanup_job_files(job)
             _state["job"] = None
@@ -683,14 +718,18 @@ def _complete_job():
             _store_result(job["png"], job["tiling"])
             _state["last_error"] = ""
         else:
+            if _fallback_eevee_to_cycles(job):
+                _state["busy"] = False
+                return True
             _state["last_error"] = "Background render failed (code %s)." % proc.returncode
     except Exception as exc:
         _state["last_error"] = "Loading preview failed: %s" % exc
     finally:
-        _cleanup_job_files(job)
-        _state["job"] = None
-        _state["busy"] = False
-        _state["cooldown_until"] = time.time() + 0.05
+        if _state["job"] is job:          # not already replaced by a fallback
+            _cleanup_job_files(job)
+            _state["job"] = None
+            _state["busy"] = False
+            _state["cooldown_until"] = time.time() + 0.05
     _redraw_node_editors()
     return True
 
@@ -1078,6 +1117,8 @@ class NODEPREVIEW_PT_panel(bpy.types.Panel):
                 box.label(text="Node: " + node.name, icon="NODE")
         if _state["last_error"]:
             box.label(text=_state["last_error"], icon="ERROR")
+        if _state["notice"]:
+            box.label(text=_state["notice"], icon="INFO")
 
         res_img = bpy.data.images.get(RESULT_IMAGE_NAME)
         if res_img is not None:
@@ -1116,7 +1157,9 @@ def register():
                     "Cycles is the safe fallback and works on CPU too",
         items=[
             ("CYCLES", "Cycles", "Path tracer — reliable on CPU or GPU"),
-            ("EEVEE", "EEVEE", "Rasteriser — usually much faster on a GPU (needs a GPU to be quick)"),
+            ("EEVEE", "EEVEE (experimental)",
+             "Rasteriser — faster on a GPU, but can't always render in Blender's "
+             "background worker; falls back to Cycles automatically if it fails"),
         ],
         default="CYCLES",
     )

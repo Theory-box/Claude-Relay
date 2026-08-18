@@ -214,3 +214,18 @@ our own datablock churn doesn't self-trigger).
 - Verified on 4.4 (no GPU box): both engines render correct identical swatch via
   manual AND warm paths. EEVEE ~6.6s here in software; will be fast on the user's
   GPU. Note: the Auto/GPU/CPU device pref only affects Cycles (EEVEE always GPU).
+
+## v0.15 — EEVEE background crash -> auto-fallback to Cycles
+- BUG: EEVEE ("Background render failed (code 11)") — EEVEE needs a GPU context
+  that `blender -b` doesn't reliably provide; it crashes (segfault) on real GPU
+  drivers even though it limped through in software on the test box (EGL_BAD_MATCH
+  warnings). EEVEE-in-background is fundamentally unreliable cross-platform.
+- FIX: when an EEVEE job fails (one-shot non-zero exit / warm worker crash /
+  no image), auto-switch np_engine to Cycles and retry immediately, with a
+  persistent panel notice "EEVEE couldn't render in background — using Cycles."
+  Warm path now detects worker DEATH (not just 120s timeout) so fallback is fast.
+- The notice clears on the next user-initiated render. EEVEE stays selectable
+  for setups/versions where it works; it just can't leave you stuck.
+- Immediate user unblock: switch Engine dropdown back to Cycles.
+- Verified: EEVEE-fail -> Cycles retry renders; normal Cycles clean; warm live
+  reuse intact (0.07s reuse vs 10.7s cold); worker stops on live-off; no leftovers.
