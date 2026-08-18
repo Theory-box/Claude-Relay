@@ -162,6 +162,31 @@ box). This replaces the earlier "click a more specific chip" narrowing model.
 
 ---
 
+## Delivery & packaging
+
+Single-entry requirement: the user touches exactly one thing. Two deliverables:
+
+- **`.exe`** — one self-contained Windows executable built by **GitHub Actions**
+  (PyInstaller, mirroring the existing `relay.spec`). Double-click, no Python install.
+- **Zip + one-click launcher** — for immediate use without a build wait: unzip and
+  double-click a single launcher (`.bat`/`.command`) that opens the app window.
+
+Internally the app is still multiple small files (a browser-sandboxed `.html` cannot
+launch Blender or read disk, so it can't be the clickable entry). The entire UI is one
+self-contained HTML file; the Python backend sits alongside it. Blender scripts that
+run inside Blender are **embedded as string constants in the engine and written to a
+temp file at runtime**, so the "inside-Blender" logic doesn't add loose files.
+
+## Execution model
+
+- **Blender discovery** — auto-detect installed Blenders (reuse
+  `blender_manage.discover`); the UI shows a **version dropdown** so the user picks
+  which build runs. Missing builds can be fetched as portable downloads.
+- **Two execute buttons:** **Execute** (runs headless/silent, saves the copy) and
+  **Execute & open** (runs, then opens the result in Blender's GUI for inspection).
+- Save-as-copy remains ON by default for both; original never modified unless the user
+  explicitly toggles overwrite (which confirms first).
+
 ## Architecture (mirrors blend-compat-scanner)
 
 ```
