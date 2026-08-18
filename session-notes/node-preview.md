@@ -229,3 +229,17 @@ our own datablock churn doesn't self-trigger).
 - Immediate user unblock: switch Engine dropdown back to Cycles.
 - Verified: EEVEE-fail -> Cycles retry renders; normal Cycles clean; warm live
   reuse intact (0.07s reuse vs 10.7s cold); worker stops on live-off; no leftovers.
+
+## v0.16 — degrade chain + real error surfacing (code 11 on Cycles/OptiX)
+- REPORT: WF-1 material crashed the worker with "code 11" on Cycles GPU (OPTIX)
+  too, not just EEVEE. Likely an OptiX-specific crash on some node in that
+  material (OptiX has feature limits CPU/CUDA don't).
+- FIX 1: generalised the fallback into a degrade chain — EEVEE -> Cycles, then
+  Cycles-on-GPU -> Cycles-on-CPU. A GPU/OptiX crash now auto-retries on CPU
+  (reliable) with a notice. start_job gained mode_override; jobs record engine+mode.
+- FIX 2: worker now wraps the render in try/except and writes ERR:<traceback> to
+  the status/done file, so Python-level failures show the REAL message instead of
+  "code 11". One-shot worker stdout+stderr captured to <temp>/np_last_render.log
+  for diagnosing hard (C-level) crashes; failure message points at it.
+- Verified: EEVEE->Cycles->CPU chain retries and renders; real ERR surfaced;
+  normal renders don't spuriously degrade; warm reuse intact.

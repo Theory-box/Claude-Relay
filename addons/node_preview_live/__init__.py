@@ -171,9 +171,10 @@ if argv and argv[0] == "--serve":
             with open(done, "w") as f:
                 f.write(dev)
         except Exception as e:
+            import traceback
             try:
                 with open(done, "w") as f:
-                    f.write("ERR:" + str(e))
+                    f.write("ERR:" + traceback.format_exc()[-500:])
             except Exception:
                 pass
     # falling out of the loop ends the script; blender -b then quits.
@@ -182,12 +183,17 @@ else:
     # command line, so render directly and write a status sidecar.
     scene_name, out_path, samples, mode, engine, status_path = (
         argv[0], argv[1], int(argv[2]), argv[3], argv[4], argv[5])
-    dev = _setup_and_render(scene_name, out_path, samples, mode, engine)
     try:
+        dev = _setup_and_render(scene_name, out_path, samples, mode, engine)
         with open(status_path, "w") as f:
             f.write(dev)
     except Exception:
-        pass
+        import traceback
+        try:
+            with open(status_path, "w") as f:
+                f.write("ERR:" + traceback.format_exc()[-500:])
+        except Exception:
+            pass
 '''
 
 # Live-loop / job state (kept off bpy props so timer + handler can mutate it).
@@ -473,7 +479,7 @@ def _remove_created(created):
                 pass
 
 
-def start_job(context, warm=False, engine_override=None):
+def start_job(context, warm=False, engine_override=None, mode_override=None):
     """Build the temp scene, write it to a .blend, and render it.
 
     warm=True routes to the persistent live worker; otherwise a one-shot
@@ -489,9 +495,9 @@ def start_job(context, warm=False, engine_override=None):
     resolution = int(context.scene.np_resolution)
     tiling = int(context.scene.np_tiling)
     samples = int(context.scene.np_samples)
-    mode = _get_device_mode()
+    mode = mode_override or _get_device_mode()
     engine = engine_override or getattr(context.scene, "np_engine", "CYCLES")
-    if engine_override is None:
+    if engine_override is None and mode_override is None:
         _state["notice"] = ""   # a fresh user-initiated render clears the note
     _state["last_target_key"] = (mat.name, node.name)
 
@@ -529,7 +535,8 @@ def start_job(context, warm=False, engine_override=None):
             pass
         if _send_warm_job(blend, JOB_SCENE_NAME, png, samples, mode, engine):
             _state["job"] = {"warm": True, "blend": blend, "png": png, "done": done,
-                             "tiling": tiling, "engine": engine, "started": time.time()}
+                             "tiling": tiling, "engine": engine, "mode": mode,
+                             "started": time.time()}
             _state["busy"] = False
             _state["cooldown_until"] = time.time() + 0.05
             _ensure_timer()
@@ -537,10 +544,15 @@ def start_job(context, warm=False, engine_override=None):
         # Warm worker unavailable — fall through to a one-shot render.
 
     # --- One-shot path (manual, or warm fallback) ---
+    log_path = os.path.join(tempfile.gettempdir(), "np_last_render.log")
     try:
         exe = bpy.app.binary_path
         worker = _worker_path()
-        kwargs = dict(stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        try:
+            logf = open(log_path, "w")
+        except Exception:
+            logf = subprocess.DEVNULL
+        kwargs = dict(stdout=logf, stderr=subprocess.STDOUT)
         if os.name == "nt":
             kwargs["creationflags"] = 0x08000000  # CREATE_NO_WINDOW
         proc = subprocess.Popen(
@@ -548,6 +560,11 @@ def start_job(context, warm=False, engine_override=None):
              JOB_SCENE_NAME, png, str(samples), mode, engine, status],
             **kwargs
         )
+        try:
+            if logf is not subprocess.DEVNULL:
+                logf.close()   # child keeps its own handle; we don't need ours
+        except Exception:
+            pass
     except Exception as exc:
         _state["busy"] = False
         try:
@@ -558,7 +575,7 @@ def start_job(context, warm=False, engine_override=None):
 
     _state["job"] = {"warm": False, "proc": proc, "blend": blend, "png": png,
                      "status": status, "tiling": tiling, "engine": engine,
-                     "started": time.time()}
+                     "mode": mode, "log": log_path, "started": time.time()}
     _state["busy"] = False
     _state["cooldown_until"] = time.time() + 0.05
     _ensure_timer()
@@ -619,21 +636,27 @@ def _store_result(png_path, tiling):
     return res_img
 
 
-def _fallback_eevee_to_cycles(job):
-    """An EEVEE job failed (EEVEE is unreliable in Blender's background mode).
-    Switch to Cycles and retry immediately. Returns True if it did."""
-    if job.get("engine") != "EEVEE":
+def _degrade_and_retry(job):
+    """A render failed. Step down to a safer config and retry immediately:
+    EEVEE -> Cycles, then Cycles-on-GPU -> Cycles-on-CPU. Returns True if it
+    kicked off a retry, False if there's nothing safer left to try."""
+    engine = job.get("engine")
+    mode = job.get("mode", "")
+    if engine == "EEVEE":
+        notice = "EEVEE couldn't render in background — using Cycles."
+        eng_next, mode_next = "CYCLES", None
+    elif engine == "CYCLES" and mode != "CPU":
+        notice = "GPU render failed — using CPU (slower but reliable)."
+        eng_next, mode_next = "CYCLES", "CPU"
+    else:
         return False
-    try:
-        bpy.context.scene.np_engine = "CYCLES"
-    except Exception:
-        pass
     _cleanup_job_files(job)
     _state["job"] = None
     _state["busy"] = False
-    _state["notice"] = "EEVEE couldn't render in background — using Cycles."
+    _state["notice"] = notice
     _state["last_error"] = ""
-    start_job(bpy.context, warm=job.get("warm", False), engine_override="CYCLES")
+    start_job(bpy.context, warm=job.get("warm", False),
+              engine_override=eng_next, mode_override=mode_next)
     _redraw_node_editors()
     return True
 
@@ -652,7 +675,7 @@ def _complete_job():
             if worker_dead or timed_out:
                 # A crash (e.g. EEVEE in background) kills the worker with no
                 # .done. Try Cycles before giving up.
-                if _fallback_eevee_to_cycles(job):
+                if _degrade_and_retry(job):
                     return True
                 _state["last_error"] = ("Background worker crashed."
                                         if worker_dead else "Preview render timed out.")
@@ -669,7 +692,7 @@ def _complete_job():
             except Exception:
                 payload = ""
             if payload.startswith("ERR:") or not os.path.exists(job["png"]):
-                if _fallback_eevee_to_cycles(job):
+                if _degrade_and_retry(job):
                     _state["busy"] = False
                     return True
                 _state["last_error"] = ("Background render failed: " + payload[4:]
@@ -699,7 +722,7 @@ def _complete_job():
                 proc.wait(timeout=5)
             except Exception:
                 pass
-            if _fallback_eevee_to_cycles(job):
+            if _degrade_and_retry(job):
                 return True
             _state["last_error"] = "Preview render timed out."
             _cleanup_job_files(job)
@@ -709,19 +732,26 @@ def _complete_job():
 
     _state["busy"] = True
     try:
+        status_txt = ""
         try:
             with open(job["status"], "r") as f:
-                _state["last_device"] = f.read().strip()
+                status_txt = f.read().strip()
         except Exception:
-            _state["last_device"] = ""
+            status_txt = ""
+        if not status_txt.startswith("ERR:"):
+            _state["last_device"] = status_txt
         if proc.returncode == 0 and os.path.exists(job["png"]):
             _store_result(job["png"], job["tiling"])
             _state["last_error"] = ""
         else:
-            if _fallback_eevee_to_cycles(job):
+            if _degrade_and_retry(job):
                 _state["busy"] = False
                 return True
-            _state["last_error"] = "Background render failed (code %s)." % proc.returncode
+            if status_txt.startswith("ERR:"):
+                _state["last_error"] = "Render error: " + status_txt[4:]
+            else:
+                _state["last_error"] = ("Background render failed (code %s). Log: %s"
+                                        % (proc.returncode, job.get("log", "?")))
     except Exception as exc:
         _state["last_error"] = "Loading preview failed: %s" % exc
     finally:
