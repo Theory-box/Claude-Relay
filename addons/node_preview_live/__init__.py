@@ -57,6 +57,11 @@ _WORKER_NAME = "np_worker.py"
 # The worker runs inside a headless "blender -b job.blend --python np_worker.py -- SCENE OUT".
 # It targets the scene by name and renders it to the given path.
 _WORKER_SRC = '''import bpy, sys, os
+try:
+    import addon_utils
+    addon_utils.enable("cycles")   # needed because we run with --factory-startup
+except Exception:
+    pass
 
 def _setup_and_render(scene_name, out_path, samples, mode, engine):
     scene = bpy.data.scenes[scene_name]
@@ -270,7 +275,7 @@ def _ensure_warm_worker():
         if os.name == "nt":
             kwargs["creationflags"] = 0x08000000  # CREATE_NO_WINDOW
         p = subprocess.Popen(
-            [exe, "-b", "--python", worker, "--", "--serve", str(WARM_IDLE_SECS)],
+            [exe, "-b", "--factory-startup", "--python", worker, "--", "--serve", str(WARM_IDLE_SECS)],
             **kwargs)
         _state["worker"] = p
         return p
@@ -556,7 +561,7 @@ def start_job(context, warm=False, engine_override=None, mode_override=None):
         if os.name == "nt":
             kwargs["creationflags"] = 0x08000000  # CREATE_NO_WINDOW
         proc = subprocess.Popen(
-            [exe, "-b", blend, "--python", worker, "--",
+            [exe, "-b", "--factory-startup", blend, "--python", worker, "--",
              JOB_SCENE_NAME, png, str(samples), mode, engine, status],
             **kwargs
         )
@@ -738,9 +743,11 @@ def _complete_job():
                 status_txt = f.read().strip()
         except Exception:
             status_txt = ""
-        if not status_txt.startswith("ERR:"):
+        # The render is a success if the PNG exists and the worker didn't report
+        # an error — even if the process then exited non-zero. (Blender can crash
+        # on shutdown inside unrelated third-party add-ons AFTER saving our image.)
+        if os.path.exists(job["png"]) and not status_txt.startswith("ERR:"):
             _state["last_device"] = status_txt
-        if proc.returncode == 0 and os.path.exists(job["png"]):
             _store_result(job["png"], job["tiling"])
             _state["last_error"] = ""
         else:

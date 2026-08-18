@@ -243,3 +243,24 @@ our own datablock churn doesn't self-trigger).
   for diagnosing hard (C-level) crashes; failure message points at it.
 - Verified: EEVEE->Cycles->CPU chain retries and renders; real ERR surfaced;
   normal renders don't spuriously degrade; warm reuse intact.
+
+## v0.17 — the REAL "code 11" cause: shutdown crash, not the render
+- DIAGNOSIS (from user's np_last_render.log on Windows): the render SUCCEEDED
+  ("Saved: ...np_out...png"), but Blender then crashed at SHUTDOWN inside an
+  unrelated third-party add-on — blender_visual_scripting_addon (Serpens)
+  unregister() raised ValueError, then EXCEPTION_ACCESS_VIOLATION. That gave a
+  non-zero exit which we wrongly reported as "render failed (code 11)". The
+  v0.15/0.16 EEVEE/OptiX-crash theories were WRONG; the material renders fine.
+- FIX 1 (critical): one-shot success is judged by PNG existence (+ no ERR
+  status), NOT the exit code. A crash after the image is saved no longer counts
+  as failure.
+- FIX 2: run the worker with --factory-startup and enable Cycles inside it, so
+  it does NOT load the user's ~30 add-ons (engon/polygoniq, BlenderKit, Serpens,
+  BlenderGIS, ...). Removes the shutdown crash entirely and speeds up worker
+  startup. GPU still selected via the worker's own device scan (refresh_devices
+  detects hardware regardless of prefs).
+- Verified: PNG-with-nonzero-exit accepted as success; isolated worker renders
+  one-shot (2.1s) + warm (0.06s reuse); factory-startup + enable cycles works.
+- Caveats: if a material uses a shader-node TYPE defined by an add-on (rare),
+  --factory-startup won't have it (standard nodes + groups + images are fine);
+  if GPU isn't detected under factory-startup it falls back to CPU.
