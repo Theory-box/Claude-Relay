@@ -19,17 +19,24 @@ ports to new Blender versions by writing a new manifest, not rewriting the tool.
 - 252 `WITH_*` compile flags already exist; Cycles already builds standalone;
   `WITH_HEADLESS` already builds with no UI. The architecture is ~halfway here.
 
-### Chunk map (measured by external coupling to each editor's data struct)
+### Chunk map (measured coupling)
 
-- **Clean leaves** (remove with just the plug-point edits): console, info,
-  spreadsheet, outliner, text.
-- **Semi-independent**: sequencer, clip.
-- **Clusters** (remove as a group): animation editors (action/graph/nla/dopesheet
-  share the anim-channel system); node editor (nodes subsystem); image editor
-  (texture paint + UV + imbuf).
-- **Effectively core** (keep for a usable general app): 3D viewport (coupled via
-  the `ED_view3d` API across 376 files), properties, file browser (backs every
-  open/save dialog), topbar, statusbar, userpref, screen.
+Two signals matter. *Struct* references (who reads an editor's saved data) mostly
+don't block removal, because we keep the DNA struct. *API* references (who calls an
+editor's functions) DO block removal - those are what fail to link in an OFF build.
+
+- **Drop-ready** (0 external API callers - the 8-edit recipe is enough): console,
+  spreadsheet, outliner. (Outliner has 12 struct reads but 0 API calls, so it's clean.)
+- **Leaf-but-needs-consumer-gating** (external API callers must be handled first):
+  - text: undo registration, outliner's jump-to-text, the Text datablock RNA API.
+  - info: `space_info/` also holds shared scene-statistics utilities
+    (`ED_info_statistics_string`, `ED_info_stats_clear`, `ED_info_draw_stats`) used by
+    the status bar, viewport, and RNA - so the stats code must be extracted from the
+    editor folder before Info can drop cleanly.
+- **Clusters** (remove as a group): animation editors (action/graph/nla/dopesheet share
+  the anim-channel system); node editor (nodes subsystem); image editor (paint/UV/imbuf).
+- **Effectively core**: 3D viewport (coupled via `ED_view3d` across 376 files),
+  properties, file browser (backs every open/save dialog), topbar, statusbar, userpref, screen.
 
 So the honest architecture is a mandatory spine + a ring of removable chunks -
 a tiered model, not 25 flat independent toggles.
@@ -84,18 +91,26 @@ chunk_engine.py status     <manifest.json> <chunk> <blender_tree>
 Every guard emitted is tagged (`#endif /* WITH_X */`, `endif() # WITH_X`) so
 `verify` proves open/close balance exactly.
 
-### Validation (console chunk, real v4.4.0 tree)
+### Validation (real v4.4.0 tree)
 
-- 8 edits applied across 6 files; footprint = 24 insertions, 1 deletion.
-- `verify`: all guard blocks balanced -> PASS.
-- **Idempotent**: 2nd `instrument` applies 0 edits (identical diff).
+Manifest now covers **5 chunks** (console, spreadsheet, outliner = drop-ready;
+text, info = need consumer-gating), generated from compact specs by
+`manifests/gen_manifest.py` (adding an editor = adding a spec, not hand-writing edits).
+
+All 5 instrumented onto one tree simultaneously (40 edits, incl. shared-anchor
+stacking and spreadsheet's namespaced registration):
+
+- `verify`: all guard blocks balanced across all 5 -> PASS.
+- **Idempotent**: 2nd pass applies 0 edits.
 - **Reversible**: `git checkout --` returns the tree byte-identical.
+- Footprint: 6 files, 120 insertions, 5 deletions.
 - **CMake propagation resolved** via replica + convention-matching (see above).
 
 Not yet done: a real compile. The transform is proven correct textually, and the
-macro-propagation path is now settled; a full build (needs the prebuilt lib set and
-significant time) would confirm end-to-end that a `-DWITH_SPACE_CONSOLE=OFF` build
-drops the editor cleanly and still loads a stock `.blend`.
+macro-propagation path is settled; a full build (needs the prebuilt lib set and
+significant time) would confirm end-to-end that a `-DWITH_SPACE_*=OFF` build drops
+the editor cleanly and still loads a stock `.blend`. For the drop-ready chunks that
+is the only remaining unknown; for text/info the listed consumers must be gated first.
 
 ## Build speed (see experiments/ccache/RESULTS.md)
 

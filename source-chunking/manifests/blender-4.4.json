@@ -1,12 +1,13 @@
 {
   "blender_version": "4.4",
-  "notes": "Plug-point map for making Blender editors into toggleable compile-time chunks. Anchors are exact substrings from the v4.4.0 source tree. Each chunk becomes a WITH_SPACE_<NAME> CMake option (default ON). The -D<GUARD> define is declared PER-DIRECTORY (editors/ for spacetypes.cc, makesrna/intern/ for rna_space.cc) mirroring how Blender itself re-declares WITH_PYTHON/WITH_CYCLES/etc in makesrna - this guarantees the define reaches both the editors library and the makesrna generator. The Python UI self-adapts via hasattr(bpy.types, ...), so no bpy.app.build_options entry is needed.",
+  "notes": "Chunk plug-point map. Each editor becomes a WITH_SPACE_<NAME> option (default ON). The define is declared per-directory in editors/ and makesrna/intern/ (mirrors Blender's own WITH_* re-declaration) so it reaches both the editors library and the makesrna generator. Python UI self-adapts via hasattr(bpy.types, ...). readiness: 'ready' drops with just these edits; 'needs-consumer-gating' has external API callers (see consumers) that must be handled before an OFF build will link.",
   "chunks": {
     "space_console": {
       "guard": "WITH_SPACE_CONSOLE",
-      "description": "Python console editor",
+      "description": "console editor",
       "rna_type": "SpaceConsole",
-      "coupling": "lowest of all editors (4 external struct references) - the cleanest leaf",
+      "readiness": "ready",
+      "consumers": [],
       "edits": [
         {
           "id": "cmake_option",
@@ -17,7 +18,7 @@
           "marker": "# [chunk] WITH_SPACE_CONSOLE",
           "text": [
             "# [chunk] WITH_SPACE_CONSOLE",
-            "option(WITH_SPACE_CONSOLE \"Include the Python console editor (space_console)\" ON)"
+            "option(WITH_SPACE_CONSOLE \"Include the space_console editor\" ON)"
           ]
         },
         {
@@ -69,7 +70,7 @@
           "anchor": "  rna_def_space_console(brna);"
         },
         {
-          "id": "rna_definition",
+          "id": "rna_definition_0",
           "file": "source/blender/makesrna/intern/rna_space.cc",
           "op": "c_ifdef_block",
           "anchor": "static void rna_def_space_console(BlenderRNA *brna)"
@@ -81,6 +82,349 @@
           "anchor": "    \"space_console\",",
           "module": "space_console",
           "rna_type": "SpaceConsole"
+        }
+      ]
+    },
+    "space_spreadsheet": {
+      "guard": "WITH_SPACE_SPREADSHEET",
+      "description": "spreadsheet editor",
+      "rna_type": "SpaceSpreadsheet",
+      "readiness": "ready",
+      "consumers": [],
+      "edits": [
+        {
+          "id": "cmake_option",
+          "file": "CMakeLists.txt",
+          "op": "insert_block",
+          "anchor": "option(WITH_HEADLESS \"Build without graphical support (renderfarm, server mode only)\" OFF)",
+          "position": "after",
+          "marker": "# [chunk] WITH_SPACE_SPREADSHEET",
+          "text": [
+            "# [chunk] WITH_SPACE_SPREADSHEET",
+            "option(WITH_SPACE_SPREADSHEET \"Include the space_spreadsheet editor\" ON)"
+          ]
+        },
+        {
+          "id": "editors_define",
+          "file": "source/blender/editors/CMakeLists.txt",
+          "op": "insert_block",
+          "anchor": "  add_subdirectory(animation)",
+          "position": "before",
+          "marker": "# [chunk-def] WITH_SPACE_SPREADSHEET",
+          "text": [
+            "  # [chunk-def] WITH_SPACE_SPREADSHEET",
+            "  if(WITH_SPACE_SPREADSHEET)",
+            "    add_definitions(-DWITH_SPACE_SPREADSHEET)",
+            "  endif() # WITH_SPACE_SPREADSHEET",
+            ""
+          ]
+        },
+        {
+          "id": "makesrna_define",
+          "file": "source/blender/makesrna/intern/CMakeLists.txt",
+          "op": "insert_block",
+          "anchor": "if(WITH_PYTHON)",
+          "position": "before",
+          "marker": "# [chunk-def] WITH_SPACE_SPREADSHEET",
+          "text": [
+            "# [chunk-def] WITH_SPACE_SPREADSHEET",
+            "if(WITH_SPACE_SPREADSHEET)",
+            "  add_definitions(-DWITH_SPACE_SPREADSHEET)",
+            "endif() # WITH_SPACE_SPREADSHEET",
+            ""
+          ]
+        },
+        {
+          "id": "cmake_subdir",
+          "file": "source/blender/editors/CMakeLists.txt",
+          "op": "cmake_if_wrap",
+          "anchor": "  add_subdirectory(space_spreadsheet)"
+        },
+        {
+          "id": "spacetype_register",
+          "file": "source/blender/editors/space_api/spacetypes.cc",
+          "op": "c_ifdef_line",
+          "anchor": "  spreadsheet::register_spacetype();"
+        },
+        {
+          "id": "rna_dispatch",
+          "file": "source/blender/makesrna/intern/rna_space.cc",
+          "op": "c_ifdef_line",
+          "anchor": "  rna_def_space_spreadsheet(brna);"
+        },
+        {
+          "id": "rna_definition_0",
+          "file": "source/blender/makesrna/intern/rna_space.cc",
+          "op": "c_ifdef_block",
+          "anchor": "static void rna_def_space_spreadsheet(BlenderRNA *brna)"
+        },
+        {
+          "id": "python_ui",
+          "file": "scripts/startup/bl_ui/__init__.py",
+          "op": "py_conditional_module",
+          "anchor": "    \"space_spreadsheet\",",
+          "module": "space_spreadsheet",
+          "rna_type": "SpaceSpreadsheet"
+        }
+      ]
+    },
+    "space_outliner": {
+      "guard": "WITH_SPACE_OUTLINER",
+      "description": "outliner editor",
+      "rna_type": "SpaceOutliner",
+      "readiness": "ready",
+      "consumers": [],
+      "edits": [
+        {
+          "id": "cmake_option",
+          "file": "CMakeLists.txt",
+          "op": "insert_block",
+          "anchor": "option(WITH_HEADLESS \"Build without graphical support (renderfarm, server mode only)\" OFF)",
+          "position": "after",
+          "marker": "# [chunk] WITH_SPACE_OUTLINER",
+          "text": [
+            "# [chunk] WITH_SPACE_OUTLINER",
+            "option(WITH_SPACE_OUTLINER \"Include the space_outliner editor\" ON)"
+          ]
+        },
+        {
+          "id": "editors_define",
+          "file": "source/blender/editors/CMakeLists.txt",
+          "op": "insert_block",
+          "anchor": "  add_subdirectory(animation)",
+          "position": "before",
+          "marker": "# [chunk-def] WITH_SPACE_OUTLINER",
+          "text": [
+            "  # [chunk-def] WITH_SPACE_OUTLINER",
+            "  if(WITH_SPACE_OUTLINER)",
+            "    add_definitions(-DWITH_SPACE_OUTLINER)",
+            "  endif() # WITH_SPACE_OUTLINER",
+            ""
+          ]
+        },
+        {
+          "id": "makesrna_define",
+          "file": "source/blender/makesrna/intern/CMakeLists.txt",
+          "op": "insert_block",
+          "anchor": "if(WITH_PYTHON)",
+          "position": "before",
+          "marker": "# [chunk-def] WITH_SPACE_OUTLINER",
+          "text": [
+            "# [chunk-def] WITH_SPACE_OUTLINER",
+            "if(WITH_SPACE_OUTLINER)",
+            "  add_definitions(-DWITH_SPACE_OUTLINER)",
+            "endif() # WITH_SPACE_OUTLINER",
+            ""
+          ]
+        },
+        {
+          "id": "cmake_subdir",
+          "file": "source/blender/editors/CMakeLists.txt",
+          "op": "cmake_if_wrap",
+          "anchor": "  add_subdirectory(space_outliner)"
+        },
+        {
+          "id": "spacetype_register",
+          "file": "source/blender/editors/space_api/spacetypes.cc",
+          "op": "c_ifdef_line",
+          "anchor": "  ED_spacetype_outliner();"
+        },
+        {
+          "id": "rna_dispatch",
+          "file": "source/blender/makesrna/intern/rna_space.cc",
+          "op": "c_ifdef_line",
+          "anchor": "  rna_def_space_outliner(brna);"
+        },
+        {
+          "id": "rna_definition_0",
+          "file": "source/blender/makesrna/intern/rna_space.cc",
+          "op": "c_ifdef_block",
+          "anchor": "static void rna_def_space_outliner(BlenderRNA *brna)"
+        },
+        {
+          "id": "python_ui",
+          "file": "scripts/startup/bl_ui/__init__.py",
+          "op": "py_conditional_module",
+          "anchor": "    \"space_outliner\",",
+          "module": "space_outliner",
+          "rna_type": "SpaceOutliner"
+        }
+      ]
+    },
+    "space_text": {
+      "guard": "WITH_SPACE_TEXT",
+      "description": "text editor",
+      "rna_type": "SpaceTextEditor",
+      "readiness": "needs-consumer-gating",
+      "consumers": [
+        "editors/undo/undo_system_types.cc: ED_text_undosys_type registration",
+        "editors/space_outliner/outliner_select.cc: ED_text_activate_in_screen (jump-to-text)",
+        "makesrna/intern/rna_text_api.cc + rna_space_api.cc: Text datablock ED_text_* API"
+      ],
+      "edits": [
+        {
+          "id": "cmake_option",
+          "file": "CMakeLists.txt",
+          "op": "insert_block",
+          "anchor": "option(WITH_HEADLESS \"Build without graphical support (renderfarm, server mode only)\" OFF)",
+          "position": "after",
+          "marker": "# [chunk] WITH_SPACE_TEXT",
+          "text": [
+            "# [chunk] WITH_SPACE_TEXT",
+            "option(WITH_SPACE_TEXT \"Include the space_text editor\" ON)"
+          ]
+        },
+        {
+          "id": "editors_define",
+          "file": "source/blender/editors/CMakeLists.txt",
+          "op": "insert_block",
+          "anchor": "  add_subdirectory(animation)",
+          "position": "before",
+          "marker": "# [chunk-def] WITH_SPACE_TEXT",
+          "text": [
+            "  # [chunk-def] WITH_SPACE_TEXT",
+            "  if(WITH_SPACE_TEXT)",
+            "    add_definitions(-DWITH_SPACE_TEXT)",
+            "  endif() # WITH_SPACE_TEXT",
+            ""
+          ]
+        },
+        {
+          "id": "makesrna_define",
+          "file": "source/blender/makesrna/intern/CMakeLists.txt",
+          "op": "insert_block",
+          "anchor": "if(WITH_PYTHON)",
+          "position": "before",
+          "marker": "# [chunk-def] WITH_SPACE_TEXT",
+          "text": [
+            "# [chunk-def] WITH_SPACE_TEXT",
+            "if(WITH_SPACE_TEXT)",
+            "  add_definitions(-DWITH_SPACE_TEXT)",
+            "endif() # WITH_SPACE_TEXT",
+            ""
+          ]
+        },
+        {
+          "id": "cmake_subdir",
+          "file": "source/blender/editors/CMakeLists.txt",
+          "op": "cmake_if_wrap",
+          "anchor": "  add_subdirectory(space_text)"
+        },
+        {
+          "id": "spacetype_register",
+          "file": "source/blender/editors/space_api/spacetypes.cc",
+          "op": "c_ifdef_line",
+          "anchor": "  ED_spacetype_text();"
+        },
+        {
+          "id": "rna_dispatch",
+          "file": "source/blender/makesrna/intern/rna_space.cc",
+          "op": "c_ifdef_line",
+          "anchor": "  rna_def_space_text(brna);"
+        },
+        {
+          "id": "rna_definition_0",
+          "file": "source/blender/makesrna/intern/rna_space.cc",
+          "op": "c_ifdef_block",
+          "anchor": "static void rna_def_space_text(BlenderRNA *brna)"
+        },
+        {
+          "id": "python_ui",
+          "file": "scripts/startup/bl_ui/__init__.py",
+          "op": "py_conditional_module",
+          "anchor": "    \"space_text\",",
+          "module": "space_text",
+          "rna_type": "SpaceTextEditor"
+        }
+      ]
+    },
+    "space_info": {
+      "guard": "WITH_SPACE_INFO",
+      "description": "info editor",
+      "rna_type": "SpaceInfo",
+      "readiness": "needs-consumer-gating",
+      "consumers": [
+        "space_info/ holds shared scene-statistics utils, NOT just the editor UI:",
+        "  interface_template_status.cc: ED_info_statusbar_string_ex (status bar)",
+        "  space_view3d/view3d_draw.cc: ED_info_draw_stats (viewport overlay)",
+        "  windowmanager/wm_event_system.cc: ED_info_stats_clear",
+        "  rna_screen.cc / rna_scene.cc: ED_info_statistics_string",
+        "=> extract the stats utils out of space_info/ before this can drop cleanly"
+      ],
+      "edits": [
+        {
+          "id": "cmake_option",
+          "file": "CMakeLists.txt",
+          "op": "insert_block",
+          "anchor": "option(WITH_HEADLESS \"Build without graphical support (renderfarm, server mode only)\" OFF)",
+          "position": "after",
+          "marker": "# [chunk] WITH_SPACE_INFO",
+          "text": [
+            "# [chunk] WITH_SPACE_INFO",
+            "option(WITH_SPACE_INFO \"Include the space_info editor\" ON)"
+          ]
+        },
+        {
+          "id": "editors_define",
+          "file": "source/blender/editors/CMakeLists.txt",
+          "op": "insert_block",
+          "anchor": "  add_subdirectory(animation)",
+          "position": "before",
+          "marker": "# [chunk-def] WITH_SPACE_INFO",
+          "text": [
+            "  # [chunk-def] WITH_SPACE_INFO",
+            "  if(WITH_SPACE_INFO)",
+            "    add_definitions(-DWITH_SPACE_INFO)",
+            "  endif() # WITH_SPACE_INFO",
+            ""
+          ]
+        },
+        {
+          "id": "makesrna_define",
+          "file": "source/blender/makesrna/intern/CMakeLists.txt",
+          "op": "insert_block",
+          "anchor": "if(WITH_PYTHON)",
+          "position": "before",
+          "marker": "# [chunk-def] WITH_SPACE_INFO",
+          "text": [
+            "# [chunk-def] WITH_SPACE_INFO",
+            "if(WITH_SPACE_INFO)",
+            "  add_definitions(-DWITH_SPACE_INFO)",
+            "endif() # WITH_SPACE_INFO",
+            ""
+          ]
+        },
+        {
+          "id": "cmake_subdir",
+          "file": "source/blender/editors/CMakeLists.txt",
+          "op": "cmake_if_wrap",
+          "anchor": "  add_subdirectory(space_info)"
+        },
+        {
+          "id": "spacetype_register",
+          "file": "source/blender/editors/space_api/spacetypes.cc",
+          "op": "c_ifdef_line",
+          "anchor": "  ED_spacetype_info();"
+        },
+        {
+          "id": "rna_dispatch",
+          "file": "source/blender/makesrna/intern/rna_space.cc",
+          "op": "c_ifdef_line",
+          "anchor": "  rna_def_space_info(brna);"
+        },
+        {
+          "id": "rna_definition_0",
+          "file": "source/blender/makesrna/intern/rna_space.cc",
+          "op": "c_ifdef_block",
+          "anchor": "static void rna_def_space_info(BlenderRNA *brna)"
+        },
+        {
+          "id": "python_ui",
+          "file": "scripts/startup/bl_ui/__init__.py",
+          "op": "py_conditional_module",
+          "anchor": "    \"space_info\",",
+          "module": "space_info",
+          "rna_type": "SpaceInfo"
         }
       ]
     }

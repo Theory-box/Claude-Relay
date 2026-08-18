@@ -20,11 +20,18 @@ injection), for building minimal purpose-built Blenders and a customize-and-rebu
   **relative paths + CCACHE_BASEDIR**; mold linker.
 - Python UI self-adapts via `hasattr(bpy.types, "SpaceX")` (no new bpy.app.build_options entry).
 
+## Findings this pass
+- Coupling by API-calls (not just struct refs) is the real removal blocker. Drop-ready: console,
+  spreadsheet, outliner (0 external API callers). Needs work: text (undo/outliner/Text-RNA),
+  and INFO especially - space_info/ contains shared scene-statistics utils (ED_info_statistics_string,
+  ED_info_stats_clear, ED_info_draw_stats) used by statusbar/viewport/RNA; must be extracted first.
+- gen_manifest.py turns compact specs into the full manifest -> scaling = add a spec.
+
 ## Open / next
 - CMake propagation RESOLVED: define declared per-directory in editors/ and makesrna/intern/
   (mirrors Blender's own WITH_* re-declaration); confirmed by a standalone CMake replica.
 - NOT YET COMPILED. A full build would confirm end-to-end drop + stock .blend still loads.
-- Add clean-leaf chunks to manifest: text, info, spreadsheet, outliner.
+- DONE: added spreadsheet/outliner (ready) + text/info (flagged). Next leaves to consider: sequencer, clip.
 - Handle coupled clusters: image editor (paint/uv), node editor (nodes), animation editors.
 - Consider splitting `rna_space.cc` into per-editor fragments (keystone for truly clean source).
 
