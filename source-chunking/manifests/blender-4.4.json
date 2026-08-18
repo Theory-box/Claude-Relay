@@ -1,0 +1,53 @@
+{
+  "blender_version": "4.4",
+  "notes": "Plug-point map for making Blender editors into toggleable compile-time chunks. Anchors are exact substrings from the v4.4.0 source tree. Each chunk becomes a WITH_SPACE_<NAME> CMake option (default ON) that gates its folder, its space-type registration, its RNA, and its Python UI. Because a chunk's RNA type only exists when compiled, the Python side self-adapts via a hasattr() guard, so no bpy.app.build_options entry is required.",
+  "chunks": {
+    "space_console": {
+      "guard": "WITH_SPACE_CONSOLE",
+      "description": "Python console editor",
+      "rna_type": "SpaceConsole",
+      "coupling": "lowest of all editors (4 external struct references) - the cleanest leaf",
+      "edits": [
+        {
+          "id": "cmake_option",
+          "file": "CMakeLists.txt",
+          "op": "cmake_option_block",
+          "anchor": "option(WITH_HEADLESS \"Build without graphical support (renderfarm, server mode only)\" OFF)",
+          "option_text": "Include the Python console editor (space_console)"
+        },
+        {
+          "id": "cmake_subdir",
+          "file": "source/blender/editors/CMakeLists.txt",
+          "op": "cmake_if_wrap",
+          "anchor": "  add_subdirectory(space_console)"
+        },
+        {
+          "id": "spacetype_register",
+          "file": "source/blender/editors/space_api/spacetypes.cc",
+          "op": "c_ifdef_line",
+          "anchor": "  ED_spacetype_console();"
+        },
+        {
+          "id": "rna_dispatch",
+          "file": "source/blender/makesrna/intern/rna_space.cc",
+          "op": "c_ifdef_line",
+          "anchor": "  rna_def_space_console(brna);"
+        },
+        {
+          "id": "rna_definition",
+          "file": "source/blender/makesrna/intern/rna_space.cc",
+          "op": "c_ifdef_block",
+          "anchor": "static void rna_def_space_console(BlenderRNA *brna)"
+        },
+        {
+          "id": "python_ui",
+          "file": "scripts/startup/bl_ui/__init__.py",
+          "op": "py_conditional_module",
+          "anchor": "    \"space_console\",",
+          "module": "space_console",
+          "rna_type": "SpaceConsole"
+        }
+      ]
+    }
+  }
+}
