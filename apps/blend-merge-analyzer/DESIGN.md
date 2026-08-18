@@ -115,6 +115,17 @@ handling needed.
      **delete** (remove objects entirely). Execute reports the delete count separately
      and confirms it before running, since a wrong delete is worse than a wrong merge.
 
+### Undo / un-queue
+
+Nothing is permanent until Execute, so the plan is fully reversible. In the **Results**
+tab each queued group (merge or delete) carries an ✕ that **un-queues** it: the
+operation comes off the plan, its objects return to the pool, and the word cloud
+updates live — a chip that had greyed out on full claim becomes active again and its
+count restores. No geometry is touched; it's a pure reversal of the queue. Un-queue
+lives only in Results (the cloud-tab card already shows a greyed "queued" state with
+its objects out of the pool), making Results the single place to review and edit the
+plan.
+
 ### Merge vs delete (UI)
 
 Each grouping list carries two manual buttons: **Merge** (amber — collapses the
