@@ -142,6 +142,12 @@ footer{position:fixed;bottom:0;left:0;right:0;height:56px;border-top:1px solid v
 footer .navbtn{font-family:var(--sans);font-size:13px;font-weight:500;cursor:pointer;border:1px solid var(--line-2);background:var(--surface);color:var(--ink);border-radius:9px;padding:9px 16px}
 footer .navbtn:disabled{opacity:.4;cursor:default}footer .navbtn.primary{border:none;background:linear-gradient(180deg,var(--amber),#d99a24);color:#160f00;font-weight:600}
 footer .fnote{font-family:var(--mono);font-size:11px;color:var(--dim)}
+.breadthctl{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.breadthctl .blab{font-family:var(--mono);font-size:10px;color:var(--dim);text-transform:uppercase;flex:0 0 auto}
+.seg{display:flex;border:1px solid var(--line-2);border-radius:8px;overflow:hidden;flex:1}
+.seg button{flex:1;background:var(--surface-2);color:var(--muted);border:none;padding:5px 3px;font-family:var(--mono);font-size:10.5px;cursor:pointer}
+.seg button.on{background:var(--surface-3);color:var(--amber)}
+.seg button:not(:last-child){border-right:1px solid var(--line)}
 .freqctl{margin-bottom:10px;padding:9px 4px 7px;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
 .freqrow{display:grid;grid-template-columns:28px 1fr 52px;align-items:center;gap:8px;margin:4px 0}
 .freqrow .flab{font-family:var(--mono);font-size:10px;color:var(--dim);text-transform:uppercase}
@@ -266,9 +272,14 @@ function poolState(){
   groups.forEach(g=>{const k=cleanName(g.name);(buckets[k]=buckets[k]||{key:k,count:0,names:[],members:[]});buckets[k].count+=g.count;buckets[k].names.push(...g.names);buckets[k].members.push(g.name);});
   return {groups,buckets};
 }
-function termFreq(groups){const f={};
-  groups.forEach(g=>{const toks=new Set(g.name.split(/[\s_/]+|(?<=[A-Za-z])-(?=[A-Z])/).map(t=>t.replace(/["”().,]/g,'')).filter(t=>t&&t.length>1&&!/^\d+$/.test(t)));
-    toks.forEach(t=>f[t]=(f[t]||0)+g.count);});
+function nameWords(name){return name.split(/[\s_/]+|(?<=[A-Za-z])-(?=[A-Z])/).map(t=>t.replace(/["”().,]/g,'')).filter(t=>t&&t.length>1&&!/^\d+$/.test(t));}
+function termFreq(groups,breadth){breadth=breadth||'word';const f={};
+  groups.forEach(g=>{let toks=[];const nm=g.name;
+    if(breadth==='prefix'){const m=nm.match(/^[^\s_]+/);if(m){const p=m[0].replace(/[^\w-]/g,'');if(p&&p.length>1)toks=[p];}}
+    else if(breadth==='phrase'){const w=nameWords(nm);for(let i=0;i<w.length-1;i++)toks.push(w[i]+' '+w[i+1]);}
+    else if(breadth==='size'){toks=(nm.match(/\d+(?:[½¼¾.\/]\d+)?["”](?:\s*×\s*\d+["”]?)?|\d+\s*×\s*\d+/g)||[]).map(x=>x.replace(/\s+/g,'')).filter(x=>x.length>1);}
+    else toks=nameWords(nm);
+    new Set(toks).forEach(t=>{if(t)f[t]=(f[t]||0)+g.count;});});
   return Object.entries(f).map(([t,n])=>({t,n})).sort((a,b)=>b.n-a.n);}
 
 /* ---------------- accounting ---------------- */
@@ -394,6 +405,12 @@ function stFamilies(){
         <div class="addrule"><input id="newRule" placeholder="pattern or term…" onkeydown="if(event.key==='Enter')addRule()">
           <select id="newRuleType"><option value="strip">strip</option><option value="group">group</option></select><button onclick="addRule()">+</button></div></div>
       <div class="col"><h3>Terms · by frequency</h3>
+        <div class="breadthctl"><span class="blab">breadth</span><div class="seg">
+          <button class="${termBreadth==='prefix'?'on':''}" onclick="setBreadth('prefix')">Prefix</button>
+          <button class="${termBreadth==='phrase'?'on':''}" onclick="setBreadth('phrase')">Phrase</button>
+          <button class="${termBreadth==='word'?'on':''}" onclick="setBreadth('word')">Word</button>
+          <button class="${termBreadth==='size'?'on':''}" onclick="setBreadth('size')">Size</button>
+        </div></div>
         <input class="termsearch" id="termSearch" placeholder="⌕ search or type a term…" value="${esc(termQuery)}" oninput="setTermQuery(this.value)" onkeydown="if(event.key==='Enter')addTermFromSearch()">
         <div class="freqctl">
           <div class="freqrow"><span class="flab">min</span><input type="range" min="0" max="100" step="1" value="${termLo}" oninput="setTermLo(this.value)"><span class="fval" id="fMin">${nf(ft.lo)}</span></div>
@@ -422,8 +439,10 @@ function refreshFamilyList(){
   const cc=document.getElementById('famCounts');if(cc)cc.textContent=`${mAll.length} merged · ${dAll.length} to delete · ${cards.filter(c=>c.kind==='auto').length} proposed`;
 }
 var termLo=0, termHi=100;           // slider positions (log-scaled), var: inline oninput
+var termBreadth='word';             // prefix | phrase | word | size
 let _terms=[], _termsMax=1;
-function recomputeTermCache(){const {groups}=poolState();_terms=termFreq(groups);_termsMax=_terms.length?_terms[0].n:1;}
+function recomputeTermCache(){const {groups}=poolState();_terms=termFreq(groups,termBreadth);_termsMax=_terms.length?_terms[0].n:1;}
+function setBreadth(b){termBreadth=b;render();}
 function freqAt(pos,maxN){return Math.max(1,Math.round(Math.exp(pos/100*Math.log(Math.max(maxN,2)))));}
 function filteredTerms(){const maxN=_termsMax;const lo=freqAt(Math.min(termLo,termHi),maxN),hi=freqAt(Math.max(termLo,termHi),maxN);
   const q=termQuery.toLowerCase();const filt=_terms.filter(t=>(!q||t.t.toLowerCase().includes(q))&&t.n>=lo&&t.n<=hi);
