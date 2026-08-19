@@ -202,7 +202,7 @@ footer .fnote{font-family:var(--mono);font-size:11px;color:var(--dim)}
 const nf=n=>Math.round(n).toLocaleString('en-US');
 function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 /* ---------------- backend ---------------- */
-let DATA=null, CURRENT_PATH=null;
+let DATA=null, CURRENT_PATH=null, BLENDERS={};
 function busy(on,msg){document.getElementById('busy').classList.toggle('show',!!on);if(msg)document.getElementById('busyMsg').textContent=msg;}
 let _tt=null;
 function toast(msg,isErr){const t=document.getElementById('toast');if(_tt){clearTimeout(_tt);_tt=null;}
@@ -210,7 +210,7 @@ function toast(msg,isErr){const t=document.getElementById('toast');if(_tt){clear
   else{t.textContent=msg;t.className='toast show';_tt=setTimeout(()=>t.className='toast',4200);}}
 async function api(path,body){const r=await fetch(path,{method:body?'POST':'GET',headers:{'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined});
   const j=await r.json();if(!r.ok||j.error)throw new Error(j.error||('HTTP '+r.status));return j;}
-async function loadBlenders(){try{const bl=await api('/api/blenders');
+async function loadBlenders(){try{const bl=await api('/api/blenders');BLENDERS=bl;
   const opts=Object.keys(bl).map(v=>`<option value="${v}">${v}</option>`).join('')||'<option value="">auto</option>';
   ['verSel','verSelStart'].forEach(id=>{const el=document.getElementById(id);if(el)el.innerHTML=opts;});}catch(e){}}
 async function locateBlender(){try{let path=null;
@@ -221,6 +221,16 @@ async function locateBlender(){try{let path=null;
   await loadBlenders();const v=Object.keys(r.added)[0];
   ['verSel','verSelStart'].forEach(id=>{const el=document.getElementById(id);if(el&&[...el.options].some(o=>o.value===v))el.value=v;});
   toast('Using Blender '+v);}catch(e){toast('Could not add that Blender — '+e.message,true);}}
+function verTuple(v){return String(v).split(".").map(x=>parseInt(x,10)||0);}
+function verCmp(a,b){const A=verTuple(a),B=verTuple(b);for(let i=0;i<Math.max(A.length,B.length);i++){const d=(A[i]||0)-(B[i]||0);if(d)return d;}return 0;}
+function verMM(v){return verTuple(v).slice(0,2).join(".");}
+// pick the best installed Blender for a file version: exact major.minor, else closest AHEAD
+// (newer), else closest older. Exact match = the fast, crash-free merge path.
+function bestBlenderFor(fileVer){const vs=Object.keys(BLENDERS);if(!vs.length)return "";
+  const exact=vs.filter(v=>verMM(v)===verMM(fileVer)).sort(verCmp);if(exact.length)return exact[0];
+  const ahead=vs.filter(v=>verCmp(v,fileVer)>0).sort(verCmp);if(ahead.length)return ahead[0];
+  const below=vs.filter(v=>verCmp(v,fileVer)<0).sort(verCmp);return below.length?below[below.length-1]:vs[0];}
+function setVersion(v){["verSel","verSelStart"].forEach(id=>{const el=document.getElementById(id);if(el&&[...el.options].some(o=>o.value===v))el.value=v;});}
 async function openBlend(){let path=null;
   if(window.pywebview&&window.pywebview.api&&window.pywebview.api.pick_blend)path=await window.pywebview.api.pick_blend();
   else path=prompt('Path to .blend (browser mode):');
@@ -235,7 +245,14 @@ async function loadPath(path){try{
   document.getElementById('rail').style.display='';document.getElementById('footer').style.display='';
   document.getElementById('fileName').textContent=path.split(/[\\/]/).pop();
   document.getElementById('baseCount').textContent=nf(DATA.total);
-  render();busy(false);toast(`Loaded ${nf(DATA.total)} objects · ${nf(DATA.unique)} name-groups · ${nf((DATA.instance_groups||[]).length)} instance sources`);
+  // auto-pick the Blender version that matches the file (or closest ahead) and keep both
+  // dropdowns in sync, so the choice actually sticks through Execute.
+  if(!Object.keys(BLENDERS).length){try{await loadBlenders();}catch(e){}}
+  const fv=DATA.detected||'';const best=bestBlenderFor(fv);if(best)setVersion(best);
+  const match=best&&verMM(best)===verMM(fv);
+  render();busy(false);
+  const vnote=fv?` · file is Blender ${fv}, using ${best||'?'}${best?(match?' (match — fast merge)':' (closest — full-model uses the safe path)'):''}`:'';
+  toast(`Loaded ${nf(DATA.total)} objects · ${nf(DATA.unique)} name-groups · ${nf((DATA.instance_groups||[]).length)} instance sources${vnote}`);
  }catch(e){busy(false);toast('Could not read file — '+e.message,true);}}
 // drag-and-drop: pywebview exposes the real path on the dropped File; fall back gracefully
 function droppedPath(e){const f=e.dataTransfer&&e.dataTransfer.files&&e.dataTransfer.files[0];
@@ -300,6 +317,8 @@ function poolState(){
   _poolCache={groups,buckets};return _poolCache;
 }
 function nameWords(name){return name.split(/[\s_/]+|(?<=[A-Za-z])-(?=[A-Z])/).map(t=>t.replace(/["”().,]/g,'')).filter(t=>t&&t.length>1&&!/^\d+$/.test(t));}
+function termUnits(){const {groups}=poolState();const u=groups.map(g=>({name:g.name,count:g.count}));
+  familyMergeBins().forEach(b=>u.push({name:b.label,count:b.names.length}));return u;}
 function termFreq(groups,breadth){breadth=breadth||'word';const f={};
   groups.forEach(g=>{let toks=[];const nm=g.name;
     if(breadth==='prefix'){const m=nm.match(/^[^\s_]+/);if(m){const p=m[0].replace(/[^\w-]/g,'');if(p&&p.length>1)toks=[p];}}
@@ -400,23 +419,26 @@ function addStripRule(){const t=document.getElementById('newStrip').value.trim()
 function familyMergeBins(){return bins.filter(b=>b.kind==='merge');}   // all merged results re-enter the pool
 function familyDeleteBins(){return bins.filter(b=>b.kind==='delete');}
 function buildFamilyCards(){
-  const {groups}=poolState();const terms=activeTerms();const cards=[];
-  const inc=(g,t)=>g.name.toLowerCase().includes(t.toLowerCase());
-  terms.forEach(t=>{const gs=groups.filter(g=>inc(g,t));if(gs.length)cards.push({id:'t:'+t,kind:'term',label:t,groups:gs});});
+  const {groups}=poolState();const mbins=familyMergeBins();const terms=activeTerms();const cards=[];
+  const gi=(name,t)=>name.toLowerCase().includes(t.toLowerCase());
+  terms.forEach(t=>{const gs=groups.filter(g=>gi(g.name,t));const bs=mbins.filter(b=>gi(b.label,t));
+    if(gs.length||bs.length)cards.push({id:'t:'+t,kind:'term',label:t,groups:gs,bins:bs});});
   for(let i=0;i<terms.length;i++)for(let j=i+1;j<terms.length;j++){const a=terms[i],b=terms[j];
-    const gs=groups.filter(g=>inc(g,a)&&inc(g,b));if(gs.length)cards.push({id:'x:'+a+'|'+b,kind:'inter',label:a+' ∩ '+b,groups:gs});}
-  if(terms.length>=2){const gs=groups.filter(g=>terms.some(t=>inc(g,t)));if(gs.length)cards.push({id:'u:all',kind:'union',label:'All '+terms.length+' terms',groups:gs});}
-  // auto buckets on the rest (rem>=2)
-  const rest=groups.filter(g=>!terms.some(t=>inc(g,t)));
+    const gs=groups.filter(g=>gi(g.name,a)&&gi(g.name,b));const bs=mbins.filter(x=>gi(x.label,a)&&gi(x.label,b));
+    if(gs.length||bs.length)cards.push({id:'x:'+a+'|'+b,kind:'inter',label:a+' ∩ '+b,groups:gs,bins:bs});}
+  if(terms.length>=2){const gs=groups.filter(g=>terms.some(t=>gi(g.name,t)));const bs=mbins.filter(x=>terms.some(t=>gi(x.label,t)));
+    if(gs.length||bs.length)cards.push({id:'u:all',kind:'union',label:'All '+terms.length+' terms',groups:gs,bins:bs});}
+  // auto buckets on the rest (unclaimed groups not matching any term, >=2 objects)
+  const rest=groups.filter(g=>!terms.some(t=>gi(g.name,t)));
   const b={};rest.forEach(g=>{const k=cleanName(g.name);(b[k]=b[k]||{key:k,groups:[]});b[k].groups.push(g);});
-  Object.values(b).map(x=>({id:'a:'+x.key,kind:'auto',label:x.key,groups:x.groups}))
+  Object.values(b).map(x=>({id:'a:'+x.key,kind:'auto',label:x.key,groups:x.groups,bins:[]}))
     .filter(c=>c.groups.reduce((a,g)=>a+g.count,0)>=2)
     .sort((a,b)=>b.groups.reduce((s,g)=>s+g.count,0)-a.groups.reduce((s,g)=>s+g.count,0))
     .forEach(c=>cards.push(c));
   return cards;
 }
-function cardNames(c){const s=new Set();c.groups.forEach(g=>g.names.forEach(n=>s.add(n)));return [...s];}
-function cardCount(c){return c.groups.reduce((a,g)=>a+g.count,0);}
+function cardNames(c){const s=new Set();(c.groups||[]).forEach(g=>g.names.forEach(n=>s.add(n)));(c.bins||[]).forEach(b=>b.names.forEach(n=>s.add(n)));return [...s];}
+function cardCount(c){return (c.groups||[]).reduce((a,g)=>a+g.count,0)+(c.bins||[]).reduce((a,b)=>a+b.names.length,0);}
 function stFamilies(){
   const {groups}=poolState();const rules=recipe.map(ruleRow).join('');
   recomputeTermCache();const ft=filteredTerms();
@@ -455,7 +477,9 @@ function stFamilies(){
 function refreshFamilyList(){
   const cards=buildFamilyCards();const order={term:0,inter:1,union:2,auto:3};
   const ff=famFilter.toLowerCase();const CAP=200;
-  const mAll=familyMergeBins(),dAll=familyDeleteBins();
+  const activeT=activeTerms().map(t=>t.toLowerCase());
+  const inTermCard=b=>activeT.some(t=>b.label.toLowerCase().includes(t));
+  const mAll=familyMergeBins().filter(b=>!inTermCard(b)),dAll=familyDeleteBins();
   const mF=ff?mAll.filter(b=>b.label.toLowerCase().includes(ff)):mAll;
   const dF=ff?dAll.filter(b=>b.label.toLowerCase().includes(ff)):dAll;
   const cF=ff?cards.filter(c=>c.label.toLowerCase().includes(ff)):cards;
@@ -468,7 +492,7 @@ function refreshFamilyList(){
 var termLo=0, termHi=100;           // slider positions (log-scaled), var: inline oninput
 var termBreadth='word';             // prefix | phrase | word | size
 let _terms=[], _termsMax=1;
-function recomputeTermCache(){const {groups}=poolState();_terms=termFreq(groups,termBreadth);_termsMax=_terms.length?_terms[0].n:1;}
+function recomputeTermCache(){_terms=termFreq(termUnits(),termBreadth);_termsMax=_terms.length?_terms[0].n:1;}
 function setBreadth(b){termBreadth=b;render();}
 function freqAt(pos,maxN){return Math.max(1,Math.round(Math.exp(pos/100*Math.log(Math.max(maxN,2)))));}
 function filteredTerms(){const maxN=_termsMax;const lo=freqAt(Math.min(termLo,termHi),maxN),hi=freqAt(Math.max(termLo,termHi),maxN);
@@ -511,8 +535,14 @@ function clickTerm(t){const ex=recipe.find(r=>r.type==='group'&&r.text.toLowerCa
 function addTermFromSearch(){if(termQuery.trim()){clickTerm(termQuery.trim());termQuery='';}render();}
 /* card actions -> bins */
 function commitMerge(names,label,source){if(names.length<1)return;bins.push({id:'b'+(bid++),kind:'merge',label,names,source:source||'family'});}
-function mergeCard(id){const c=buildFamilyCards().find(x=>x.id===id);if(!c)return;commitMerge(cardNames(c),c.label.replace(/\s*∩\s*/g,'+'),'family');selected.delete(id);render();}
-function deleteCard(id){const c=buildFamilyCards().find(x=>x.id===id);if(!c)return;bins.push({id:'b'+(bid++),kind:'delete',label:c.label.replace(/\s*∩\s*/g,'+'),names:cardNames(c),source:'family'});selected.delete(id);render();}
+function mergeCard(id){const c=buildFamilyCards().find(x=>x.id===id);if(!c)return;
+  const absorb=new Set((c.bins||[]).map(b=>b.id));if(absorb.size)bins=bins.filter(b=>!absorb.has(b.id));
+  commitMerge(cardNames(c),c.label.replace(/\s*∩\s*/g,'+'),'family');
+  if(c.kind==='term')recipe=recipe.filter(r=>!(r.type==='group'&&r.text.toLowerCase()===c.label.toLowerCase()));
+  selected.delete(id);render();}
+function deleteCard(id){const c=buildFamilyCards().find(x=>x.id===id);if(!c)return;
+  const absorb=new Set((c.bins||[]).map(b=>b.id));if(absorb.size)bins=bins.filter(b=>!absorb.has(b.id));
+  bins.push({id:'b'+(bid++),kind:'delete',label:c.label.replace(/\s*∩\s*/g,'+'),names:cardNames(c),source:'family'});selected.delete(id);render();}
 function collapseAllAuto(){buildFamilyCards().filter(c=>c.kind==='auto').forEach(c=>commitMerge(cardNames(c),c.label,'family'));render();}
 function selectAllAuto(){const autos=buildFamilyCards().filter(c=>c.kind==='auto');const all=autos.length&&autos.every(c=>selected.has(c.id));if(all)autos.forEach(c=>selected.delete(c.id));else autos.forEach(c=>selected.add(c.id));render();}
 /* bin ops */
@@ -558,10 +588,11 @@ function renderSelbar(){const sid=STAGES[stageIdx].id;const show=selected.size>=
   const pb=document.getElementById('selPrimary');if(pb)pb.textContent=sid==='dupes'?'Collapse selected':'Merge into one';}
 function selPrimaryAction(){STAGES[stageIdx].id==='dupes'?collapseSelectedDupes():mergeSelected();}
 function mergeSelected(){const sid=STAGES[stageIdx].id;const names=new Set();let labels=[];
-  if(sid==='families'){const cards=buildFamilyCards();
-    [...selected].forEach(id=>{const c=cards.find(x=>x.id===id);if(c){cardNames(c).forEach(n=>names.add(n));labels.push(c.label);}
-      const b=bins.find(x=>x.id===id&&x.kind==='merge');if(b){b.names.forEach(n=>names.add(n));labels.push(b.label);}});
-    bins=bins.filter(b=>!(selected.has(b.id)&&b.kind==='merge'));  // absorb selected merge bins
+  if(sid==='families'){const cards=buildFamilyCards();const absorb=new Set();
+    [...selected].forEach(id=>{const c=cards.find(x=>x.id===id);
+      if(c){cardNames(c).forEach(n=>names.add(n));labels.push(c.label);(c.bins||[]).forEach(b=>absorb.add(b.id));}
+      const b=bins.find(x=>x.id===id&&x.kind==='merge');if(b){b.names.forEach(n=>names.add(n));labels.push(b.label);absorb.add(b.id);}});
+    bins=bins.filter(b=>!absorb.has(b.id));  // absorb selected merge bins AND bins inside selected cards
   }else if(sid==='remainder'){const rows=remainderRows();[...selected].forEach(id=>{const r=rows.find(x=>x.id===id);if(r){r.names.forEach(n=>names.add(n));labels.push(r.label);}});}
   if(names.size)commitMerge([...names],(labels[0]||'merged')+(labels.length>1?' + '+(labels.length-1)+' more':''),sid==='remainder'?'remainder':'family');
   selected.clear();render();}
