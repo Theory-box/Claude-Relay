@@ -249,6 +249,7 @@ async function loadPath(path){try{
   // dropdowns in sync, so the choice actually sticks through Execute.
   if(!Object.keys(BLENDERS).length){try{await loadBlenders();}catch(e){}}
   const fv=DATA.detected||'';const best=bestBlenderFor(fv);if(best)setVersion(best);
+  cpuCount=Math.max(1,DATA.cpu_count||1);workers=Math.max(1,Math.min(cpuCount,DATA.suggested_workers||cpuCount));
   const match=best&&verMM(best)===verMM(fv);
   render();busy(false);
   const vnote=fv?` · file is Blender ${fv}, using ${best||'?'}${best?(match?' (match — fast merge)':' (closest — full-model uses the safe path)'):''}`:'';
@@ -290,7 +291,7 @@ function defaultRecipe(){return [
   {id:'s4',type:'strip',text:'dimensions',on:false},
 ];}
 let recipe=defaultRecipe();
-var includeUntouched=true, tagMats=true, saveCopy=true;   // var: toggled by inline onchange in Review
+var includeUntouched=true, tagMats=true, saveCopy=true, workers=1, cpuCount=1;   // var: toggled by inline onchange in Review
 
 function claimedSet(){const s=new Set();bins.forEach(b=>b.names.forEach(n=>s.add(n)));return s;}
 let _claimed=new Set();
@@ -576,6 +577,7 @@ function stReview(){const rem=remaining();const mCount=bins.filter(b=>b.kind==='
      <label class="opt"><input type="checkbox" ${saveCopy?'checked':''} onchange="saveCopy=this.checked"> save as a copy (original never touched)</label>
      <label class="opt"><input type="checkbox" ${includeUntouched?'checked':''} onchange="includeUntouched=this.checked"> keep untouched objects in the result (full model)</label>
      <label class="opt"><input type="checkbox" ${tagMats?'checked':''} onchange="tagMats=this.checked"> add un-merge tags (materials, so Separate-by-Material can reverse a merge)</label>
+     <label class="opt" title="Run several headless Blenders at once — each merges a share of the groups. Faster, but each uses ~1.5GB RAM.">parallel Blenders&nbsp; <input type="number" min="1" max="${cpuCount}" value="${workers}" style="width:58px;background:var(--surface-2);color:var(--ink);border:1px solid var(--line-2);border-radius:6px;padding:4px 6px" onchange="workers=Math.max(1,Math.min(cpuCount,parseInt(this.value)||1));this.value=workers"> <span class="muted" style="font-size:11px">of ${cpuCount} cores · ~1.5GB RAM each</span></label>
    </div>
    <div class="rowbtns"><button class="bigbtn" style="font-size:15px;padding:13px 24px" onclick="doExecute(false)" ${(mCount+dCount)?'':'disabled'}>Execute → build cleaned copy</button>
      <button class="bigbtn ghost" onclick="doExecute(true)" ${(mCount+dCount)?'':'disabled'}>Execute &amp; open in Blender</button></div>`;}
@@ -611,7 +613,7 @@ async function doExecute(openAfter){
   if(deletes.length&&!confirm(`This plan DELETES ${nf(deletedCount())} objects across ${deletes.length} group(s). Continue?`))return;
   const version=document.getElementById('verSel').value||undefined;
   try{busy(true,openAfter?'Merging, then opening Blender…':'Merging in Blender…');
-    const res=await api('/api/execute',{path:CURRENT_PATH,plan:{merges,deletes},version,overwrite,open_after:openAfter,include_untouched:includeUntouched,tag_materials:tagMats});
+    const res=await api('/api/execute',{path:CURRENT_PATH,plan:{merges,deletes},version,overwrite,open_after:openAfter,include_untouched:includeUntouched,tag_materials:tagMats,workers});
     busy(false);toast(`Done — ${res.merged_groups} merged, ${res.deleted} deleted · ${res.remaining} objects → ${String(res.out).split(/[\\/]/).pop()}`);
   }catch(e){busy(false);toast('Execute failed — '+e.message,true);}}
 

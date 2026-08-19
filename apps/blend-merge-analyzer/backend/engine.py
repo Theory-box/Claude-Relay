@@ -281,8 +281,174 @@ if sp:
 print("MERGE_OK " + json.dumps(_stats))
 '''
 
+WORKER_SRC = r'''
+import bpy, sys, os, json
+def arg(n,d=None):
+    a=sys.argv; a=a[a.index("--")+1:] if "--" in a else []
+    return a[a.index(n)+1] if n in a and a.index(n)+1<len(a) else d
+SRC=arg("--source"); plan=json.load(open(arg("--plan"))); out=arg("--out")
+tag_materials=arg("--materials","0")=="1"; BATCH=int(arg("--batch","2000")); CHUNK=int(arg("--chunk","3000"))
+bpy.ops.wm.read_factory_settings(use_empty=True); scene=bpy.context.scene
+def append(names):
+    names=set(names)
+    with bpy.data.libraries.load(SRC) as (src,dst): dst.objects=[n for n in src.objects if n in names]
+    got=[o for o in dst.objects if o]
+    for o in got: scene.collection.objects.link(o)
+    return got
+def join_batch(objs,target):
+    objs=[o for o in objs if o and o.type=="MESH"]
+    if not objs: return None
+    bpy.ops.object.select_all(action="DESELECT")
+    for o in objs: o.select_set(True)
+    bpy.context.view_layer.objects.active=objs[0]
+    bpy.ops.object.make_single_user(object=True,obdata=True)
+    if tag_materials:
+        for o in objs:
+            if o.type=="MESH" and len(o.data.materials)==0:
+                m=bpy.data.materials.new(o.name); o.data.materials.append(m)
+    if len(objs)>1: bpy.ops.object.join()
+    r=bpy.context.view_layer.objects.active; r.name=target; return r
+_res=bpy.data.collections.new("__merged__"); scene.collection.children.link(_res)
+def _excl(v):
+    for lc in bpy.context.view_layer.layer_collection.children:
+        if lc.collection==_res: lc.exclude=v
+_excl(True)
+def stash(o):
+    if not o: return
+    for c in list(o.users_collection): c.objects.unlink(o)
+    _res.objects.link(o)
+mg=[g for g in plan.get("merges",[]) if g.get("names")]; gi=0
+while gi<len(mg):
+    chunk=[]; total=0
+    while gi<len(mg) and (not chunk or total+len(mg[gi]["names"])<=CHUNK):
+        chunk.append(mg[gi]); total+=len(mg[gi]["names"]); gi+=1
+    if not chunk: chunk=[mg[gi]]; gi+=1
+    alln=set(n for g in chunk for n in g["names"]); pool=append(alln); by={o.name:o for o in pool}
+    for g in chunk:
+        objs=[by[n] for n in g["names"] if n in by]
+        if not objs: continue
+        t=g.get("label","merged")
+        if len(objs)>BATCH:
+            ps=[]
+            for i in range(0,len(objs),BATCH):
+                r=join_batch(objs[i:i+BATCH],t+"__p"+str(i//BATCH))
+                if r: ps.append(r)
+            stash(join_batch(ps,t) if ps else None)
+        else: stash(join_batch(objs,t))
+_excl(False)
+for o in list(_res.objects): _res.objects.unlink(o); scene.collection.objects.link(o)
+bpy.data.collections.remove(_res)
+bpy.ops.wm.save_as_mainfile(filepath=os.path.abspath(out))
+print("WORKER_OK "+str(len([o for o in bpy.data.objects if o.type=="MESH"])))
+'''
+
+COMBINE_SRC = r'''
+import bpy, sys, os, json, time
+def arg(n,d=None):
+    a=sys.argv; a=a[a.index("--")+1:] if "--" in a else []
+    return a[a.index(n)+1] if n in a and a.index(n)+1<len(a) else d
+t0=time.time()
+SRC=arg("--source"); out=arg("--out"); plan=json.load(open(arg("--plan")))
+partials=json.load(open(arg("--partials")))
+include_untouched=arg("--untouched","1")=="1"; fileversion=arg("--fileversion","")
+bpy.ops.wm.read_factory_settings(use_empty=True); scene=bpy.context.scene
+def append_from(path, names=None):
+    with bpy.data.libraries.load(path) as (src,dst):
+        dst.objects=[n for n in src.objects if (names is None or n in names)]
+    got=[o for o in dst.objects if o]
+    for o in got: scene.collection.objects.link(o)
+    return got
+merged_result=0
+for p in partials: merged_result+=len(append_from(p))
+deleted_names=set(n for g in plan.get("deletes",[]) for n in g["names"])
+merged_names =set(n for g in plan.get("merges",[])  for n in g["names"])
+appended_untouched=0
+_rv="%d.%d"%(bpy.app.version[0],bpy.app.version[1])
+FASTFULL=(fileversion==_rv)
+if include_untouched and FASTFULL:
+    import tempfile as _tf; _tmp=_tf.mktemp(suffix=".blend")
+    bpy.ops.wm.save_as_mainfile(filepath=_tmp)
+    result_names=set(o.name for o in bpy.data.objects)
+    bpy.ops.wm.open_mainfile(filepath=SRC)
+    bpy.data.batch_remove([o for o in bpy.data.objects if o.name in (merged_names|deleted_names)])
+    appended_untouched=len([o for o in bpy.data.objects if o.type=="MESH"])
+    _sc=bpy.context.scene
+    with bpy.data.libraries.load(_tmp) as (s,dst): dst.objects=[n for n in s.objects if n in result_names]
+    for o in dst.objects:
+        if o: _sc.collection.objects.link(o)
+    bpy.ops.wm.save_as_mainfile(filepath=os.path.abspath(out))
+    try: os.unlink(_tmp)
+    except Exception: pass
+elif include_untouched:
+    with bpy.data.libraries.load(SRC) as (src,dst): all_names=list(src.objects)
+    untouched=[n for n in all_names if n not in deleted_names and n not in merged_names]
+    for i in range(0,len(untouched),5000):
+        appended_untouched+=len(append_from(SRC, set(untouched[i:i+5000])))
+    bpy.ops.wm.save_as_mainfile(filepath=os.path.abspath(out))
+else:
+    bpy.ops.wm.save_as_mainfile(filepath=os.path.abspath(out))
+stats={"merged_objs":merged_result,"deleted":len(deleted_names),"untouched":appended_untouched,
+       "remaining":len([o for o in bpy.data.objects if o.type=="MESH"]),
+       "total_time":round(time.time()-t0,1),"out":os.path.abspath(out)}
+sp=arg("--stats")
+if sp: json.dump(stats, open(sp,"w"))
+print("COMBINE_OK "+json.dumps(stats))
+'''
+
+def _shard_merges(merges, n):
+    """Greedy-balance merge groups into n shards by object count (biggest first)."""
+    shards=[[] for _ in range(n)]; load=[0]*n
+    for g in sorted(merges, key=lambda x:-len(x["names"])):
+        i=load.index(min(load)); shards[i].append(g); load[i]+=len(g["names"])
+    return [s for s in shards if s]
+
+def _execute_parallel(blender, path, plan, write_to, out, workers,
+                      include_untouched, tag_materials):
+    import concurrent.futures as cf
+    merges=[g for g in plan.get("merges",[]) if g.get("names")]
+    shards=_shard_merges(merges, workers)
+    tmp=[]
+    def cleanup():
+        for f in tmp:
+            try: os.unlink(f)
+            except Exception: pass
+    def run_worker(shard):
+        sp=tempfile.mktemp(suffix=".json"); pf=tempfile.mktemp(suffix=".blend"); tmp.extend([sp,pf])
+        json.dump({"merges":shard}, open(sp,"w"))
+        r=_run(blender, None, WORKER_SRC,
+               ["--source", os.path.abspath(path), "--plan", sp, "--out", pf,
+                "--materials", "1" if tag_materials else "0"])
+        return pf if (os.path.exists(pf) and os.path.getsize(pf)>0) else None, r
+    try:
+        with cf.ThreadPoolExecutor(max_workers=len(shards)) as ex:
+            results=list(ex.map(run_worker, shards))
+        partials=[]
+        for pf, r in results:
+            if pf: partials.append(pf)
+            else:
+                raise RuntimeError("A merge worker did not complete.\n" +
+                                   (r.stderr or r.stdout or "").strip()[-1000:])
+        plan_file=tempfile.mktemp(suffix=".json"); part_file=tempfile.mktemp(suffix=".json")
+        stats_file=tempfile.mktemp(suffix=".json"); tmp.extend([plan_file, part_file, stats_file])
+        json.dump(plan, open(plan_file,"w")); json.dump(partials, open(part_file,"w"))
+        r=_run(blender, None, COMBINE_SRC,
+               ["--source", os.path.abspath(path), "--plan", plan_file, "--partials", part_file,
+                "--out", write_to, "--stats", stats_file,
+                "--fileversion", str(detect_version(path) or ""),
+                "--untouched", "1" if include_untouched else "0"])
+        if os.path.exists(stats_file):
+            stats=json.load(open(stats_file))
+        elif os.path.exists(write_to) and os.path.getsize(write_to)>0:
+            stats={"out": write_to, "note":"completed"}
+        else:
+            raise RuntimeError("Combine did not complete.\n" + (r.stderr or r.stdout or "").strip()[-1000:])
+        stats["merged_groups"]=len(merges); stats["workers"]=len(shards)
+        return stats
+    finally:
+        cleanup()
+
 def execute_plan(path, plan, version=None, out_path=None, overwrite=False,
-                 open_after=False, include_untouched=True, tag_materials=True):
+                 open_after=False, include_untouched=True, tag_materials=True, workers=1):
     ver = version or detect_version(path)
     blender = _blender_for(ver)
     if not out_path:
@@ -292,6 +458,24 @@ def execute_plan(path, plan, version=None, out_path=None, overwrite=False,
     write_to = out_path
     if os.path.abspath(out_path) == os.path.abspath(path):
         write_to = tempfile.mktemp(suffix=".blend")
+    merges=[g for g in plan.get("merges",[]) if g.get("names")]
+    try:
+        ncpu = os.cpu_count() or 1
+    except Exception:
+        ncpu = 1
+    workers = max(1, min(int(workers or 1), ncpu, max(1, len(merges))))
+    # Parallel path: several headless Blenders each merge a shard, then a combine step
+    # assembles the partials (+ untouched for full model). Worth the overhead only with
+    # enough groups to spread across workers.
+    if workers > 1 and len(merges) >= workers * 2:
+        stats = _execute_parallel(blender, path, plan, write_to, out_path, workers,
+                                  include_untouched, tag_materials)
+        if write_to != out_path:
+            import shutil; shutil.move(write_to, out_path)
+        stats["out"] = out_path
+        if open_after:
+            subprocess.Popen([blender, out_path])
+        return stats
     plan_file = tempfile.mktemp(suffix=".json")
     stats_file = tempfile.mktemp(suffix=".json")
     json.dump(plan, open(plan_file, "w"))

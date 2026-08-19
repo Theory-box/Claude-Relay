@@ -21,6 +21,32 @@ else:
 sys.path.insert(0, HERE)
 import engine, analyze, blender_manage
 
+def _cpu_and_suggested_workers():
+    """Cores + a memory-aware default worker count (each worker holds ~1.5GB while it reads
+    the source). Cap the DEFAULT so we don't oversubscribe RAM; the user can raise it to cores."""
+    import os
+    cpu = os.cpu_count() or 1
+    ram_gb = 8.0
+    try:
+        ram_gb = os.sysconf('SC_PAGE_SIZE') * os.sysconf('SC_PHYS_PAGES') / 1e9
+    except (ValueError, AttributeError, OSError):
+        try:
+            import ctypes
+            class _MS(ctypes.Structure):
+                _fields_ = [('dwLength', ctypes.c_ulong), ('dwMemoryLoad', ctypes.c_ulong),
+                            ('ullTotalPhys', ctypes.c_ulonglong), ('ullAvailPhys', ctypes.c_ulonglong),
+                            ('ullTotalPageFile', ctypes.c_ulonglong), ('ullAvailPageFile', ctypes.c_ulonglong),
+                            ('ullTotalVirtual', ctypes.c_ulonglong), ('ullAvailVirtual', ctypes.c_ulonglong),
+                            ('ullAvailExtendedVirtual', ctypes.c_ulonglong)]
+            m = _MS(); m.dwLength = ctypes.sizeof(_MS)
+            ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(m))
+            ram_gb = m.ullTotalPhys / 1e9
+        except Exception:
+            pass
+    by_ram = max(1, int(ram_gb // 2))     # ~1.5-2GB per worker, leave headroom
+    return cpu, max(1, min(cpu, by_ram))
+
+
 class H(BaseHTTPRequestHandler):
     def log_message(self, *a): pass
 
@@ -60,6 +86,9 @@ class H(BaseHTTPRequestHandler):
                 out = analyze.analyze(data["objects"], req.get("ignore_rules"))
                 out["detected"] = data.get("detected")
                 out["object_total"] = len(data["objects"])
+                cpu, suggested = _cpu_and_suggested_workers()
+                out["cpu_count"] = cpu
+                out["suggested_workers"] = suggested
                 self._send(200, json.dumps(out))
             elif self.path == "/api/add_blender":
                 added = blender_manage.add_blender(req.get("path"))
@@ -73,6 +102,7 @@ class H(BaseHTTPRequestHandler):
                     open_after=bool(req.get("open_after")),
                     include_untouched=req.get("include_untouched", True),
                     tag_materials=req.get("tag_materials", True),
+                    workers=int(req.get("workers", 1) or 1),
                 )
                 self._send(200, json.dumps(res))
             else:
