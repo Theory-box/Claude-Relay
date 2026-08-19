@@ -70,6 +70,11 @@ def _run(blender, blendfile, script_src, extra, background=True):
     args = [blender]
     if background:
         args.append("-b")
+    # clean, deterministic headless run: factory prefs + NO user addons (their load/save
+    # handlers must not touch the file), no audio device. --enable-autoexec keeps legit
+    # drivers evaluating (factory-startup defaults auto-run OFF, which would freeze driven
+    # transforms and shift geometry).
+    args += ["--factory-startup", "--enable-autoexec", "-noaudio"]
     if blendfile:
         args.append(blendfile)
     args += ["--python", sf.name, "--"] + extra
