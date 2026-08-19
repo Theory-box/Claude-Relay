@@ -142,6 +142,12 @@ footer{position:fixed;bottom:0;left:0;right:0;height:56px;border-top:1px solid v
 footer .navbtn{font-family:var(--sans);font-size:13px;font-weight:500;cursor:pointer;border:1px solid var(--line-2);background:var(--surface);color:var(--ink);border-radius:9px;padding:9px 16px}
 footer .navbtn:disabled{opacity:.4;cursor:default}footer .navbtn.primary{border:none;background:linear-gradient(180deg,var(--amber),#d99a24);color:#160f00;font-weight:600}
 footer .fnote{font-family:var(--mono);font-size:11px;color:var(--dim)}
+.freqctl{margin-bottom:10px;padding:9px 4px 7px;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+.freqrow{display:grid;grid-template-columns:28px 1fr 52px;align-items:center;gap:8px;margin:4px 0}
+.freqrow .flab{font-family:var(--mono);font-size:10px;color:var(--dim);text-transform:uppercase}
+.freqrow .fval{font-family:var(--mono);font-size:11px;color:var(--amber);text-align:right;font-variant-numeric:tabular-nums}
+.freqrow input[type=range]{width:100%;accent-color:var(--teal);height:3px;cursor:pointer}
+#termReadout{font-family:var(--mono);font-size:10.5px;color:var(--muted);margin-top:5px}
 .mono{font-family:var(--mono)}
 ::-webkit-scrollbar{width:9px;height:9px}::-webkit-scrollbar-thumb{background:var(--surface-3);border-radius:6px}
 </style>
@@ -375,10 +381,8 @@ function cardNames(c){const s=new Set();c.groups.forEach(g=>g.names.forEach(n=>s
 function cardCount(c){return c.groups.reduce((a,g)=>a+g.count,0);}
 function stFamilies(){
   const {groups}=poolState();const rules=recipe.map(ruleRow).join('');
-  const terms=termFreq(groups);const maxN=terms.length?terms[0].n:1;const q=termQuery.toLowerCase();
-  const shown=terms.filter(t=>!q||t.t.toLowerCase().includes(q)).slice(0,80);
-  const active=new Set(activeTerms().map(t=>t.toLowerCase()));
-  const termHtml=shown.map(t=>`<div class="term ${active.has(t.t.toLowerCase())?'on':''}" data-act="term" data-term="${esc(t.t)}"><div class="bar" style="width:${Math.max(6,Math.round(t.n/maxN*100))}%"></div><span class="tw">${esc(t.t)}</span><span class="tc">${nf(t.n)}</span></div>`).join('');
+  recomputeTermCache();const ft=filteredTerms();
+  const termHtml=termItemsHTML(ft.filt,ft.maxN);
   const cards=buildFamilyCards();const autos=cards.filter(c=>c.kind==='auto');
   const allSel=autos.length&&autos.every(c=>selected.has(c.id));
   return head('families')+
@@ -390,8 +394,13 @@ function stFamilies(){
         <div class="addrule"><input id="newRule" placeholder="pattern or term…" onkeydown="if(event.key==='Enter')addRule()">
           <select id="newRuleType"><option value="strip">strip</option><option value="group">group</option></select><button onclick="addRule()">+</button></div></div>
       <div class="col"><h3>Terms · by frequency</h3>
-        <input class="termsearch" id="termSearch" placeholder="⌕ search or type a term…" value="${esc(termQuery)}" oninput="termQuery=this.value;refreshTerms()" onkeydown="if(event.key==='Enter')addTermFromSearch()">
-        <div class="termlist" id="termList">${termHtml||'<div class="mut">no terms left</div>'}</div></div>
+        <input class="termsearch" id="termSearch" placeholder="⌕ search or type a term…" value="${esc(termQuery)}" oninput="setTermQuery(this.value)" onkeydown="if(event.key==='Enter')addTermFromSearch()">
+        <div class="freqctl">
+          <div class="freqrow"><span class="flab">min</span><input type="range" min="0" max="100" step="1" value="${termLo}" oninput="setTermLo(this.value)"><span class="fval" id="fMin">${nf(ft.lo)}</span></div>
+          <div class="freqrow"><span class="flab">max</span><input type="range" min="0" max="100" step="1" value="${termHi}" oninput="setTermHi(this.value)"><span class="fval" id="fMax">${nf(ft.hi)}</span></div>
+          <div id="termReadout">showing ${nf(Math.min(ft.filt.length,150))} of ${nf(_terms.length)} terms</div>
+        </div>
+        <div class="termlist" id="termList">${termHtml||'<div class="mut">no terms in range</div>'}</div></div>
       <div class="col" style="background:transparent;border:none;padding:0">
         <div class="listtools"><h3 style="margin:0">Groups · your plan</h3><button class="linkbtn" onclick="selectAllAuto()">${allSel?'Deselect':'Select'} all name-groups</button>
           <span class="mut" id="famCounts"></span></div>
@@ -412,10 +421,22 @@ function refreshFamilyList(){
   const el=document.getElementById('famList');if(el)el.innerHTML=(mHtml+dHtml+cHtml)||'<div class="mut">Nothing left to group.</div>';
   const cc=document.getElementById('famCounts');if(cc)cc.textContent=`${mAll.length} merged · ${dAll.length} to delete · ${cards.filter(c=>c.kind==='auto').length} proposed`;
 }
-function refreshTerms(){const {groups}=poolState();const terms=termFreq(groups);const maxN=terms.length?terms[0].n:1;
-  const q=termQuery.toLowerCase();const shown=terms.filter(t=>!q||t.t.toLowerCase().includes(q)).slice(0,80);
-  const active=new Set(activeTerms().map(t=>t.toLowerCase()));
-  const el=document.getElementById('termList');if(el)el.innerHTML=shown.map(t=>`<div class="term ${active.has(t.t.toLowerCase())?'on':''}" data-act="term" data-term="${esc(t.t)}"><div class="bar" style="width:${Math.max(6,Math.round(t.n/maxN*100))}%"></div><span class="tw">${esc(t.t)}</span><span class="tc">${nf(t.n)}</span></div>`).join('')||'<div class="mut">no match</div>';}
+var termLo=0, termHi=100;           // slider positions (log-scaled), var: inline oninput
+let _terms=[], _termsMax=1;
+function recomputeTermCache(){const {groups}=poolState();_terms=termFreq(groups);_termsMax=_terms.length?_terms[0].n:1;}
+function freqAt(pos,maxN){return Math.max(1,Math.round(Math.exp(pos/100*Math.log(Math.max(maxN,2)))));}
+function filteredTerms(){const maxN=_termsMax;const lo=freqAt(Math.min(termLo,termHi),maxN),hi=freqAt(Math.max(termLo,termHi),maxN);
+  const q=termQuery.toLowerCase();const filt=_terms.filter(t=>(!q||t.t.toLowerCase().includes(q))&&t.n>=lo&&t.n<=hi);
+  return {filt,maxN,lo,hi};}
+function termItemsHTML(filt,maxN){const active=new Set(activeTerms().map(t=>t.toLowerCase()));
+  return filt.slice(0,150).map(t=>`<div class="term ${active.has(t.t.toLowerCase())?'on':''}" data-act="term" data-term="${esc(t.t)}"><div class="bar" style="width:${Math.max(6,Math.round(t.n/maxN*100))}%"></div><span class="tw">${esc(t.t)}</span><span class="tc">${nf(t.n)}</span></div>`).join('');}
+function refreshTerms(){const ft=filteredTerms();
+  const el=document.getElementById('termList');if(el)el.innerHTML=termItemsHTML(ft.filt,ft.maxN)||'<div class="mut">no terms in range</div>';
+  const rd=document.getElementById('termReadout');if(rd)rd.textContent=`showing ${nf(Math.min(ft.filt.length,150))} of ${nf(_terms.length)} terms`;
+  const fm=document.getElementById('fMin');if(fm)fm.textContent=nf(ft.lo);const fx=document.getElementById('fMax');if(fx)fx.textContent=nf(ft.hi);}
+function setTermQuery(v){termQuery=v;refreshTerms();}
+function setTermLo(v){termLo=+v;refreshTerms();}
+function setTermHi(v){termHi=+v;refreshTerms();}
 function ruleRow(r){const kind=r.type==='group'?'group':'strip';
   return `<div class="rrule ${kind} ${r.on?'on':''}"><span class="sw" onclick="toggleRule('${r.id}')"></span>
     <div class="body"><div class="kind">${r.type==='group'?'group by':'strip'}</div><input class="txt" value="${esc(r.text)}" onchange="editRule('${r.id}',this.value)"></div>
