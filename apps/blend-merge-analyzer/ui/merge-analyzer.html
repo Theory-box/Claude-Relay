@@ -142,6 +142,7 @@ footer{position:fixed;bottom:0;left:0;right:0;height:56px;border-top:1px solid v
 footer .navbtn{font-family:var(--sans);font-size:13px;font-weight:500;cursor:pointer;border:1px solid var(--line-2);background:var(--surface);color:var(--ink);border-radius:9px;padding:9px 16px}
 footer .navbtn:disabled{opacity:.4;cursor:default}footer .navbtn.primary{border:none;background:linear-gradient(180deg,var(--amber),#d99a24);color:#160f00;font-weight:600}
 footer .fnote{font-family:var(--mono);font-size:11px;color:var(--dim)}
+.mono{font-family:var(--mono)}
 ::-webkit-scrollbar{width:9px;height:9px}::-webkit-scrollbar-thumb{background:var(--surface-3);border-radius:6px}
 </style>
 </head>
@@ -169,7 +170,7 @@ footer .fnote{font-family:var(--mono);font-size:11px;color:var(--dim)}
 <main id="stageBody"></main>
 <div class="selbar" id="selbar">
   <span class="info"><b id="selN">0</b> selected</span>
-  <button class="bigbtn sm" onclick="mergeSelected()">Merge into one</button>
+  <button class="bigbtn sm" id="selPrimary" onclick="selPrimaryAction()">Merge into one</button>
   <button class="bigbtn sm red" onclick="deleteSelected()">Delete</button>
   <button class="bigbtn sm ghost" onclick="clearSel()">Clear</button>
 </div>
@@ -218,12 +219,14 @@ async function openBlend(){try{let path=null;
 
 /* ---------------- plan state ---------------- */
 const STAGES=[{id:'instances',name:'Instances',eyebrow:'Stage 01 · biggest win'},
- {id:'families',name:'Families',eyebrow:'Stage 02 · group your way'},
- {id:'remainder',name:'Remainder',eyebrow:'Stage 03 · the long tail'},
- {id:'review',name:'Review',eyebrow:'Stage 04 · execute'}];
+ {id:'dupes',name:'Duplicates',eyebrow:'Stage 02 · exact matches'},
+ {id:'families',name:'Families',eyebrow:'Stage 03 · group your way'},
+ {id:'remainder',name:'Remainder',eyebrow:'Stage 04 · the long tail'},
+ {id:'review',name:'Review',eyebrow:'Stage 05 · execute'}];
 let bins=[], bid=1;                 // {id,kind:'merge'|'delete',label,names:[],source}
 let stageIdx=0, selected=new Set(), touched=new Set();
-let expandedG=new Set(), termQuery='', rid=100;
+let expandedG=new Set(), rid=100;
+var termQuery='', famFilter='';   // var: read/written by inline oninput handlers (classic-script scope)
 function defaultRecipe(){return [
   {id:'s1',type:'strip',text:'[####]',on:true},
   {id:'s2',type:'strip',text:'_[####]',on:true},
@@ -231,7 +234,7 @@ function defaultRecipe(){return [
   {id:'s4',type:'strip',text:'dimensions',on:false},
 ];}
 let recipe=defaultRecipe();
-let includeUntouched=true, tagMats=true, saveCopy=true;
+var includeUntouched=true, tagMats=true, saveCopy=true;   // var: toggled by inline onchange in Review
 
 function claimedSet(){const s=new Set();bins.forEach(b=>b.names.forEach(n=>s.add(n)));return s;}
 let _claimed=new Set();
@@ -280,11 +283,12 @@ function renderStations(){const el=document.getElementById('stations');el.innerH
     st.innerHTML=`<div class="dot"></div><div class="name">${s.name}</div><div class="n" id="stn-${s.id}"></div>`;
     st.onclick=()=>{stageIdx=i;selected.clear();render();};el.appendChild(st);});
   document.getElementById('stn-instances').textContent='−'+nf(savedBy('instance'));
+  document.getElementById('stn-dupes').textContent='−'+nf(savedBy('dupes'));
   document.getElementById('stn-families').textContent='−'+nf(savedBy('family'));
   document.getElementById('stn-remainder').textContent='−'+nf(savedBy('remainder'));
   document.getElementById('stn-review').textContent=nf(remaining());}
 function head(id){const s=STAGES.find(x=>x.id===id);return `<div class="stagehead"><span class="eyebrow">${s.eyebrow}</span><h1>${s.name}</h1></div>`;}
-function renderStage(id){touched.add(id);document.getElementById('stageBody').innerHTML=({instances:stInstances,families:stFamilies,remainder:stRemainder,review:stReview})[id]();if(id==='instances')layoutTreemap();}
+function renderStage(id){touched.add(id);document.getElementById('stageBody').innerHTML=({instances:stInstances,dupes:stDupes,families:stFamilies,remainder:stRemainder,review:stReview})[id]();if(id==='instances')layoutTreemap();if(id==='families')refreshFamilyList();}
 
 /* ---------------- stage: instances ---------------- */
 function instRemaining(){refreshClaimed();
@@ -315,9 +319,42 @@ function squarify(data,x,y,w,h){const nodes=data.map(d=>({...d}));const total=no
   while(rem.length){const side=Math.min(W,H);let row=[];let i=0;while(i<rem.length){const test=row.concat(rem[i]);if(row.length===0||worst(test,side)<=worst(row,side)){row=test;i++;}else break;}
     const rowArea=row.reduce((s,r)=>s+r._a,0);if(W<=H){const rh=rowArea/W||0;let rx=X;row.forEach(r=>{const rw=r._a/rh||0;out.push({...r,rect:{x:rx,y:Y,w:rw,h:rh}});rx+=rw;});Y+=rh;H-=rh;}else{const rw=rowArea/H||0;let ry=Y;row.forEach(r=>{const rh=r._a/rw||0;out.push({...r,rect:{x:X,y:ry,w:rw,h:rh}});ry+=rh;});X+=rw;W-=rw;}rem=rem.slice(row.length);}return out;}
 
+/* ---------------- stage: duplicates ---------------- */
+// duplicate names = cleaned-name buckets (per the shared strip-recipe) with >=2 objects left
+function dupBuckets(){const {buckets}=poolState();
+  return Object.values(buckets).filter(b=>b.count>=2).map(b=>({id:'dup:'+b.key,label:b.key,names:b.names,count:b.count})).sort((a,b)=>b.count-a.count);}
+function stDupes(){
+  const strips=recipe.filter(r=>r.type==='strip');const rulesHtml=strips.map(ruleRow).join('')||'<div class="mut">no strip-rules — names must match exactly</div>';
+  const dups=dupBuckets();const totalObj=dups.reduce((a,d)=>a+d.count,0);
+  const cards=dups.slice(0,400).map(dupCard).join('')+(dups.length>400?`<div class="mut" style="padding:6px">+ ${nf(dups.length-400)} more — collapse all to clear them</div>`:'');
+  const allSel=dups.length&&dups.every(d=>selected.has(d.id));
+  return head('dupes')+
+   `<p class="stagesub">Names that are identical <b>after cleanup</b> — the strip-rules below remove ids and copy-suffixes so <span class="mono">Wall [5114268]</span> and <span class="mono">Wall [5114269]</span> count as the same thing. Collapsing each set into one object is the safe pass before grouping. These are the <b>same rules</b> the Families stage uses — edit here and it holds everywhere.</p>
+    <div class="rowbtns"><button class="bigbtn" onclick="collapseAllDupes()" ${dups.length?'':'disabled'}>Collapse all ${nf(dups.length)} duplicate names → ${nf(dups.length)} objects</button>
+      <span class="mut">${nf(dups.length)} duplicate names · ${nf(totalObj)} objects · each set becomes its own object (never one blob)</span></div>
+    <div style="display:grid;grid-template-columns:290px 1fr;gap:16px;align-items:start">
+      <div class="col"><h3>Strip-rules</h3>${rulesHtml}
+        <div class="addrule"><input id="newStrip" placeholder="strip pattern… (# = digit)" onkeydown="if(event.key==='Enter')addStripRule()"><button onclick="addStripRule()">+</button></div>
+        <div class="mut" style="margin-top:8px;line-height:1.6">Shared with Families. <span class="mono"># = any digit</span>. Toggle off to see raw names.</div></div>
+      <div><div class="listtools"><button class="linkbtn" onclick="selectAllDupes()">${allSel?'Deselect':'Select'} all</button><span class="mut">${nf(dups.length)} duplicate groups · select some for “Collapse selected”, or ✕ to mark delete</span></div>
+        <div class="glist">${cards||'<div class="mut">No duplicate names left — every remaining name is unique.</div>'}</div></div>
+    </div>`;
+}
+function dupCard(d){const sel=selected.has(d.id)?'sel':'';const canExp=d.names.length>1;
+  const exp=canExp?`<span class="expand" data-act="exp" data-id="${esc(d.id)}">${expandedG.has(d.id)?'▾':'▸'}</span>`:'<span class="expand"></span>';
+  let kids='';if(canExp&&expandedG.has(d.id))kids='<div class="gchildren">'+d.names.slice(0,40).map(n=>`<div class="gchild"><span>${esc(n)}</span><span></span></div>`).join('')+(d.names.length>40?`<div class="gchild"><span>+ ${nf(d.names.length-40)} more</span><span></span></div>`:'')+'</div>';
+  return `<div class="gcard ${sel}" data-act="sel" data-id="${esc(d.id)}"><span class="chk"></span>${exp}<span class="tag" style="background:var(--surface-3);color:var(--muted)">×${nf(d.count)}</span><span class="nm">${esc(d.label)}</span><span class="cnt">${nf(d.count)} → 1</span>
+    <button class="mg" data-act="dupmerge" data-id="${esc(d.id)}">collapse</button><button class="kill" data-act="dupdel" data-id="${esc(d.id)}">✕</button></div>${kids}`;}
+function dupCollapse(id){const d=dupBuckets().find(x=>x.id===id);if(d){bins.push({id:'b'+(bid++),kind:'merge',label:d.label,names:d.names,source:'dupes'});selected.delete(id);render();}}
+function dupDelete(id){const d=dupBuckets().find(x=>x.id===id);if(d){bins.push({id:'b'+(bid++),kind:'delete',label:d.label,names:d.names,source:'dupes'});selected.delete(id);render();}}
+function collapseAllDupes(){dupBuckets().forEach(d=>bins.push({id:'b'+(bid++),kind:'merge',label:d.label,names:d.names,source:'dupes'}));render();}
+function collapseSelectedDupes(){dupBuckets().filter(d=>selected.has(d.id)).forEach(d=>bins.push({id:'b'+(bid++),kind:'merge',label:d.label,names:d.names,source:'dupes'}));selected.clear();render();}
+function selectAllDupes(){const ds=dupBuckets();const all=ds.length&&ds.every(d=>selected.has(d.id));if(all)selected.clear();else ds.forEach(d=>selected.add(d.id));render();}
+function addStripRule(){const t=document.getElementById('newStrip').value.trim();if(t)recipe.push({id:'r'+(rid++),type:'strip',text:t,on:true});selected.clear();render();}
+
 /* ---------------- stage: families ---------------- */
-function familyMergeBins(){return bins.filter(b=>b.kind==='merge'&&b.source==='family');}
-function familyDeleteBins(){return bins.filter(b=>b.kind==='delete'&&b.source==='family');}
+function familyMergeBins(){return bins.filter(b=>b.kind==='merge');}   // all merged results re-enter the pool
+function familyDeleteBins(){return bins.filter(b=>b.kind==='delete');}
 function buildFamilyCards(){
   const {groups}=poolState();const terms=activeTerms();const cards=[];
   const inc=(g,t)=>g.name.toLowerCase().includes(t.toLowerCase());
@@ -343,10 +380,6 @@ function stFamilies(){
   const active=new Set(activeTerms().map(t=>t.toLowerCase()));
   const termHtml=shown.map(t=>`<div class="term ${active.has(t.t.toLowerCase())?'on':''}" data-act="term" data-term="${esc(t.t)}"><div class="bar" style="width:${Math.max(6,Math.round(t.n/maxN*100))}%"></div><span class="tw">${esc(t.t)}</span><span class="tc">${nf(t.n)}</span></div>`).join('');
   const cards=buildFamilyCards();const autos=cards.filter(c=>c.kind==='auto');
-  const order={term:0,inter:1,union:2,auto:3};
-  const mHtml=familyMergeBins().map(binCard).join('');
-  const dHtml=familyDeleteBins().map(binCard).join('');
-  const cHtml=cards.sort((a,b)=>order[a.kind]-order[b.kind]).map(groupCard).join('');
   const allSel=autos.length&&autos.every(c=>selected.has(c.id));
   return head('families')+
    `<p class="stagesub">Group whatever's left <b>your way</b>. The <b>recipe</b> holds strip-rules (fold noise) and group-rules (gather a term) — edit, add, or remove any. Browse terms by frequency and click to gather; overlapping terms (say <b>Window</b> + <b>White</b>) give you <b>Window</b>, <b>White</b>, and <b>Window ∩ White</b> to choose from. Merged results stay and can be merged again; ✕ marks for deletion (reversible).</p>
@@ -361,9 +394,23 @@ function stFamilies(){
         <div class="termlist" id="termList">${termHtml||'<div class="mut">no terms left</div>'}</div></div>
       <div class="col" style="background:transparent;border:none;padding:0">
         <div class="listtools"><h3 style="margin:0">Groups · your plan</h3><button class="linkbtn" onclick="selectAllAuto()">${allSel?'Deselect':'Select'} all name-groups</button>
-          <span class="mut">${familyMergeBins().length} merged · ${familyDeleteBins().length} to delete · ${autos.length} proposed</span></div>
-        <div class="glist">${mHtml}${dHtml}${cHtml||'<div class="mut">Nothing left to group.</div>'}</div></div>
+          <span class="mut" id="famCounts"></span></div>
+        <input class="termsearch" id="famFilter" placeholder="⌕ filter merged results & groups…" value="${esc(famFilter)}" oninput="famFilter=this.value;refreshFamilyList()">
+        <div class="glist" id="famList"></div></div>
     </div>`;
+}
+function refreshFamilyList(){
+  const cards=buildFamilyCards();const order={term:0,inter:1,union:2,auto:3};
+  const ff=famFilter.toLowerCase();const CAP=200;
+  const mAll=familyMergeBins(),dAll=familyDeleteBins();
+  const mF=ff?mAll.filter(b=>b.label.toLowerCase().includes(ff)):mAll;
+  const dF=ff?dAll.filter(b=>b.label.toLowerCase().includes(ff)):dAll;
+  const cF=ff?cards.filter(c=>c.label.toLowerCase().includes(ff)):cards;
+  const mHtml=mF.slice(0,CAP).map(binCard).join('')+(mF.length>CAP?`<div class="mut" style="padding:6px">+ ${nf(mF.length-CAP)} more merged — type to filter</div>`:'');
+  const dHtml=dF.map(binCard).join('');
+  const cHtml=cF.sort((a,b)=>order[a.kind]-order[b.kind]).slice(0,CAP).map(groupCard).join('')+(cF.length>CAP?`<div class="mut" style="padding:6px">+ ${nf(cF.length-CAP)} more groups — type to filter</div>`:'');
+  const el=document.getElementById('famList');if(el)el.innerHTML=(mHtml+dHtml+cHtml)||'<div class="mut">Nothing left to group.</div>';
+  const cc=document.getElementById('famCounts');if(cc)cc.textContent=`${mAll.length} merged · ${dAll.length} to delete · ${cards.filter(c=>c.kind==='auto').length} proposed`;
 }
 function refreshTerms(){const {groups}=poolState();const terms=termFreq(groups);const maxN=terms.length?terms[0].n:1;
   const q=termQuery.toLowerCase();const shown=terms.filter(t=>!q||t.t.toLowerCase().includes(q)).slice(0,80);
@@ -439,7 +486,10 @@ function stReview(){const rem=remaining();const mCount=bins.filter(b=>b.kind==='
 /* ---------------- selection (families cards/bins + remainder) ---------------- */
 function toggleSel(id){selected.has(id)?selected.delete(id):selected.add(id);render();}
 function clearSel(){selected.clear();render();}
-function renderSelbar(){const sid=STAGES[stageIdx].id;document.getElementById('selbar').classList.toggle('show',selected.size>=1&&['families','remainder'].includes(sid));document.getElementById('selN').textContent=selected.size;}
+function renderSelbar(){const sid=STAGES[stageIdx].id;const show=selected.size>=1&&['dupes','families','remainder'].includes(sid);
+  document.getElementById('selbar').classList.toggle('show',show);document.getElementById('selN').textContent=selected.size;
+  const pb=document.getElementById('selPrimary');if(pb)pb.textContent=sid==='dupes'?'Collapse selected':'Merge into one';}
+function selPrimaryAction(){STAGES[stageIdx].id==='dupes'?collapseSelectedDupes():mergeSelected();}
 function mergeSelected(){const sid=STAGES[stageIdx].id;const names=new Set();let labels=[];
   if(sid==='families'){const cards=buildFamilyCards();
     [...selected].forEach(id=>{const c=cards.find(x=>x.id===id);if(c){cardNames(c).forEach(n=>names.add(n));labels.push(c.label);}
@@ -473,7 +523,8 @@ function renderFooter(){document.getElementById('backBtn').disabled=stageIdx===0
 document.addEventListener('click',e=>{const el=e.target.closest('[data-act]');if(!el)return;const id=el.dataset.id,act=el.dataset.act;
   if(act==='sel')toggleSel(id);else if(act==='merge')mergeCard(id);else if(act==='del')deleteCard(id);
   else if(act==='exp')toggleExpandG(id);else if(act==='markdel')markDelRemainder(id);
-  else if(act==='undo')undoBin(id);else if(act==='binDel')deleteBin(id);else if(act==='term')clickTerm(el.dataset.term);});
+  else if(act==='undo')undoBin(id);else if(act==='binDel')deleteBin(id);else if(act==='term')clickTerm(el.dataset.term);
+  else if(act==='dupmerge')dupCollapse(id);else if(act==='dupdel')dupDelete(id);});
 window.addEventListener('resize',()=>{if(DATA&&STAGES[stageIdx].id==='instances')layoutTreemap();});
 loadBlenders();
 </script>
