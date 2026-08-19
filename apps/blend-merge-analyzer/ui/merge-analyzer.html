@@ -251,6 +251,7 @@ var includeUntouched=true, tagMats=true, saveCopy=true;   // var: toggled by inl
 function claimedSet(){const s=new Set();bins.forEach(b=>b.names.forEach(n=>s.add(n)));return s;}
 let _claimed=new Set();
 function refreshClaimed(){_claimed=claimedSet();}
+let _poolCache=null;   // poolState result, valid within one render pass
 
 /* ---------------- recipe / name cleaning ---------------- */
 function activeStrips(){return recipe.filter(r=>r.type==='strip'&&r.on);}
@@ -264,13 +265,12 @@ function cleanName(n){let s=n;activeStrips().forEach(r=>{const t=r.text.toLowerC
 /* ---------------- remaining-pool computation ---------------- */
 // returns groups with their unclaimed names + counts, cleaned-name buckets, term frequency
 function poolState(){
-  refreshClaimed();
+  if(_poolCache)return _poolCache;
   const groups=[];   // {name,count(rem),names(rem)}
   DATA.groups.forEach(g=>{const rn=g.names.filter(n=>!_claimed.has(n));if(rn.length)groups.push({name:g.name,count:rn.length,names:rn});});
-  // cleaned-name buckets (families auto-groups)
   const buckets={};
   groups.forEach(g=>{const k=cleanName(g.name);(buckets[k]=buckets[k]||{key:k,count:0,names:[],members:[]});buckets[k].count+=g.count;buckets[k].names.push(...g.names);buckets[k].members.push(g.name);});
-  return {groups,buckets};
+  _poolCache={groups,buckets};return _poolCache;
 }
 function nameWords(name){return name.split(/[\s_/]+|(?<=[A-Za-z])-(?=[A-Z])/).map(t=>t.replace(/["”().,]/g,'')).filter(t=>t&&t.length>1&&!/^\d+$/.test(t));}
 function termFreq(groups,breadth){breadth=breadth||'word';const f={};
@@ -291,7 +291,7 @@ function remaining(){return DATA?DATA.total-totalSaved():0;}
 function savedBy(src){return bins.filter(b=>b.source===src).reduce((a,b)=>a+(b.kind==='delete'?b.names.length:Math.max(0,b.names.length-1)),0);}
 
 /* ---------------- render ---------------- */
-function render(){if(!DATA)return;renderRail();renderStations();renderStage(STAGES[stageIdx].id);renderFooter();renderSelbar();}
+function render(){if(!DATA)return;_poolCache=null;refreshClaimed();renderRail();renderStations();renderStage(STAGES[stageIdx].id);renderFooter();renderSelbar();}
 function renderRail(){const rem=remaining();document.getElementById('liveCount').textContent=nf(rem);
   const pct=Math.min(100,Math.round((1-(rem-800)/(DATA.total-800))*100));document.getElementById('trackFill').style.width=Math.max(2,pct)+'%';
   document.getElementById('railSub').innerHTML=`Cut <b>${nf(totalSaved())}</b> objects so far — ${Math.round((1-rem/DATA.total)*100)}% fewer.`;}
@@ -308,7 +308,7 @@ function head(id){const s=STAGES.find(x=>x.id===id);return `<div class="stagehea
 function renderStage(id){touched.add(id);document.getElementById('stageBody').innerHTML=({instances:stInstances,dupes:stDupes,families:stFamilies,remainder:stRemainder,review:stReview})[id]();if(id==='instances')layoutTreemap();if(id==='families')refreshFamilyList();}
 
 /* ---------------- stage: instances ---------------- */
-function instRemaining(){refreshClaimed();
+function instRemaining(){
   return (DATA.instance_groups||[]).map((g,i)=>({i,label:g.label,names:g.names.filter(n=>!_claimed.has(n))})).filter(g=>g.names.length);}
 function stInstances(){const rem=instRemaining();const totalObj=rem.reduce((a,g)=>a+g.names.length,0);
   return head('instances')+`<p class="stagesub">Each tile is a <b style="color:var(--violet)">source mesh</b> shared by many objects (linked duplicates). Collapsing turns each source into <b>one</b> object — 200 identical lights become 1. Biggest, safest reduction in the file. Different sources are never fused together.</p>
