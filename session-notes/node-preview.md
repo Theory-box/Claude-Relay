@@ -264,3 +264,21 @@ our own datablock churn doesn't self-trigger).
 - Caveats: if a material uses a shader-node TYPE defined by an add-on (rare),
   --factory-startup won't have it (standard nodes + groups + images are fine);
   if GPU isn't detected under factory-startup it falls back to CPU.
+
+## v0.18 — Show-on-Mesh pin + base-colour preview for shaders
+- Base colour: a target node whose output is a SHADER (e.g. Principled BSDF)
+  used to render black (no lights). Now we route what feeds its "Base Color"
+  (or "Color", or first RGBA input) through emission -> shows the base colour
+  flat. Linked source or default value both handled; falls back to the raw
+  shader if there's no colour input.
+- "Show on Mesh" toggle: adds/reuses an image-texture node pointing at
+  NodePreview_Result and keeps it the ACTIVE node (timer re-asserts only when it
+  changed), so the Solid/Workbench viewport shows the preview on the mesh. It
+  auto-Locks to the node that was active (so live keeps rendering THAT while the
+  image node stays active), and ensures live is on. Pairs with Lock; live-follow
+  is suspended while pinned. Pin resets on file load / unregister.
+- Verified headless: BSDF renders base colour (brick pattern / red) not black;
+  pin creates node, keeps it active across simulated clicks, auto-locks, toggles
+  off. (Actual Workbench display is user-confirmed; not testable headless.)
+- Note: to see it, viewport must be Solid + Color:Texture. To change what's
+  shown, re-lock to a different node (or toggle pin off/on with a new node active).

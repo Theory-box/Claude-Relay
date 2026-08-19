@@ -219,6 +219,9 @@ _state = {
     "last_device": "",        # what the last render actually ran on
     "worker": None,           # persistent warm worker Popen (live mode only)
     "notice": "",             # persistent info note (e.g. EEVEE fell back)
+    "pin_on": False,          # keep a preview image-texture node active for the viewport
+    "pin_mat": "",
+    "pin_node": "",
 }
 
 
@@ -406,7 +409,31 @@ def _build_job_scene(src_mat, node_name, resolution):
 
     out = nt.nodes.new("ShaderNodeOutputMaterial")
     if sock.type == "SHADER":
-        nt.links.new(sock, out.inputs["Surface"])
+        # A raw shader (e.g. a BSDF) renders black with no lights, so instead
+        # show what feeds its base colour, flat.
+        color_input = None
+        for cname in ("Base Color", "Color"):
+            if cname in node.inputs:
+                color_input = node.inputs[cname]
+                break
+        if color_input is None:
+            for inp in node.inputs:
+                if inp.type == "RGBA":
+                    color_input = inp
+                    break
+        if color_input is not None:
+            emis = nt.nodes.new("ShaderNodeEmission")
+            if color_input.is_linked:
+                nt.links.new(color_input.links[0].from_socket, emis.inputs["Color"])
+            else:
+                try:
+                    emis.inputs["Color"].default_value = color_input.default_value
+                except Exception:
+                    pass
+            nt.links.new(emis.outputs["Emission"], out.inputs["Surface"])
+        else:
+            # no colour input to show — fall back to the raw shader
+            nt.links.new(sock, out.inputs["Surface"])
     else:
         emis = nt.nodes.new("ShaderNodeEmission")
         nt.links.new(sock, emis.inputs["Color"])
@@ -803,7 +830,9 @@ def _timer():
 
     # 2) in live mode, react to the user switching to a different node.
     #    (Selecting a node does NOT fire a depsgraph update, so we poll for it.)
-    if _state["live_on"] and not _state["locked"] and _state["job"] is None:
+    #    Skipped while pinned to the viewport (Lock chooses the target instead).
+    if (_state["live_on"] and not _state["locked"] and not _state["pin_on"]
+            and _state["job"] is None):
         mat, node = _find_target()
         if mat is not None:
             key = (mat.name, node.name)
@@ -811,6 +840,10 @@ def _timer():
                 _state["seen_target_key"] = key
                 _state["dirty"] = True
                 _state["last_change"] = time.time()
+
+    # 2b) keep the pinned image-texture node active so the viewport shows it.
+    if _state["pin_on"]:
+        _assert_pinned_active()
 
     # 3) in live mode, start a new job after a quiet period.
     if _state["live_on"] and _state["job"] is None:
@@ -823,12 +856,28 @@ def _timer():
                 _redraw_node_editors()
 
     # 4) decide whether to keep the timer alive.
-    if _state["live_on"] or _state["job"] is not None:
+    if _state["live_on"] or _state["job"] is not None or _state["pin_on"]:
         return 0.1
     # Live is off and nothing is in flight — release the warm worker.
     _stop_warm_worker()
     _state["timer_registered"] = False
     return None
+
+
+def _assert_pinned_active():
+    """Keep the pinned preview image-texture node active (only re-set when it
+    changed, to avoid fighting the user or spamming redraws)."""
+    try:
+        mat = bpy.data.materials.get(_state["pin_mat"])
+        if mat is None or mat.node_tree is None:
+            return
+        node = mat.node_tree.nodes.get(_state["pin_node"])
+        if node is None:
+            return
+        if mat.node_tree.nodes.active != node:
+            mat.node_tree.nodes.active = node
+    except Exception:
+        pass
 
 
 def _debounce():
@@ -886,6 +935,7 @@ def _on_load_post(*args):
     _state["job"] = None
     _state["live_on"] = False
     _state["locked"] = False
+    _state["pin_on"] = False
     _state["dirty"] = False
     _state["busy"] = False
     _state["timer_registered"] = False
@@ -994,6 +1044,74 @@ class NODEPREVIEW_OT_toggle_lock(bpy.types.Operator):
             _state["locked_mat"] = mat.name
             _state["locked_node"] = node.name
             self.report({"INFO"}, "Preview locked to '%s'." % node.name)
+        _redraw_node_editors()
+        return {"FINISHED"}
+
+
+class NODEPREVIEW_OT_toggle_pin(bpy.types.Operator):
+    bl_idname = "nodepreview.toggle_pin"
+    bl_label = "Show on Mesh"
+    bl_description = ("Add (or reuse) an image-texture node pointing at the preview and keep it the "
+                     "active node, so the Solid/Workbench viewport shows the preview on the mesh. "
+                     "Pairs with Lock: locks the node you're previewing so you can edit others freely")
+    bl_options = {"REGISTER"}
+
+    def execute(self, context):
+        if _state["pin_on"]:
+            _state["pin_on"] = False
+            self.report({"INFO"}, "Stopped showing preview on mesh.")
+            _redraw_node_editors()
+            return {"FINISHED"}
+
+        obj = getattr(context, "object", None)
+        mat = obj.active_material if obj is not None else None
+        if mat is None or mat.node_tree is None:
+            self.report({"WARNING"}, "Select an object with a material first.")
+            return {"CANCELLED"}
+        nt = mat.node_tree
+
+        target = nt.nodes.active  # the node the user wants to preview (capture first)
+
+        res = bpy.data.images.get(RESULT_IMAGE_NAME)
+        if res is None:
+            res = bpy.data.images.new(RESULT_IMAGE_NAME, 256, 256, alpha=True)
+            res.use_fake_user = True
+
+        tex = None
+        for n in nt.nodes:
+            if n.type == "TEX_IMAGE" and n.image == res:
+                tex = n
+                break
+        if tex is None:
+            tex = nt.nodes.new("ShaderNodeTexImage")
+            tex.image = res
+            if target is not None:
+                tex.location = (target.location.x - 400, target.location.y)
+
+        _state["pin_mat"] = mat.name
+        _state["pin_node"] = tex.name
+        _state["pin_on"] = True
+        nt.nodes.active = tex
+
+        # Lock the preview to the target node so live keeps rendering it while the
+        # pinned image node stays active for the viewport.
+        if not _state["locked"] and target is not None and target != tex:
+            _state["locked"] = True
+            _state["locked_mat"] = mat.name
+            _state["locked_node"] = target.name
+
+        # Make sure live rendering is running so the mesh updates.
+        if not _state["live_on"]:
+            _state["live_on"] = True
+            _install_handler()
+        _state["dirty"] = True
+        _state["last_change"] = 0.0
+        _ensure_timer()
+
+        msg = "Showing preview on mesh."
+        if _state["locked"]:
+            msg += " Locked to '%s'." % _state["locked_node"]
+        self.report({"INFO"}, msg)
         _redraw_node_editors()
         return {"FINISHED"}
 
@@ -1137,6 +1255,13 @@ class NODEPREVIEW_PT_panel(bpy.types.Panel):
         else:
             row.operator("nodepreview.toggle_lock", text="Lock to Node", icon="UNLOCKED")
 
+        row = layout.row()
+        if _state["pin_on"]:
+            row.alert = True
+            row.operator("nodepreview.toggle_pin", text="Stop Showing on Mesh", icon="MESH_DATA")
+        else:
+            row.operator("nodepreview.toggle_pin", text="Show on Mesh", icon="MESH_DATA")
+
         layout.separator()
         layout.operator("nodepreview.save_image", icon="FILE_TICK")
 
@@ -1182,6 +1307,7 @@ _classes = (
     NODEPREVIEW_OT_refresh,
     NODEPREVIEW_OT_toggle_live,
     NODEPREVIEW_OT_toggle_lock,
+    NODEPREVIEW_OT_toggle_pin,
     NODEPREVIEW_OT_save_image,
     NODEPREVIEW_PT_panel,
 )
@@ -1224,6 +1350,7 @@ def register():
 
 def unregister():
     _state["live_on"] = False
+    _state["pin_on"] = False
     _remove_load_handler()
     _remove_handler()
     job = _state["job"]
