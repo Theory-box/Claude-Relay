@@ -227,20 +227,34 @@ for o in list(_res.objects):
     _res.objects.unlink(o); scene.collection.objects.link(o)
 bpy.data.collections.remove(_res)
 
-# ---- untouched: bulk-append everything not merged and not deleted (no joins) ----
+# ---- output ----
 deleted_names=set(n for g in plan.get("deletes",[]) for n in g["names"])
 merged_names =set(n for g in plan.get("merges",[])  for n in g["names"])
 appended_untouched=0
 if include_untouched:
-    with bpy.data.libraries.load(SRC) as (src, dst):
-        all_names=list(src.objects)
-    untouched=[n for n in all_names if n not in deleted_names and n not in merged_names]
-    # append in chunks to keep memory steady
-    for i in range(0, len(untouched), 5000):
-        got=append(untouched[i:i+5000])
-        appended_untouched+=len(got)
-
-bpy.ops.wm.save_as_mainfile(filepath=os.path.abspath(out))
+    # FULL MODEL. Re-appending ~all 52k objects one at a time is brutally slow (minutes),
+    # so instead: save the freshly-built merged results, load the ORIGINAL file (which
+    # already contains every object), BATCH-REMOVE the objects we merged or deleted, then
+    # drop the merged results back in. batch_remove of tens of thousands is ~seconds.
+    import tempfile as _tf
+    _tmp=_tf.mktemp(suffix=".blend")
+    bpy.ops.wm.save_as_mainfile(filepath=_tmp)               # merged results only, to temp
+    result_names=set(o.name for o in bpy.data.objects)
+    bpy.ops.wm.open_mainfile(filepath=SRC)                   # load the full original
+    _touched=merged_names|deleted_names
+    _rm=[o for o in bpy.data.objects if o.name in _touched]
+    bpy.data.batch_remove(_rm)                               # drop merged+deleted originals
+    appended_untouched=len([o for o in bpy.data.objects if o.type=="MESH"])
+    _sc=bpy.context.scene
+    with bpy.data.libraries.load(_tmp) as (src, dst):
+        dst.objects=[n for n in src.objects if n in result_names]
+    for o in dst.objects:
+        if o: _sc.collection.objects.link(o)
+    bpy.ops.wm.save_as_mainfile(filepath=os.path.abspath(out))
+    try: os.unlink(_tmp)
+    except Exception: pass
+else:
+    bpy.ops.wm.save_as_mainfile(filepath=os.path.abspath(out))
 _stats = {"merged_groups": merged_groups, "merged_objs": merged_objs,
           "deleted": len(deleted_names), "untouched": appended_untouched,
           "remaining": len([o for o in bpy.data.objects if o.type=="MESH"]),
