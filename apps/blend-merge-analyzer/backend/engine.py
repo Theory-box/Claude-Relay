@@ -70,11 +70,8 @@ def _run(blender, blendfile, script_src, extra, background=True):
     args = [blender]
     if background:
         args.append("-b")
-    # clean, deterministic headless run: factory prefs + NO user addons (their load/save
-    # handlers must not touch the file), no audio device. --enable-autoexec keeps legit
-    # drivers evaluating (factory-startup defaults auto-run OFF, which would freeze driven
-    # transforms and shift geometry).
-    args += ["--factory-startup", "--enable-autoexec", "-noaudio"]
+    # clean, deterministic headless run: factory prefs + NO user addons, no audio device.
+    args += ["--factory-startup", "-noaudio"]
     if blendfile:
         args.append(blendfile)
     args += ["--python", sf.name, "--"] + extra
@@ -236,19 +233,22 @@ bpy.data.collections.remove(_res)
 deleted_names=set(n for g in plan.get("deletes",[]) for n in g["names"])
 merged_names =set(n for g in plan.get("merges",[])  for n in g["names"])
 appended_untouched=0
-if include_untouched:
-    # FULL MODEL. Re-appending ~all 52k objects one at a time is brutally slow (minutes),
-    # so instead: save the freshly-built merged results, load the ORIGINAL file (which
-    # already contains every object), BATCH-REMOVE the objects we merged or deleted, then
-    # drop the merged results back in. batch_remove of tens of thousands is ~seconds.
+# The FAST full-model path opens the original and mixes in freshly-built (this-version) data.
+# If the running Blender != the file's version, that mixes node declarations across versions
+# and Blender CRASHES in node versioning. So only take the fast path when versions match;
+# otherwise use the safe (slower) append, which keeps everything in one version.
+_rv="%d.%d"%(bpy.app.version[0],bpy.app.version[1])
+FASTFULL=(arg("--fileversion","")==_rv)
+if include_untouched and FASTFULL:
+    # FAST: build merged (already done) -> temp, load the ORIGINAL, batch-remove the
+    # merged+deleted originals, drop the merged results back in. Seconds, not minutes.
     import tempfile as _tf
     _tmp=_tf.mktemp(suffix=".blend")
-    bpy.ops.wm.save_as_mainfile(filepath=_tmp)               # merged results only, to temp
+    bpy.ops.wm.save_as_mainfile(filepath=_tmp)
     result_names=set(o.name for o in bpy.data.objects)
-    bpy.ops.wm.open_mainfile(filepath=SRC)                   # load the full original
-    _touched=merged_names|deleted_names
-    _rm=[o for o in bpy.data.objects if o.name in _touched]
-    bpy.data.batch_remove(_rm)                               # drop merged+deleted originals
+    bpy.ops.wm.open_mainfile(filepath=SRC)
+    _rm=[o for o in bpy.data.objects if o.name in (merged_names|deleted_names)]
+    bpy.data.batch_remove(_rm)
     appended_untouched=len([o for o in bpy.data.objects if o.type=="MESH"])
     _sc=bpy.context.scene
     with bpy.data.libraries.load(_tmp) as (src, dst):
@@ -258,6 +258,16 @@ if include_untouched:
     bpy.ops.wm.save_as_mainfile(filepath=os.path.abspath(out))
     try: os.unlink(_tmp)
     except Exception: pass
+elif include_untouched:
+    # SAFE: append the untouched objects out of the source into this single-version session.
+    # No opening the original as main, no cross-version temp -> no node-versioning crash.
+    with bpy.data.libraries.load(SRC) as (src, dst):
+        all_names=list(src.objects)
+    untouched=[n for n in all_names if n not in deleted_names and n not in merged_names]
+    for i in range(0, len(untouched), 5000):
+        got=append(untouched[i:i+5000])
+        appended_untouched+=len(got)
+    bpy.ops.wm.save_as_mainfile(filepath=os.path.abspath(out))
 else:
     bpy.ops.wm.save_as_mainfile(filepath=os.path.abspath(out))
 _stats = {"merged_groups": merged_groups, "merged_objs": merged_objs,
@@ -289,6 +299,7 @@ def execute_plan(path, plan, version=None, out_path=None, overwrite=False,
         r = _run(blender, None, MERGE_SRC,
                  ["--source", os.path.abspath(path), "--plan", plan_file,
                   "--out", write_to, "--stats", stats_file,
+                  "--fileversion", str(detect_version(path) or ""),
                   "--untouched", "1" if include_untouched else "0",
                   "--materials", "1" if tag_materials else "0"])
         # Verify by the STATS FILE (and the produced .blend), not stdout.
