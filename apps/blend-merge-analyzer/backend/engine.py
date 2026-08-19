@@ -181,23 +181,51 @@ def join_batch(objs, target_name):
     return r
 
 merged_groups=0; merged_objs=0
-# ---- merges: one group at a time, in isolation ----
-for grp in plan.get("merges", []):
-    names=grp["names"]
-    if not names: continue
-    got=append(names)
-    if not got: continue
-    target=grp.get("label","merged")
-    if len(got)>BATCH:
-        partials=[]
-        for i in range(0,len(got),BATCH):
-            r=join_batch(got[i:i+BATCH], f"{target}__p{i//BATCH}")
-            if r: partials.append(r)
-        if partials: join_batch(partials, target)
-    else:
-        join_batch(got, target)
-    merged_groups+=1; merged_objs+=len(got)
+# merged results go into an EXCLUDED collection so the working view layer stays tiny —
+# join/make_single_user overhead scales with view-layer size, so we keep it small.
+_res=bpy.data.collections.new("__merged__"); scene.collection.children.link(_res)
+def _set_excl(v):
+    for _lc in bpy.context.view_layer.layer_collection.children:
+        if _lc.collection==_res: _lc.exclude=v
+_set_excl(True)
+def stash(o):
+    if not o: return
+    for c in list(o.users_collection): c.objects.unlink(o)
+    _res.objects.link(o)
+# ---- merges: CHUNK groups so the huge source is opened ONCE per chunk, not per group ----
+# (opening a 500MB+ .blend costs ~2s each; per-group opens dominate big plans.)
+CHUNK=int(arg("--chunk","3000"))     # max objects appended per source open
+_mg=[g for g in plan.get("merges", []) if g.get("names")]
+_gi=0
+while _gi < len(_mg):
+    chunk=[]; total=0
+    while _gi < len(_mg) and (not chunk or total+len(_mg[_gi]["names"])<=CHUNK):
+        chunk.append(_mg[_gi]); total+=len(_mg[_gi]["names"]); _gi+=1
+    if not chunk:                      # a single group larger than CHUNK -> its own chunk
+        chunk=[_mg[_gi]]; _gi+=1
+    allnames=set(n for g in chunk for n in g["names"])
+    pool=append(allnames)              # ONE library open for the whole chunk
+    byname={o.name:o for o in pool}
+    for g in chunk:
+        objs=[byname[n] for n in g["names"] if n in byname]
+        if not objs: continue
+        target=g.get("label","merged")
+        if len(objs)>BATCH:
+            partials=[]
+            for i in range(0,len(objs),BATCH):
+                r=join_batch(objs[i:i+BATCH], target+"__p"+str(i//BATCH))
+                if r: partials.append(r)
+            res=join_batch(partials, target) if partials else None
+        else:
+            res=join_batch(objs, target)
+        stash(res)
+        merged_groups+=1; merged_objs+=len(objs)
 merge_t=time.time()-t0
+# bring merged results back into the main collection for a clean single-collection output
+_set_excl(False)
+for o in list(_res.objects):
+    _res.objects.unlink(o); scene.collection.objects.link(o)
+bpy.data.collections.remove(_res)
 
 # ---- untouched: bulk-append everything not merged and not deleted (no joins) ----
 deleted_names=set(n for g in plan.get("deletes",[]) for n in g["names"])
