@@ -290,6 +290,23 @@ const PALETTE=['#37e0d4','#7b8cff','#ff5fa2','#ffb02e','#b06bff','#4ade80','#ff7
 // G.segs:  {a,b,rest,obj}
 // G.objs:  {name,r,stiff,curl,affinity,polarity,solid,fixed,color, nodeIdx:[], segIdx:[]}
 const G={nodes:[],segs:[],objs:[],nbrs:[]};
+// ---- SoA position store: node x/y/h/px/py/ph live in flat Float32Arrays (GPU-uploadable), indexed the same as G.nodes. Node objects keep metadata + index i; positions are accessors into the arrays. ----
+let NCAP=0,NX,NY,NH,NPX,NPY,NPH;
+function nGrow(cap){cap=Math.max(cap|0,1024);const g=a=>{const n=new Float32Array(cap);if(a)n.set(a);return n;};NX=g(NX);NY=g(NY);NH=g(NH);NPX=g(NPX);NPY=g(NPY);NPH=g(NPH);NCAP=cap;}
+nGrow(4096);
+const NodeProto={
+  get x(){return NX[this.i];},set x(v){NX[this.i]=v;},
+  get y(){return NY[this.i];},set y(v){NY[this.i]=v;},
+  get h(){return NH[this.i];},set h(v){NH[this.i]=v;},
+  get px(){return NPX[this.i];},set px(v){NPX[this.i]=v;},
+  get py(){return NPY[this.i];},set py(v){NPY[this.i]=v;},
+  get ph(){return NPH[this.i];},set ph(v){NPH[this.i]=v;}
+};
+function mkNode(p){const i=G.nodes.length;if(i>=NCAP)nGrow(NCAP*2);
+  NX[i]=p.x||0;NY[i]=p.y||0;NH[i]=p.h||0;NPX[i]=p.px!==undefined?p.px:(p.x||0);NPY[i]=p.py!==undefined?p.py:(p.y||0);NPH[i]=p.ph!==undefined?p.ph:(p.h||0);
+  const n=Object.create(NodeProto);n.i=i;
+  for(const k in p){if(k==='x'||k==='y'||k==='h'||k==='px'||k==='py'||k==='ph')continue;n[k]=p[k];}
+  G.nodes.push(n);return n;}
 const S={temp:0.7,speed:1,running:true,W:0,H:0,dpr:1,pad:26,scene:'box',
   gCurl:0,gStiff:0,gThick:0,gGrow:0,weave:0,depth:25,view:'default',iters:4,wallPad:5,attract:0.4,repel:0,tol:0.4,selected:-1,weld:0.003,damp:0.02,contactDamp:0,chunk:false,bonding:true,bondSnap:1.5,bondBrk:2.5,bondCure:0,bondBlend:0,bondTimer:'continuous',cdRamping:false,cdRamp0:0,bondEnergy:0,maxBondEvents:40,snapViz:null,showHeat:true,strandFill:1,outlineW:0.1,outlineA:0.3,cleanView:false,gloss:0.75,shade:1,bg:null,shadow:0.25,xpbd:0,bondChunk:false,shadeSmooth:true,gpu:false};
 const OBJDEF={r:3,stiff:0.12,curl:0,grow:0,affinity:1,polarity:1,solid:false,fixed:false,color:null,autoSpace:false,spaceMult:1,breakable:false,brkStretch:true,brkAbs:false,bendAbsLim:90,brkRel:false,bendRelLim:60};
@@ -363,7 +380,7 @@ function addGraphObject(verts,edges,attrs,vattrs){
     let nids=[];for(const k of idKeys){const n=Math.round(+vv(vattrs[k],i));if(n>=1){const str=String(n);if(!nids.includes(str))nids.push(str);}}
     if(!nids.length)nids=obj.ids;                                 // fall back to per-object ids
     const naff=vaff?+vv(vaff,i):obj.affinity;
-    G.nodes.push({x,y,h,z0,px:x,py:y,ph:h,obj:oi,fixed:fix,solid:sol,inv,ids:nids,aff:naff});obj.nodeIdx.push(G.nodes.length-1);}
+    mkNode({x,y,h,z0,px:x,py:y,ph:h,obj:oi,fixed:fix,solid:sol,inv,ids:nids,aff:naff});obj.nodeIdx.push(G.nodes.length-1);}
   for(const e of edges){const a=base+e[0],b=base+e[1];
     const rest=hyp3(G.nodes[b].x-G.nodes[a].x,G.nodes[b].y-G.nodes[a].y,G.nodes[b].h-G.nodes[a].h)||1;
     const solid=G.nodes[a].solid&&G.nodes[b].solid;
@@ -384,7 +401,7 @@ function addStrokeToObject(oi,pts){   // append a chain of points as nodes+segme
   const obj=G.objs[oi];if(!obj||pts.length<2)return 0;
   const base=G.nodes.length,ids=(obj.ids&&obj.ids.length)?obj.ids.slice():[obj.name];
   for(const p of pts){let h=(Math.random()-0.5)*obj.r*1.5;
-    G.nodes.push({x:p.x,y:p.y,h,z0:0,px:p.x,py:p.y,ph:h,obj:oi,fixed:!!obj.fixed,solid:!!obj.solid,inv:obj.fixed?0:invFromEffR(effR(obj)),ids:ids,aff:obj.affinity});
+    mkNode({x:p.x,y:p.y,h,z0:0,px:p.x,py:p.y,ph:h,obj:oi,fixed:!!obj.fixed,solid:!!obj.solid,inv:obj.fixed?0:invFromEffR(effR(obj)),ids:ids,aff:obj.affinity});
     obj.nodeIdx.push(G.nodes.length-1);}
   for(let i=0;i<pts.length-1;i++){const a=base+i,b=base+i+1;
     const rest=hyp2(G.nodes[b].x-G.nodes[a].x,G.nodes[b].y-G.nodes[a].y)||1;
@@ -652,18 +669,19 @@ function sampleJSON(){
 }
 
 // ---------- physics ----------
-function integrate(){const kick=S.temp*0.8;
-  for(const n of G.nodes){if(n.fixed)continue;
-    let fr=Math.min(0.95,0.05+S.damp+(G.objs[n.obj].damp||0));
-    const sp=hyp2(n.x-n.px,n.y-n.py);
-    if(sp>1.5)fr*=Math.max(0.35,1-0.65*Math.min(1,(sp-1.5)/4.5));   // energy-aware: hot bursts (bond release, collisions) shed damping so heat lingers & spreads; ambient jitter damps normally
-    const vx=(n.x-n.px)*(1-fr),vy=(n.y-n.py)*(1-fr);
-    n.px=n.x;n.py=n.y;
-    n.x+=vx+(Math.random()-0.5)*kick;n.y+=vy+(Math.random()-0.5)*kick;
-    if(S.depth>0&&!n.solid){const slab=S.depth,hk=S.temp*(0.3+S.depth*0.005);          // real 3D slab: z drifts (jitter + preserved collision over/under), soft slab walls
-      const vh=(n.h-n.ph)*(1-fr);n.ph=n.h;n.h+=vh+(Math.random()-0.5)*hk-n.h*0.004;
-      if(n.h>slab)n.h=slab;else if(n.h<-slab)n.h=-slab;}
-    else{n.ph=n.h;n.h=0;}}}
+function integrate(){const kick=S.temp*0.8,nodes=G.nodes,L=nodes.length,depth=S.depth,temp=S.temp,damp=S.damp;
+  for(let i=0;i<L;i++){const n=nodes[i];if(n.fixed)continue;   // SoA hot path: positions read/written straight from the flat arrays (getters bypassed), metadata via object
+    let fr=Math.min(0.95,0.05+damp+(G.objs[n.obj].damp||0));
+    const x=NX[i],y=NY[i],px=NPX[i],py=NPY[i];
+    const sp=hyp2(x-px,y-py);
+    if(sp>1.5)fr*=Math.max(0.35,1-0.65*Math.min(1,(sp-1.5)/4.5));   // energy-aware: hot bursts shed damping so heat lingers & spreads
+    const vx=(x-px)*(1-fr),vy=(y-py)*(1-fr);
+    NPX[i]=x;NPY[i]=y;
+    NX[i]=x+vx+(Math.random()-0.5)*kick;NY[i]=y+vy+(Math.random()-0.5)*kick;
+    if(depth>0&&!n.solid){const slab=depth,hk=temp*(0.3+depth*0.005),h=NH[i],ph=NPH[i];   // real 3D slab
+      const vh=(h-ph)*(1-fr);NPH[i]=h;let nh=h+vh+(Math.random()-0.5)*hk-h*0.004;
+      if(nh>slab)nh=slab;else if(nh<-slab)nh=-slab;NH[i]=nh;}
+    else{NPH[i]=NH[i];NH[i]=0;}}}
 function constraints(){const pad=S.pad;
   for(let it=0;it<3;it++){
     // length (with grow: rest scales by 1+grow, 0 = neutral, -1 collapses, +1 doubles)
@@ -912,6 +930,9 @@ function compactNodes(){   // churn (merge orphans a node, sever adds one) grows
   for(let i=0;i<N;i++){if(!live[i])continue;map[i]=ni++;newNodes.push(G.nodes[i]);if(hasInit)newInit.push(G.init[i]);}
   for(const s of G.segs){s.a=map[s.a];s.b=map[s.b];}
   G.nodes=newNodes;if(hasInit)G.init=newInit;
+  {const nx=new Float32Array(NCAP),ny=new Float32Array(NCAP),nh=new Float32Array(NCAP),npx=new Float32Array(NCAP),npy=new Float32Array(NCAP),nph=new Float32Array(NCAP);
+   for(let k=0;k<newNodes.length;k++){const nn=newNodes[k],oi=nn.i;nx[k]=NX[oi];ny[k]=NY[oi];nh[k]=NH[oi];npx[k]=NPX[oi];npy[k]=NPY[oi];nph[k]=NPH[oi];nn.i=k;}
+   NX=nx;NY=ny;NH=nh;NPX=npx;NPY=npy;NPH=nph;}
   for(const o of G.objs)o.nodeIdx=o.nodeIdx.map(i=>map[i]).filter(i=>i>=0);
   if(G.bondBank&&G.bondBank.size){const nb=new Map();for(const[k,v]of G.bondBank){const p=k.split('_'),a=+p[0],b=+p[1];if(map[a]>=0&&map[b]>=0)nb.set(bondKey(map[a],map[b]),v);}G.bondBank=nb;}
   if(typeof grab!=='undefined'&&grab>=0)grab=map[grab];
@@ -1133,7 +1154,7 @@ function doNewScene(){if(!confirm('Clear the scene and start fresh?'))return;
 document.getElementById('bNewScene').addEventListener('click',doNewScene);
 document.getElementById('bNewScene2').addEventListener('click',doNewScene);
 function dupNode(n,obj){const src=G.nodes[n];   // duplicate a node so an edge can detach from others sharing it
-  G.nodes.push({x:src.x,y:src.y,h:src.h,z0:src.z0,px:src.px,py:src.py,ph:src.ph,obj:obj,fixed:false,solid:src.solid,inv:invFromEffR(effR(G.objs[obj])),ids:src.ids?src.ids.slice():[],aff:src.aff});
+  mkNode({x:src.x,y:src.y,h:src.h,z0:src.z0,px:src.px,py:src.py,ph:src.ph,obj:obj,fixed:false,solid:src.solid,inv:invFromEffR(effR(G.objs[obj])),ids:src.ids?src.ids.slice():[],aff:src.aff});
   const idx=G.nodes.length-1;const o=G.objs[obj];if(o&&o.nodeIdx)o.nodeIdx.push(idx);return idx;}
 function severEdgeAt(si,preferA){   // detach edge si from whatever shares its chosen endpoint node; NO new edges, NO subdividing (an edge is the atomic unit)
   const s=G.segs[si];if(s.dead)return false;
