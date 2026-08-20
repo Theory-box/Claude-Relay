@@ -148,6 +148,7 @@
         </div>
         <p class="note" id="viewNote">Object colours. Switch modes to check what actually imported — brighter means a higher value.</p>
         <div id="strandLook"><p class="eyebrow" style="margin:12px 0 4px">Strand look</p>
+          <label class="ctrl" style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-bottom:10px"><input type="checkbox" id="gpuToggle" style="width:auto"><span>GPU renderer <span style="color:var(--dim)">(beta) — all strands in one GPU draw call</span></span></label>
         <div class="ctrl"><label>Fill <span class="val" id="vFill">1.00</span></label><input id="sFill" type="range" min="0.5" max="1" value="1" step="0.01"><div class="stat" style="margin-top:3px"><span>how much of the strand's body is filled — near 1 closes the gaps so merged sub-strings read as one connected shape</span></div></div>
         <div class="ctrl"><label>Shade <span class="val" id="vShade">1.00</span></label><input id="sShade" type="range" min="0" max="1" value="1" step="0.05"><div class="stat" style="margin-top:3px"><span>diffuse capsule shading — bright on the lit side, dark on the shadow side (light from upper-left) · 0 = off</span></div></div>
         <div class="ctrl" style="margin-top:2px"><label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:12px"><input id="sShadeSmooth" type="checkbox" checked style="width:14px;height:14px;cursor:pointer"> smooth shading (zoomed-in)</label><div class="stat" style="margin-top:2px"><span>on: true gradient on big strands · off: fast 2-stroke everywhere</span></div></div>
@@ -290,7 +291,7 @@ const PALETTE=['#37e0d4','#7b8cff','#ff5fa2','#ffb02e','#b06bff','#4ade80','#ff7
 // G.objs:  {name,r,stiff,curl,affinity,polarity,solid,fixed,color, nodeIdx:[], segIdx:[]}
 const G={nodes:[],segs:[],objs:[],nbrs:[]};
 const S={temp:0.7,speed:1,running:true,W:0,H:0,dpr:1,pad:26,scene:'box',
-  gCurl:0,gStiff:0,gThick:0,gGrow:0,weave:0,depth:25,view:'default',iters:4,wallPad:5,attract:0.4,repel:0,tol:0.4,selected:-1,weld:0.003,damp:0.02,contactDamp:0,chunk:false,bonding:true,bondSnap:1.5,bondBrk:2.5,bondCure:0,bondBlend:0,bondTimer:'continuous',cdRamping:false,cdRamp0:0,bondEnergy:0,maxBondEvents:40,snapViz:null,showHeat:true,strandFill:1,outlineW:0.1,outlineA:0.3,cleanView:false,gloss:0.75,shade:1,bg:null,shadow:0.25,xpbd:0,bondChunk:false,shadeSmooth:true};
+  gCurl:0,gStiff:0,gThick:0,gGrow:0,weave:0,depth:25,view:'default',iters:4,wallPad:5,attract:0.4,repel:0,tol:0.4,selected:-1,weld:0.003,damp:0.02,contactDamp:0,chunk:false,bonding:true,bondSnap:1.5,bondBrk:2.5,bondCure:0,bondBlend:0,bondTimer:'continuous',cdRamping:false,cdRamp0:0,bondEnergy:0,maxBondEvents:40,snapViz:null,showHeat:true,strandFill:1,outlineW:0.1,outlineA:0.3,cleanView:false,gloss:0.75,shade:1,bg:null,shadow:0.25,xpbd:0,bondChunk:false,shadeSmooth:true,gpu:false};
 const OBJDEF={r:3,stiff:0.12,curl:0,grow:0,affinity:1,polarity:1,solid:false,fixed:false,color:null,autoSpace:false,spaceMult:1,breakable:false,brkStretch:true,brkAbs:false,bendAbsLim:90,brkRel:false,bendRelLim:60};
 // per-object attribute + global offset (0 = use imported value untouched)
 function effR(o){return Math.max(0.5,o.r+S.gThick);}
@@ -1258,7 +1259,7 @@ function frame(now){const dt=now-lastT;lastT=now;
   let did=false;
   if(S.running){S.frame=(S.frame||0)+1;advanceCDRamp();attract();endpointForces();relaxSpacing();for(let k=0;k<S.speed;k++){integrate();flagBondBreaks();constraints();collide();wallCCD();dragApply();flagStrainBreaks();flagBendBreaks();}maintainBonds();removeDead();did=true;}
   else if(grab>=0){dragApply();constraints();collide();did=true;}
-  if(did||window.RD||panning){ema=ema*0.9+(1000/Math.max(1,dt))*0.1;if(S.micro&&typeof renderMicro==='function')renderMicro();else render();window.RD=false;document.getElementById('sFps').textContent=Math.round(ema)+' fps';}
+  if(did||window.RD||panning){ema=ema*0.9+(1000/Math.max(1,dt))*0.1;if(S.micro&&typeof renderMicro==='function')renderMicro();else if(S.gpu&&typeof renderGPU==='function')renderGPU();else render();window.RD=false;document.getElementById('sFps').textContent=Math.round(ema)+' fps';}
   requestAnimationFrame(frame);}
 ['pointerdown','pointermove','pointerup','wheel','keydown'].forEach(ev=>window.addEventListener(ev,()=>{window.RD=true;},true));   // any interaction marks a redraw
 ['input','change'].forEach(ev=>document.addEventListener(ev,()=>{window.RD=true;},true));                                        // any slider/toggle change too
@@ -1643,15 +1644,74 @@ void main(){
     if(U.uVignette)glM.uniform1f(U.uVignette,mp.vignette);
     glM.drawArrays(glM.TRIANGLES,0,3);
   };
+  // ============ INSTANCED GPU STRAND RENDERER (standard view on the GPU) ============
+  const VS_T=`#version 300 es
+  layout(location=0) in vec2 aCorner; layout(location=1) in vec4 aSeg; layout(location=2) in vec4 aRCol; layout(location=3) in vec2 aZS;
+  uniform vec2 uA,uB; out vec2 vW; out vec4 vSeg; out float vR; out vec3 vCol; out float vSolid;
+  void main(){ vec2 p0=aSeg.xy,p1=aSeg.zw; float r=aRCol.x; vec2 d=p1-p0; float L=length(d); vec2 dir=L>1e-4?d/L:vec2(1.,0.); vec2 perp=vec2(-dir.y,dir.x);
+    vec2 world=mix(p0-dir*r,p1+dir*r,aCorner.x)+perp*aCorner.y*r; vW=world; vSeg=aSeg; vR=r; vCol=aRCol.yzw; vSolid=aZS.y;
+    float zc=clamp(-aZS.x/100.0,-0.9,0.9); gl_Position=vec4(world*uA+uB, zc, 1); }`;
+  const FS_T=`#version 300 es
+  precision highp float; in vec2 vW; in vec4 vSeg; in float vR; in vec3 vCol; in float vSolid; out vec4 frag;
+  uniform float uGloss,uShade; const vec2 LIGHT=normalize(vec2(-0.5,-0.8));
+  float sdSeg(vec2 p,vec2 a,vec2 b){vec2 pa=p-a,ba=b-a;float h=clamp(dot(pa,ba)/dot(ba,ba),0.,1.);return length(pa-ba*h);}
+  void main(){ vec2 a=vSeg.xy,b=vSeg.zw; float d=sdSeg(vW,a,b); float t=d/vR; if(t>1.0) discard;
+    vec2 ba=b-a; float L=length(ba); vec2 dir=L>1e-4?ba/L:vec2(1,0); vec2 perp=vec2(-dir.y,dir.x);
+    float side=clamp(dot(vW-a,perp)/vR,-1.,1.); float lit=dot(perp,LIGHT); float wall=vSolid;
+    vec3 col=vCol*(1.0+side*lit*0.4*uShade);
+    col+=smoothstep(0.5,0.95,side*lit)*(1.0-t*t)*0.6*uGloss*(1.0-wall*0.7);
+    col*=mix(1.0, mix(1.0,0.55,clamp(uShade,0.,1.)), smoothstep(0.7,1.0,t));
+    float aa=1.0-smoothstep(0.95,1.0,t); frag=vec4(col,aa); }`;
+  let progT,vaoT,instBuf,uAT,uBT,uGl,uSh,tubeReady=false,instArr=null,instCap=0;
+  function initTubes(){
+    progT=glM.createProgram();glM.attachShader(progT,csh(glM.VERTEX_SHADER,VS_T));glM.attachShader(progT,csh(glM.FRAGMENT_SHADER,FS_T));glM.linkProgram(progT);
+    if(!glM.getProgramParameter(progT,glM.LINK_STATUS))throw glM.getProgramInfoLog(progT);
+    vaoT=glM.createVertexArray();glM.bindVertexArray(vaoT);
+    const qb=glM.createBuffer();glM.bindBuffer(glM.ARRAY_BUFFER,qb);glM.bufferData(glM.ARRAY_BUFFER,new Float32Array([0,-1,0,1,1,-1,1,1]),glM.STATIC_DRAW);
+    glM.enableVertexAttribArray(0);glM.vertexAttribPointer(0,2,glM.FLOAT,false,0,0);
+    instBuf=glM.createBuffer();glM.bindBuffer(glM.ARRAY_BUFFER,instBuf);
+    const ST=40;
+    glM.enableVertexAttribArray(1);glM.vertexAttribPointer(1,4,glM.FLOAT,false,ST,0);glM.vertexAttribDivisor(1,1);
+    glM.enableVertexAttribArray(2);glM.vertexAttribPointer(2,4,glM.FLOAT,false,ST,16);glM.vertexAttribDivisor(2,1);
+    glM.enableVertexAttribArray(3);glM.vertexAttribPointer(3,2,glM.FLOAT,false,ST,32);glM.vertexAttribDivisor(3,1);
+    glM.bindVertexArray(null);
+    uAT=glM.getUniformLocation(progT,'uA');uBT=glM.getUniformLocation(progT,'uB');uGl=glM.getUniformLocation(progT,'uGloss');uSh=glM.getUniformLocation(progT,'uShade');
+    tubeReady=true;
+  }
+  const _cc=document.createElement('canvas').getContext('2d',{willReadFrequently:true}); const _rgb=new Map();
+  function parseRGB(str){ let v=_rgb.get(str); if(v)return v; _cc.clearRect(0,0,1,1); _cc.fillStyle='#8fb'; _cc.fillStyle=str; _cc.fillRect(0,0,1,1); const d=_cc.getImageData(0,0,1,1).data; v=[d[0]/255,d[1]/255,d[2]/255]; if(_rgb.size<4096)_rgb.set(str,v); return v; }
+  function gpuColor(s){ return S.view==='default' ? (G.objs[s.obj].color||'#8fb') : segColor(s); }
+  window.renderGPU=function(){
+    if(!ready){ if(!initGL())return; } if(!tubeReady) initTubes();
+    const w=cvs.width,h=cvs.height; if(!w||!h)return; syncSize(w,h);
+    const segs=G.segs,T=segs.length; if(instCap<T){instCap=Math.max(T,(instCap*2)|0,1024);instArr=new Float32Array(instCap*10);}
+    let n=0; for(let k=0;k<T;k++){ const s=segs[k]; if(s.dead||s.bond)continue; const o=G.objs[s.obj]; if(!o)continue; const a=G.nodes[s.a],b=G.nodes[s.b]; if(!a||!b)continue;
+      const r=Math.max(1,effR(o)*(S.strandFill||1)); const c=parseRGB(gpuColor(s)); const j=n*10;
+      instArr[j]=a.x;instArr[j+1]=a.y;instArr[j+2]=b.x;instArr[j+3]=b.y; instArr[j+4]=r;instArr[j+5]=c[0];instArr[j+6]=c[1];instArr[j+7]=c[2]; instArr[j+8]=(a.h+b.h)*0.5;instArr[j+9]=s.solid?1:0; n++; }
+    glM.bindVertexArray(vaoT);glM.bindBuffer(glM.ARRAY_BUFFER,instBuf);glM.bufferData(glM.ARRAY_BUFFER,instArr.subarray(0,n*10),glM.DYNAMIC_DRAW);
+    glM.viewport(0,0,w,h); glM.disable(glM.BLEND);   // opaque + depth = correct over/under
+    glM.enable(glM.DEPTH_TEST);glM.depthFunc(glM.LEQUAL);glM.clearDepth(1);
+    const bg=parseRGB(S.bg||'#0a0e16'); glM.clearColor(bg[0],bg[1],bg[2],1); glM.clear(glM.COLOR_BUFFER_BIT|glM.DEPTH_BUFFER_BIT);
+    glM.useProgram(progT); const sc=S.dpr*view.z,ox=S.dpr*view.ox,oy=S.dpr*view.oy;
+    glM.uniform2f(uAT, sc*2/w, -sc*2/h); glM.uniform2f(uBT, ox*2/w-1, 1-oy*2/h); glM.uniform1f(uGl,S.gloss); glM.uniform1f(uSh,S.shade);
+    glM.drawArraysInstanced(glM.TRIANGLE_STRIP,0,4,n);
+    glM.bindVertexArray(null); glM.disable(glM.DEPTH_TEST);
+  };
+  window.setGpuMode=function(on){ S.gpu=on; if(on)S.micro=false; window.RD=true; cgl.style.display=(on||S.micro)?'block':'none';
+    { const gt=document.getElementById('gpuToggle'); if(gt) gt.checked=on; }
+    document.getElementById('strandLook').style.display=S.micro?'none':''; document.getElementById('microPanel').style.display=S.micro?'':'none';
+    const tm=document.getElementById('toolMicro'); if(tm)tm.classList.toggle('on',S.micro); };
   window.setMicroMode=function(on){
-    S.micro=on;window.RD=true;
-    cgl.style.display=on?'block':'none';
+    S.micro=on;if(on)S.gpu=false;window.RD=true;
+    cgl.style.display=(on||S.gpu)?'block':'none';
+    { const gt=document.getElementById('gpuToggle'); if(gt) gt.checked=S.gpu; }
     const tm=document.getElementById('toolMicro');if(tm)tm.classList.toggle('on',on);
     document.getElementById('strandLook').style.display=on?'none':'';
     document.getElementById('microPanel').style.display=on?'':'none';
   };
   // mode toggle buttons
   const _tmb=document.getElementById('toolMicro');if(_tmb)_tmb.addEventListener('click',()=>setMicroMode(!S.micro));
+  const _gt=document.getElementById('gpuToggle');if(_gt)_gt.addEventListener('change',e=>setGpuMode(e.target.checked));
   // slider wiring
   function slider(id,key,dec){const el=document.getElementById('m_'+id),v=document.getElementById('v_'+id);
     if(!el)return; el.addEventListener('input',()=>{mp[key]=parseFloat(el.value);if(v)v.textContent=(dec!=null?mp[key].toFixed(dec):mp[key]);window.RD=true;});}
