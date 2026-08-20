@@ -11,7 +11,7 @@
   :root{--ink:#0b0c16;--ink2:#10121f;--panel:#151830;--panel2:#1b1f3a;--line:#2a2f52;--text:#e9eaf6;--muted:#8388b4;--dim:#5a5f88;--accent:#37e0d4;--warn:#ff7a45;}
   *{box-sizing:border-box}html,body{margin:0;height:100%}
   body{background:radial-gradient(1200px 700px at 78% -10%,#191d3a 0%,rgba(25,29,58,0) 55%),var(--ink);color:var(--text);font-family:"Space Grotesk",system-ui,sans-serif;-webkit-font-smoothing:antialiased}
-  .wrap{display:grid;grid-template-columns:auto minmax(0,1fr) 320px;gap:16px;height:100vh;padding:16px}
+  .wrap{display:grid;grid-template-columns:auto minmax(0,1fr) 384px;gap:16px;height:100vh;padding:16px}
   .toolbar{display:flex;flex-direction:column;gap:7px;align-items:center}
   .tool{width:42px;height:42px;border-radius:11px;border:1px solid var(--line);background:var(--ink2);color:var(--muted);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:color .12s,border-color .12s,background .12s}
   .tool:hover{color:var(--text)}
@@ -21,7 +21,11 @@
   .screen{position:relative;border:1px solid var(--line);border-radius:14px;overflow:hidden;background:radial-gradient(900px 600px at 50% 40%,#0e1020 0%,#090a12 100%);min-width:0}
   canvas#c{display:block;width:100%;height:100%}
   .tag{position:absolute;left:14px;top:12px;font-family:"IBM Plex Mono",monospace;font-size:11px;letter-spacing:.14em;color:var(--dim);text-transform:uppercase;pointer-events:none}
-  .rail{display:flex;flex-direction:column;gap:14px;overflow-y:auto}
+  .rail{display:flex;flex-direction:row;gap:10px;overflow:hidden;height:100%}
+  .rail-scroll{flex:1;min-width:0;overflow-y:auto;display:flex;flex-direction:column;gap:14px;padding-right:2px}
+  .vtabs{flex:none;width:58px;display:flex;flex-direction:column;gap:6px;padding-top:2px}
+  .vtabs .tab{flex:none;display:flex;flex-direction:column;align-items:center;gap:5px;padding:11px 3px;font-size:8.5px;letter-spacing:.04em;line-height:1.1}
+  .vtabs .tab svg{width:19px;height:19px}
   .card{background:linear-gradient(180deg,var(--panel),var(--ink2) 140%);border:1px solid var(--line);border-radius:14px;padding:16px}
   .eyebrow{font-family:"IBM Plex Mono",monospace;font-size:10.5px;letter-spacing:.22em;color:var(--dim);text-transform:uppercase;margin:0 0 10px}
   h1{font-size:18px;font-weight:600;margin:0 0 3px}
@@ -74,6 +78,7 @@
   input[type=file]{display:none}
   .numin{width:66px;background:var(--ink2);border:1px solid var(--line);color:var(--text);border-radius:6px;padding:2px 6px;font-family:"IBM Plex Mono",monospace;font-size:11px;text-align:right}
   .numin:focus{outline:none;border-color:var(--dim)}
+.tag{pointer-events:none}
 </style>
 </head>
 <body>
@@ -92,19 +97,19 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 18h12"/><path d="M8 16l-3-3a1.5 1.5 0 010-2l7-7a1.5 1.5 0 012 0l4 4a1.5 1.5 0 010 2l-6 6z"/></svg>
     </button>
     <div class="toolsep"></div>
+    <button class="tool" id="toolMicro" title="Microscope view — toggle refractive rendering">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="7.2"/><circle cx="12" cy="12" r="2.6"/></svg>
+    </button>
   </div>
-  <div class="screen"><canvas id="c"></canvas><div class="tag">topology engine · <b id="tagScene" style="color:var(--muted)">demo</b></div></div>
+  <div class="screen"><canvas id="c"></canvas><canvas id="cgl" style="position:absolute;inset:0;width:100%;height:100%;display:none;pointer-events:none"></canvas><div class="tag">topology engine · <b id="tagScene" style="color:var(--muted)">demo</b> · <b id="tagSel" style="color:var(--accent)">Scene</b></div></div>
   <div class="rail">
+    <div class="rail-scroll">
     <div class="railtop">
       <div class="barrow">
         <h1>String engine</h1>
         <span class="fpspill" id="sFps">— fps</span>
       </div>
       <div class="row"><button class="btn primary" id="bPlay">Pause</button><button class="btn" id="bReset">Reset</button></div>
-      <div class="tabbar">
-        <button class="tab on" data-tab="scene">Scene</button>
-        <button class="tab" data-tab="objects">Objects</button>
-      </div>
     </div>
 
     <div class="tabpanel on" data-panel="scene">
@@ -126,6 +131,8 @@
         <div class="stat"><span>objects</span><b id="sObjs">—</b></div>
         <div class="stat"><span>nodes · segments</span><b id="sNS">—</b></div>
       </div>
+    </div>
+    <div class="tabpanel" data-panel="renderings">
       <div class="card">
         <p class="eyebrow">View · verify imported attributes</p>
         <div class="seg" id="view" style="flex-wrap:wrap">
@@ -140,22 +147,50 @@
           <button data-v="affinity">affinity</button>
         </div>
         <p class="note" id="viewNote">Object colours. Switch modes to check what actually imported — brighter means a higher value.</p>
-        <p class="eyebrow" style="margin:12px 0 4px">Strand look</p>
-        <div class="ctrl"><label>Fill <span class="val" id="vFill">0.95</span></label><input id="sFill" type="range" min="0.5" max="1" value="0.95" step="0.01"><div class="stat" style="margin-top:3px"><span>how much of the strand's body is filled — near 1 closes the gaps so merged sub-strings read as one connected shape</span></div></div>
-        <div class="ctrl"><label>Outline <span class="val" id="vOutW">0.0</span></label><input id="sOutW" type="range" min="0" max="1.2" value="0" step="0.05"><div class="stat" style="margin-top:3px"><span>dark casing around each strand (scales with thickness) · 0 = off</span></div></div>
-        <div class="ctrl"><label>Outline opacity <span class="val" id="vOutA">0.85</span></label><input id="sOutA" type="range" min="0" max="1" value="0.85" step="0.05"></div>
+        <div id="strandLook"><p class="eyebrow" style="margin:12px 0 4px">Strand look</p>
+        <div class="ctrl"><label>Fill <span class="val" id="vFill">1.00</span></label><input id="sFill" type="range" min="0.5" max="1" value="1" step="0.01"><div class="stat" style="margin-top:3px"><span>how much of the strand's body is filled — near 1 closes the gaps so merged sub-strings read as one connected shape</span></div></div>
+        <div class="ctrl"><label>Shade <span class="val" id="vShade">1.00</span></label><input id="sShade" type="range" min="0" max="1" value="1" step="0.05"><div class="stat" style="margin-top:3px"><span>diffuse capsule shading — bright on the lit side, dark on the shadow side (light from upper-left) · 0 = off</span></div></div>
+        <div class="ctrl" style="margin-top:2px"><label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:12px"><input id="sShadeSmooth" type="checkbox" checked style="width:14px;height:14px;cursor:pointer"> smooth shading (zoomed-in)</label><div class="stat" style="margin-top:2px"><span>on: true gradient on big strands · off: fast 2-stroke everywhere</span></div></div>
+        <div class="ctrl"><label>Gloss <span class="val" id="vGloss">0.75</span></label><input id="sGloss" type="range" min="0" max="1" value="0.75" step="0.05"><div class="stat" style="margin-top:3px"><span>specular tube shading — a lit streak that makes strands read as rounded gel · 0 = off (flat)</span></div></div>
+        <div class="ctrl"><label>Background</label><div style="display:flex;gap:8px;align-items:center;margin-top:2px"><input id="sBg" type="color" value="#0b0c16" style="width:38px;height:26px;border:1px solid var(--line);border-radius:6px;background:none;cursor:pointer"><button id="sBgClear" class="mini" style="font-size:10px;padding:4px 8px;border-radius:6px;border:1px solid var(--line);background:var(--ink2);color:var(--muted);cursor:pointer">default</button></div></div>
+        <div class="ctrl"><label>Shadow / depth <span class="val" id="vShadow">0.25</span></label><input id="sShadow" type="range" min="0" max="1" value="0.25" step="0.05"><div class="stat" style="margin-top:3px"><span>soft contact shadow under strands — pools darker where they cluster (fake ambient occlusion) · 0 = off</span></div></div>
+        <div class="ctrl"><label>Outline <span class="val" id="vOutW">0.1</span></label><input id="sOutW" type="range" min="0" max="1.2" value="0.1" step="0.05"><div class="stat" style="margin-top:3px"><span>dark casing around each strand (scales with thickness) · 0 = off</span></div></div>
+        <div class="ctrl"><label>Outline opacity <span class="val" id="vOutA">0.30</span></label><input id="sOutA" type="range" min="0" max="1" value="0.3" step="0.05"></div>
+        </div>
+        <div id="microPanel" style="display:none">
+          <p class="eyebrow" style="margin:4px 0 6px">Microscope</p>
+          <div class="ctrl"><label>Refraction <span class="val" id="v_ref">0.5</span></label><input id="m_ref" type="range" min="0" max="1" step="0.01" value="0.5"><div class="stat" style="margin-top:3px"><span>how hard cells bend the light through them</span></div></div>
+          <div class="ctrl"><label>Chromatic fringe <span class="val" id="v_ab">0.3</span></label><input id="m_ab" type="range" min="0" max="1" step="0.01" value="0.3"><div class="stat" style="margin-top:3px"><span>colour separation at refractive edges</span></div></div>
+          <div class="ctrl"><label>Rim light <span class="val" id="v_rim">0.45</span></label><input id="m_rim" type="range" min="0" max="1.5" step="0.01" value="0.45"><div class="stat" style="margin-top:3px"><span>bright refractive edge on the cell wall</span></div></div>
+          <div class="ctrl"><label>Interior blur <span class="val" id="v_iblur">0.5</span></label><input id="m_iblur" type="range" min="0" max="2" step="0.01" value="0.5"><div class="stat" style="margin-top:3px"><span>softens what is seen through the cell wall</span></div></div>
+          <div class="ctrl"><label>Surface noise <span class="val" id="v_noise">0.5</span></label><input id="m_noise" type="range" min="0" max="1.5" step="0.01" value="0.5"><div class="stat" style="margin-top:3px"><span>membrane surface variation — refracts across the whole cell</span></div></div>
+          <div class="ctrl"><label>Noise scale <span class="val" id="v_nscale">5</span></label><input id="m_nscale" type="range" min="1" max="16" step="0.1" value="5"></div>
+          <div class="ctrl"><label>Membrane softness <span class="val" id="v_mblur">11</span></label><input id="m_mblur" type="range" min="2" max="26" step="1" value="11"><div class="stat" style="margin-top:3px"><span>how rounded/soft the cell surface reads</span></div></div>
+          <div class="ctrl"><label>Depth of field <span class="val" id="v_dof">1.0</span></label><input id="m_dof" type="range" min="0" max="2" step="0.01" value="1.0"><div class="stat" style="margin-top:3px"><span>shallow-focus blur by depth (uses weave height)</span></div></div>
+          <div class="ctrl"><label>Focus plane <span class="val" id="v_focus">0.5</span></label><input id="m_focus" type="range" min="0" max="1" step="0.01" value="0.5"></div>
+          <div class="ctrl"><label style="cursor:pointer;font-size:12px"><input id="m_autofocus" type="checkbox" style="width:14px;height:14px"> auto-rack focus</label></div>
+          <div class="ctrl"><label>Grain <span class="val" id="v_grain">0.05</span></label><input id="m_grain" type="range" min="0" max="0.25" step="0.005" value="0.05"></div>
+          <div class="ctrl"><label>Field texture <span class="val" id="v_field">0.35</span></label><input id="m_field" type="range" min="0" max="1" step="0.01" value="0.35"><div class="stat" style="margin-top:3px"><span>faint background so empty areas have something to refract</span></div></div>
+          <div class="ctrl"><label>Field colour</label><div style="display:flex;gap:8px;align-items:center;margin-top:2px"><input id="m_bg" type="color" value="#0a0e16" style="width:38px;height:26px;border:1px solid var(--line);border-radius:6px;background:none;cursor:pointer"></div></div>
+          <div class="ctrl"><label>Vignette <span class="val" id="v_vignette">0.5</span></label><input id="m_vignette" type="range" min="0" max="1" step="0.01" value="0.5"><div class="stat" style="margin-top:3px"><span>darken toward the edges — looking down a scope</span></div></div>
+        </div>
       </div>
+    </div>
+    <div class="tabpanel" data-panel="simulation">
       <div class="card">
         <p class="eyebrow">Simulation</p>
         <div class="ctrl"><label>Motion <span class="val" id="vTemp">0.7</span></label><input id="sTemp" type="range" min="0" max="3" value="0.7" step="0.05"><div class="stat" style="margin-top:3px"><span>calm</span><span>violent</span></div></div>
         <div class="ctrl"><label>Damping <span class="val" id="vDamp">0.02</span></label><input id="sDamp" type="range" min="0" max="0.7" value="0.02" step="0.01"><div class="stat" style="margin-top:3px"><span>lively</span><span>settled</span></div></div>
         <div class="ctrl"><label>Speed <span class="val" id="vSpeed">1×</span></label><input id="sSpeed" type="range" min="1" max="8" value="1" step="1"></div>
-        <div class="ctrl"><label>Weave (over / under) <span class="val" id="vWeave">0.00</span></label><input id="sWeave" type="range" min="0" max="1.5" value="0" step="0.05"><div class="stat" style="margin-top:3px"><span>flat · 2D</span><span>slithery</span></div></div>
+        <div class="ctrl"><label>Depth (3D slab) <span class="val" id="vWeave">25</span></label><input id="sWeave" type="range" min="0" max="80" value="25" step="2"><div class="stat" style="margin-top:3px"><span>flat · 2D</span><span>deep</span></div><div class="stat" style="margin-top:2px"><span>gives everything a thin third dimension — strands pass over/under, and microscope depth-of-field reads the real depth. 0 = flat 2D.</span></div></div>
         <div class="ctrl"><label>Quality <span class="val" id="vIters">4</span></label><input id="sIters" type="range" min="2" max="12" value="4" step="1"><div class="stat" style="margin-top:3px"><span>fast</span><span>firmer walls</span></div></div>
         <div class="ctrl"><label>Wall padding <span class="val" id="vPad">5</span></label><input id="sPad" type="range" min="0" max="20" value="5" step="1"><div class="stat" style="margin-top:3px"><span>none</span><span>thick cushion</span></div></div>
         <div class="ctrl"><label>Collision smoothing <span class="val" id="vCD">0.00</span></label><input id="sCD" type="range" min="0" max="1" value="0" step="0.05"><div class="stat" style="margin-top:3px"><span>bouncy</span><span>settled</span></div></div>
+        <div class="ctrl" style="margin-top:8px"><label>XPBD contacts <span class="val" id="vXpbd">0.00</span></label><input id="sXpbd" type="range" min="0" max="1" value="0" step="0.05"><div class="stat" style="margin-top:3px"><span>lively</span><span>settled</span></div><div class="stat" style="margin-top:2px"><span>corrects collision-invented energy (self-propulsion) once per step. 0 = off · partway = middle ground · 1 = fully inelastic</span></div></div>
         <div class="seg" style="margin-top:8px"><button id="sChunk">temporal spread · interactions</button></div>
         <div class="stat" style="margin-top:3px"><span>spreads attraction/repulsion over 3 frames — faster on dense scenes</span></div>
+        <div class="seg" style="margin-top:6px"><button id="sBondChunk">temporal spread · bonding</button></div>
+        <div class="stat" style="margin-top:3px"><span>spreads bond checks over 3 frames — big help when lots is bonding &amp; breaking</span></div>
         <div class="seg" style="margin-top:10px"><button id="sBond" class="on">bonding master (kill-switch)</button></div>
         <div class="stat" style="margin-top:3px"><span>on by default \u00b7 turn bonding on per-object in its Connect tab</span></div>
         <p class="eyebrow" style="margin:12px 0 4px">Defaults for new connections</p>
@@ -180,6 +215,8 @@
         <div class="ctrl"><label>Grow / expand <span class="val" id="vgGrow">0.00</span></label><input id="sgGrow" type="range" min="-1" max="3" value="0" step="0.05"><div class="stat" style="margin-top:3px"><span>collapse</span><span>swell</span></div></div>
         <p class="note">Each global is an <b>offset added on top</b> of every object's own value — spread between objects is preserved. At 0 the sim runs purely on imported attributes. <b>Grow</b> also gives closed shapes outward pressure so they hold instead of caving in.</p>
       </div>
+    </div>
+    <div class="tabpanel" data-panel="about">
       <div class="card">
         <p class="eyebrow">About</p>
         <p class="sub" style="margin:0">Geometry is a graph: shared vertices stay joined, detached parts float free. Any strand can be a solid wall (nothing weaves past it) and fixed or movable. Built to import from Blender and grow.</p>
@@ -193,7 +230,7 @@
         <div id="objList" style="max-height:220px;overflow-y:auto;display:flex;flex-direction:column;gap:3px"></div>
       </div>
       <div class="card" id="objEditor" style="display:none">
-        <p class="eyebrow">Editing · <span id="objName" style="color:var(--text)">—</span></p>
+        <p class="eyebrow"><span id="edKind">Editing</span> · <span id="objName" style="color:var(--text)">—</span></p>
         <div id="epGeneral" class="subfold">
           <p class="eyebrow">General</p>
           <div class="seg" style="margin-bottom:6px;flex-wrap:wrap"><button id="eSolid">solid</button><button id="eFixed">fixed</button><button id="eSelfSolid">self-solid</button></div>
@@ -212,6 +249,8 @@
         <div id="epAffinity" class="subfold">
           <p class="eyebrow">Affinity</p>
           <div id="interWrap"></div>
+          <div class="ctrl" style="margin-top:6px"><label>Reach <input id="eAffRN" class="numin" type="number" step="5"></label><input id="eAffR" type="range" min="20" max="200" value="140" step="5"></div>
+          <div class="stat" style="margin-top:2px"><span>how far this object\u2019s affinity reaches (px) \u00b7 shorter = faster when it interacts with many things</span></div>
           <p class="note">+ attracts, − repels. Each object has its own row, so pulls can be one-way. "own body" folds the object onto itself; 0 means it ignores itself.</p>
         </div>
         <div id="epConnect" class="subfold">
@@ -225,7 +264,14 @@
         <p class="note" style="margin-top:0">Every object's <b>name</b> is its group id. Select an object and use its <b>Interactions</b> rows to set how it attracts (+) / repels (−) each other object and its own body — per-object and directional. Tag a wall to make it a magnet. The <b>affinity</b> view colours by group; click-drag to pull things.</p>
       </div>
     </div>
-
+    </div>
+    <div class="vtabs">
+      <button class="tab on" data-tab="scene"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 4.5-8 4.5-8-4.5z"/><path d="M4 12l8 4.5 8-4.5"/><path d="M4 16.5l8 4.5 8-4.5"/></svg><span>Scene</span></button>
+      <button class="tab" data-tab="renderings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></svg><span>Render</span></button>
+      <button class="tab" data-tab="objects"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="7" height="7" rx="1"/><rect x="13" y="4" width="7" height="7" rx="1"/><rect x="4" y="13" width="7" height="7" rx="1"/><rect x="13" y="13" width="7" height="7" rx="1"/></svg><span>Objects</span></button>
+      <button class="tab" data-tab="simulation"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="2"/><ellipse cx="12" cy="12" rx="9" ry="4"/><ellipse cx="12" cy="12" rx="9" ry="4" transform="rotate(60 12 12)"/><ellipse cx="12" cy="12" rx="9" ry="4" transform="rotate(120 12 12)"/></svg><span>Sim</span></button>
+      <button class="tab" data-tab="about"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 8h.01"/></svg><span>About</span></button>
+    </div>
   </div>
 </div>
 
@@ -244,10 +290,14 @@ const PALETTE=['#37e0d4','#7b8cff','#ff5fa2','#ffb02e','#b06bff','#4ade80','#ff7
 // G.objs:  {name,r,stiff,curl,affinity,polarity,solid,fixed,color, nodeIdx:[], segIdx:[]}
 const G={nodes:[],segs:[],objs:[],nbrs:[]};
 const S={temp:0.7,speed:1,running:true,W:0,H:0,dpr:1,pad:26,scene:'box',
-  gCurl:0,gStiff:0,gThick:0,gGrow:0,weave:0,view:'default',iters:4,wallPad:5,attract:0.4,repel:0,tol:0.4,selected:-1,weld:0.003,damp:0.02,contactDamp:0,chunk:false,bonding:true,bondSnap:1.5,bondBrk:2.5,bondCure:0,bondBlend:0,bondTimer:'continuous',cdRamping:false,cdRamp0:0,bondEnergy:0,maxBondEvents:40,snapViz:null,showHeat:true,strandFill:0.95,outlineW:0,outlineA:0.85};
+  gCurl:0,gStiff:0,gThick:0,gGrow:0,weave:0,depth:25,view:'default',iters:4,wallPad:5,attract:0.4,repel:0,tol:0.4,selected:-1,weld:0.003,damp:0.02,contactDamp:0,chunk:false,bonding:true,bondSnap:1.5,bondBrk:2.5,bondCure:0,bondBlend:0,bondTimer:'continuous',cdRamping:false,cdRamp0:0,bondEnergy:0,maxBondEvents:40,snapViz:null,showHeat:true,strandFill:1,outlineW:0.1,outlineA:0.3,cleanView:false,gloss:0.75,shade:1,bg:null,shadow:0.25,xpbd:0,bondChunk:false,shadeSmooth:true};
 const OBJDEF={r:3,stiff:0.12,curl:0,grow:0,affinity:1,polarity:1,solid:false,fixed:false,color:null,autoSpace:false,spaceMult:1,breakable:false,brkStretch:true,brkAbs:false,bendAbsLim:90,brkRel:false,bendRelLim:60};
 // per-object attribute + global offset (0 = use imported value untouched)
 function effR(o){return Math.max(0.5,o.r+S.gThick);}
+const LIGHT_X=-0.42,LIGHT_Y=-0.907;   // scene light direction (up-left), for faux tube shading
+function invFromEffR(er){return clamp(9/(er*er),0.08,3);}   // inverse mass: mass proportional to AREA (r^2); 9 = R0^2 (R0=3) so a default-thickness strand keeps inv 1. Thicker -> heavier (plows through), thinner -> lighter (flung around). Clamped so extremes stay stable.
+function objInv(o){return o.fixed?0:invFromEffR(effR(o));}
+function refreshObjMass(o){if(!o)return;for(const i of o.nodeIdx){const n=G.nodes[i];n.inv=n.fixed?0:invFromEffR(effR(o));}}
 function hyp2(x,y){return Math.sqrt(x*x+y*y);}function hyp3(x,y,z){return Math.sqrt(x*x+y*y+z*z);}   // Math.hypot does overflow-safe scaling we never need at pixel scale; plain sqrt is ~7x faster, diff is 4e-16 (last bit)
 function snapDistances(o,type){   // live bond-reach + collision-standoff for a profile — recomputed from CURRENT thickness/padding so the halo tracks every slider
   const pr=o&&o.endType&&o.endType[type];if(!pr)return null;
@@ -308,7 +358,7 @@ function addGraphObject(verts,edges,attrs,vattrs){
     const sol=vsolid?vv(vsolid,i)>0.5:!!obj.solid;
     const fix=vfixed?vv(vfixed,i)>0.5:!!obj.fixed;
     if(!sol&&Math.abs(h)<1e-6)h=(Math.random()-0.5)*obj.r*1.5;   // flat strands get depth to weave
-    const inv=fix?0:(sol?0.25:1);                                 // walls are heavy, strands light
+    const inv=fix?0:invFromEffR(effR(obj));                       // mass from thickness (area)
     let nids=[];for(const k of idKeys){const n=Math.round(+vv(vattrs[k],i));if(n>=1){const str=String(n);if(!nids.includes(str))nids.push(str);}}
     if(!nids.length)nids=obj.ids;                                 // fall back to per-object ids
     const naff=vaff?+vv(vaff,i):obj.affinity;
@@ -333,7 +383,7 @@ function addStrokeToObject(oi,pts){   // append a chain of points as nodes+segme
   const obj=G.objs[oi];if(!obj||pts.length<2)return 0;
   const base=G.nodes.length,ids=(obj.ids&&obj.ids.length)?obj.ids.slice():[obj.name];
   for(const p of pts){let h=(Math.random()-0.5)*obj.r*1.5;
-    G.nodes.push({x:p.x,y:p.y,h,z0:0,px:p.x,py:p.y,ph:h,obj:oi,fixed:!!obj.fixed,solid:!!obj.solid,inv:obj.fixed?0:(obj.solid?0.25:1),ids:ids,aff:obj.affinity});
+    G.nodes.push({x:p.x,y:p.y,h,z0:0,px:p.x,py:p.y,ph:h,obj:oi,fixed:!!obj.fixed,solid:!!obj.solid,inv:obj.fixed?0:invFromEffR(effR(obj)),ids:ids,aff:obj.affinity});
     obj.nodeIdx.push(G.nodes.length-1);}
   for(let i=0;i<pts.length-1;i++){const a=base+i,b=base+i+1;
     const rest=hyp2(G.nodes[b].x-G.nodes[a].x,G.nodes[b].y-G.nodes[a].y)||1;
@@ -399,10 +449,10 @@ function fitToView(pad){ // scale/center all nodes into the canvas
 function clearGraph(){G.nodes=[];G.segs=[];G.objs=[];G.nbrs=[];G.ends=[];G.piece=[];G.bondBank=new Map();}
 // live per-object edits: push down to the object's nodes/segments
 function setObjSolid(o,v){o.solid=v;
-  for(const i of o.nodeIdx){const n=G.nodes[i];n.solid=v;n.inv=n.fixed?0:(v?0.25:1);}
+  for(const i of o.nodeIdx){const n=G.nodes[i];n.solid=v;}   // solid no longer changes mass (mass = thickness)
   for(const si of o.segIdx){const s=G.segs[si];s.solid=G.nodes[s.a].solid&&G.nodes[s.b].solid;}}
 function setObjFixed(o,v){o.fixed=v;
-  for(const i of o.nodeIdx){const n=G.nodes[i];n.fixed=v;n.inv=v?0:(n.solid?0.25:1);}}
+  for(const i of o.nodeIdx){const n=G.nodes[i];n.fixed=v;n.inv=v?0:invFromEffR(effR(o));}}
 function setObjIds(o,ids){o.ids=ids.slice();
   for(const i of o.nodeIdx)G.nodes[i].ids=ids.slice();
   for(const si of o.segIdx)G.segs[si].ids=ids.slice();}
@@ -423,7 +473,7 @@ function weldNodes(){ // merge coincident vertices (even across objects) so touc
     if(found<0){canon[i]=i;const k=cx+'_'+cy+'_'+ch;let arr=buckets.get(k);if(!arr){arr=[];buckets.set(k,arr);}arr.push(i);}
     else{canon[i]=found;const c=G.nodes[found];
       for(const id of n.ids)if(!c.ids.includes(id))c.ids.push(id);
-      if(n.solid)c.solid=true;if(n.fixed)c.fixed=true;c.inv=c.fixed?0:(c.solid?0.25:1);}}
+      if(n.solid)c.solid=true;if(n.fixed)c.fixed=true;c.inv=c.fixed?0:invFromEffR(effR(G.objs[c.obj]));}}
   for(const s of G.segs){s.a=canon[s.a];s.b=canon[s.b];}
   G.segs=G.segs.filter(s=>s.a!==s.b);
   for(const o of G.objs)o.segIdx=[];
@@ -434,16 +484,16 @@ function weldNodes(){ // merge coincident vertices (even across objects) so touc
 function snapshotInit(){G.init=G.nodes.map(n=>[n.x,n.y,n.h]);}      // remember starting layout
 function captureSettings(){const m={_g:{}};
   for(const o of G.objs)m[o.name]={inter:o.inter?Object.assign({},o.inter):null,interSelf:o.interSelf,selfSolid:o.selfSolid,
-    damp:o.damp,padSelf:o.padSelf,padOther:o.padOther,ids:o.ids?o.ids.slice():null,r:o.r,stiff:o.stiff,curl:o.curl,grow:o.grow,
+    damp:o.damp,padSelf:o.padSelf,padOther:o.padOther,affRange:o.affRange,ids:o.ids?o.ids.slice():null,r:o.r,stiff:o.stiff,curl:o.curl,grow:o.grow,
     affinity:o.affinity,polarity:o.polarity,bondOn:o.bondOn,autoSpace:o.autoSpace,spaceMult:o.spaceMult,breakable:o.breakable,brkStretch:o.brkStretch,brkAbs:o.brkAbs,bendAbsLim:o.bendAbsLim,brkRel:o.brkRel,bendRelLim:o.bendRelLim,endType:o.endType?JSON.parse(JSON.stringify(o.endType)):null,
     solid:o.solid,fixed:o.fixed};
-  for(const k of ['temp','damp','speed','weave','iters','wallPad','contactDamp','weld','gCurl','gStiff','gThick','gGrow','chunk','bonding','bondSnap','bondBrk','bondCure','bondBlend','bondTimer','bondEnergy','view'])m._g[k]=S[k];
+  for(const k of ['temp','damp','speed','weave','depth','iters','wallPad','contactDamp','weld','gCurl','gStiff','gThick','gGrow','chunk','bonding','bondSnap','bondBrk','bondCure','bondBlend','bondTimer','bondEnergy','view','repel','tol','maxBondEvents','showHeat','strandFill','outlineW','outlineA','gloss','shade','bg','shadow','xpbd','bondChunk','shadeSmooth'])m._g[k]=S[k];
   return m;}
 function restoreSettings(m){
   if(m._g)applyGlobals(m._g);                                   // keep the user's global settings + resync their sliders
   for(const o of G.objs){const s=m[o.name];if(!s)continue;
     if(s.inter)o.inter=Object.assign({},s.inter);if(s.interSelf!==undefined)o.interSelf=s.interSelf;if(s.selfSolid!==undefined)o.selfSolid=s.selfSolid;
-    if(s.damp!==undefined)o.damp=s.damp;if(s.padSelf!==undefined)o.padSelf=s.padSelf;if(s.padOther!==undefined)o.padOther=s.padOther;
+    if(s.damp!==undefined)o.damp=s.damp;if(s.padSelf!==undefined)o.padSelf=s.padSelf;if(s.padOther!==undefined)o.padOther=s.padOther;if(s.affRange!==undefined)o.affRange=s.affRange;
     if(s.r!==undefined)o.r=s.r;if(s.stiff!==undefined)o.stiff=s.stiff;if(s.curl!==undefined)o.curl=s.curl;if(s.grow!==undefined)o.grow=s.grow;
     if(s.affinity!==undefined)o.affinity=s.affinity;if(s.polarity!==undefined)o.polarity=s.polarity;
     if(s.endType)o.endType=JSON.parse(JSON.stringify(s.endType));if(s.bondOn!==undefined)o.bondOn=s.bondOn;
@@ -513,9 +563,9 @@ function seedWeavy(count,x0,x1,y0,y1){
 
 // ---------- import ----------
 function applyGlobals(g){
-  for(const k of ['weld','weave','iters','wallPad','damp','contactDamp','temp','speed','gCurl','gStiff','gThick','gGrow','chunk','bonding','bondSnap','bondBrk','bondCure','bondBlend','bondTimer','bondEnergy','view'])if(g[k]!==undefined)S[k]=g[k];
+  for(const k of ['weld','weave','depth','iters','wallPad','damp','contactDamp','temp','speed','gCurl','gStiff','gThick','gGrow','chunk','bonding','bondSnap','bondBrk','bondCure','bondBlend','bondTimer','bondEnergy','view','repel','tol','maxBondEvents','showHeat','strandFill','outlineW','outlineA','gloss','shade','bg','shadow','xpbd','bondChunk','shadeSmooth'])if(g[k]!==undefined)S[k]=g[k];
   const sync=(id,val,vid,fmt)=>{const el=document.getElementById(id);if(el)el.value=val;if(vid){const v=document.getElementById(vid);if(v)v.textContent=fmt?fmt(val):val;}};
-  sync('sWeld',S.weld);sync('sWeldN',S.weld);sync('sWeave',S.weave,'vWeave',x=>(+x).toFixed(2));
+  sync('sWeld',S.weld);sync('sWeldN',S.weld);sync('sWeave',S.depth,'vWeave',x=>Math.round(+x));
   sync('sIters',S.iters,'vIters');sync('sPad',S.wallPad,'vPad');sync('sDamp',S.damp,'vDamp',x=>(+x).toFixed(2));
   sync('sCD',S.contactDamp,'vCD',x=>(+x).toFixed(2));
   sync('sTemp',S.temp,'vTemp',x=>(+x).toFixed(2));sync('sSpeed',S.speed,'vSpeed',x=>x+'\u00d7');
@@ -525,7 +575,7 @@ function applyGlobals(g){
   sync('sBCure',S.bondCure,'vBCure',x=>x>=900?'\u221e \u00b7 elastic':(x==0?'0 \u00b7 instant':x+' frames'));
   sync('sBBlend',S.bondBlend,'vBBlend',x=>x<=0?'0 \u00b7 separate':(x>=1?'1 \u00b7 average':(+x).toFixed(1)+' \u00b7 partial'));
   const tog=(id,on)=>{const el=document.getElementById(id);if(el)el.classList.toggle('on',!!on);};
-  tog('sChunk',S.chunk);tog('sBond',S.bonding);tog('sBTimerCont',S.bondTimer==='continuous');tog('sBTimerCum',S.bondTimer==='cumulative');}
+  tog('sChunk',S.chunk);tog('sBondChunk',S.bondChunk);tog('sBond',S.bonding);tog('sBTimerCont',S.bondTimer==='continuous');tog('sBTimerCum',S.bondTimer==='cumulative');sync('sFill',S.strandFill,'vFill',x=>(+x).toFixed(2));sync('sOutW',S.outlineW,'vOutW',x=>(+x).toFixed(1));sync('sOutA',S.outlineA,'vOutA',x=>(+x).toFixed(2));sync('sGloss',S.gloss,'vGloss',x=>(+x).toFixed(2));sync('sShade',S.shade,'vShade',x=>(+x).toFixed(2));sync('sShadow',S.shadow,'vShadow',x=>(+x).toFixed(2));{const xb=document.getElementById('sXpbd');if(xb)xb.value=S.xpbd||0;const xv=document.getElementById('vXpbd');if(xv)xv.textContent=(S.xpbd||0).toFixed(2);const ss=document.getElementById('sShadeSmooth');if(ss)ss.checked=S.shadeSmooth!==false;const bgp=document.getElementById('sBg');if(bgp&&S.bg)bgp.value=S.bg;}}
 function importJSON(data){
   try{const obj=JSON.parse(data);const objs=obj.objects||obj;if(!Array.isArray(objs))throw 0;
     resize();clearGraph();S.scene='import';G.lastImport=data;
@@ -572,7 +622,7 @@ function saveScene(){
         breakable:!!o.breakable,brkStretch:o.brkStretch!==false,brkAbs:!!o.brkAbs,bendAbsLim:o.bendAbsLim||90,brkRel:!!o.brkRel,bendRelLim:o.bendRelLim||60,
         inter:o.inter||{},interSelf:o.interSelf||0}};});
     const out={meta:{generator:'string-engine-save',version:1},
-      globals:{weld:S.weld,weave:S.weave,iters:S.iters,wallPad:S.wallPad,damp:S.damp,contactDamp:S.contactDamp,temp:S.temp,speed:S.speed,
+      globals:{weld:S.weld,weave:S.weave,depth:S.depth,iters:S.iters,wallPad:S.wallPad,damp:S.damp,contactDamp:S.contactDamp,temp:S.temp,speed:S.speed,
         gCurl:S.gCurl,gStiff:S.gStiff,gThick:S.gThick,gGrow:S.gGrow,chunk:S.chunk,attract:S.attract,repel:S.repel,tol:S.tol,view:S.view,
         bonding:S.bonding,bondSnap:S.bondSnap,bondBrk:S.bondBrk,bondCure:S.bondCure,bondBlend:S.bondBlend,bondTimer:S.bondTimer,bondEnergy:S.bondEnergy},objects:objs};
     json=JSON.stringify(out);
@@ -609,8 +659,8 @@ function integrate(){const kick=S.temp*0.8;
     const vx=(n.x-n.px)*(1-fr),vy=(n.y-n.py)*(1-fr);
     n.px=n.x;n.py=n.y;
     n.x+=vx+(Math.random()-0.5)*kick;n.y+=vy+(Math.random()-0.5)*kick;
-    if(!n.solid&&S.weave>0){const slab=G.objs[n.obj].r*1.8*S.weave,hk=S.temp*0.6*S.weave;
-      const vh=(n.h-n.ph)*(1-fr);n.ph=n.h;n.h+=vh+(Math.random()-0.5)*hk-n.h*0.02;
+    if(S.depth>0&&!n.solid){const slab=S.depth,hk=S.temp*(0.3+S.depth*0.005);          // real 3D slab: z drifts (jitter + preserved collision over/under), soft slab walls
+      const vh=(n.h-n.ph)*(1-fr);n.ph=n.h;n.h+=vh+(Math.random()-0.5)*hk-n.h*0.004;
       if(n.h>slab)n.h=slab;else if(n.h<-slab)n.h=-slab;}
     else{n.ph=n.h;n.h=0;}}}
 function constraints(){const pad=S.pad;
@@ -665,6 +715,7 @@ function collide(){flushExcl();
     const sa=segs[A],sb=segs[B];
     if(sa.excl&&sa.excl.has(B))continue;                             // same strand, too close along its length
     if(sa.a===sb.a||sa.a===sb.b||sa.b===sb.a||sa.b===sb.b)continue;  // share a node
+    if(sa.bond||sb.bond)continue;                                    // holding bonds are virtual links, not physical strands — don't collide (was causing merge-time shatter cascades)
     if(sa.obj===sb.obj&&objs[sa.obj].selfSolid===false)continue;     // self pass-through
     pairs.push(A,B);}
   // resolve the same pair list each pass (positions change, so closest() is recomputed here)
@@ -673,17 +724,18 @@ function collide(){flushExcl();
     const sa=segs[pairs[pi]],sb=segs[pairs[pi+1]],oai=sa.obj,obi=sb.obj,oa=objs[oai],ob=objs[obi];
     const a0=G.nodes[sa.a],a1=G.nodes[sa.b],b0=G.nodes[sb.a],b1=G.nodes[sb.b];
     const mobA=(a0.inv+a1.inv)*0.5,mobB=(b0.inv+b1.inv)*0.5,Wt=mobA+mobB;if(Wt<=0)continue;
-    const use3=!(sa.solid||sb.solid),sameObj=oai===obi;
+    const use3=S.depth>0&&!(sa.solid||sb.solid),sameObj=oai===obi;
     const wp=sameObj?(oa.padSelf||0):((use3?0:S.wallPad)+Math.max(oa.padOther||0,ob.padOther||0));
-    const cl=closest(a0,a1,b0,b1,use3),tgt=objR[oai]+objR[obi]+wp;
+    const tgt=objR[oai]+objR[obi]+wp;if(use3){const zA=(a0.h+a1.h)*0.5,zB=(b0.h+b1.h)*0.5;if(Math.abs(zA-zB)>tgt)continue;}const cl=closest(a0,a1,b0,b1,use3);
     if(cl.dist<tgt&&cl.dist>1e-6){const ov=(tgt-cl.dist),inv=1/cl.dist,ux=cl.nx*inv,uy=cl.ny*inv,uh=cl.nh*inv,s=cl.s,t=cl.t;
       const iW=1/Wt,cA=ov*mobA*iW,cB=ov*mobB*iW;
       a0.x+=ux*cA*(1-s);a0.y+=uy*cA*(1-s);a0.h+=uh*cA*(1-s);
       a1.x+=ux*cA*s;a1.y+=uy*cA*s;a1.h+=uh*cA*s;
       b0.x-=ux*cB*(1-t);b0.y-=uy*cB*(1-t);b0.h-=uh*cB*(1-t);
       b1.x-=ux*cB*t;b1.y-=uy*cB*t;b1.h-=uh*cB*t;
-      if(cd>0){  // inelastic: bleed the NORMAL velocity so contacts settle without carrying momentum through (anti-tunnel)
-        const kn=(n)=>{const vn=(n.x-n.px)*ux+(n.y-n.py)*uy+(n.h-n.ph)*uh;n.px+=vn*ux*cd;n.py+=vn*uy*cd;n.ph+=vn*uh*cd;};
+      const vcd=S.xpbd>0?(pass===S.iters-1?S.xpbd:0):cd;   // XPBD: correct contact velocity ONCE at the end, by S.xpbd fraction. 0=off(lively), 1=full(settled), between=middle ground. Classic path (xpbd 0) bleeds cd every pass.
+      if(vcd>0){  // remove the NORMAL velocity the position push manufactured, so contacts don't inject energy (anti-tunnel + no self-propulsion)
+        const kn=(n)=>{const vn=(n.x-n.px)*ux+(n.y-n.py)*uy+(n.h-n.ph)*uh;n.px+=vn*ux*vcd;n.py+=vn*uy*vcd;n.ph+=vn*uh*vcd;};
         kn(a0);kn(a1);kn(b0);kn(b1);}}}
 }
 // ---------- affinity attraction / repulsion (long range, own pass, non-solid only) ----------
@@ -691,7 +743,8 @@ function attract(){
   // any nonzero interaction anywhere? (objs are few — cheap)
   let any=false;for(const o of G.objs){if(o.interSelf){any=true;break;}if(o.inter){for(const k in o.inter){if(o.inter[k]){any=true;break;}}if(any)break;}}
   if(!any)return;
-  const IR=140,IR2=IR*IR,REJ=(IR+40)*(IR+40),BASE=0.18;
+  let IR=20;for(const o of G.objs){const ar=(o.affRange!=null?o.affRange:140);if(ar>IR)IR=ar;}   // search radius = the widest per-object affinity reach; shorter reaches shrink the whole search
+  const IR2=IR*IR,REJ=(IR+40)*(IR+40),BASE=0.18;
   const CHUNKS=3,chunkOn=S.chunk,phase=chunkOn?((G.attractPhase|0)%CHUNKS):0,B2=chunkOn?BASE*CHUNKS:BASE; // temporal spread: 1/3 of segments per frame, force scaled x3 so the average matches
   const tagged=[];for(let i=0;i<G.segs.length;i++)if(G.segs[i].ids&&G.segs[i].ids.length)tagged.push(i);
   if(tagged.length<2)return;
@@ -703,7 +756,8 @@ function attract(){
   for(let a=0;a<nO;a++)for(let bb=0;bb<nO;bb++){const v=interVal(objs[a],objs[bb].ids,a===bb);vmat[a*nO+bb]=v;if(v)anyPair=true;}
   if(!anyPair)return;
   // hash each tagged segment into ONE cell by its midpoint; query 3x3 neighbours, dedup by index order
-  const cell=IR,bkt=new Map(),mid=new Array(idx.length);
+  let maxSeg=0;for(const k of idx){const s=G.segs[k],a=G.nodes[s.a],b=G.nodes[s.b];const l=hyp2(a.x-b.x,a.y-b.y);if(l>maxSeg)maxSeg=l;}   // a segment's midpoint can sit up to ~its length from its nearest point
+  const cell=IR+maxSeg,bkt=new Map(),mid=new Array(idx.length);   // grid must cover reach + segment extent, else short reaches drop still-active pairs (visible pop)
   for(let ii=0;ii<idx.length;ii++){const k=idx[ii],s=G.segs[k],a=G.nodes[s.a],b=G.nodes[s.b];
     const mx=(a.x+b.x)*0.5,my=(a.y+b.y)*0.5;mid[ii]=mx;mid[ii+idx.length]=my;
     const key=Math.floor(mx/cell)+'_'+Math.floor(my/cell);let arr=bkt.get(key);if(!arr){arr=[];bkt.set(key,arr);}arr.push(k);}
@@ -717,19 +771,20 @@ function attract(){
         if(va===0&&vb===0)continue;
         if(oai===obi&&!objs[oai].interSelf)continue;
         if(sa.a===sb.a||sa.a===sb.b||sa.b===sb.a||sa.b===sb.b)continue;
+        const oa=objs[oai],ob=objs[obi];
+        const arA=(oa.affRange!=null?oa.affRange:140),arB=(ob.affRange!=null?ob.affRange:140),pr=Math.max(arA,arB),prm=pr+maxSeg,prej=prm*prm;
         const b0=G.nodes[sb.a],b1=G.nodes[sb.b],bmx=(b0.x+b1.x)*0.5,bmy=(b0.y+b1.y)*0.5;
-        const ddx=mx-bmx,ddy=my-bmy;if(ddx*ddx+ddy*ddy>REJ)continue;// cheap midpoint reject before closest()
+        const ddx=mx-bmx,ddy=my-bmy;if(ddx*ddx+ddy*ddy>prej)continue;// midpoint reject sized to this pair's reach (skips closest() for far pairs)
         const a0=G.nodes[sa.a],a1=G.nodes[sa.b];
         if(a0.inv+a1.inv+b0.inv+b1.inv<=0)continue;
-        const cl=closest(a0,a1,b0,b1,false);if(cl.dist>IR||cl.dist<1e-6)continue;  // true nearest points (2D)
-        const oa=objs[oai],ob=objs[obi];
-        const tgt=objR[oai]+objR[obi],fall=1-clamp((cl.dist-tgt)/Math.max(1,IR-tgt),0,1);
+        const cl=closest(a0,a1,b0,b1,false);if(cl.dist>pr||cl.dist<1e-6)continue;  // true nearest points (2D), per-pair reach
+        const tgt=objR[oai]+objR[obi];
         const contact=tgt+(oai===obi?(oa.padSelf||0):Math.max(oa.padOther||0,ob.padOther||0));
         const gate=clamp((cl.dist-contact)/10,0,1);               // attraction fades to 0 inside the contact distance
         const ux=cl.nx/cl.dist,uy=cl.ny/cl.dist,s=cl.s,t=cl.t;     // normal points B->A
-        if(va!==0){const mA=va*B2*fall*(va>0?gate:1);            // gate pulls only; pushes (repel) act at any range
+        if(va!==0){const fallA=1-clamp((cl.dist-tgt)/Math.max(1,arA-tgt),0,1);const mA=va*B2*fallA*(va>0?gate:1);   // A's own reach shapes its falloff
           a0.x+=-ux*mA*(1-s)*a0.inv;a0.y+=-uy*mA*(1-s)*a0.inv;a1.x+=-ux*mA*s*a1.inv;a1.y+=-uy*mA*s*a1.inv;}
-        if(vb!==0){const mB=vb*B2*fall*(vb>0?gate:1);
+        if(vb!==0){const fallB=1-clamp((cl.dist-tgt)/Math.max(1,arB-tgt),0,1);const mB=vb*B2*fallB*(vb>0?gate:1);
           b0.x+=ux*mB*(1-t)*b0.inv;b0.y+=uy*mB*(1-t)*b0.inv;b1.x+=ux*mB*t*b1.inv;b1.y+=uy*mB*t*b1.inv;}}}}
   if(chunkOn)G.attractPhase=(phase+1)%CHUNKS;
 }
@@ -747,7 +802,8 @@ function endpointForces(){
   const ER=maxR+10,ER2=ER*ER,cell=ER,bkt=new Map();
   for(const ni of ends){const n=G.nodes[ni];const key=(Math.floor(n.x/cell)+16384)*32768+(Math.floor(n.y/cell)+16384);let arr=bkt.get(key);if(!arr){arr=[];bkt.set(key,arr);}arr.push(ni);}
   const newBonds=[];
-  for(let ii=0;ii<ends.length;ii++){const n1=ends[ii],a=G.nodes[n1],cx=Math.floor(a.x/cell),cy=Math.floor(a.y/cell);
+  const bc=S.bondChunk,BC=3,bphase=bc?((G.bondPhase|0)%BC):0,bcMul=bc?BC:1;   // temporal spread for bonding: process 1/3 of ends per frame, pull scaled x3 to keep the average
+  for(let ii=0;ii<ends.length;ii++){if(bc&&(ii%BC)!==bphase)continue;const n1=ends[ii],a=G.nodes[n1],cx=Math.floor(a.x/cell),cy=Math.floor(a.y/cell);
     for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++){const arr=bkt.get(((cx+dx)+16384)*32768+((cy+dy)+16384));if(!arr)continue;
       for(const n2 of arr){if(n2<=n1)continue;const bn=G.nodes[n2];
         const dxp=bn.x-a.x,dyp=bn.y-a.y,d2=dxp*dxp+dyp*dyp;if(d2>ER2||d2<1e-6)continue;
@@ -761,21 +817,23 @@ function endpointForces(){
         if(p1){let f=0;                                          // n1 pulled per its profile toward n2
           if(p1.wStr&&dist<p1.wRange)f+=p1.wStr*0.12*(1-dist/p1.wRange);   // weak: long-range, gentle
           if(p1.sStr&&dist<p1.sRange)f+=p1.sStr*0.42*(1-dist/p1.sRange);   // strong: short-range, firm
-          if(f){a.x+=ux*f*a.inv;a.y+=uy*f*a.inv;}}
+          if(f){a.x+=ux*f*bcMul*a.inv;a.y+=uy*f*bcMul*a.inv;}}
         if(p2){let f=0;
           if(p2.wStr&&dist<p2.wRange)f+=p2.wStr*0.12*(1-dist/p2.wRange);
           if(p2.sStr&&dist<p2.sRange)f+=p2.sStr*0.42*(1-dist/p2.sRange);
-          if(f){bn.x+=-ux*f*bn.inv;bn.y+=-uy*f*bn.inv;}}
+          if(f){bn.x+=-ux*f*bcMul*bn.inv;bn.y+=-uy*f*bcMul*bn.inv;}}
         const blocks=(p)=>p&&p.sStr<0;                            // only a STRONG (close-range) repel vetoes bonding — no pull is fine, proximity within snap still bonds
         if(S.bonding&&!adjacent&&(p1||p2)&&!blocks(p1)&&!blocks(p2)){
           let gated=false;                                        // hysteresis: a pair that just broke can't re-heal until pulled apart past its break distance
           if(a.sepFrom===n2||bn.sepFrom===n1){const sd=Math.max(a.sepFrom===n2?(a.sepDist||0):0,bn.sepFrom===n1?(bn.sepDist||0):0);
-            if(dist<sd)gated=true;else{a.sepFrom=-1;bn.sepFrom=-1;}}   // separated enough -> clear the gate, allow re-bond
+            const cool=Math.max(a.sepFrom===n2?(a.sepUntil||0):0,bn.sepFrom===n1?(bn.sepUntil||0):0);
+            if(dist<sd&&S.frame<cool)gated=true;else{a.sepFrom=-1;bn.sepFrom=-1;}}   // clear once they drift apart OR the brief cooldown lapses (contact-held pairs were stuck forever when standoff < sepDist)
           const bondRest=effR(o1)+effR(o2);                       // the length this bond would have; snap/break scale to it
           const snapR=Math.max(p1?p1.snap:0,p2?p2.snap:0);
           if(!gated&&dist<snapR*bondRest){const mgs=[p1?p1.merge:null,p2?p2.merge:null].filter(v=>v!=null),bls=[p1?p1.blend:null,p2?p2.blend:null].filter(v=>v!=null),bks=[p1?p1.brk:null,p2?p2.brk:null].filter(v=>v!=null),bss=[p1?p1.bStr:null,p2?p2.bStr:null].filter(v=>v!=null),hps=[p1?p1.hardenPow:null,p2?p2.hardenPow:null].filter(v=>v!=null);
             newBonds.push({a:n1,b:n2,d:dist,merge:mgs.length?Math.min(...mgs):0,blend:bls.length?Math.min(...bls):1,brk:bks.length?Math.max(...bks):2.5,
               bStr:bss.length?Math.min(...bss):0.4,hardenPow:hps.length?Math.max(...hps):1});}}}}}   // either side wanting separate (blend 0) keeps them separate; weaker side sets stability
+  if(bc)G.bondPhase=(bphase+1)%BC;   // rotate which third of ends is processed next frame
   if(newBonds.length){
     const existing=new Set();for(const s of G.segs)existing.add(Math.min(s.a,s.b)+'_'+Math.max(s.a,s.b));
     let added=false;const done=new Set(),usedNodes=new Set();
@@ -801,7 +859,7 @@ function flagBondBreaks(){if(!S.bonding)return;   // real strain breaks bonds; y
     const brkRatio=1+((s.brk)-1)*bondStability(s);                   // stability 0 -> breaks at rest length; hardened -> full brk x rest
     if(len>brkRatio*s.rest){s.dead=true;
       if(S.bondEnergy>0)coolNodes(s.a,s.b,S.bondEnergy);            // breaking a bond absorbs energy (endothermic)
-      const d=s.rest*1.15;a.sepFrom=s.b;a.sepDist=d;b.sepFrom=s.a;b.sepDist=d;}}}   // must drift apart before re-bonding (no instant buzz)
+      const d=s.rest*1.15,cu=(S.frame||0)+30;a.sepFrom=s.b;a.sepDist=d;a.sepUntil=cu;b.sepFrom=s.a;b.sepDist=d;b.sepUntil=cu;}}}   // must drift apart OR wait out a short cooldown before re-bonding (no instant buzz, but never permanently stuck)
 // ---------- reversible bonding: weak while young, hardening with age, shaken apart by heat ----------
 function bondStability(s){   // 0 = falls apart instantly, 1 = thermal-proof (committed)
   const mt=s.mergeTime||0;if(mt<=0)return 1;                       // instant-fuse bonds never had a weak phase
@@ -933,6 +991,7 @@ function segColor(s){
 function render(){
   ctx.setTransform(1,0,0,1,0,0);
   ctx.clearRect(0,0,cvs.width,cvs.height);                                        // clear the FULL device-pixel canvas
+  if(S.bg){ctx.fillStyle=S.bg;ctx.fillRect(0,0,cvs.width,cvs.height);}            // customizable background
   ctx.setTransform(S.dpr*view.z,0,0,S.dpr*view.z,S.dpr*view.ox,S.dpr*view.oy);    // DPR * zoom/pan (world -> device pixels)
   ctx.strokeStyle='rgba(90,95,136,0.10)';ctx.lineWidth=1;ctx.strokeRect(S.pad-6,S.pad-6,S.W-2*(S.pad-6),S.H-2*(S.pad-6));
   // draw non-solid segments sorted by height (low first) for a weave cue; solid walls on top, opaque
@@ -942,12 +1001,50 @@ function render(){
     const hi=(G.nodes[G.segs[i].a].h+G.nodes[G.segs[i].b].h),hj=(G.nodes[G.segs[j].a].h+G.nodes[G.segs[j].b].h);
     return hi-hj;});
   ctx.lineCap='round';ctx.lineJoin='round';const dbg=S.view!=='default';
-  for(const idx of order){const s=G.segs[idx],o=G.objs[s.obj],a=G.nodes[s.a],b=G.nodes[s.b];const r=effR(o);const col=segColor(s);
+  if(S.shadow>0&&!dbg){                                                             // soft contact shadow / fake AO: a blurred dark copy under the strands, offset away from the light; stacks darker where strands are dense
+    ctx.save();ctx.filter='blur('+(2.5+S.shadow*7).toFixed(1)+'px)';
+    ctx.strokeStyle='rgba(0,0,0,'+(0.16+S.shadow*0.34).toFixed(3)+')';ctx.lineCap='round';ctx.lineJoin='round';
+    const d=3+S.shadow*5,ox=-LIGHT_X*d,oy=-LIGHT_Y*d;                                 // cast away from the light (down-right)
+    for(const o of G.objs){const r=effR(o);if(r*view.z<1.5)continue;ctx.lineWidth=Math.max(2,r*2*S.strandFill*1.05);ctx.beginPath();
+      for(const si of o.segIdx){const s=G.segs[si];if(!s||s.dead||s.bond)continue;const a=G.nodes[s.a],b=G.nodes[s.b];if(!a||!b)continue;ctx.moveTo(a.x+ox,a.y+oy);ctx.lineTo(b.x+ox,b.y+oy);}
+      ctx.stroke();}
+    ctx.restore();}
+  const _vw=cvs.width/(S.dpr||1),_vh=cvs.height/(S.dpr||1),_cm=60;   // visible world rect (+margin) for off-screen culling
+  const _wx0=(-view.ox)/view.z-_cm,_wx1=(_vw-view.ox)/view.z+_cm,_wy0=(-view.oy)/view.z-_cm,_wy1=(_vh-view.oy)/view.z+_cm;
+  for(const idx of order){const s=G.segs[idx],o=G.objs[s.obj],a=G.nodes[s.a],b=G.nodes[s.b];
+    if((a.x<_wx0&&b.x<_wx0)||(a.x>_wx1&&b.x>_wx1)||(a.y<_wy0&&b.y<_wy0)||(a.y>_wy1&&b.y>_wy1))continue;   // both ends off the same side -> not visible
+    const r=effR(o);const col=segColor(s);
     const fw=Math.max(2,r*2*S.strandFill);                                            // every strand renders as a smooth string — 'solid' is a physics property (impassable), not a look
-    if(S.outlineW>0){ctx.strokeStyle='rgba(8,9,18,'+S.outlineA.toFixed(2)+')';ctx.lineWidth=fw+r*S.outlineW*2;
+    const zr=r*view.z;                                                                 // on-screen radius: below a few px the shading/gloss are sub-pixel, so skip them (huge win when zoomed out, zero visible change)
+    if(S.outlineW>0&&zr>0.8){ctx.strokeStyle='rgba(8,9,18,'+S.outlineA.toFixed(2)+')';ctx.lineWidth=fw+r*S.outlineW*2;
       ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();}
     ctx.strokeStyle=col;ctx.globalAlpha=dbg?1:0.96;ctx.lineWidth=fw;
-    ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();ctx.globalAlpha=1;}
+    ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();ctx.globalAlpha=1;
+    if(S.shade>0&&zr>1.5&&!dbg){                                                      // diffuse capsule shading
+      let dx=b.x-a.x,dy=b.y-a.y;const L=hyp2(dx,dy)||1;dx/=L;dy/=L;
+      let px=-dy,py=dx;if(px*LIGHT_X+py*LIGHT_Y<0){px=-px;py=-py;}                       // perpendicular pointing to the lit side
+      const d=S.shade;
+      if(S.shadeSmooth&&zr>4){                                                          // SMOOTH: true across-tube gradient — only for big on-screen strands (few of them, so the per-seg gradient cost stays tiny)
+        const mx=(a.x+b.x)*0.5,my=(a.y+b.y)*0.5;
+        const g=ctx.createLinearGradient(mx+px*r,my+py*r,mx-px*r,my-py*r);
+        g.addColorStop(0,'rgba(255,255,255,'+(d*0.42).toFixed(3)+')');
+        g.addColorStop(0.45,'rgba(255,255,255,0)');
+        g.addColorStop(1,'rgba(0,0,0,'+(d*0.5).toFixed(3)+')');
+        ctx.strokeStyle=g;ctx.lineWidth=fw;
+        ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();
+      }else{                                                                            // FAST: two offset solid strokes approximate the gradient (no per-seg allocation) — used mid-zoom where strands are small & many
+        const off=r*0.5,hw=Math.max(1.5,fw*0.6);ctx.lineWidth=hw;
+        ctx.strokeStyle='rgba(0,0,0,'+(d*0.5).toFixed(3)+')';
+        ctx.beginPath();ctx.moveTo(a.x-px*off,a.y-py*off);ctx.lineTo(b.x-px*off,b.y-py*off);ctx.stroke();
+        ctx.strokeStyle='rgba(255,255,255,'+(d*0.32).toFixed(3)+')';
+        ctx.beginPath();ctx.moveTo(a.x+px*off,a.y+py*off);ctx.lineTo(b.x+px*off,b.y+py*off);ctx.stroke();
+      }}
+    if(S.gloss>0&&zr>1.5&&!dbg){                                                      // faux tube shading: a specular streak on the light-facing side makes flat strands read as rounded, lit gel
+      let dx=b.x-a.x,dy=b.y-a.y;const L=hyp2(dx,dy)||1;dx/=L;dy/=L;
+      let px=-dy,py=dx;const dot=px*LIGHT_X+py*LIGHT_Y;if(dot<0){px=-px;py=-py;}          // perpendicular, flipped to the light-facing side
+      const off=r*0.32,hw=Math.max(1,fw*0.34);
+      ctx.strokeStyle='rgba(255,255,255,'+(S.gloss*0.55).toFixed(3)+')';ctx.lineWidth=hw;
+      ctx.beginPath();ctx.moveTo(a.x+px*off,a.y+py*off);ctx.lineTo(b.x+px*off,b.y+py*off);ctx.stroke();}}
   // seam beads: where segments of different thickness meet (e.g. a blend-0 merge of thin+thick), draw a dot at the larger radius so the join reads as a bead on a string
   {const N=G.nodes.length,maxR=new Float32Array(N),minR=new Float32Array(N).fill(1e9),mObj=new Int32Array(N).fill(-1);
    for(const s of G.segs){if(s.solid)continue;const rr=effR(G.objs[s.obj]);for(const nd of [s.a,s.b]){if(rr>maxR[nd]){maxR[nd]=rr;mObj[nd]=s.obj;}if(rr<minR[nd])minR[nd]=rr;}}
@@ -957,7 +1054,7 @@ function render(){
   for(let i=0;i<G.nodes.length;i++){if(G.nbrs[i]&&G.nbrs[i].length>2){const n=G.nodes[i],o=G.objs[n.obj];
     ctx.fillStyle=o.color;ctx.beginPath();ctx.arc(n.x,n.y,effR(o)*1.4,0,6.2832);ctx.fill();}}
   // ---------- collision + snap visualization for the selected object ----------
-  if(S.selected>=0&&G.objs[S.selected]){const o=G.objs[S.selected],er=effR(o);
+  if(!S.cleanView&&S.selected>=0&&G.objs[S.selected]){const o=G.objs[S.selected],er=effR(o);
     const padMax=Math.max(o.padOther||0,o.padSelf||0);
     // amber keep-out envelope around the WHOLE object (thickness + padding) — nothing gets closer than this band
     if(padMax>0){ctx.save();ctx.lineCap='round';ctx.lineJoin='round';
@@ -976,13 +1073,14 @@ function render(){
     for(const s of G.segs){if(s.dead||s.bond)continue;if(set.has(s.a)&&set.has(s.b)){const a=G.nodes[s.a],b=G.nodes[s.b];ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();}}};
   const endDot=(i,style,rad)=>{if(i<0||!G.nodes[i])return;const n=G.nodes[i];ctx.fillStyle=style;ctx.beginPath();ctx.arc(n.x,n.y,rad,0,6.2832);ctx.fill();};
   // active material (kept from before, faint) so list-selection still reads
-  if(S.selected>=0&&G.objs[S.selected]&&!Sel.nodes&&Sel.end<0){const o=G.objs[S.selected];ctx.strokeStyle='rgba(255,255,255,0.7)';ctx.lineWidth=1.5;
+  if(!S.cleanView&&S.selected>=0&&G.objs[S.selected]&&!Sel.nodes&&Sel.end<0){const o=G.objs[S.selected];ctx.strokeStyle='rgba(255,255,255,0.7)';ctx.lineWidth=1.5;
     for(const si of o.segIdx){const s=G.segs[si];if(s.dead)continue;const a=G.nodes[s.a],b=G.nodes[s.b];ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();}}
   const hw=Math.max(2.5,7/view.z),sw=Math.max(3.5,10/view.z),er=Math.max(4,7/view.z);
+  if(!S.cleanView){
   if(Sel.hoverNodes&&Sel.hoverNodes!==Sel.nodes)nodeSetSegs(Sel.hoverNodes,'rgba(120,200,255,0.5)',hw);   // hover: soft blue
   if(Sel.hoverEnd>=0)endDot(Sel.hoverEnd,'rgba(120,200,255,0.9)',er);
   if(Sel.nodes)nodeSetSegs(Sel.nodes,'rgba(255,255,255,0.95)',sw);                                        // selected stretch: bright
-  if(Sel.end>=0)endDot(Sel.end,'#7dd3fc',er*1.3);
+  if(Sel.end>=0)endDot(Sel.end,'#7dd3fc',er*1.3);}
   // slice-line preview
   if(cutting){ctx.save();ctx.strokeStyle='#ff5f6d';ctx.lineWidth=1.6;ctx.setLineDash([7,5]);
     ctx.beginPath();ctx.moveTo(cx0,cy0);ctx.lineTo(cx1,cy1);ctx.stroke();ctx.setLineDash([]);
@@ -992,7 +1090,7 @@ function render(){
     ctx.strokeStyle=col;ctx.lineWidth=Math.max(2,(G.objs[stroke.oi]?effR(G.objs[stroke.oi]):3)*1.7);ctx.lineCap='round';ctx.lineJoin='round';ctx.globalAlpha=0.85;
     ctx.beginPath();ctx.moveTo(stroke[0].x,stroke[0].y);for(let i=1;i<stroke.length;i++)ctx.lineTo(stroke[i].x,stroke[i].y);ctx.stroke();ctx.restore();}
   // ---------- heat / energy overlay: warm glow where nodes are moving fast (bond energy, thermal wobble, collisions) ----------
-  if(S.showHeat){let totKE=0,liveN=0;ctx.save();ctx.globalCompositeOperation='lighter';
+  if(S.showHeat&&!S.cleanView){let totKE=0,liveN=0;ctx.save();ctx.globalCompositeOperation='lighter';
     for(let i=0;i<G.nodes.length;i++){if(!G.nbrs[i]||G.nbrs[i].length===0)continue;const n=G.nodes[i];   // only real (connected) matter carries heat — orphan leftovers don't glow (and won't blink out when compaction clears them)
       const sp=hyp2(n.x-n.px,n.y-n.py);totKE+=sp;liveN++;
       if(sp<0.6)continue;const t=sp>4.6?1:(sp-0.6)/4;                                  // 0 (warm) .. 1 (hot)
@@ -1022,7 +1120,7 @@ function setEditMode(on){editMode=on;
     if(!G.objs.length)newMaterial('Material 1');                 // must have paint to draw
     if(S.selected<0||!G.objs[S.selected])selectObject(G.objs.length-1);
     setTool('draw');}   // auto-pause so you're not drawing onto whipping strands
-  else setTool('move');}
+  else{setTool('move');S.running=true;const bp=document.getElementById('bPlay');if(bp)bp.textContent='Pause';startCDRamp();}}   // leaving edit mode resumes the sim
 document.getElementById('toolMove').addEventListener('click',()=>setTool('move'));
 document.getElementById('toolCut').addEventListener('click',()=>setTool('cut'));
 document.getElementById('toolDraw').addEventListener('click',()=>setTool('draw'));
@@ -1034,7 +1132,7 @@ function doNewScene(){if(!confirm('Clear the scene and start fresh?'))return;
 document.getElementById('bNewScene').addEventListener('click',doNewScene);
 document.getElementById('bNewScene2').addEventListener('click',doNewScene);
 function dupNode(n,obj){const src=G.nodes[n];   // duplicate a node so an edge can detach from others sharing it
-  G.nodes.push({x:src.x,y:src.y,h:src.h,z0:src.z0,px:src.px,py:src.py,ph:src.ph,obj:obj,fixed:false,solid:src.solid,inv:src.solid?0.25:1,ids:src.ids?src.ids.slice():[],aff:src.aff});
+  G.nodes.push({x:src.x,y:src.y,h:src.h,z0:src.z0,px:src.px,py:src.py,ph:src.ph,obj:obj,fixed:false,solid:src.solid,inv:invFromEffR(effR(G.objs[obj])),ids:src.ids?src.ids.slice():[],aff:src.aff});
   const idx=G.nodes.length-1;const o=G.objs[obj];if(o&&o.nodeIdx)o.nodeIdx.push(idx);return idx;}
 function severEdgeAt(si,preferA){   // detach edge si from whatever shares its chosen endpoint node; NO new edges, NO subdividing (an edge is the atomic unit)
   const s=G.segs[si];if(s.dead)return false;
@@ -1048,7 +1146,7 @@ function severEdgeAt(si,preferA){   // detach edge si from whatever shares its c
   const dx=Nn.x-O.x,dy=Nn.y-O.y,L=hyp2(dx,dy)||1,ox=-dy/L,oy=dx/L;
   Nn.x+=ox*1.2;Nn.y+=oy*1.2;Nn.px=Nn.x;Nn.py=Nn.y;
   const D=objBrk(G.objs[s.obj])*(s.rest||10);  // hysteresis: this pair can't re-bond to each other until pulled apart past break distance
-  Nn.sepFrom=orig;Nn.sepDist=D;G.nodes[orig].sepFrom=nn;G.nodes[orig].sepDist=D;
+  Nn.sepFrom=orig;Nn.sepDist=D;Nn.sepUntil=(S.frame||0)+30;G.nodes[orig].sepFrom=nn;G.nodes[orig].sepDist=D;G.nodes[orig].sepUntil=(S.frame||0)+30;
   if(atA)s.a=nn;else s.b=nn;                   // this edge now hangs off the duplicate; the original node keeps the other edges
   return true;}
 function cutLine(x0,y0,x1,y1){
@@ -1109,10 +1207,10 @@ cvs.addEventListener('pointerdown',e=>{
   let best=-1,bd=28*28;
   for(let i=0;i<G.nodes.length;i++){const n=G.nodes[i];const d=(n.x-mx)*(n.x-mx)+(n.y-my)*(n.y-my);if(d<bd){bd=d;best=i;}}
   if(best>=0){grab=best;gx=mx;gy=my;cvs.setPointerCapture(e.pointerId);cvs.style.cursor='grabbing';
-    if(G.nodes[best]&&G.nodes[best].obj!==S.selected)selectObject(G.nodes[best].obj);}   // clicking geometry makes its material active (even to just drag) — no list trip needed
-  else{const si=nearestSeg(mx,my,Math.max(8,12/view.z));                                  // clicked a strand mid-body (no node close enough to grab)?
-    if(si>=0){selectObject(G.segs[si].obj);}                                              // activate its material, don't pan
-    else{const r=cvs.getBoundingClientRect();panning=true;panSX=e.clientX-r.left;panSY=e.clientY-r.top;panOX=view.ox;panOY=view.oy;cvs.setPointerCapture(e.pointerId);cvs.style.cursor='move';}}});   // truly empty space = pan (active material left untouched)
+    Sel.end=-1;if(G.nodes[best]&&G.nodes[best].obj!==S.selected)selectObject(G.nodes[best].obj);showTab('objects');}   // clicking geometry -> its material + Objects view
+  else{const si=nearestSeg(mx,my,Math.max(8,12/view.z));                                    // clicked a strand mid-body (no node close enough to grab)?
+    if(si>=0){Sel.end=-1;selectObject(G.segs[si].obj);showTab('objects');}                  // activate its material, don't pan
+    else{const r=cvs.getBoundingClientRect();panning=true;panSX=e.clientX-r.left;panSY=e.clientY-r.top;panOX=view.ox;panOY=view.oy;cvs.setPointerCapture(e.pointerId);cvs.style.cursor='move';showTab('scene');}}});   // empty space -> pan + Scene view
 cvs.addEventListener('pointermove',e=>{
   if(panning){const r=cvs.getBoundingClientRect();view.ox=panOX+(e.clientX-r.left-panSX);view.oy=panOY+(e.clientY-r.top-panSY);return;}
   const [mx,my]=canvasXY(e);
@@ -1151,16 +1249,20 @@ window.addEventListener('keydown',e=>{const tag=(e.target.tagName||'').toLowerCa
   else if(k==='g'){setTool('move');}
   else if(k==='k'){setTool('cut');}
   else if(k==='f'){resetView();}
+  else if(k==='h'){S.cleanView=!S.cleanView;}   // clean view: hide heat + all viz overlays, show just the strings
   else if(k===' '){e.preventDefault();S.running=!S.running;const bp=document.getElementById('bPlay');if(bp)bp.textContent=S.running?'Pause':'Play';if(S.running)startCDRamp();}
   else if((k==='arrowright'||k==='arrowleft')&&!S.running){e.preventDefault();stepFrame();}});
 
-let ema=60,lastT=performance.now();
-function frame(now){const dt=now-lastT;lastT=now;ema=ema*0.9+(1000/Math.max(1,dt))*0.1;
-  if(S.running){S.frame=(S.frame||0)+1;advanceCDRamp();attract();endpointForces();relaxSpacing();for(let k=0;k<S.speed;k++){integrate();flagBondBreaks();constraints();collide();wallCCD();dragApply();flagStrainBreaks();flagBendBreaks();}maintainBonds();removeDead();}
-  else if(grab>=0){dragApply();constraints();collide();}
-  render();document.getElementById('sFps').textContent=Math.round(ema)+' fps';
+let ema=60,lastT=performance.now();window.RD=true;   // RD = render-dirty; paused & idle -> stop re-rendering. window.* avoids any load-order TDZ so scene mutations can mark it dirty
+function frame(now){const dt=now-lastT;lastT=now;
+  let did=false;
+  if(S.running){S.frame=(S.frame||0)+1;advanceCDRamp();attract();endpointForces();relaxSpacing();for(let k=0;k<S.speed;k++){integrate();flagBondBreaks();constraints();collide();wallCCD();dragApply();flagStrainBreaks();flagBendBreaks();}maintainBonds();removeDead();did=true;}
+  else if(grab>=0){dragApply();constraints();collide();did=true;}
+  if(did||window.RD||panning){ema=ema*0.9+(1000/Math.max(1,dt))*0.1;if(S.micro&&typeof renderMicro==='function')renderMicro();else render();window.RD=false;document.getElementById('sFps').textContent=Math.round(ema)+' fps';}
   requestAnimationFrame(frame);}
-function refreshStats(){document.getElementById('sObjs').textContent=G.objs.length;
+['pointerdown','pointermove','pointerup','wheel','keydown'].forEach(ev=>window.addEventListener(ev,()=>{window.RD=true;},true));   // any interaction marks a redraw
+['input','change'].forEach(ev=>document.addEventListener(ev,()=>{window.RD=true;},true));                                        // any slider/toggle change too
+function refreshStats(){window.RD=true;document.getElementById('sObjs').textContent=G.objs.length;
   document.getElementById('sNS').textContent=G.nodes.length+' · '+G.segs.length;
   document.getElementById('tagScene').textContent=S.scene;}
 
@@ -1180,7 +1282,7 @@ function setView(v,btn){document.querySelectorAll('#view button,#view2 button').
 document.querySelectorAll('#view button,#view2 button').forEach(b=>b.addEventListener('click',()=>setView(b.dataset.v,b)));
 
 // ---------- object list + per-object editor ----------
-function renderObjectList(){
+function renderObjectList(){window.RD=true;
   const el=document.getElementById('objList');if(!el)return;el.innerHTML='';
   G.objs.forEach((o,i)=>{
     if(o.segIdx&&o.segIdx.length===0&&!o.userMade)return;   // hide objects fully absorbed by a merge, but keep empty user-made materials
@@ -1193,7 +1295,7 @@ function renderObjectList(){
       '<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px">'+(o.name||('material '+(i+1)))+'</span>'+
       '<span style="color:var(--dim);font-family:\'IBM Plex Mono\',monospace;font-size:9.5px">'+tag+'</span>'+
       '<span class="matDel" title="delete material" style="color:var(--dim);flex:none;padding:0 3px;font-size:14px;line-height:1">&times;</span>';
-    row.addEventListener('click',ev=>{if(ev.target.classList.contains('matDel')){ev.stopPropagation();removeMaterial(i);return;}selectObject(i);});
+    row.addEventListener('click',ev=>{if(ev.target.classList.contains('matDel')){ev.stopPropagation();removeMaterial(i);return;}Sel.end=-1;selectObject(i);});
     el.appendChild(row);
   });
 }
@@ -1209,11 +1311,16 @@ function removeMaterial(i){const o=G.objs[i];if(!o)return;
   S.selected=-1;buildNbrs();computeExclusions();snapshotInit();refreshStats();renderObjectList();
   const ed=document.getElementById('objEditor');if(ed)ed.style.display='none';}
 function selObj(){return S.selected>=0?G.objs[S.selected]:null;}
-function selectObject(i){if(i!==S.selected)activeConnTarget=null;S.snapViz=null;S.selected=i;renderObjectList();const o=G.objs[i],ed=document.getElementById('objEditor');
+function refreshPanelMode(){   // connector rules live WITH the material (rule-based, works for closed loops too) — show all sections
+  const epG=document.getElementById('epGeneral'),epA=document.getElementById('epAffinity'),epC=document.getElementById('epConnect');
+  if(epG)epG.style.display='';if(epA)epA.style.display='';if(epC)epC.style.display='';
+  const kind=document.getElementById('edKind');if(kind)kind.textContent='Editing';
+}
+function selectObject(i){window.RD=true;if(i!==S.selected)activeConnTarget=null;S.snapViz=null;S.selected=i;renderObjectList();const o=G.objs[i],ed=document.getElementById('objEditor');const ts=document.getElementById('tagSel');if(ts){ts.textContent=o?(o.name||('object '+(i+1))):'Scene';if(o&&o.color)ts.style.color=o.color;}
   if(!o){ed.style.display='none';return;}ed.style.display='';
   document.getElementById('objName').textContent=o.name||('object '+(i+1));
   const sv=(rid,nid,val)=>{const v=+val;document.getElementById(rid).value=v;document.getElementById(nid).value=Math.round(v*1000)/1000;};
-  sv('eThick','eThickN',o.r);sv('eStiff','eStiffN',o.stiff);sv('eCurl','eCurlN',o.curl);sv('eGrow','eGrowN',o.grow);
+  sv('eThick','eThickN',o.r);sv('eStiff','eStiffN',o.stiff);sv('eCurl','eCurlN',o.curl);sv('eGrow','eGrowN',o.grow);sv('eAffR','eAffRN',o.affRange!=null?o.affRange:140);
   sv('eDamp','eDampN',o.damp||0);sv('ePadO','ePadON',o.padOther||0);sv('ePadS','ePadSN',o.padSelf||0);
   sv('eSpace','eSpaceN',o.spaceMult||1);
   document.getElementById('eAutoSpace').classList.toggle('on',!!o.autoSpace);
@@ -1222,7 +1329,7 @@ function selectObject(i){if(i!==S.selected)activeConnTarget=null;S.snapViz=null;
   document.getElementById('eSolid').classList.toggle('on',!!o.solid);
   document.getElementById('eFixed').classList.toggle('on',!!o.fixed);
   document.getElementById('eSelfSolid').classList.toggle('on',o.selfSolid!==false);
-  buildInterUI(o);
+  buildInterUI(o);refreshPanelMode();
 }
 function interRow(label,getV,setV){
   const row=document.createElement('div');row.className='ctrl';const v=getV();
@@ -1319,9 +1426,10 @@ function profRow(label,getV,setV,min,max,step){
 function bindPair(rid,nid,fn){const r=document.getElementById(rid),n=document.getElementById(nid);
   const apply=(val,src)=>{const o=selObj();if(!o)return;let v=parseFloat(val);if(isNaN(v))return;if(src!=='r')r.value=v;if(src!=='n')n.value=v;fn(o,v);};
   r.addEventListener('input',()=>apply(r.value,'r'));n.addEventListener('input',()=>apply(n.value,'n'));}
-bindPair('eThick','eThickN',(o,v)=>{o.r=v;computeExclusions();if(curReachUpd)curReachUpd();});
+bindPair('eThick','eThickN',(o,v)=>{o.r=v;computeExclusions();refreshObjMass(o);if(curReachUpd)curReachUpd();});
 bindPair('eStiff','eStiffN',(o,v)=>o.stiff=v);
 bindPair('eCurl','eCurlN',(o,v)=>o.curl=v);
+bindPair('eAffR','eAffRN',(o,v)=>o.affRange=v);
 bindPair('eGrow','eGrowN',(o,v)=>o.grow=v);
 bindPair('eDamp','eDampN',(o,v)=>o.damp=v);
 bindPair('ePadO','ePadON',(o,v)=>{o.padOther=v;if(curReachUpd)curReachUpd();});
@@ -1341,17 +1449,25 @@ document.getElementById('eSelfSolid').addEventListener('click',()=>{const o=selO
 document.getElementById('sTemp').addEventListener('input',e=>{S.temp=parseFloat(e.target.value);document.getElementById('vTemp').textContent=S.temp.toFixed(2);});
 document.getElementById('sDamp').addEventListener('input',e=>{S.damp=parseFloat(e.target.value);document.getElementById('vDamp').textContent=S.damp.toFixed(2);});
 document.getElementById('sSpeed').addEventListener('input',e=>{S.speed=parseInt(e.target.value);document.getElementById('vSpeed').textContent=S.speed+'×';});
-document.getElementById('sWeave').addEventListener('input',e=>{S.weave=parseFloat(e.target.value);document.getElementById('vWeave').textContent=S.weave.toFixed(2);});
+document.getElementById('sWeave').addEventListener('input',e=>{S.depth=parseFloat(e.target.value);document.getElementById('vWeave').textContent=Math.round(S.depth);window.RD=true;});
 document.getElementById('sIters').addEventListener('input',e=>{S.iters=parseInt(e.target.value);document.getElementById('vIters').textContent=S.iters;});
 document.getElementById('sPad').addEventListener('input',e=>{S.wallPad=parseFloat(e.target.value);document.getElementById('vPad').textContent=S.wallPad;});
 document.getElementById('sCD').addEventListener('input',e=>{S.contactDamp=parseFloat(e.target.value);S.cdRamping=false;document.getElementById('vCD').textContent=S.contactDamp.toFixed(2);});
+document.getElementById('sXpbd').addEventListener('input',e=>{S.xpbd=parseFloat(e.target.value);document.getElementById('vXpbd').textContent=S.xpbd.toFixed(2);});
 document.getElementById('sChunk').addEventListener('click',()=>{S.chunk=!S.chunk;document.getElementById('sChunk').classList.toggle('on',S.chunk);});
+document.getElementById('sBondChunk').addEventListener('click',()=>{S.bondChunk=!S.bondChunk;document.getElementById('sBondChunk').classList.toggle('on',S.bondChunk);});
 document.getElementById('sBond').addEventListener('click',()=>{S.bonding=!S.bonding;document.getElementById('sBond').classList.toggle('on',S.bonding);});
 document.getElementById('sBSnap').addEventListener('input',e=>{S.bondSnap=parseFloat(e.target.value);document.getElementById('vBSnap').textContent=S.bondSnap;});
 document.getElementById('sBBrk').addEventListener('input',e=>{S.bondBrk=parseFloat(e.target.value);document.getElementById('vBBrk').textContent=S.bondBrk;});
 document.getElementById('sBEn').addEventListener('input',e=>{S.bondEnergy=parseFloat(e.target.value);document.getElementById('vBEn').textContent=S.bondEnergy.toFixed(2);});
 document.getElementById('sHeat').addEventListener('click',e=>{S.showHeat=!S.showHeat;e.target.classList.toggle('on',S.showHeat);});
 document.getElementById('sFill').addEventListener('input',e=>{S.strandFill=parseFloat(e.target.value);document.getElementById('vFill').textContent=S.strandFill.toFixed(2);});
+document.getElementById('sGloss').addEventListener('input',e=>{S.gloss=parseFloat(e.target.value);document.getElementById('vGloss').textContent=S.gloss.toFixed(2);});
+document.getElementById('sShade').addEventListener('input',e=>{S.shade=parseFloat(e.target.value);document.getElementById('vShade').textContent=S.shade.toFixed(2);});
+document.getElementById('sShadeSmooth').addEventListener('change',e=>{S.shadeSmooth=e.target.checked;});
+document.getElementById('sBg').addEventListener('input',e=>{S.bg=e.target.value;});
+document.getElementById('sBgClear').addEventListener('click',()=>{S.bg=null;});
+document.getElementById('sShadow').addEventListener('input',e=>{S.shadow=parseFloat(e.target.value);document.getElementById('vShadow').textContent=S.shadow.toFixed(2);});
 document.getElementById('sOutW').addEventListener('input',e=>{S.outlineW=parseFloat(e.target.value);document.getElementById('vOutW').textContent=S.outlineW.toFixed(1);});
 document.getElementById('sOutA').addEventListener('input',e=>{S.outlineA=parseFloat(e.target.value);document.getElementById('vOutA').textContent=S.outlineA.toFixed(2);});
 document.getElementById('sBCure').addEventListener('input',e=>{S.bondCure=parseFloat(e.target.value);document.getElementById('vBCure').textContent=S.bondCure>=900?'∞ · elastic':(S.bondCure===0?'0 · instant':S.bondCure+' frames');});
@@ -1365,7 +1481,7 @@ document.getElementById('file').addEventListener('change',ev=>{const f=ev.target
 document.querySelectorAll('.tab').forEach(t=>t.addEventListener('click',()=>{
   document.querySelectorAll('.tab').forEach(x=>x.classList.remove('on'));t.classList.add('on');
   document.querySelectorAll('.tabpanel').forEach(pn=>pn.classList.toggle('on',pn.dataset.panel===t.dataset.tab));}));
-function showTab(name){const t=document.querySelector('.tab[data-tab="'+name+'"]');if(t)t.click();}
+function showTab(name){const t=document.querySelector('.tab[data-tab="'+name+'"]');if(t)t.click();const ts=document.getElementById('tagSel');if(ts&&name==='scene'){ts.textContent='Scene';ts.style.color='var(--accent)';}}
 // collapsible cards: click a card's top eyebrow to fold it
 document.querySelectorAll('.card').forEach(c=>{const h=c.querySelector(':scope > .eyebrow');if(!h)return;
   h.addEventListener('click',e=>{if(e.target.closest('button,input,select,a'))return;c.classList.toggle('collapsed');});});
@@ -1381,5 +1497,170 @@ function bindGlobalPair(rid,nid,key){const r=document.getElementById(rid),n=docu
 bindGlobalPair('sWeld','sWeldN','weld');
 loadDefault();requestAnimationFrame(frame);
 </script>
+
+<script>
+(function(){
+  const VS=`#version 300 es
+in vec2 p;out vec2 vUv;void main(){vUv=p*0.5+0.5;gl_Position=vec4(p,0,1);}`, FS=`#version 300 es
+precision highp float;in vec2 vUv;out vec4 frag;
+uniform sampler2D uScene,uHeight,uDepth;uniform vec2 uTexel;
+uniform float uRef,uAb,uRim,uGr,uTime,uNoise,uNoiseScale,uBlur,uFocus,uDof,uVignette;
+float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
+float vn(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);
+  float a=hash(i),b=hash(i+vec2(1,0)),c=hash(i+vec2(0,1)),d=hash(i+vec2(1,1));
+  return mix(mix(a,b,f.x),mix(c,d,f.x),f.y);}
+float fbm(vec2 p){mat2 R=mat2(0.80,0.60,-0.60,0.80);return 0.6*vn(p)+0.28*vn(R*p*2.3)+0.12*vn(R*R*p*4.9);}
+float H(vec2 uv,float mask){                    // height = thickness field + membrane surface noise (only where there's cell)
+  float base=texture(uHeight,uv).r;
+  float n=(fbm(uv*uNoiseScale+uTime*0.05)-0.5)*uNoise*mask;
+  return base+n;
+}
+void main(){
+  float mask=smoothstep(0.04,0.22,texture(uHeight,vUv).r);
+  float hL=H(vUv-vec2(uTexel.x,0.),mask), hR=H(vUv+vec2(uTexel.x,0.),mask);
+  float hD=H(vUv-vec2(0.,uTexel.y),mask), hU=H(vUv+vec2(0.,uTexel.y),mask);
+  float thick=texture(uHeight,vUv).r;
+  vec2 grad=vec2(hR-hL,hU-hD);
+  vec2 off=-grad*uRef*0.6;
+  // thickness-based blur: the more cell-wall in front, the softer what's seen through it (subtle)
+  float depth=texture(uDepth,vUv).r;
+  float dof=abs(depth-uFocus)*uDof;                 // distance from the focal plane -> out-of-focus softness
+  float br=thick*uBlur*0.010 + dof*0.032;
+  // golden-angle bokeh disc: even coverage, smooth at any radius (circle-of-confusion)
+  const int TAPS=32; const float GA=2.39996323;
+  // per-pixel jitter breaks up any residual structure into fine noise (hidden by grain)
+  float jit=hash(vUv*911.7+uTime)*GA;
+  float edge=length(vUv-vec2(0.5)); float abF=uAb*(1.0+edge*edge*3.0);
+  vec3 acc=vec3(0.); float wsum=0.0;
+  for(int i=0;i<TAPS;i++){
+    float fi=float(i)+0.5;
+    float rr=sqrt(fi/float(TAPS));          // uniform disc density
+    float aa=fi*GA+jit;
+    vec2 k=vec2(cos(aa),sin(aa))*rr*br;
+    vec2 sp=vUv+off+k;
+    float w=1.0;                             // uniform = true bokeh disc
+    acc.r+=texture(uScene,sp+off*abF).r*w;
+    acc.g+=texture(uScene,sp).g*w;
+    acc.b+=texture(uScene,sp-off*abF).b*w;
+    wsum+=w;
+  }
+  vec3 col=acc/wsum;
+  float rim=pow(clamp(length(grad)*7.0,0.,1.),1.6)*uRim*(1.0-clamp(dof*2.0,0.,0.85));
+  col+=rim*vec3(0.55,0.7,0.9)*0.6;
+  col+=(hash(vUv*vec2(1280.,720.)+uTime)-0.5)*uGr;
+  float vig=smoothstep(1.25,0.35,edge*1.3); col*=mix(1.0,vig,uVignette);
+  frag=vec4(col,1.0);
+}`;
+  const cgl=document.getElementById('cgl');
+  let glM=null,prog,texS,texH,texD,U={},sceneOff,scx,heightOff,hcx,depthOff,dcx,rawH,rcx,ready=false;
+  const mp = {ref:0.5,ab:0.3,rim:0.45,noise:0.5,nscale:5,iblur:0.5,dof:1.0,focus:0.5,autofocus:false,grain:0.05,mblur:11,field:0.35,bg:'#0a0e16',vignette:0.5};
+  S.micro=false; S.mp=mp;
+  function csh(t,src){const s=glM.createShader(t);glM.shaderSource(s,src);glM.compileShader(s);if(!glM.getShaderParameter(s,glM.COMPILE_STATUS))throw glM.getShaderInfoLog(s);return s;}
+  function mkTex(){const t=glM.createTexture();glM.bindTexture(glM.TEXTURE_2D,t);for(const[k,v]of[['MIN_FILTER','LINEAR'],['MAG_FILTER','LINEAR'],['WRAP_S','CLAMP_TO_EDGE'],['WRAP_T','CLAMP_TO_EDGE']])glM.texParameteri(glM.TEXTURE_2D,glM['TEXTURE_'+k],glM[v]);return t;}
+  function initGL(){
+    glM=cgl.getContext('webgl2',{antialias:false,alpha:false});
+    if(!glM){alert('WebGL2 not available — microscope mode needs it.');return false;}
+    prog=glM.createProgram();glM.attachShader(prog,csh(glM.VERTEX_SHADER,VS));glM.attachShader(prog,csh(glM.FRAGMENT_SHADER,FS));glM.linkProgram(prog);
+    if(!glM.getProgramParameter(prog,glM.LINK_STATUS))throw glM.getProgramInfoLog(prog);
+    glM.useProgram(prog);
+    const q=glM.createBuffer();glM.bindBuffer(glM.ARRAY_BUFFER,q);glM.bufferData(glM.ARRAY_BUFFER,new Float32Array([-1,-1,3,-1,-1,3]),glM.STATIC_DRAW);
+    const pl=glM.getAttribLocation(prog,'p');glM.enableVertexAttribArray(pl);glM.vertexAttribPointer(pl,2,glM.FLOAT,false,0,0);
+    texS=mkTex();texH=mkTex();texD=mkTex();
+    for(const n of ['uScene','uHeight','uDepth','uTexel','uRef','uAb','uRim','uGr','uTime','uNoise','uNoiseScale','uBlur','uFocus','uDof','uVignette'])U[n]=glM.getUniformLocation(prog,n);
+    sceneOff=document.createElement('canvas');scx=sceneOff.getContext('2d');
+    heightOff=document.createElement('canvas');hcx=heightOff.getContext('2d');
+    depthOff=document.createElement('canvas');dcx=depthOff.getContext('2d');
+    rawH=document.createElement('canvas');rcx=rawH.getContext('2d');
+    ready=true;return true;
+  }
+  function syncSize(w,h){ if(cgl.width!==w||cgl.height!==h){cgl.width=w;cgl.height=h;} for(const o of [sceneOff,heightOff,depthOff,rawH]){if(o.width!==w||o.height!==h){o.width=w;o.height=h;}} glM.viewport(0,0,w,h); }
+  function getStrandPaths(){
+    const N=G.nodes.length, nb=G.nbrs; if(!nb)return [];
+    const used=new Set(); const ek=(a,b)=>a<b?a*N+b:b*N+a; const paths=[];
+    const walk=(start,second)=>{ const nodes=[start]; let prev=start,cur=second;
+      while(true){ used.add(ek(prev,cur)); nodes.push(cur); const nn=nb[cur]; if(!nn||nn.length!==2)break;
+        const nx=nn[0]===prev?nn[1]:nn[0]; if(used.has(ek(cur,nx)))break; prev=cur;cur=nx; if(cur===start){nodes.push(start);break;} }
+      return nodes; };
+    for(let i=0;i<N;i++){const a=nb[i];if(!a||a.length===2)continue;for(const j of a){if(!used.has(ek(i,j)))paths.push({nodes:walk(i,j),oi:G.nodes[i].obj});}}
+    for(let i=0;i<N;i++){const a=nb[i];if(!a||a.length!==2)continue;for(const j of a){if(!used.has(ek(i,j))){paths.push({nodes:walk(i,j),oi:G.nodes[i].obj});break;}}}
+    for(const P of paths)P.closed=P.nodes.length>3&&P.nodes[0]===P.nodes[P.nodes.length-1];
+    return paths;
+  }
+  let t0=performance.now();
+  window.renderMicro=function(){
+    if(!ready){ if(!initGL())return; }
+    const w=cvs.width,h=cvs.height; if(!w||!h)return; syncSize(w,h);
+    const T=[S.dpr*view.z,0,0,S.dpr*view.z,S.dpr*view.ox,S.dpr*view.oy];
+    const t=(performance.now()-t0)/1000;
+    if(mp.autofocus)mp.focus=0.5+0.42*Math.sin(t*0.22);
+    const clamp=(x,a,b)=>x<a?a:x>b?b:x;
+    // DoF reads the REAL node depth h (colliding things share z by construction -> share focus). depth 0 -> all 0.5 -> no DoF.
+    const dscale=S.depth>0?1/(2*S.depth):0;
+    const zmap=(hh)=>Math.round(clamp(0.5+hh*dscale,0,1)*255);
+    const avgH=(P)=>{let sm=0;for(const ni of P.nodes)sm+=(G.nodes[ni].h||0);return sm/P.nodes.length;};
+    // SCENE
+    scx.setTransform(1,0,0,1,0,0);scx.fillStyle=mp.bg;scx.fillRect(0,0,w,h);
+    if(mp.field>0){scx.save();scx.globalAlpha=mp.field*0.5;const S2=Math.min(w,h);
+      for(let i=0;i<7;i++){const fx=(Math.sin(i*2.1+t*0.05)*0.5+0.5)*w,fy=(Math.cos(i*1.7+t*0.04)*0.5+0.5)*h;const rg=scx.createRadialGradient(fx,fy,0,fx,fy,S2*0.18);rg.addColorStop(0,'rgba(90,110,150,0.22)');rg.addColorStop(1,'rgba(90,110,150,0)');scx.fillStyle=rg;scx.beginPath();scx.arc(fx,fy,S2*0.18,0,7);scx.fill();}scx.restore();}
+    scx.setTransform(T[0],T[1],T[2],T[3],T[4],T[5]);scx.lineCap='round';scx.lineJoin='round';
+    rcx.setTransform(1,0,0,1,0,0);rcx.fillStyle='#000';rcx.fillRect(0,0,w,h);rcx.setTransform(T[0],T[1],T[2],T[3],T[4],T[5]);rcx.lineCap='round';rcx.lineJoin='round';rcx.globalCompositeOperation='lighter';
+    dcx.setTransform(1,0,0,1,0,0);dcx.fillStyle='rgb(128,128,128)';dcx.fillRect(0,0,w,h);dcx.setTransform(T[0],T[1],T[2],T[3],T[4],T[5]);dcx.lineCap='round';dcx.lineJoin='round';
+    const paths=getStrandPaths();
+    const poly=(cx,P)=>{const nd=P.nodes;cx.beginPath();cx.moveTo(G.nodes[nd[0]].x,G.nodes[nd[0]].y);for(let i=1;i<nd.length;i++)cx.lineTo(G.nodes[nd[i]].x,G.nodes[nd[i]].y);};
+    // cell bodies (closed loops, big first so nested stack)
+    const closed=paths.filter(P=>P.closed).sort((A,B)=>B.nodes.length-A.nodes.length);
+    for(const P of closed){const o=G.objs[P.oi]||{};
+      let a=1e9,b2=1e9,c=-1e9,d=-1e9;for(const ni of P.nodes){const n=G.nodes[ni];if(n.x<a)a=n.x;if(n.y<b2)b2=n.y;if(n.x>c)c=n.x;if(n.y>d)d=n.y;}
+      const ccx=(a+c)/2,ccy=(b2+d)/2,R=Math.max(8,Math.max(c-a,d-b2)/2);
+      scx.globalAlpha=0.15;scx.fillStyle=o.color||'#5a7aa0';poly(scx,P);scx.closePath();scx.fill();scx.globalAlpha=1;
+      let g=scx.createRadialGradient(ccx-R*0.35,ccy-R*0.35,0,ccx,ccy,R);g.addColorStop(0,'rgba(255,255,255,0.16)');g.addColorStop(0.55,'rgba(255,255,255,0.03)');g.addColorStop(1,'rgba(255,255,255,0)');scx.fillStyle=g;poly(scx,P);scx.closePath();scx.fill();
+      g=scx.createRadialGradient(ccx,ccy,R*0.55,ccx,ccy,R);g.addColorStop(0,'rgba(0,0,0,0)');g.addColorStop(1,'rgba(0,0,0,0.14)');scx.fillStyle=g;poly(scx,P);scx.closePath();scx.fill();
+      rcx.fillStyle='rgba(255,255,255,0.42)';poly(rcx,P);rcx.closePath();rcx.fill();
+      // per-shape dome bump: radius = THIS shape's size, so big & small cells both bulge like lenses (approximates an SDF dome)
+      const bd=rcx.createRadialGradient(ccx,ccy,0,ccx,ccy,Math.max(8,R));
+      bd.addColorStop(0,'rgba(255,255,255,0.6)');bd.addColorStop(0.6,'rgba(255,255,255,0.28)');bd.addColorStop(1,'rgba(255,255,255,0)');
+      rcx.fillStyle=bd;poly(rcx,P);rcx.closePath();rcx.fill();
+      const dv=zmap(avgH(P));dcx.fillStyle='rgb('+dv+','+dv+','+dv+')';poly(dcx,P);dcx.closePath();dcx.fill();
+    }
+    // walls (each path one continuous stroke -> no joint dots)
+    for(const P of paths){const o=G.objs[P.oi];if(!o)continue;const r=effR(o),fw=Math.max(2,r*2*(S.strandFill||1)),col=o.color||'#8fb';
+      scx.strokeStyle=col;scx.globalAlpha=0.55;scx.lineWidth=fw;poly(scx,P);scx.stroke();scx.globalAlpha=1;
+      rcx.strokeStyle='rgba(255,255,255,0.8)';rcx.lineWidth=fw;poly(rcx,P);rcx.stroke();
+    }
+    // depth field PER SEGMENT so a single string can have parts near & parts far (in & out of focus along its length)
+    for(const sg of G.segs){if(sg.dead||sg.bond)continue;const o=G.objs[sg.obj];if(!o)continue;const a=G.nodes[sg.a],bn=G.nodes[sg.b];if(!a||!bn)continue;
+      const fw=Math.max(2,effR(o)*2*(S.strandFill||1)),dv=zmap((a.h+bn.h)*0.5);
+      dcx.strokeStyle='rgb('+dv+','+dv+','+dv+')';dcx.lineWidth=fw;dcx.beginPath();dcx.moveTo(a.x,a.y);dcx.lineTo(bn.x,bn.y);dcx.stroke();}
+    scx.globalAlpha=1;rcx.globalCompositeOperation='source-over';
+    hcx.setTransform(1,0,0,1,0,0);hcx.globalCompositeOperation='copy';hcx.filter='blur('+(mp.mblur*S.dpr)+'px)';hcx.drawImage(rawH,0,0);hcx.filter='none';hcx.globalCompositeOperation='source-over';
+    glM.activeTexture(glM.TEXTURE0);glM.bindTexture(glM.TEXTURE_2D,texS);glM.texImage2D(glM.TEXTURE_2D,0,glM.RGBA,glM.RGBA,glM.UNSIGNED_BYTE,sceneOff);glM.uniform1i(U.uScene,0);
+    glM.activeTexture(glM.TEXTURE1);glM.bindTexture(glM.TEXTURE_2D,texH);glM.texImage2D(glM.TEXTURE_2D,0,glM.RGBA,glM.RGBA,glM.UNSIGNED_BYTE,heightOff);glM.uniform1i(U.uHeight,1);
+    glM.activeTexture(glM.TEXTURE2);glM.bindTexture(glM.TEXTURE_2D,texD);glM.texImage2D(glM.TEXTURE_2D,0,glM.RGBA,glM.RGBA,glM.UNSIGNED_BYTE,depthOff);glM.uniform1i(U.uDepth,2);
+    glM.uniform2f(U.uTexel,1/w,1/h);
+    glM.uniform1f(U.uRef,mp.ref);glM.uniform1f(U.uAb,mp.ab);glM.uniform1f(U.uRim,mp.rim);glM.uniform1f(U.uGr,mp.grain);glM.uniform1f(U.uTime,t);
+    glM.uniform1f(U.uNoise,mp.noise);glM.uniform1f(U.uNoiseScale,mp.nscale);glM.uniform1f(U.uBlur,mp.iblur);glM.uniform1f(U.uFocus,mp.focus);glM.uniform1f(U.uDof,mp.dof);
+    if(U.uVignette)glM.uniform1f(U.uVignette,mp.vignette);
+    glM.drawArrays(glM.TRIANGLES,0,3);
+  };
+  window.setMicroMode=function(on){
+    S.micro=on;window.RD=true;
+    cgl.style.display=on?'block':'none';
+    const tm=document.getElementById('toolMicro');if(tm)tm.classList.toggle('on',on);
+    document.getElementById('strandLook').style.display=on?'none':'';
+    document.getElementById('microPanel').style.display=on?'':'none';
+  };
+  // mode toggle buttons
+  const _tmb=document.getElementById('toolMicro');if(_tmb)_tmb.addEventListener('click',()=>setMicroMode(!S.micro));
+  // slider wiring
+  function slider(id,key,dec){const el=document.getElementById('m_'+id),v=document.getElementById('v_'+id);
+    if(!el)return; el.addEventListener('input',()=>{mp[key]=parseFloat(el.value);if(v)v.textContent=(dec!=null?mp[key].toFixed(dec):mp[key]);window.RD=true;});}
+  slider('ref','ref',2);slider('ab','ab',2);slider('rim','rim',2);slider('iblur','iblur',2);slider('noise','noise',2);slider('nscale','nscale',1);
+  slider('mblur','mblur',0);slider('dof','dof',2);slider('focus','focus',2);slider('grain','grain',3);slider('field','field',2);slider('vignette','vignette',2);
+  const fo=document.getElementById('m_focus');if(fo)fo.addEventListener('input',()=>{mp.autofocus=false;const cb=document.getElementById('m_autofocus');if(cb)cb.checked=false;});
+  const af=document.getElementById('m_autofocus');if(af)af.addEventListener('change',()=>{mp.autofocus=af.checked;});
+  const bg=document.getElementById('m_bg');if(bg)bg.addEventListener('input',()=>{mp.bg=bg.value;window.RD=true;});
+})();
+</script>
+
 </body>
 </html>
