@@ -1563,6 +1563,7 @@ void main(){
     prog=glM.createProgram();glM.attachShader(prog,csh(glM.VERTEX_SHADER,VS));glM.attachShader(prog,csh(glM.FRAGMENT_SHADER,FS));glM.linkProgram(prog);
     if(!glM.getProgramParameter(prog,glM.LINK_STATUS))throw glM.getProgramInfoLog(prog);
     glM.useProgram(prog);
+    glM.pixelStorei(glM.UNPACK_FLIP_Y_WEBGL,true);   // 2D canvas is top-left origin; flip so the microscope view matches the standard render
     const q=glM.createBuffer();glM.bindBuffer(glM.ARRAY_BUFFER,q);glM.bufferData(glM.ARRAY_BUFFER,new Float32Array([-1,-1,3,-1,-1,3]),glM.STATIC_DRAW);
     const pl=glM.getAttribLocation(prog,'p');glM.enableVertexAttribArray(pl);glM.vertexAttribPointer(pl,2,glM.FLOAT,false,0,0);
     texS=mkTex();texH=mkTex();texD=mkTex();
