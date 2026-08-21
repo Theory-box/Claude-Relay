@@ -42,3 +42,20 @@ At the start of a session on this topic: `git checkout feature/ray-portal-bake &
 - NEXT: capture-to-image button (render bake cam → packable file, reuse Node
   Preview save path); portal material as a shipped node group; denoise defaults
   for cleaner live view; UI to pick the bake resolution; test hard-surface normals.
+
+## v0.2 addon — WORKER-BASED ONE-SHOT BAKE (works!)
+- Confirmed Ray Portal is in Blender 4.2+, so this runs in 4.4 (user's version).
+  No Blender-5 / cross-version worker needed.
+- Architecture (mirrors Node Preview): "Bake to UV (Portal)" operator writes the
+  whole scene via libraries.write(path_remap=ABSOLUTE) so textures/normal maps
+  resolve, spawns `blender -b --factory-startup <blend> --python worker` (no user
+  add-ons -> no shutdown crash, fast), worker flattens the object to UV + portal
+  material + ortho cam and renders the FULL LIT SCENE to PNG; main polls (non-
+  blocking timer), loads into RayPortalBake_Result image. Judged by PNG existence.
+- Panel: Resolution / Samples / Surface Offset + Bake button + status. View3D
+  sidebar "Portal Bake" tab. film_transparent so unused UV = alpha 0.
+- Verified headless on the KhronosDamagedHelmet.glb: operator -> worker -> result
+  image is a correct lit UV atlas (91% coverage, HUD emission + lighting baked).
+- NEXT: Show-on-Mesh (add result as active image texture) + Save-to-File
+  (packable) operators — reuse Node Preview patterns; shader-editor panel; GPU
+  device pref; denoise/quality note; then consider merge into Node Preview.
