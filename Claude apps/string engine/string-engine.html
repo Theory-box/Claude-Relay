@@ -2455,10 +2455,22 @@ async function runDiagnostics(K){ K=K||120; const R={build:BUILD,at:new Date().t
     if(wasActive){ buildScene(); }
   }catch(e){ R.error='diagnostic run failed: '+e.message; console.error(e); }
   GP.diagRunning=false; return R; }
+async function readStyleProbe(){ try{ if(!GP.device||!GP.active||!GP.bufStyle||!GP._segList)return {note:'not active'};
+    const dev=GP.device, ns=GP._segList.length, bytes=Math.max(16,ns*16);
+    const rb=dev.createBuffer({size:bytes,usage:GPUBufferUsage.COPY_DST|GPUBufferUsage.MAP_READ});
+    const enc=dev.createCommandEncoder(); enc.copyBufferToBuffer(GP.bufStyle,0,rb,0,bytes); dev.queue.submit([enc.finish()]);
+    await rb.mapAsync(GPUMapMode.READ); const a=new Float32Array(rb.getMappedRange().slice(0)); rb.unmap(); rb.destroy();
+    const sel=S.selected; let selSeg=-1; for(let si=0;si<ns;si++){ if(GP._segList[si].obj===sel){ selSeg=si; break; } }
+    const o=(sel>=0)?G.objs[sel]:null;
+    return { refreshN:GP.refreshN, refreshErr:GP.refreshErr, propsDirty:GP.propsDirty,
+      selectedObj:sel, selObj_r:(o?o.r:null), selObj_effR:(o&&typeof effR==='function'?effR(o):null),
+      selBufStyleRadius:(selSeg>=0?a[selSeg*4+3]:null), selSegIndex:selSeg,
+      firstFewBufRadii:[a[3],a[7],a[11],a[15]], segCount:ns };
+  }catch(e){ return {error:e&&e.message}; } }
 async function runAndExport(){ const btn=document.getElementById('devExport'); const lbl=btn?btn.textContent:'';
   if(btn){btn.disabled=true;btn.textContent='running diagnostics\u2026';} status('running GPU diagnostics\u2026');
   let diag=null; try{ diag=await runDiagnostics(120); }catch(e){ diag={error:String(e&&e.message||e)}; }
-  const log=buildLog(); log.diagnostics=diag; downloadJSON(log,'string-engine-diag');
+  const log=buildLog(); log.diagnostics=diag; try{ log.styleProbe=await readStyleProbe(); }catch(e){ log.styleProbe={error:String(e)}; } downloadJSON(log,'string-engine-diag');
   const v=diag&&diag.verdict; status(diag&&diag.error?('diag ERROR: '+diag.error):('exported \u00B7 GPU NaN='+(v?v.gpuNaN:'?')+' pinsHeld='+(v?v.pinsHeld:'?')+' speedup='+(v?v.speedup:'?')+'\u00D7'), !!(diag&&diag.error));
   if(btn){btn.disabled=false;btn.textContent=lbl||'\u2B73 Run diagnostics & export for Claude';} liveReadout(); }
 const _ex=document.getElementById('devExport'); if(_ex)_ex.addEventListener('click',runAndExport);
