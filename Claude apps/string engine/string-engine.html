@@ -1303,7 +1303,7 @@ function frame(now){const dt=now-lastT;lastT=now;
   if(did||window.RD||panning){ema=ema*0.9+(1000/Math.max(1,dt))*0.1;if(S.gpuPhysics&&typeof window.gpuPhysicsRender==='function')window.gpuPhysicsRender();else if(S.micro&&typeof renderMicro==='function')renderMicro();else if(S.gpu&&typeof renderGPU==='function')renderGPU();else render();window.RD=false;document.getElementById('sFps').textContent=Math.round(ema)+' fps';}
   requestAnimationFrame(frame);}
 ['pointerdown','pointermove','pointerup','wheel','keydown'].forEach(ev=>window.addEventListener(ev,()=>{window.RD=true;},true));
-['input','change'].forEach(ev=>document.addEventListener(ev,()=>{ if(typeof GP!=='undefined'&&GP.active)GP.propsDirty=true; },true));   // any control change -> refresh GPU property buffers next frame   // any interaction marks a redraw
+['input','change'].forEach(ev=>document.addEventListener(ev,()=>{ if(window.gpuRefreshProps)window.gpuRefreshProps(); },true));   // any control change -> refresh GPU property buffers live
 ['input','change'].forEach(ev=>document.addEventListener(ev,()=>{window.RD=true;},true));                                        // any slider/toggle change too
 function refreshStats(){window.RD=true;document.getElementById('sObjs').textContent=G.objs.length;
   document.getElementById('sNS').textContent=G.nodes.length+' · '+G.segs.length;
@@ -1467,7 +1467,7 @@ function profRow(label,getV,setV,min,max,step){
   rng.addEventListener('input',()=>apply(rng.value,'r'));num.addEventListener('input',()=>apply(num.value,'n'));
   return row;}
 function bindPair(rid,nid,fn){const r=document.getElementById(rid),n=document.getElementById(nid);
-  const apply=(val,src)=>{const o=selObj();if(!o)return;let v=parseFloat(val);if(isNaN(v))return;if(src!=='r')r.value=v;if(src!=='n')n.value=v;fn(o,v);if(typeof GP!=='undefined'&&GP.active&&typeof gpuRefreshProps==='function')gpuRefreshProps();};
+  const apply=(val,src)=>{const o=selObj();if(!o)return;let v=parseFloat(val);if(isNaN(v))return;if(src!=='r')r.value=v;if(src!=='n')n.value=v;fn(o,v);if(window.gpuRefreshProps)window.gpuRefreshProps();};
   r.addEventListener('input',()=>apply(r.value,'r'));n.addEventListener('input',()=>apply(n.value,'n'));}
 bindPair('eThick','eThickN',(o,v)=>{o.r=v;computeExclusions();refreshObjMass(o);if(curReachUpd)curReachUpd();});
 bindPair('eStiff','eStiffN',(o,v)=>o.stiff=v);
@@ -2101,7 +2101,7 @@ function buildScene(){
   const mk=(data,usage)=>{ const bf=device.createBuffer({size:Math.max(16,data.byteLength),usage}); device.queue.writeBuffer(bf,0,data); return bf; };
   GP.bufA=mk(pos,ST|CD|CS); GP.bufB=mk(new Float32Array(N*4),ST|CD|CS); GP.bufPrev=mk(prev,ST|CD|CS);
   GP.bufMeta=mk(meta,ST|CD); GP.bufRange=mk(range,ST|CD); GP.bufNbr=mk(nbr,ST|CD); GP.bufRest=mk(rest,ST|CD);
-  GP.bufSeg=mk(seg,ST|CD); GP.bufStyle=mk(style,ST|CD);
+  GP.bufSeg=mk(seg,ST|CD); GP.bufStyle=mk(style,ST|CD|CS);
   GP.bufParams=device.createBuffer({size:48,usage:UN|CD}); GP.bufCam=device.createBuffer({size:16,usage:UN|CD});
   const bg=(pipe,entries)=>device.createBindGroup({layout:pipe.getBindGroupLayout(0),entries});
   const B=(k,b)=>({binding:k,resource:{buffer:b}});
@@ -2286,7 +2286,7 @@ async function deactivate(readback,reason){ if(!GP.active){ S.gpuPhysics=false; 
 window.gpuPhysicsSupported=supported;
 window.gpuPhysicsActive=()=>GP.active;
 setInterval(function(){ if(GP.active && GP.propsDirty){ GP.propsDirty=false; gpuRefreshProps(); } },120);
-window.gpuPhysicsStep=step;
+window.gpuPhysicsStep=step; window.gpuRefreshProps=gpuRefreshProps;
 window.gpuPhysicsRender=render;
 window.setGpuPhysicsMode=function(on){ if(on){ activate(); } else { deactivate(true,'toggled off'); } };
 window.gpuPhysicsDiscard=function(reason){ if(GP.active){ GP.active=false; S.gpuPhysics=false; S.gpu=GP.prevGpu; cw.style.display='none'; const cgl=document.getElementById('cgl'); if(cgl)cgl.style.display=(S.gpu||S.micro)?'block':'none'; badge(false,reason||'scene changed'); setToggle(false); status('off \u00B7 '+(reason||'scene changed')); window.RD=true; } };

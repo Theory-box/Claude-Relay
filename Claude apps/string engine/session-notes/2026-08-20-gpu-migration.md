@@ -372,3 +372,15 @@ NOW: in GPU mode, click an object with Move tool -> selects -> per-object slider
 apply LIVE via gpuRefreshProps. GRAB/DRAG (moving nodes with mouse) still TODO - needs the integrate grab
 uniform for continuous drag (readback gives pick; drag needs per-frame pin). Instrumentation (refreshN/
 refreshErr) retained for diagnostics.
+
+## ✅ FIXED: live object-property updates in GPU mode (IIFE scope bug — confirmed by diag refreshN=0)
+ROOT CAUSE: GPU subsystem (3rd <script>) is an IIFE; GP + gpuRefreshProps are PRIVATE to it. The two refresh
+triggers live in block 1 (bindPair.apply hook + catch-all input listener) and referenced those IIFE-private
+symbols via `typeof GP!=='undefined'` guards -> always undefined out there -> silently no-op (no error). So
+gpuRefreshProps was NEVER called (diag: refreshN=0, propsDirty=false); global scalars worked only because
+packParams reads S live INSIDE the IIFE each frame; diag button "fixed" thickness because runDiagnostics
+rebuilds buffers inside the IIFE.
+FIX (3 lines): expose window.gpuRefreshProps=gpuRefreshProps inside the IIFE; bindPair hook + input listener
+now call window.gpuRefreshProps() (self-guards on GP.active, safe anytime). Also bufStyle +COPY_SRC so the
+style probe can read back. Diag also confirmed GPU health: 2.32x speedup, 0 NaN, overflow 0, maxStorageBuf=16.
+Lesson: defensive typeof guards HID a real wiring failure — cross-IIFE access must go through window.*.
