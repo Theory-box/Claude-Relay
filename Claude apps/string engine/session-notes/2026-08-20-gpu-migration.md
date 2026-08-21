@@ -352,3 +352,11 @@ gpuRefreshProps() now also refreshes bendData factors -> stiff+curl sliders live
 (bendSupported/bendReady). All 7 shaders naga-valid. Bounds/render z untouched (2D bend like CPU).
 NOW LIVE in GPU mode: thickness, mass, damp, solid, color, STIFFNESS, CURL. Forces still CPU-only: affinity
 (next port - reuses collision grid), grow/bonding/cut (topology tier - hybrid CPU-event + GPU re-upload).
+
+## FIX: live settings in GPU mode were only firing for bindPair per-object sliders (user: "nothing updates
+live, have to switch cpu->gpu"). Now CATCH-ALL: document-level input/change listeners set GP.propsDirty when
+GP.active; GPU render() calls gpuRefreshProps() once next frame if dirty. Covers ALL property controls
+(thickness, stiff, curl, mass, damp, solid, fixed, color, global gThick/gStiff/gCurl/gGrow) with no per-handler
+hooking. gpuRefreshProps refreshes meta+style+segF+bendData (positions untouched). STILL needs cpu->gpu
+round-trip: topology changes (grow adds material, bonding, cut) - not property refreshes. Those wait for the
+hybrid topology-rebuild path.

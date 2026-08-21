@@ -1302,7 +1302,8 @@ function frame(now){const dt=now-lastT;lastT=now;
   else if(grab>=0){dragApply();constraints();collide();did=true;}
   if(did||window.RD||panning){ema=ema*0.9+(1000/Math.max(1,dt))*0.1;if(S.gpuPhysics&&typeof window.gpuPhysicsRender==='function')window.gpuPhysicsRender();else if(S.micro&&typeof renderMicro==='function')renderMicro();else if(S.gpu&&typeof renderGPU==='function')renderGPU();else render();window.RD=false;document.getElementById('sFps').textContent=Math.round(ema)+' fps';}
   requestAnimationFrame(frame);}
-['pointerdown','pointermove','pointerup','wheel','keydown'].forEach(ev=>window.addEventListener(ev,()=>{window.RD=true;},true));   // any interaction marks a redraw
+['pointerdown','pointermove','pointerup','wheel','keydown'].forEach(ev=>window.addEventListener(ev,()=>{window.RD=true;},true));
+['input','change'].forEach(ev=>document.addEventListener(ev,()=>{ if(typeof GP!=='undefined'&&GP.active)GP.propsDirty=true; },true));   // any control change -> refresh GPU property buffers next frame   // any interaction marks a redraw
 ['input','change'].forEach(ev=>document.addEventListener(ev,()=>{window.RD=true;},true));                                        // any slider/toggle change too
 function refreshStats(){window.RD=true;document.getElementById('sObjs').textContent=G.objs.length;
   document.getElementById('sNS').textContent=G.nodes.length+' · '+G.segs.length;
@@ -1770,7 +1771,7 @@ void main(){
 const cw=document.getElementById('cwgpu');
 if(!cw){ return; }
 const GP={active:false,initing:false,device:null,ctx:null,format:null,prevGpu:false,
-  intPipe:null,conPipe:null,renPipe:null,clearPipe:null,gridPipe:null,collPipe:null,collReady:false,collSupported:false,grid:null,maxStorageBuf:8,lastOverflow:null,bendPipe:null,bendSupported:false,bendReady:false,
+  intPipe:null,conPipe:null,renPipe:null,clearPipe:null,gridPipe:null,collPipe:null,collReady:false,collSupported:false,grid:null,maxStorageBuf:8,lastOverflow:null,bendPipe:null,bendSupported:false,bendReady:false,propsDirty:false,
   bufA:null,bufB:null,bufPrev:null,bufMeta:null,bufRange:null,bufNbr:null,bufRest:null,bufSeg:null,bufStyle:null,bufParams:null,bufCam:null,
   bgIntAB:null,bgIntBA:null,bgConAB:null,bgConBA:null,bgRenA:null,bgRenB:null,
   N:0,numSeg:0,numDir:0,curBuf:0,frameN:0,readbacks:0,lastExit:null,wgslMsgs:[],adapterInfo:null,lastStats:null,lastStatsT:0,telemBusy:false,log:[],diagRunning:false,_pos0:null,_segCache:null,_fixed:null};
@@ -2240,7 +2241,7 @@ function step(speed){ if(GP.diagRunning)return; if(!GP.active||!GP.device)return
     }
     dev.queue.submit([enc.finish()]); GP.frameN++;
   } }
-function render(){ if(GP.diagRunning)return; if(!GP.active||!GP.device)return; syncCanvas(); packCam();
+function render(){ if(GP.diagRunning)return; if(!GP.active||!GP.device)return; if(GP.propsDirty){ GP.propsDirty=false; gpuRefreshProps(); } syncCanvas(); packCam();
   const dev=GP.device, enc=dev.createCommandEncoder();
   let tex; try{ tex=GP.ctx.getCurrentTexture(); }catch(e){ return; }
   const rp=enc.beginRenderPass({colorAttachments:[{view:tex.createView(),clearValue:{r:0,g:0,b:0,a:0},loadOp:'clear',storeOp:'store'}]});
