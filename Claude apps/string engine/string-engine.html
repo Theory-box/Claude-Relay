@@ -1770,7 +1770,7 @@ void main(){
 const cw=document.getElementById('cwgpu');
 if(!cw){ return; }
 const GP={active:false,initing:false,device:null,ctx:null,format:null,prevGpu:false,
-  intPipe:null,conPipe:null,renPipe:null,clearPipe:null,gridPipe:null,collPipe:null,collReady:false,collSupported:false,grid:null,maxStorageBuf:8,
+  intPipe:null,conPipe:null,renPipe:null,clearPipe:null,gridPipe:null,collPipe:null,collReady:false,collSupported:false,grid:null,maxStorageBuf:8,lastOverflow:null,
   bufA:null,bufB:null,bufPrev:null,bufMeta:null,bufRange:null,bufNbr:null,bufRest:null,bufSeg:null,bufStyle:null,bufParams:null,bufCam:null,
   bgIntAB:null,bgIntBA:null,bgConAB:null,bgConBA:null,bgRenA:null,bgRenB:null,
   N:0,numSeg:0,numDir:0,curBuf:0,frameN:0,readbacks:0,lastExit:null,wgslMsgs:[],adapterInfo:null,lastStats:null,lastStatsT:0,telemBusy:false,log:[],diagRunning:false,_pos0:null,_segCache:null,_fixed:null};
@@ -2149,7 +2149,7 @@ function step(speed){ if(GP.diagRunning)return; if(!GP.active||!GP.device)return
     const enc=dev.createCommandEncoder();
     { const pass=enc.beginComputePass(); pass.setPipeline(GP.intPipe); pass.setBindGroup(0,GP.curBuf===0?GP.bgIntAB:GP.bgIntBA); pass.dispatchWorkgroups(WG); pass.end(); GP.curBuf=1-GP.curBuf; }
     for(let k=0;k<GP_PASSES;k++){ const pass=enc.beginComputePass(); pass.setPipeline(GP.conPipe); pass.setBindGroup(0,GP.curBuf===0?GP.bgConAB:GP.bgConBA); pass.dispatchWorkgroups(WG); pass.end(); GP.curBuf=1-GP.curBuf; }
-    const K=(S.gpuCollIters==null?4:(S.gpuCollIters|0));
+    const K=(S.gpuCollIters!=null?(S.gpuCollIters|0):(S.iters||4));  // quality slider drives collision iters unless explicitly overridden
     if(GP.collReady && K>0){ const g=GP.grid;
       { const ab=new ArrayBuffer(48),dv=new DataView(ab); dv.setUint32(0,GP.N,true);dv.setUint32(4,g.gx,true);dv.setUint32(8,g.gy,true);dv.setUint32(12,g.cap,true);
         dv.setFloat32(16,g.cell,true);dv.setFloat32(20,g.ox,true);dv.setFloat32(24,g.oy,true);dv.setFloat32(28,S.depth||0,true);
@@ -2209,7 +2209,9 @@ window.gpuPhysicsRender=render;
 window.setGpuPhysicsMode=function(on){ if(on){ activate(); } else { deactivate(true,'toggled off'); } };
 window.gpuPhysicsDiscard=function(reason){ if(GP.active){ GP.active=false; S.gpuPhysics=false; S.gpu=GP.prevGpu; cw.style.display='none'; const cgl=document.getElementById('cgl'); if(cgl)cgl.style.display=(S.gpu||S.micro)?'block':'none'; badge(false,reason||'scene changed'); setToggle(false); status('off \u00B7 '+(reason||'scene changed')); window.RD=true; } };
 window.gpuPhysicsDropToCPU=function(reason){ if(GP.active) deactivate(true,reason||'editing'); };
-window.gpuPhysicsDiagnostics=()=>({active:GP.active,supported:supported(),nodes:GP.N,segs:GP.numSeg,directedLinks:GP.numDir,frame:GP.frameN,readbacks:GP.readbacks,lastExit:GP.lastExit,passes:GP_PASSES,relax:GP_RELAX});
+window.gpuPhysicsDiagnostics=()=>({active:GP.active,supported:supported(),nodes:GP.N,segs:GP.numSeg,directedLinks:GP.numDir,frame:GP.frameN,readbacks:GP.readbacks,lastExit:GP.lastExit,passes:GP_PASSES,relax:GP_RELAX,
+  collision:{supported:GP.collSupported,ready:GP.collReady,maxStorageBuf:GP.maxStorageBuf,iters:(S.gpuCollIters!=null?(S.gpuCollIters|0):(S.iters||4)),lastOverflow:(GP.lastOverflow!=null?GP.lastOverflow:null),
+    grid:(GP.grid?{gx:GP.grid.gx,gy:GP.grid.gy,cell:GP.grid.cell,numCells:GP.grid.numCells,cap:GP.grid.cap,reach:+GP.grid.reach.toFixed(2)}:null),omega:GP_COLL_OMEGA,penFrac:GP_COLL_PENFRAC,maxDisp:GP_COLL_MAXDISP}});
 
 const _cb=document.getElementById('gpuPhysicsToggle'); if(_cb)_cb.addEventListener('change',function(e){ window.setGpuPhysicsMode(!!e.target.checked); });
 
@@ -2236,6 +2238,10 @@ async function gpuStatsReadback(){ if(GP.telemBusy||!GP.device||!GP.active||!GP.
     await rb.mapAsync(GPUMapMode.READ); const a=new Float32Array(rb.getMappedRange().slice(0)); rb.unmap(); rb.destroy();
     GP.lastStats=statsOf(a,GP.N); GP.lastStatsT=performance.now();
   }catch(e){} GP.telemBusy=false; }
+async function collOverflowReadback(){ if(!GP.device||!GP.active||!GP.collReady||!GP.bufOverflow)return;
+  try{ const dev=GP.device; const rb=dev.createBuffer({size:16,usage:GPUBufferUsage.COPY_DST|GPUBufferUsage.MAP_READ});
+    const enc=dev.createCommandEncoder(); enc.copyBufferToBuffer(GP.bufOverflow,0,rb,0,16); dev.queue.submit([enc.finish()]);
+    await rb.mapAsync(GPUMapMode.READ); const a=new Uint32Array(rb.getMappedRange().slice(0)); rb.unmap(); rb.destroy(); GP.lastOverflow=a[0]; }catch(e){} }
 function liveReadout(){ const set=(id,v)=>{const e=document.getElementById(id);if(e)e.textContent=v;};
   set('devActive',GP.active?'GPU':'CPU'); set('devNodes',G.nodes.length); set('devSegs',G.segs.length); set('devFps',Math.round(ema||0));
   const st=GP.active?GP.lastStats:cpuStats();
@@ -2244,14 +2250,14 @@ function liveReadout(){ const set=(id,v)=>{const e=document.getElementById(id);i
   else { set('devSpan','\u2014'); set('devNan','\u2014'); set('devY','\u2014'); } }
 setInterval(function(){ const mode=GP.active?'gpu':'cpu';
   const sample={t:+((performance.now()-T0)/1000).toFixed(1),mode:mode,fps:Math.round(ema||0),nodes:G.nodes.length,segs:G.segs.length,running:!!S.running};
-  if(GP.active){ if(GP.lastStats)Object.assign(sample,GP.lastStats); gpuStatsReadback(); }
+  if(GP.active){ if(GP.lastStats)Object.assign(sample,GP.lastStats); if(GP.lastOverflow!=null)sample.collOverflow=GP.lastOverflow; gpuStatsReadback(); collOverflowReadback(); }
   else { Object.assign(sample,cpuStats()); }
   GP.log.push(sample); if(GP.log.length>240)GP.log.shift(); liveReadout();
 },1000);
 function buildLog(){ return {
   build:BUILD, capturedAt:new Date().toISOString(), uaFragment:(navigator.userAgent||'').slice(0,180),
   webgpu:{supported:supported(),adapter:GP.adapterInfo,canvas:{w:cw.width,h:cw.height,dpr:S.dpr}},
-  config:{temp:S.temp,damp:S.damp,depth:S.depth,speed:S.speed,quality:(S.iters!=null?S.iters:null),GP_PASSES:GP_PASSES,GP_RELAX:GP_RELAX},
+  config:{temp:S.temp,damp:S.damp,depth:S.depth,speed:S.speed,quality:(S.iters!=null?S.iters:null),GP_PASSES:GP_PASSES,GP_RELAX:GP_RELAX,gpuCollIters:(S.gpuCollIters!=null?S.gpuCollIters:('quality:'+(S.iters||4))),collLastOverflow:(GP.lastOverflow!=null?GP.lastOverflow:null),contactDamp:S.contactDamp,xpbd:S.xpbd},
   view:{z:+(view.z||0).toFixed(3),ox:Math.round(view.ox||0),oy:Math.round(view.oy||0)},
   scene:{nodes:G.nodes.length,segs:G.segs.length,objs:G.objs.length},
   gpuPhysics:(window.gpuPhysicsDiagnostics?window.gpuPhysicsDiagnostics():null),

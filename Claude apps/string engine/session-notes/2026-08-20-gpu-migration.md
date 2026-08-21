@@ -299,3 +299,28 @@ NEXT LEVER if still lively: add velocity cancellation (prev update, CPU line 776
 (preColl copy) to avoid a 10th storage buffer. Also: 3D fallback normal still 2D-only (depth=25 live).
 
 ## BEND/CURL FINDINGS ARRIVED (gpu-bend-curl-jacobi-findings.md) — for the NEXT layer after collision.
+
+## POLISH PASS 1 (collision working well per live test; explosions are settings-tunable, not a hard bug)
+- Dev export now includes collision diagnostics: gpuPhysics.collision {supported,ready,maxStorageBuf,iters,
+  lastOverflow,grid{gx,gy,cell,numCells,cap,reach},omega,penFrac,maxDisp}; config adds gpuCollIters/
+  collLastOverflow/contactDamp/xpbd; telemetry samples collOverflow. Added collOverflowReadback() (reads
+  bufOverflow each 1s). GP.lastOverflow field. -> I can now see overflow/grid/iters in any export.
+- QUALITY slider (S.iters) now drives GPU collision iters K (K=S.gpuCollIters ?? S.iters). Was hardcoded 4.
+
+## SETTINGS AUDIT — what's LIVE on the GPU path vs inert (user wants inert ones tied-in OR hidden in GPU mode):
+LIVE on GPU: temp, damp, depth, speed, wallPad (integrate+walls); quality->collision iters; rest lengths.
+NOT wired (inert in GPU mode, silently do nothing): contactDamp, xpbd (GPU collide has no velocity
+  cancellation); attract/repel/tol/affinity (no GPU attract pass); bonding + all bond* (no GPU bonding);
+  gCurl/gStiff (no GPU bend solver yet); gThick/gGrow need scene rebuild to affect GPU radii. Render look
+  sliders (strandFill/gloss/shadow/outline/shadeSmooth) are CPU-canvas only; GPU renderer has its own capsule
+  look. GPU constraint passes still fixed GP_PASSES=8 (not quality-tied like collision now is).
+PLAN: (1) UI-gate inert sliders when GPU active (grey/hide + note), (2) progressively port physics to GPU
+  (bend/curl next -> findings ready; then affinity, then bonding), (3) grab/select in GPU mode (see below).
+
+## GRAB/SELECT IN GPU MODE — real gap (user switches to CPU just to select/grab).
+Mechanism: global `grab` idx set on pointerdown by picking nearest node (uses G.nodes[i].x/y = CPU-side,
+STALE in GPU mode since readbacks:0). CPU loop does dragApply()+constraints()+collide(). GPU step ignores
+grab. The integrate shader ALREADY has a plumbed-but-unused grab:i32 uniform + free pad/pad2 slots for a
+target xy. PLAN: (a) on pointerdown in GPU mode, one readback to refresh G.nodes for picking; (b) pass
+grab idx + grabX/grabY in params; (c) integrate shader pins node==grab to target (np.xy=target, prev=target
+=no velocity). Selection (S.selected) uses same pick -> works once (a) lands. Deferred to its own careful turn.
