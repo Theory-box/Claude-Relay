@@ -1,0 +1,211 @@
+<!doctype html><html><head><meta charset="utf-8"><title>WebGPU physics POC</title>
+<style>html,body{margin:0;height:100%;background:#080a12;overflow:hidden}canvas{width:100vw;height:100vh;display:block}
+#hud{position:fixed;top:10px;left:12px;color:#8ee;font:12px/1.6 monospace;text-shadow:0 0 4px #000;white-space:pre;max-width:96vw}
+#err{position:fixed;top:70px;left:12px;color:#ff8a9a;font:12px/1.5 monospace;text-shadow:0 0 4px #000;white-space:pre-wrap;max-width:96vw}</style></head>
+<body><canvas id="c"></canvas><div id="hud">starting…</div><div id="err"></div>
+<script type="module">
+const cv=document.getElementById('c'),hud=document.getElementById('c')&&document.getElementById('hud'),errEl=document.getElementById('err');
+const setHud=s=>hud.textContent=s, setErr=s=>errEl.textContent=s;
+
+// ---------- WGSL ----------
+const INTEGRATE=`
+struct Params { gravity:vec4<f32>, damp:f32, count:u32, relax:f32, grab:i32, grabTarget:vec4<f32>, };
+@group(0) @binding(0) var<storage, read>       posIn  : array<vec4<f32>>;
+@group(0) @binding(1) var<storage, read_write> posOut : array<vec4<f32>>;
+@group(0) @binding(2) var<storage, read_write> prev   : array<vec4<f32>>;
+@group(0) @binding(3) var<storage, read>       nmeta  : array<vec4<f32>>;
+@group(0) @binding(4) var<uniform>             P      : Params;
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid:vec3<u32>){
+  let i=gid.x; if(i>=P.count){return;}
+  let p=posIn[i].xyz; let pr=prev[i].xyz; let invm=nmeta[i].x;
+  if(invm==0.0){ posOut[i]=vec4<f32>(p,0.0); prev[i]=vec4<f32>(p,0.0); return; }
+  if(P.grab==i32(i)){ let g=P.grabTarget.xyz; posOut[i]=vec4<f32>(g,0.0); prev[i]=vec4<f32>(g,0.0); return; }
+  var vel=(p-pr)*P.damp; vel=clamp(vel,vec3<f32>(-40.0),vec3<f32>(40.0));
+  var np=p+vel+P.gravity.xyz; np=clamp(np,vec3<f32>(-5000.0),vec3<f32>(5000.0));
+  if(any(np!=np)){ np=p; }
+  posOut[i]=vec4<f32>(np,0.0); prev[i]=vec4<f32>(p,0.0);
+}`;
+const CONSTRAIN=`
+struct Params { gravity:vec4<f32>, damp:f32, count:u32, relax:f32, grab:i32, grabTarget:vec4<f32>, };
+@group(0) @binding(0) var<storage, read>       posIn     : array<vec4<f32>>;
+@group(0) @binding(1) var<storage, read_write> posOut    : array<vec4<f32>>;
+@group(0) @binding(2) var<storage, read>       nmeta     : array<vec4<f32>>;
+@group(0) @binding(3) var<storage, read>       nodeRange : array<vec2<u32>>;
+@group(0) @binding(4) var<storage, read>       edgeNbr   : array<u32>;
+@group(0) @binding(5) var<storage, read>       edgeRest  : array<f32>;
+@group(0) @binding(6) var<uniform>             P         : Params;
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid:vec3<u32>){
+  let i=gid.x; if(i>=P.count){return;}
+  let p=posIn[i].xyz; let invm=nmeta[i].x;
+  if(invm==0.0 || P.grab==i32(i)){ posOut[i]=vec4<f32>(p,0.0); return; }
+  let rng=nodeRange[i]; let start=rng.x; let cnt=rng.y;
+  var k=vec3<f32>(0.0);
+  for(var e:u32=0u; e<cnt; e=e+1u){
+    let j=edgeNbr[start+e]; let rest=edgeRest[start+e];
+    let d=posIn[j].xyz-p; let dist=max(length(d),0.001);
+    k=k+clamp(d*((dist-rest)/dist)*P.relax, vec3<f32>(-rest), vec3<f32>(rest));
+  }
+  var np=p+k; if(any(np!=np)){ np=p; }
+  posOut[i]=vec4<f32>(np,0.0);
+}`;
+const RENDER=`
+struct Cam { uA:vec2<f32>, uB:vec2<f32>, };
+@group(0) @binding(0) var<storage, read> pos   : array<vec4<f32>>;
+@group(0) @binding(1) var<storage, read> edges : array<vec2<u32>>;
+@group(0) @binding(2) var<uniform>       cam   : Cam;
+struct VSOut { @builtin(position) clip:vec4<f32>, @location(0) t:f32, };
+@vertex
+fn vs(@builtin(vertex_index) vi:u32, @builtin(instance_index) ii:u32)->VSOut{
+  var corners=array<vec2<f32>,4>(vec2<f32>(0.0,-1.0),vec2<f32>(0.0,1.0),vec2<f32>(1.0,-1.0),vec2<f32>(1.0,1.0));
+  let c=corners[vi]; let ed=edges[ii];
+  let p0=pos[ed.x].xy; let p1=pos[ed.y].xy;
+  let r=2.0; let d=p1-p0; let L=length(d);
+  var dir=vec2<f32>(1.0,0.0); if(L>1e-4){ dir=d/L; }
+  let perp=vec2<f32>(-dir.y,dir.x);
+  let world=mix(p0-dir*r, p1+dir*r, vec2<f32>(c.x)) + perp*(c.y*r);
+  var o:VSOut; o.clip=vec4<f32>(world*cam.uA+cam.uB,0.0,1.0); o.t=c.y; return o;
+}
+@fragment
+fn fs(in:VSOut)->@location(0) vec4<f32>{
+  let a=1.0-smoothstep(0.6,1.0,abs(in.t));
+  return vec4<f32>(0.35+0.4*(1.0-abs(in.t)),0.85,0.95,a);
+}`;
+
+// ---------- build cloth via EXPLICIT edges -> CSR (arbitrary topology, not grid offsets) ----------
+const GX=90, GY=60, N=GX*GY, SP=9;
+const pos=new Float32Array(N*4), meta=new Float32Array(N*4);
+for(let y=0;y<GY;y++)for(let x=0;x<GX;x++){ const i=y*GX+x;
+  pos[i*4]=x*SP+40; pos[i*4+1]=y*SP+30; pos[i*4+2]=0; pos[i*4+3]=0;
+  const pinned=(y===0)&&(x%14===0);
+  meta[i*4]= pinned?0.0:1.0;   // invMass; 0 => fixed
+}
+// explicit undirected edge list
+const E=[];
+for(let y=0;y<GY;y++)for(let x=0;x<GX;x++){ const a=y*GX+x;
+  if(x+1<GX)E.push([a,a+1]); if(y+1<GY)E.push([a,a+GX]); }
+const numEdges=E.length;
+const edgesRender=new Uint32Array(numEdges*2);
+E.forEach((e,i)=>{edgesRender[i*2]=e[0];edgesRender[i*2+1]=e[1];});
+// build CSR directed adjacency from the edge list (works for ANY graph)
+const adj=Array.from({length:N},()=>[]);
+const restOf=(a,b)=>{const dx=pos[a*4]-pos[b*4],dy=pos[a*4+1]-pos[b*4+1],dh=pos[a*4+2]-pos[b*4+2];return Math.hypot(dx,dy,dh)||1;};
+for(const [a,b] of E){ const r=restOf(a,b); adj[a].push([b,r]); adj[b].push([a,r]); }
+const numDir=adj.reduce((s,l)=>s+l.length,0);
+const nodeRange=new Uint32Array(N*2), edgeNbr=new Uint32Array(numDir), edgeRest=new Float32Array(numDir);
+let cur=0;
+for(let i=0;i<N;i++){ nodeRange[i*2]=cur; nodeRange[i*2+1]=adj[i].length;
+  for(const [j,r] of adj[i]){ edgeNbr[cur]=j; edgeRest[cur]=r; cur++; } }
+const prevInit=pos.slice();
+
+// ---------- WebGPU ----------
+let device,ctx,format,intPipe,conPipe,renderPipe;
+let bufA,bufB,bufPrev,bufMeta,bufRange,bufNbr,bufRest,bufEdges,bufParams,bufCam;
+let bgIntAB,bgIntBA,bgConAB,bgConBA,bgRenderA,bgRenderB;
+let DPR=Math.min(2,devicePixelRatio||1), W,H;
+let curBuf=0, frames=0, fps=60, lt=performance.now();
+
+function setCam(){ // fixed camera framing the full drape (world y up to ~1200)
+  const sc=DPR*0.42, ox=DPR*95, oy=DPR*12;
+  const cam=new Float32Array([ sc*2/cv.width, -sc*2/cv.height, ox*2/cv.width-1, 1-oy*2/cv.height ]);
+  if(device&&bufCam) device.queue.writeBuffer(bufCam,0,cam);
+}
+function resize(){ W=cv.clientWidth;H=cv.clientHeight;cv.width=Math.floor(W*DPR);cv.height=Math.floor(H*DPR); setCam(); }
+
+async function reportShader(mod,label){ // surface WGSL compile diagnostics
+  if(!mod.getCompilationInfo) return true;
+  const info=await mod.getCompilationInfo(); let bad=false, lines=[];
+  for(const m of info.messages){ if(m.type==='error'){bad=true;} lines.push(`[${label} ${m.type} L${m.lineNum}:${m.linePos}] ${m.message}`); }
+  if(lines.length) setErr((errEl.textContent||'')+lines.join('\n')+'\n');
+  return !bad;
+}
+
+async function init(){
+  try{
+    if(!navigator.gpu){ setHud('WebGPU NOT available in this browser/context.'); return; }
+    const adapter=await navigator.gpu.requestAdapter({powerPreference:'high-performance'});
+    if(!adapter){ setHud('No WebGPU adapter (GPU blocked or unavailable).'); return; }
+    device=await adapter.requestDevice();
+    device.lost.then(info=>setHud('WebGPU device lost: '+(info&&info.message||info.reason)));
+    device.addEventListener&&device.addEventListener('uncapturederror',e=>setErr((errEl.textContent||'')+'[uncaptured] '+e.error.message+'\n'));
+    ctx=cv.getContext('webgpu'); format=navigator.gpu.getPreferredCanvasFormat();
+    ctx.configure({device,format,alphaMode:'opaque'});
+
+    device.pushErrorScope('validation');
+    const intMod=device.createShaderModule({code:INTEGRATE});
+    const conMod=device.createShaderModule({code:CONSTRAIN});
+    const renMod=device.createShaderModule({code:RENDER});
+    const ok=(await reportShader(intMod,'integrate'))&(await reportShader(conMod,'constrain'))&(await reportShader(renMod,'render'));
+
+    intPipe=await device.createComputePipelineAsync({layout:'auto',compute:{module:intMod,entryPoint:'main'}});
+    conPipe=await device.createComputePipelineAsync({layout:'auto',compute:{module:conMod,entryPoint:'main'}});
+    renderPipe=await device.createRenderPipelineAsync({layout:'auto',
+      vertex:{module:renMod,entryPoint:'vs'},
+      fragment:{module:renMod,entryPoint:'fs',targets:[{format,blend:{
+        color:{srcFactor:'src-alpha',dstFactor:'one-minus-src-alpha',operation:'add'},
+        alpha:{srcFactor:'one',dstFactor:'one-minus-src-alpha',operation:'add'}}}]},
+      primitive:{topology:'triangle-strip'}});
+
+    const err=await device.popErrorScope();
+    if(err){ setErr((errEl.textContent||'')+'[pipeline] '+err.message+'\n'); }
+
+    // buffers
+    const ST=GPUBufferUsage.STORAGE, CD=GPUBufferUsage.COPY_DST, CS=GPUBufferUsage.COPY_SRC, UN=GPUBufferUsage.UNIFORM;
+    const mk=(data,usage)=>{const b=device.createBuffer({size:data.byteLength,usage});device.queue.writeBuffer(b,0,data);return b;};
+    bufA=mk(pos, ST|CD|CS); bufB=mk(new Float32Array(N*4), ST|CD|CS); bufPrev=mk(prevInit, ST|CD|CS);
+    bufMeta=mk(meta, ST|CD); bufRange=mk(nodeRange, ST|CD); bufNbr=mk(edgeNbr, ST|CD); bufRest=mk(edgeRest, ST|CD);
+    bufEdges=mk(edgesRender, ST|CD);
+    bufParams=device.createBuffer({size:48,usage:UN|CD});
+    bufCam=device.createBuffer({size:16,usage:UN|CD});
+
+    const bg=(pipe,entries)=>device.createBindGroup({layout:pipe.getBindGroupLayout(0),entries});
+    // integrate bind groups (read cur -> write other, update prev)
+    bgIntAB=bg(intPipe,[{binding:0,resource:{buffer:bufA}},{binding:1,resource:{buffer:bufB}},{binding:2,resource:{buffer:bufPrev}},{binding:3,resource:{buffer:bufMeta}},{binding:4,resource:{buffer:bufParams}}]);
+    bgIntBA=bg(intPipe,[{binding:0,resource:{buffer:bufB}},{binding:1,resource:{buffer:bufA}},{binding:2,resource:{buffer:bufPrev}},{binding:3,resource:{buffer:bufMeta}},{binding:4,resource:{buffer:bufParams}}]);
+    // constraint bind groups
+    const conEntries=(inB,outB)=>[{binding:0,resource:{buffer:inB}},{binding:1,resource:{buffer:outB}},{binding:2,resource:{buffer:bufMeta}},{binding:3,resource:{buffer:bufRange}},{binding:4,resource:{buffer:bufNbr}},{binding:5,resource:{buffer:bufRest}},{binding:6,resource:{buffer:bufParams}}];
+    bgConAB=bg(conPipe,conEntries(bufA,bufB)); bgConBA=bg(conPipe,conEntries(bufB,bufA));
+    // render bind groups (read a pos buffer)
+    bgRenderA=bg(renderPipe,[{binding:0,resource:{buffer:bufA}},{binding:1,resource:{buffer:bufEdges}},{binding:2,resource:{buffer:bufCam}}]);
+    bgRenderB=bg(renderPipe,[{binding:0,resource:{buffer:bufB}},{binding:1,resource:{buffer:bufEdges}},{binding:2,resource:{buffer:bufCam}}]);
+
+    resize(); window.addEventListener('resize',resize);
+    if(!ok){ setHud('Shader compile errors — see below. Physics halted.'); return; }
+    requestAnimationFrame(frame);
+  }catch(e){ setHud('WebGPU init failed: '+e.message); setErr((errEl.textContent||'')+String(e.stack||e)+'\n'); }
+}
+
+function writeParams(){
+  const ab=new ArrayBuffer(48), dv=new DataView(ab);
+  dv.setFloat32(0,0,true); dv.setFloat32(4,0.28,true); dv.setFloat32(8,0,true); dv.setFloat32(12,0,true); // gravity (y down)
+  dv.setFloat32(16,0.99,true);       // damp
+  dv.setUint32(20,N,true);           // count
+  dv.setFloat32(24,0.15,true);       // relax (per neighbour)
+  dv.setInt32(28,-1,true);           // grab (none)
+  dv.setFloat32(32,0,true);dv.setFloat32(36,0,true);dv.setFloat32(40,0,true);dv.setFloat32(44,0,true);
+  device.queue.writeBuffer(bufParams,0,ab);
+}
+
+const WG=Math.ceil(N/64);
+function frame(now){
+  const dt=now-lt; lt=now; fps=fps*0.9+(1000/Math.max(1,dt))*0.1;
+  writeParams();
+  const enc=device.createCommandEncoder();
+  // integrate: read curBuf -> write other
+  { const pass=enc.beginComputePass(); pass.setPipeline(intPipe);
+    pass.setBindGroup(0, curBuf===0?bgIntAB:bgIntBA); pass.dispatchWorkgroups(WG); pass.end(); curBuf=1-curBuf; }
+  // 12 Jacobi constraint passes (each its own pass => correct ping-pong ordering)
+  for(let k=0;k<12;k++){ const pass=enc.beginComputePass(); pass.setPipeline(conPipe);
+    pass.setBindGroup(0, curBuf===0?bgConAB:bgConBA); pass.dispatchWorkgroups(WG); pass.end(); curBuf=1-curBuf; }
+  // render from curBuf
+  const view=ctx.getCurrentTexture().createView();
+  const rp=enc.beginRenderPass({colorAttachments:[{view,clearValue:{r:0.03,g:0.04,b:0.07,a:1},loadOp:'clear',storeOp:'store'}]});
+  rp.setPipeline(renderPipe); rp.setBindGroup(0, curBuf===0?bgRenderA:bgRenderB); rp.draw(4,numEdges); rp.end();
+  device.queue.submit([enc.finish()]);
+  frames++;
+  setHud(`WebGPU PHYSICS · ${N.toLocaleString()} nodes · ${numEdges.toLocaleString()} edges (${numDir.toLocaleString()} directed / CSR) · ${Math.round(fps)} fps\n1 integrate + 12 Jacobi constraint passes/frame · positions never leave the GPU · frame ${frames}`);
+  requestAnimationFrame(frame);
+}
+init();
+</script></body></html>

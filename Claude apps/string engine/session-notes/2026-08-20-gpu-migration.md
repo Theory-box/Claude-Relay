@@ -64,3 +64,32 @@ pinning, instanced render-from-position-texture with zero CPU readback.
 - App (SoA build): "Claude apps/string engine/string-engine.html" (this branch).
 - POC (validated): "Claude apps/string engine/protos/gpu-physics-poc.html".
 - Outputs mirror: /mnt/user-data/outputs/{string-engine.html, gpu-physics-poc.html, instanced-strand-renderer.html}.
+
+## ✅✅✅ WebGPU POC VALIDATED on real hardware (user: "works!", 100 fps)
+Decision: engine goes WebGPU (compute/atomics needed for the real prize — collision, ~48-73% of frame).
+Proto: protos/gpu-physics-webgpu-poc.html. 5,400-node cloth, all physics in WGSL compute:
+- storage buffers pos (ping-pong A/B) + prev; Verlet integrate; 12 Jacobi length passes; render reads
+  positions straight from the GPU buffer (draw(4,numEdges), endpoints via @builtin(instance_index)).
+- **CSR adjacency, not grid offsets** — built from an EXPLICIT edge list (nodeRange[start,count] + edgeNbr +
+  edgeRest). This is the arbitrary-topology solver the engine needs; cloth is just the test graph.
+- Robust harness: navigator.gpu check, adapter/device, device.lost, validation error scope,
+  getCompilationInfo() surfaced to on-screen red text.
+Landmines hit & fixed (real-hardware only, parser didn't catch): **`meta` is a WGSL reserved keyword** ->
+renamed `nmeta`. (Lesson: scan WGSL identifiers against the reserved list; wgsl_reflect parses but doesn't
+enforce reserved words / full type checks.)
+Tooling: wgsl_reflect (node ESM at node_modules/wgsl_reflect/wgsl_reflect.module.js) parses WGSL + reports
+bind groups — good pre-flight, NOT a substitute for real-GPU compile. Sandbox has NO WebGPU (navigator.gpu
+false) so the USER is the runtime test bed; every shipped file must self-surface compile errors.
+
+### Approach for the engine integration (layer-by-layer, prove each before stacking)
+Isolated `GpuPhysics` WebGPU subsystem behind its OWN experimental toggle (do NOT overload the GPU-renderer
+toggle). CPU engine stays default + untouched + the fallback/reference. NO guarding of a shared flag against
+the app's own handlers (that was ChatGPT's smell) — instead make the interaction/edit handlers GPU-aware.
+Ownership: one authoritative copy. GPU mode uploads once from SoA (NX..NPH) + CSR from G.segs/G.nbrs; single
+readback on disable/save/topology-edit. Stage order:
+  1. GPU-resident core: integrate + length + degree-2 bend, pins, bounds, h/depth; render from GPU buffer.
+     Route unsupported scenes/features (collision, affinity, bonding, tearing, draw/cut, topology edits)
+     back to CPU for now.
+  2. Interaction w/o per-frame readback: GPU grab (uniform), integer picking target for clicks.
+  3. Collision: WGSL spatial-hash compute (atomics) — the real speedup.
+  4. Chemistry/topology events as compact GPU event buffers; CPU keeps graph-mutation authority initially.
