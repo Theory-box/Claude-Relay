@@ -492,3 +492,12 @@ rebuild frames (discarded otherwise) = proximity-formation with deferred pull (u
 Telemetry: diag.bonding {on,every,ticks,events,busy}. Gated on S.bonding (inert until bonding configured).
 NEXT (stage B): move free-endpoint proximity DETECTION to a GPU pass (atomic-append candidates, overflow fatal,
 double-buffered readback) -> CPU only arbitrates/mutates/rebuilds. Validate B's candidate set vs this A pipeline.
+
+## Bonding stage 2A stutter reduction (diag: 2294 bond events + readback every 3 frames x2 maps @ 4355 nodes)
+Continuous stutter was dominated by the per-3-frame readback doing TWO map operations (current + prev = 2 sync
+points, ~66/sec). Fixes: (1) ONE combined readback (copy cur + bufPrev into a 2N staging buffer, single mapAsync);
+(2) bondEvery 3 -> 6 (halve frequency); (3) skip the whole tick (no readback) when no object has bondOn. Net ~4x
+fewer GPU sync points. Periodic hitches remain from full buildScene rebuild per bond-event (~3-4/sec here) — this
+is FUNDAMENTAL to topology change and persists even in stage B (research keeps rebuild on CPU). The real smoothness
+fix is a cheaper/incremental rebuild (reuse same-size buffers via writeBuffer instead of destroy+recreate) — a
+distinct optimization from stage B's GPU detection. Order TBD with user after they test the readback fix.

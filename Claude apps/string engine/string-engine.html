@@ -1773,7 +1773,7 @@ void main(){
 const cw=document.getElementById('cwgpu');
 if(!cw){ return; }
 const GP={active:false,initing:false,device:null,ctx:null,format:null,prevGpu:false,
-  intPipe:null,conPipe:null,renPipe:null,clearPipe:null,gridPipe:null,collPipe:null,collReady:false,collSupported:false,grid:null,maxStorageBuf:8,lastOverflow:null,bendPipe:null,bendSupported:false,bendReady:false,propsDirty:false,refreshN:0,refreshErr:null,affPipe:null,gridTPipe:null,affSupported:false,affReady:false,affGrid:null,grabNode:-1,grabX:0,grabY:0,bondEvery:3,_bondBusy:false,bondTicks:0,bondEvents:0,
+  intPipe:null,conPipe:null,renPipe:null,clearPipe:null,gridPipe:null,collPipe:null,collReady:false,collSupported:false,grid:null,maxStorageBuf:8,lastOverflow:null,bendPipe:null,bendSupported:false,bendReady:false,propsDirty:false,refreshN:0,refreshErr:null,affPipe:null,gridTPipe:null,affSupported:false,affReady:false,affGrid:null,grabNode:-1,grabX:0,grabY:0,bondEvery:6,_bondBusy:false,bondTicks:0,bondEvents:0,
   bufA:null,bufB:null,bufPrev:null,bufMeta:null,bufRange:null,bufNbr:null,bufRest:null,bufSeg:null,bufStyle:null,bufParams:null,bufCam:null,
   bgIntAB:null,bgIntBA:null,bgConAB:null,bgConBA:null,bgRenA:null,bgRenB:null,
   N:0,numSeg:0,numDir:0,curBuf:0,frameN:0,readbacks:0,lastExit:null,wgslMsgs:[],adapterInfo:null,lastStats:null,lastStatsT:0,telemBusy:false,log:[],diagRunning:false,_pos0:null,_segCache:null,_fixed:null};
@@ -2386,15 +2386,16 @@ function gpuRefreshProps(){ if(!GP.active||!GP.device)return; const dev=GP.devic
 async function gpuBondTick(){
   // Hybrid bonding (stage A): throttled readback -> run the exact CPU bond pipeline -> rebuild GPU buffers on topology change.
   if(!GP.active || !S.bonding || GP._bondBusy) return;
-  GP.bondTicks=(GP.bondTicks||0)+1; if((GP.bondTicks%(GP.bondEvery||3))!==0) return;
+  GP.bondTicks=(GP.bondTicks||0)+1; if((GP.bondTicks%(GP.bondEvery||6))!==0) return;
+  let canBond=false; for(const o of G.objs){ if(o.bondOn){ canBond=true; break; } } if(!canBond) return;   // no bondable objects -> skip readback entirely
   GP._bondBusy=true;
   try{
-    await readbackToCPU();                                  // NX/NY current (but readback sets prev=cur -> zero velocity)
-    try{ const dev=GP.device, N=Math.min(GP.N,G.nodes.length);   // restore REAL prev so velocity survives the rebuild
-      const rbp=dev.createBuffer({size:GP.N*16,usage:GPUBufferUsage.COPY_DST|GPUBufferUsage.MAP_READ});
-      const e=dev.createCommandEncoder(); e.copyBufferToBuffer(GP.bufPrev,0,rbp,0,GP.N*16); dev.queue.submit([e.finish()]);
-      await rbp.mapAsync(GPUMapMode.READ); const pa=new Float32Array(rbp.getMappedRange().slice(0)); rbp.unmap(); rbp.destroy();
-      for(let i=0;i<N;i++){ NPX[i]=pa[i*4]; NPY[i]=pa[i*4+1]; NPH[i]=pa[i*4+2]; } }catch(_){}
+    { const dev=GP.device, N=Math.min(GP.N,G.nodes.length), cur=(GP.curBuf===0?GP.bufA:GP.bufB), bytes=GP.N*16;   // ONE readback for BOTH current + prev (single sync point)
+      const rb=dev.createBuffer({size:bytes*2,usage:GPUBufferUsage.COPY_DST|GPUBufferUsage.MAP_READ});
+      const e=dev.createCommandEncoder(); e.copyBufferToBuffer(cur,0,rb,0,bytes); e.copyBufferToBuffer(GP.bufPrev,0,rb,bytes,bytes); dev.queue.submit([e.finish()]);
+      await rb.mapAsync(GPUMapMode.READ); const arr=new Float32Array(rb.getMappedRange().slice(0)); rb.unmap(); rb.destroy();
+      for(let i=0;i<N;i++){ NX[i]=arr[i*4]; NY[i]=arr[i*4+1]; NH[i]=arr[i*4+2]; NPX[i]=arr[(GP.N+i)*4]; NPY[i]=arr[(GP.N+i)*4+1]; NPH[i]=arr[(GP.N+i)*4+2]; }
+      GP.readbacks++; window.RD=true; }
     const s0=G.segs.length, n0=G.nodes.length;
     if(typeof endpointForces==='function')endpointForces();     // formation (proximity) + pull
     if(typeof flagBondBreaks==='function')flagBondBreaks();
