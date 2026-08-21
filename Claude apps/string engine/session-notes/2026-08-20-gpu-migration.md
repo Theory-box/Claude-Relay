@@ -340,3 +340,15 @@ not yet hooked (separate handlers) — TODO.
 static per-obj props = refresh hook (DONE for thickness/mass); per-frame forces (bend/curl, affinity) = 1
 compute pass each (medium, bend findings ready); topology forces (grow/bond/cut) = hybrid (CPU event -> GPU
 re-upload, harder tier but known pattern). Not a research problem, a finite list. Next natural: GPU bend/curl.
+
+## ✅ GPU BEND/CURL PASS (stiff + curl now live on GPU) — WGSL_BEND, naga-valid
+Ported the CPU's center-node BOW formulation (parity, not the findings' signed-angle PBD - chose parity since
+scenes are tuned for CPU look). Per degree-2 movable node: target = chordMid + tangent*bT + normal*(bN +
+curl*r*3); pull center toward target by effStiff*0.5. Reuses the constraint CSR (nodeRange/edgeNbr) for the
+2 neighbors - NO new adjacency buffer. 6 storage + 1 uniform. bendData vec4(bT,bN,stiff*0.5,curl*r*3) per node
+(bT/bN = rest bow from computeRestBend, read ||0; stiff/curl slider-live). packBend() builds it (skips if no
+degree-2 nodes). Step loop INTERLEAVES bend after each length pass (matches CPU length-then-bend order).
+gpuRefreshProps() now also refreshes bendData factors -> stiff+curl sliders live in GPU mode. Guarded
+(bendSupported/bendReady). All 7 shaders naga-valid. Bounds/render z untouched (2D bend like CPU).
+NOW LIVE in GPU mode: thickness, mass, damp, solid, color, STIFFNESS, CURL. Forces still CPU-only: affinity
+(next port - reuses collision grid), grow/bonding/cut (topology tier - hybrid CPU-event + GPU re-upload).
