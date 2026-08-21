@@ -393,3 +393,16 @@ ramp - still CPU; manual grow slider works.)
 LIVE on GPU now: thickness, mass, damp, solid, color, stiffness, curl, GROW, + global scalars. Remaining
 CPU-only: affinity (attract/repel - needs GPU force pass, medium), bonding (topology, hard tier), cut/draw/
 erase (edit -> drop to CPU, fine), auto-spacing ramp.
+
+## AFFINITY (attract/repel) — GPU port STARTED. Draft gather shader naga-valid: protos/affinity_shader.mjs
+Ported from CPU attract(): per-node Jacobi gather over a SECOND coarser grid (cell~affRange, reuses CLEARGRID/
+GRIDBUILD). Bindings (10 storage + 1 uniform; device max=16): pos, posOut, nodeRange, nodeList (reuse coll CSR),
+segI (obj in >>3), affF (effR,pad,affRange,tagged), segCellA + cellBinsA (affinity grid), nmeta (invMass),
+vmat (nObj*nObj interaction matrix), U. Force: va=vmat[objX*nObj+objY]; closest(X,Y); gate=clamp((dist-tgt)/10)
+(attraction fades inside contact, repulsion doesn't); fallA=1-clamp((dist-tgt)/(arX-tgt)); mA=va*BASE*fallA*g;
+node i force = -u*mA*w*invI (w=barycentric slot, -u pulls X toward Y for va>0). BASE=0.18.
+HELD wiring pending research (relay sent): Q affinity runs once-per-FRAME on CPU (not per substep) - GPU should
+match (run affinity pass once per step() call, not in the substep loop); Q needs clamp for Jacobi stability?;
+Q stability alongside collision. vmat build (CPU, like attract's precompute) + affF + affinity grid params +
+packAffinity + step wiring = NEXT once research lands. Disciplined: not wiring unvalidated design (collision
+blowup lesson). Also drafted: bonding = hybrid (GPU proximity detect -> CPU form+reupload).
