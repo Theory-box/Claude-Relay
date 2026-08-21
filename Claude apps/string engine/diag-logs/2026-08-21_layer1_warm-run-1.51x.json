@@ -1,0 +1,393 @@
+{
+  "build": "gpu-layer1 + devlog · 2026-08-21",
+  "capturedAt": "2026-08-21T01:27:52.531Z",
+  "uaFragment": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+  "webgpu": {
+    "supported": true,
+    "adapter": {},
+    "canvas": {
+      "w": 2727,
+      "h": 1302,
+      "dpr": 1
+    }
+  },
+  "config": {
+    "temp": 0.7,
+    "damp": 0.02,
+    "depth": 25,
+    "speed": 1,
+    "quality": 4,
+    "GP_PASSES": 8,
+    "GP_RELAX": 0.6
+  },
+  "view": {
+    "z": 1,
+    "ox": 0,
+    "oy": 0
+  },
+  "scene": {
+    "nodes": 2483,
+    "segs": 1961,
+    "objs": 5
+  },
+  "gpuPhysics": {
+    "active": true,
+    "supported": true,
+    "nodes": 2483,
+    "segs": 1961,
+    "directedLinks": 3922,
+    "frame": 0,
+    "readbacks": 0,
+    "lastExit": null,
+    "passes": 8,
+    "relax": 0.6
+  },
+  "wgslMessages": [],
+  "cpuStatsNow": {
+    "n": 2483,
+    "nan": 0,
+    "ok": 2483,
+    "x": [
+      776,
+      1960
+    ],
+    "y": [
+      42,
+      1252
+    ],
+    "h": [
+      -14.5,
+      10.5
+    ],
+    "spanX": 1184,
+    "spanY": 1209
+  },
+  "gpuStatsLast": {
+    "n": 2483,
+    "nan": 0,
+    "ok": 2483,
+    "x": [
+      775,
+      1947
+    ],
+    "y": [
+      54,
+      1251
+    ],
+    "h": [
+      -9.6,
+      10.4
+    ],
+    "spanX": 1173,
+    "spanY": 1197
+  },
+  "telemetry": [
+    {
+      "t": 1,
+      "mode": "cpu",
+      "fps": 100,
+      "nodes": 2483,
+      "segs": 1961,
+      "running": true,
+      "n": 2483,
+      "nan": 0,
+      "ok": 2483,
+      "x": [
+        769,
+        1955
+      ],
+      "y": [
+        51,
+        1251
+      ],
+      "h": [
+        -9.7,
+        10.3
+      ],
+      "spanX": 1187,
+      "spanY": 1200
+    },
+    {
+      "t": 2,
+      "mode": "cpu",
+      "fps": 100,
+      "nodes": 2483,
+      "segs": 1961,
+      "running": true,
+      "n": 2483,
+      "nan": 0,
+      "ok": 2483,
+      "x": [
+        770,
+        1960
+      ],
+      "y": [
+        47,
+        1251
+      ],
+      "h": [
+        -10.1,
+        11.6
+      ],
+      "spanX": 1190,
+      "spanY": 1205
+    },
+    {
+      "t": 3,
+      "mode": "cpu",
+      "fps": 100,
+      "nodes": 2483,
+      "segs": 1961,
+      "running": true,
+      "n": 2483,
+      "nan": 0,
+      "ok": 2483,
+      "x": [
+        767,
+        1955
+      ],
+      "y": [
+        52,
+        1249
+      ],
+      "h": [
+        -11.6,
+        10.6
+      ],
+      "spanX": 1188,
+      "spanY": 1198
+    },
+    {
+      "t": 4,
+      "mode": "cpu",
+      "fps": 100,
+      "nodes": 2483,
+      "segs": 1961,
+      "running": true,
+      "n": 2483,
+      "nan": 0,
+      "ok": 2483,
+      "x": [
+        777,
+        1961
+      ],
+      "y": [
+        46,
+        1249
+      ],
+      "h": [
+        -16,
+        9
+      ],
+      "spanX": 1184,
+      "spanY": 1203
+    },
+    {
+      "t": 5,
+      "mode": "gpu",
+      "fps": 100,
+      "nodes": 2483,
+      "segs": 1961,
+      "running": true
+    },
+    {
+      "t": 6,
+      "mode": "gpu",
+      "fps": 100,
+      "nodes": 2483,
+      "segs": 1961,
+      "running": true,
+      "n": 2483,
+      "nan": 0,
+      "ok": 2483,
+      "x": [
+        775,
+        1963
+      ],
+      "y": [
+        48,
+        1247
+      ],
+      "h": [
+        -10.2,
+        11.5
+      ],
+      "spanX": 1188,
+      "spanY": 1198
+    },
+    {
+      "t": 7,
+      "mode": "gpu",
+      "fps": 100,
+      "nodes": 2483,
+      "segs": 1961,
+      "running": true,
+      "n": 2483,
+      "nan": 0,
+      "ok": 2483,
+      "x": [
+        781,
+        1951
+      ],
+      "y": [
+        48,
+        1251
+      ],
+      "h": [
+        -8.3,
+        9.1
+      ],
+      "spanX": 1171,
+      "spanY": 1202
+    }
+  ],
+  "diagnostics": {
+    "build": "gpu-layer1 + devlog · 2026-08-21",
+    "at": "2026-08-21T01:27:52.440Z",
+    "webgpuSupported": true,
+    "compile": {
+      "ok": true,
+      "messages": []
+    },
+    "adapter": {
+      "info": {
+        "vendor": "nvidia",
+        "architecture": "lovelace",
+        "device": "",
+        "description": ""
+      },
+      "features": [
+        "core-features-and-limits"
+      ],
+      "limits": {
+        "maxBufferSize": 268435456,
+        "maxStorageBufferBindingSize": 134217728,
+        "maxComputeWorkgroupSizeX": 256,
+        "maxComputeInvocationsPerWorkgroup": 256,
+        "maxComputeWorkgroupsPerDimension": 65535,
+        "maxStorageBuffersPerShaderStage": 8,
+        "maxBindGroups": 4
+      }
+    },
+    "scene": {
+      "nodes": 2483,
+      "segs": 1961,
+      "directed": 3922,
+      "fixed": 0
+    },
+    "gpu": {
+      "steps": 120,
+      "ms": 34.6,
+      "msPerStep": 0.288,
+      "stats": {
+        "n": 2483,
+        "nan": 0,
+        "ok": 2483,
+        "x": [
+          779,
+          1958
+        ],
+        "y": [
+          52,
+          1253
+        ],
+        "h": [
+          -9.3,
+          10.2
+        ],
+        "spanX": 1179,
+        "spanY": 1201
+      },
+      "edgeError": {
+        "mean": 0.043,
+        "max": 0.252,
+        "p95": 0.14,
+        "segs": 1961
+      },
+      "pinned": {
+        "pins": 0,
+        "maxDisp": 0
+      },
+      "trajectory": [
+        {
+          "step": 1,
+          "spanX": 1184,
+          "spanY": 1210,
+          "nan": 0,
+          "edgeMean": 0.038
+        },
+        {
+          "step": 10,
+          "spanX": 1187,
+          "spanY": 1210,
+          "nan": 0,
+          "edgeMean": 0.071
+        },
+        {
+          "step": 30,
+          "spanX": 1189,
+          "spanY": 1207,
+          "nan": 0,
+          "edgeMean": 0.062
+        },
+        {
+          "step": 60,
+          "spanX": 1189,
+          "spanY": 1198,
+          "nan": 0,
+          "edgeMean": 0.052
+        },
+        {
+          "step": 120,
+          "spanX": 1179,
+          "spanY": 1201,
+          "nan": 0,
+          "edgeMean": 0.043
+        }
+      ]
+    },
+    "cpu": {
+      "steps": 120,
+      "ms": 52.1,
+      "msPerStep": 0.434,
+      "stats": {
+        "n": 2483,
+        "nan": 0,
+        "ok": 2483,
+        "x": [
+          778,
+          1954
+        ],
+        "y": [
+          50,
+          1257
+        ],
+        "h": [
+          -9.4,
+          10.4
+        ],
+        "spanX": 1177,
+        "spanY": 1207
+      },
+      "edgeError": {
+        "mean": 0.042,
+        "max": 0.392,
+        "p95": 0.12,
+        "segs": 1961
+      },
+      "pinned": {
+        "pins": 0,
+        "maxDisp": 0
+      }
+    },
+    "verdict": {
+      "gpuNaN": 0,
+      "cpuNaN": 0,
+      "gpuStable": true,
+      "pinsHeld": true,
+      "spanRatioX": 1,
+      "edgeErrRatio": 1.02,
+      "speedup": 1.51
+    }
+  }
+}

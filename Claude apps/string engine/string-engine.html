@@ -1791,7 +1791,7 @@ function parseCol(css){ if(_colCache.has(css))return _colCache.get(css);
   catch(e){return [0.53,0.93,0.93];} }
 
 const WGSL_INT=`
-struct P { count:u32, temp:f32, damp:f32, depth:f32, relax:f32, grab:i32, frameN:u32, pad:u32, };
+struct P { count:u32, temp:f32, damp:f32, depth:f32, relax:f32, grab:i32, frameN:u32, pad:u32, W:f32, H:f32, wpad:f32, pad2:f32, };
 @group(0) @binding(0) var<storage, read>       posIn  : array<vec4<f32>>;
 @group(0) @binding(1) var<storage, read_write> posOut : array<vec4<f32>>;
 @group(0) @binding(2) var<storage, read_write> prv    : array<vec4<f32>>;
@@ -1813,6 +1813,7 @@ fn main(@builtin(global_invocation_id) gid:vec3<u32>){
   let seed=i*3u + U.frameN*9781u;
   var nx=p.x+vx+(rnd(seed)-0.5)*kick;
   var ny=p.y+vy+(rnd(seed+1u)-0.5)*kick;
+  if(U.W>1.0){ nx=clamp(nx, U.wpad, U.W-U.wpad); ny=clamp(ny, U.wpad, U.H-U.wpad); }
   var nh=0.0;
   if(U.depth>0.0 && solid<0.5){
     let slab=U.depth; let hk=U.temp*(0.3+U.depth*0.005);
@@ -1826,7 +1827,7 @@ fn main(@builtin(global_invocation_id) gid:vec3<u32>){
   prv[i]=vec4<f32>(p,0.0);
 }`;
 const WGSL_CON=`
-struct P { count:u32, temp:f32, damp:f32, depth:f32, relax:f32, grab:i32, frameN:u32, pad:u32, };
+struct P { count:u32, temp:f32, damp:f32, depth:f32, relax:f32, grab:i32, frameN:u32, pad:u32, W:f32, H:f32, wpad:f32, pad2:f32, };
 @group(0) @binding(0) var<storage, read>       posIn     : array<vec4<f32>>;
 @group(0) @binding(1) var<storage, read_write> posOut    : array<vec4<f32>>;
 @group(0) @binding(2) var<storage, read>       nmeta     : array<vec4<f32>>;
@@ -1941,7 +1942,7 @@ function buildScene(){
   GP.bufA=mk(pos,ST|CD|CS); GP.bufB=mk(new Float32Array(N*4),ST|CD|CS); GP.bufPrev=mk(prev,ST|CD|CS);
   GP.bufMeta=mk(meta,ST|CD); GP.bufRange=mk(range,ST|CD); GP.bufNbr=mk(nbr,ST|CD); GP.bufRest=mk(rest,ST|CD);
   GP.bufSeg=mk(seg,ST|CD); GP.bufStyle=mk(style,ST|CD);
-  GP.bufParams=device.createBuffer({size:32,usage:UN|CD}); GP.bufCam=device.createBuffer({size:16,usage:UN|CD});
+  GP.bufParams=device.createBuffer({size:48,usage:UN|CD}); GP.bufCam=device.createBuffer({size:16,usage:UN|CD});
   const bg=(pipe,entries)=>device.createBindGroup({layout:pipe.getBindGroupLayout(0),entries});
   const B=(k,b)=>({binding:k,resource:{buffer:b}});
   GP.bgIntAB=bg(GP.intPipe,[B(0,GP.bufA),B(1,GP.bufB),B(2,GP.bufPrev),B(3,GP.bufMeta),B(4,GP.bufParams)]);
@@ -1954,10 +1955,12 @@ function buildScene(){
   GP.curBuf=0; GP.frameN=0;
 }
 
-function packParams(){ const ab=new ArrayBuffer(32),dv=new DataView(ab);
-  dv.setUint32(0,GP.N>>>0,true); dv.setFloat32(4,S.temp||0,true); dv.setFloat32(8,S.damp||0,true); dv.setFloat32(12,S.depth||0,true);
+function writeParamsTo(buf,count){ const ab=new ArrayBuffer(48),dv=new DataView(ab);
+  dv.setUint32(0,count>>>0,true); dv.setFloat32(4,S.temp||0,true); dv.setFloat32(8,S.damp||0,true); dv.setFloat32(12,S.depth||0,true);
   dv.setFloat32(16,GP_RELAX,true); dv.setInt32(20,-1,true); dv.setUint32(24,GP.frameN>>>0,true); dv.setUint32(28,0,true);
-  GP.device.queue.writeBuffer(GP.bufParams,0,ab); }
+  dv.setFloat32(32,S.W||0,true); dv.setFloat32(36,S.H||0,true); dv.setFloat32(40,S.pad||0,true); dv.setFloat32(44,0,true);
+  GP.device.queue.writeBuffer(buf,0,ab); }
+function packParams(){ writeParamsTo(GP.bufParams,GP.N); }
 function packCam(){ const w=cw.width||1,h=cw.height||1,sc=S.dpr*view.z,ox=S.dpr*view.ox,oy=S.dpr*view.oy;
   const cam=new Float32Array([ sc*2/w, -sc*2/h, ox*2/w-1, 1-oy*2/h ]); GP.device.queue.writeBuffer(GP.bufCam,0,cam); }
 function syncCanvas(){ const w=Math.max(1,Math.floor(cw.clientWidth*S.dpr)),h=Math.max(1,Math.floor(cw.clientHeight*S.dpr));
@@ -2014,7 +2017,7 @@ window.gpuPhysicsDiagnostics=()=>({active:GP.active,supported:supported(),nodes:
 const _cb=document.getElementById('gpuPhysicsToggle'); if(_cb)_cb.addEventListener('change',function(e){ window.setGpuPhysicsMode(!!e.target.checked); });
 
 /* ---- Dev telemetry: 1 Hz rolling buffer + JSON export (Claude debug) ---- */
-const BUILD='gpu-layer1 + devlog \u00B7 2026-08-21';
+const BUILD='gpu-layer1 + bounds-fix + scaling-sweep \u00B7 2026-08-21b';
 const T0=performance.now();
 function statsOf(a,n){ let mnx=1e30,mxx=-1e30,mny=1e30,mxy=-1e30,mnh=1e30,mxh=-1e30,nan=0;
   for(let i=0;i<n;i++){const x=a[i*4],y=a[i*4+1],h=a[i*4+2];
@@ -2087,6 +2090,50 @@ function pinnedDisp(pos){ const fx=GP._fixed||[],p0=GP._pos0; if(!fx.length||!p0
 function packCPUvec4(){ const n=G.nodes.length,a=new Float32Array(Math.max(4,n*4)); for(let i=0;i<n;i++){a[i*4]=NX[i];a[i*4+1]=NY[i];a[i*4+2]=NH[i];} return a; }
 function snapCPU(){ return {NX:NX.slice(),NY:NY.slice(),NH:NH.slice(),NPX:NPX.slice(),NPY:NPY.slice(),NPH:NPH.slice()}; }
 function restoreCPU(sn){ NX.set(sn.NX);NY.set(sn.NY);NH.set(sn.NH);NPX.set(sn.NPX);NPY.set(sn.NPY);NPH.set(sn.NPH); }
+function packBase(){ const N=G.nodes.length; if(!N)return null;
+  const pos=new Float32Array(N*4),prev=new Float32Array(N*4),meta=new Float32Array(N*4); let minX=1e30,maxX=-1e30;
+  for(let i=0;i<N;i++){ const n=G.nodes[i],o=G.objs[n.obj]||{};
+    pos[i*4]=NX[i];pos[i*4+1]=NY[i];pos[i*4+2]=NH[i]; prev[i*4]=NPX[i];prev[i*4+1]=NPY[i];prev[i*4+2]=NPH[i];
+    meta[i*4]=n.fixed?0:((n.inv!=null&&n.inv>0)?n.inv:1); meta[i*4+1]=(o.damp||0); meta[i*4+2]=n.solid?1:0;
+    if(NX[i]<minX)minX=NX[i]; if(NX[i]>maxX)maxX=NX[i]; }
+  const adj=new Array(N); for(let i=0;i<N;i++)adj[i]=[];
+  for(let ss=0;ss<G.segs.length;ss++){ const sg=G.segs[ss]; if(sg.dead||sg.bond)continue; const a=sg.a,b=sg.b; if(a>=N||b>=N)continue; const r=sg.rest||1; adj[a].push([b,r]); adj[b].push([a,r]); }
+  let numDir=0; for(let i=0;i<N;i++)numDir+=adj[i].length;
+  const range=new Uint32Array(N*2),nbr=new Uint32Array(Math.max(1,numDir)),rest=new Float32Array(Math.max(1,numDir));
+  let c=0; for(let i=0;i<N;i++){ range[i*2]=c; range[i*2+1]=adj[i].length; for(const p of adj[i]){ nbr[c]=p[0]; rest[c]=p[1]; c++; } }
+  return {N:N,pos:pos,prev:prev,meta:meta,range:range,nbr:nbr,rest:rest,numDir:numDir,tileDX:(maxX-minX)+50}; }
+function tileVec4(src,N,sc,dx){ const out=new Float32Array(N*sc*4);
+  for(let t=0;t<sc;t++){ const ox=dx*t; for(let i=0;i<N;i++){ const o=(t*N+i)*4,q=i*4; out[o]=src[q]+ox; out[o+1]=src[q+1]; out[o+2]=src[q+2]; out[o+3]=src[q+3]; } } return out; }
+function tileCSR(base,sc){ const N=base.N,numDir=base.numDir;
+  const range=new Uint32Array(N*sc*2),nbr=new Uint32Array(Math.max(1,numDir*sc)),rest=new Float32Array(Math.max(1,numDir*sc));
+  for(let t=0;t<sc;t++){ const nOff=t*N,dOff=t*numDir;
+    for(let i=0;i<N;i++){ range[(nOff+i)*2]=base.range[i*2]+dOff; range[(nOff+i)*2+1]=base.range[i*2+1]; }
+    for(let e=0;e<numDir;e++){ nbr[dOff+e]=base.nbr[e]+nOff; rest[dOff+e]=base.rest[e]; } }
+  return {range:range,nbr:nbr,rest:rest}; }
+function stepTemp(dev,WG,cur,gAB,gBA,cAB,cBA){ const enc=dev.createCommandEncoder();
+  {const p=enc.beginComputePass();p.setPipeline(GP.intPipe);p.setBindGroup(0,cur===0?gAB:gBA);p.dispatchWorkgroups(WG);p.end();cur=1-cur;}
+  for(let k=0;k<GP_PASSES;k++){const p=enc.beginComputePass();p.setPipeline(GP.conPipe);p.setBindGroup(0,cur===0?cAB:cBA);p.dispatchWorkgroups(WG);p.end();cur=1-cur;}
+  dev.queue.submit([enc.finish()]); return cur; }
+async function scalingSweep(scales,K){ K=K||60; const dev=GP.device; const out=[]; const base=packBase(); if(!base)return out;
+  const maxBind=(dev.limits&&dev.limits.maxStorageBufferBindingSize)||134217728;
+  for(const sc of scales){ const N=base.N*sc;
+    if(N*16 > maxBind*0.9){ out.push({scale:sc,nodes:N,skipped:'exceeds storage buffer limit'}); continue; }
+    try{
+      const pos=tileVec4(base.pos,base.N,sc,base.tileDX); const prev=pos.slice(); const meta=tileVec4(base.meta,base.N,sc,0); const csr=tileCSR(base,sc);
+      const U=GPUBufferUsage; const mk=(d,u)=>{const b=dev.createBuffer({size:Math.max(16,d.byteLength),usage:u}); dev.queue.writeBuffer(b,0,d); return b;};
+      const A=mk(pos,U.STORAGE|U.COPY_DST|U.COPY_SRC),Bb=mk(new Float32Array(N*4),U.STORAGE|U.COPY_DST|U.COPY_SRC),PV=mk(prev,U.STORAGE|U.COPY_DST);
+      const MT=mk(meta,U.STORAGE|U.COPY_DST),RG=mk(csr.range,U.STORAGE|U.COPY_DST),NB=mk(csr.nbr,U.STORAGE|U.COPY_DST),RS=mk(csr.rest,U.STORAGE|U.COPY_DST);
+      const PM=dev.createBuffer({size:48,usage:U.UNIFORM|U.COPY_DST}); writeParamsTo(PM,N);
+      const bg=(pipe,en)=>dev.createBindGroup({layout:pipe.getBindGroupLayout(0),entries:en}); const Bn=(k,b)=>({binding:k,resource:{buffer:b}});
+      const gAB=bg(GP.intPipe,[Bn(0,A),Bn(1,Bb),Bn(2,PV),Bn(3,MT),Bn(4,PM)]), gBA=bg(GP.intPipe,[Bn(0,Bb),Bn(1,A),Bn(2,PV),Bn(3,MT),Bn(4,PM)]);
+      const cAB=bg(GP.conPipe,[Bn(0,A),Bn(1,Bb),Bn(2,MT),Bn(3,RG),Bn(4,NB),Bn(5,RS),Bn(6,PM)]), cBA=bg(GP.conPipe,[Bn(0,Bb),Bn(1,A),Bn(2,MT),Bn(3,RG),Bn(4,NB),Bn(5,RS),Bn(6,PM)]);
+      const WG=Math.max(1,Math.ceil(N/64)); let cur=0;
+      for(let w=0;w<3;w++)cur=stepTemp(dev,WG,cur,gAB,gBA,cAB,cBA); await dev.queue.onSubmittedWorkDone();
+      const t0=performance.now(); for(let k=0;k<K;k++)cur=stepTemp(dev,WG,cur,gAB,gBA,cAB,cBA); await dev.queue.onSubmittedWorkDone(); const ms=performance.now()-t0;
+      out.push({scale:sc,nodes:N,gpuMsPerStep:+(ms/K).toFixed(4),gpuTotalMs:+ms.toFixed(1)});
+      for(const b of [A,Bb,PV,MT,RG,NB,RS,PM]) try{b.destroy();}catch(e){}
+    }catch(e){ out.push({scale:sc,nodes:N,error:String(e&&e.message||e)}); }
+  } return out; }
 async function runDiagnostics(K){ K=K||120; const R={build:BUILD,at:new Date().toISOString(),webgpuSupported:supported()};
   if(!supported()){ R.error='WebGPU not supported in this browser'; return R; }
   GP.wgslMsgs.length=0;
@@ -2113,6 +2160,12 @@ async function runDiagnostics(K){ K=K||120; const R={build:BUILD,at:new Date().t
       spanRatioX:(R.cpu.stats.spanX? +(R.gpu.stats.spanX/Math.max(1,R.cpu.stats.spanX)).toFixed(2):null),
       edgeErrRatio:(ce&&ce.mean? +(ge.mean/Math.max(1e-6,ce.mean)).toFixed(2):null),
       speedup:(R.gpu.ms>0? +(R.cpu.ms/R.gpu.ms).toFixed(2):null) };
+    // clean-timed scaling sweep (GPU timed via onSubmittedWorkDone; CPU extrapolated linearly from x1)
+    try{ const samples=await scalingSweep([1,2,4,8,16],60); const cpuBase=R.cpu.msPerStep;
+      for(const sm of samples){ if(sm.gpuMsPerStep!=null){ sm.cpuEstMsPerStep=+(cpuBase*sm.scale).toFixed(4); sm.gpuWins=(sm.gpuMsPerStep<sm.cpuEstMsPerStep); } }
+      const win=samples.find(sm=>sm.gpuWins);
+      R.scaling={note:'GPU timed clean (onSubmittedWorkDone, no per-step stalls); CPU extrapolated linearly from x1 measurement',cpuMsPerStepBase:cpuBase,samples:samples,crossover:(win?{scale:win.scale,nodes:win.nodes}:'GPU did not overtake CPU within tested range (x1..x16)')};
+    }catch(e){ R.scaling={error:String(e&&e.message||e)}; }
     if(wasActive){ buildScene(); }
   }catch(e){ R.error='diagnostic run failed: '+e.message; console.error(e); }
   GP.diagRunning=false; return R; }

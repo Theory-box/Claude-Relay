@@ -157,3 +157,39 @@ scaling sweep (clone scene x2/x4/x8… time GPU vs CPU) to find the crossover no
    push apart on overlap). The real prize. Good candidate for ChatGPT research relay (fastest WebGPU
    spatial-hash-with-atomics for ~10k-100k particles; single-author the integration).
 3. (optional) bend/curl constraints for fidelity.
+
+## ✅ naga in the loop + warm-run perf correction + collision design locked
+### Tooling win: naga-wasi-cli installed (npm/WASI, no Rust) — REAL semantic WGSL validator now local.
+Run: node tools/naga_validate.mjs <string-engine.html> /home/claude/.wgsl-tools/node_modules/.bin/naga
+Catches reserved words + type/validation errors wgsl_reflect misses (the `meta` class). v2 shaders
+(bounds fix + extended 48B Params) PASS naga: WGSL_INT(36) WGSL_CON(27) WGSL_REN(23). New loop:
+wgsl_reflect (bindings) → naga (semantic) → user GPU (runtime).
+### Perf CORRECTION (warm run): earlier 0.52x "GPU slower" was COLD-START contamination.
+Warm run (GPU physics active, canvas full-size, warmed pipelines): speedup 1.51× (GPU FASTER) at the
+same 2483 nodes — GPU 0.288 ms/step vs CPU 0.434. NaN=0, edgeErr 0.043≈CPU 0.042, spans stable. So GPU
+is already ahead at 2.5k when warm; cold first-use + snapshot-stalls inflated the first measurement.
+(v2 scaling-sweep build still unrun by user; not blocking collision.)
+### v2 shipped: bounds fix (integrate clamps x/y to [pad,W-pad], matches CPU) + diagnostic v2
+(scaling sweep x1..x16 clean-timed via onSubmittedWorkDone + crossover; adapter-info extraction).
+
+## COLLISION ENGINE MODEL (from CPU collide()) — SEGMENT-based, not particle
+Broad: each SEGMENT inserted into ALL grid cells its AABB (expanded by reach=maxR+maxPad) overlaps;
+cell=2*reach. Pair list deduped + filtered (excl set = same-strand-too-close, shared node, bonds,
+self-pass-through when obj.selfSolid=false). Narrow: S.iters passes; closest(a0,a1,b0,b1,use3) =
+segment-segment closest point (params s,t); if dist<tgt(=rA+rB+pad) push apart, distribute to 4
+endpoint nodes weighted by (1-s),s,(1-t),t and inverse mass; optional XPBD velocity cancel (S.xpbd).
+3D uses h when depth>0 & neither solid.
+
+## COLLISION GPU DESIGN (research-informed, segment-adapted) — layer 3
+Research (ChatGPT handoff, archived research/webgpu-collision-handoff/): count→exclusive-scan→scatter
+uniform grid + per-particle Jacobi 3x3 gather; Jacobi gather writes only self => NO float atomics
+(atomics only integer, in count/scatter). 8 storage buffers/stage => split grid-build vs gather
+pipelines. Segment caveat: bin by AABB into every overlapped cell (not midpoint).
+ADAPTATION for our segment model: parallelize narrow phase PER-NODE (not per-pair) — each node gathers
+segments near its incident segments, recomputes each pair's closest deterministically, takes only its
+OWN share (by barycentric weight+mass), writes only itself. Adjacent segments share nodes, so per-node
+Jacobi avoids the shared-node write race WITHOUT atomics (pairs evaluated ~4x — the WebGPU-preferred
+trade). Need node→incident-segment CSR (build from G.segs). Prototype grid = fixed-capacity atomic bins
+(+overflow counter) to skip the scan first; upgrade to count/scan/scatter if occupancy overflows.
+Plan: 3a grid POC (segment AABB → fixed-cap bins, validate occupancy/overflow on real HW) → 3b per-node
+gather (closest() WGSL + own-share accumulate) → 3c integrate after constraints in step().
