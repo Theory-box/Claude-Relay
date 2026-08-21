@@ -218,3 +218,19 @@ At the start of a session on this topic: `git checkout feature/ray-portal-bake &
   flat FloorplanTrace sitting on a building block), the portal ray can hit the block
   instead of the trace -> dark bake. User confirmed this is NOT their normal case
   ("bakes the right object fine"); logged for later robustness.
+
+## RESOLVED & SHIPPED — offset fixed, merged to main
+- User confirmed: "working like a charm now." Baked textures drop onto existing UVs
+  with no move and no mapping node.
+- ROOT CAUSE of the offset: the old frame-to-bounds build aimed the bake camera at a
+  SQUARE region of side span=max(uv_w, uv_h). Non-square UVs (walls packed wider than
+  tall) got padding of (span-height)/2 on the short axis, which read as a pure
+  translation (big in Y, ~0 in X) when applied to raw UVs - scaling stayed correct.
+- FIX: bake straight to the 0-1 UV tile (image IS UV space, Blender-native convention).
+  Measured offset dx=0.0000 dy=0.0000. No frame-to-bounds, no mapping node.
+- Status: feature/ray-portal-bake merged to main. Addon complete.
+- DEFERRED (only if user hits it): coincident-geometry safeguard so a flat trace sitting
+  on a building block doesn't bake the block instead of the trace (portal ray hits the
+  coincident object -> dark). Fix path identified; not implemented per user request.
+- Other deferred niceties: albedo/unlit mode, edge-padding/dilation for inter-island
+  gaps, 32-bit/other formats, GPU device pref, eventual merge into Node Preview.
