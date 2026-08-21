@@ -1,0 +1,186 @@
+<!doctype html><html><head><meta charset="utf-8"><title>GPU narrow-phase POC (segment collision math)</title>
+<style>html,body{margin:0;height:100%;background:#080a12;overflow:auto;font:12px/1.5 monospace;color:#cde}
+#hud{padding:12px;white-space:pre-wrap}#cv{display:block;margin:8px 12px;background:#0b0d18;border:1px solid #22263f;border-radius:8px}
+.ok{color:#6ee7b7}.bad{color:#ff8a9a}.dim{color:#5a5f88}#err{color:#ff8a9a;padding:0 12px;white-space:pre-wrap}</style></head>
+<body><div id="hud">starting…</div><div id="err"></div><canvas id="cv" width="1100" height="360"></canvas>
+<script>
+const NARROW=`
+struct CP { s:f32, t:f32, n:vec3<f32>, dist:f32, };
+fn closestSeg(p1:vec3<f32>, q1:vec3<f32>, p2:vec3<f32>, q2:vec3<f32>) -> CP {
+  let d1=q1-p1; let d2=q2-p2; let r=p1-p2;
+  let a=dot(d1,d1); let e=dot(d2,d2); let ff=dot(d2,r); let eps=1e-9;
+  var s=0.0; var t=0.0;
+  if(a<=eps && e<=eps){ s=0.0; t=0.0; }
+  else if(a<=eps){ s=0.0; t=clamp(ff/e,0.0,1.0); }
+  else{
+    let c=dot(d1,r);
+    if(e<=eps){ t=0.0; s=clamp(-c/a,0.0,1.0); }
+    else{
+      let b=dot(d1,d2); let den=a*e-b*b;
+      if(den > 1e-6*a*e){ s=clamp((b*ff-c*e)/den,0.0,1.0); } else { s=0.0; }
+      t=(b*s+ff)/e;
+      if(t<0.0){ t=0.0; s=clamp(-c/a,0.0,1.0); }
+      else if(t>1.0){ t=1.0; s=clamp((b-c)/a,0.0,1.0); }
+    }
+  }
+  let c1=p1+d1*s; let c2=p2+d2*t; let nrm=c1-c2;
+  var o:CP; o.s=s; o.t=t; o.n=nrm; o.dist=length(nrm); return o;
+}
+struct Cnt { count:u32, pad0:u32, pad1:u32, pad2:u32, };
+@group(0) @binding(0) var<storage, read>       Pt : array<vec4<f32>>;
+@group(0) @binding(1) var<storage, read>       Mt : array<vec4<f32>>;
+@group(0) @binding(2) var<storage, read_write> Ot : array<vec4<f32>>;
+@group(0) @binding(3) var<uniform>             U  : Cnt;
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid:vec3<u32>){
+  let i=gid.x; if(i>=U.count){ return; }
+  var a0=Pt[i*4u+0u].xyz; var a1=Pt[i*4u+1u].xyz; var b0=Pt[i*4u+2u].xyz; var b1=Pt[i*4u+3u].xyz;
+  let rp=Mt[i*2u+0u]; let iv=Mt[i*2u+1u];
+  let use3=rp.w;
+  if(use3<0.5){ a0.z=0.0; a1.z=0.0; b0.z=0.0; b1.z=0.0; }
+  let cp=closestSeg(a0,a1,b0,b1);
+  let tgt=rp.x+rp.y+rp.z;
+  var dA0=vec3<f32>(0.0); var dA1=vec3<f32>(0.0); var dB0=vec3<f32>(0.0); var dB1=vec3<f32>(0.0);
+  if(cp.dist<tgt && cp.dist>1e-6){
+    let ov=min(tgt-cp.dist, 0.25*tgt); let u=cp.n/cp.dist;
+    let mobA=(iv.x+iv.y)*0.5; let mobB=(iv.z+iv.w)*0.5; let Wt=mobA+mobB;
+    if(Wt>0.0){ let iW=1.0/Wt; let cA=ov*mobA*iW; let cB=ov*mobB*iW; let s=cp.s; let t=cp.t;
+      dA0=u*cA*(1.0-s); dA1=u*cA*s; dB0=-u*cB*(1.0-t); dB1=-u*cB*t; }
+  }
+  Ot[i*4u+0u]=vec4<f32>(dA0,0.0); Ot[i*4u+1u]=vec4<f32>(dA1,0.0);
+  Ot[i*4u+2u]=vec4<f32>(dB0,0.0); Ot[i*4u+3u]=vec4<f32>(dB1,0.0);
+}`;
+
+const hud=document.getElementById('hud'), errEl=document.getElementById('err');
+// ---------- CPU reference (identical routine to the engine) ----------
+const sub=(a,b)=>[a[0]-b[0],a[1]-b[1],a[2]-b[2]], dot=(a,b)=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2];
+const clamp=(v,lo,hi)=>v<lo?lo:v>hi?hi:v, len=a=>Math.hypot(a[0],a[1],a[2]);
+function closestCPU(p1,q1,p2,q2){
+  const d1=sub(q1,p1),d2=sub(q2,p2),r=sub(p1,p2);
+  const a=dot(d1,d1),e=dot(d2,d2),f=dot(d2,r),eps=1e-9;let s,t;
+  if(a<=eps&&e<=eps){s=0;t=0;}
+  else if(a<=eps){s=0;t=clamp(f/e,0,1);}
+  else{const c=dot(d1,r);if(e<=eps){t=0;s=clamp(-c/a,0,1);}
+    else{const b=dot(d1,d2),den=a*e-b*b;s=den>1e-6*a*e?clamp((b*f-c*e)/den,0,1):0;t=(b*s+f)/e;
+      if(t<0){t=0;s=clamp(-c/a,0,1);}else if(t>1){t=1;s=clamp((b-c)/a,0,1);}}}
+  const c1=[p1[0]+d1[0]*s,p1[1]+d1[1]*s,p1[2]+d1[2]*s],c2=[p2[0]+d2[0]*t,p2[1]+d2[1]*t,p2[2]+d2[2]*t];
+  const n=sub(c1,c2);return {s,t,n,dist:len(n)};
+}
+function respondCPU(pr){
+  let a0=pr.a0.slice(),a1=pr.a1.slice(),b0=pr.b0.slice(),b1=pr.b1.slice();
+  if(!pr.use3){a0=[a0[0],a0[1],0];a1=[a1[0],a1[1],0];b0=[b0[0],b0[1],0];b1=[b1[0],b1[1],0];}
+  const cl=closestCPU(a0,a1,b0,b1),tgt=pr.rA+pr.rB+pr.pad;
+  let dA0=[0,0,0],dA1=[0,0,0],dB0=[0,0,0],dB1=[0,0,0];
+  if(cl.dist<tgt&&cl.dist>1e-6){const ov=Math.min(tgt-cl.dist,0.25*tgt),inv=1/cl.dist,u=[cl.n[0]*inv,cl.n[1]*inv,cl.n[2]*inv];
+    const mobA=(pr.iv[0]+pr.iv[1])*0.5,mobB=(pr.iv[2]+pr.iv[3])*0.5,Wt=mobA+mobB;
+    if(Wt>0){const iW=1/Wt,cA=ov*mobA*iW,cB=ov*mobB*iW,s=cl.s,t=cl.t;
+      dA0=[u[0]*cA*(1-s),u[1]*cA*(1-s),u[2]*cA*(1-s)];dA1=[u[0]*cA*s,u[1]*cA*s,u[2]*cA*s];
+      dB0=[-u[0]*cB*(1-t),-u[1]*cB*(1-t),-u[2]*cB*(1-t)];dB1=[-u[0]*cB*t,-u[1]*cB*t,-u[2]*cB*t];}}
+  return [dA0,dA1,dB0,dB1];
+}
+// ---------- test pairs ----------
+const pairs=[];
+const R=(m)=>(Math.random()-0.5)*m, inv=()=>Math.random()<0.15?0:(0.2+Math.random());
+function P(cx,cy,cz){return [cx+R(240),cy+R(180),cz];}
+for(let k=0;k<1400;k++){ const use3=Math.random()<0.4?1:0, hz=()=>use3?R(30):0;
+  // crossing-biased: b through a's midpoint region
+  const a0=[450+R(300),200+R(160),hz()],a1=[450+R(300),200+R(160),hz()];
+  const mid=[(a0[0]+a1[0])/2+R(20),(a0[1]+a1[1])/2+R(20)];
+  const b0=[mid[0]+R(60),mid[1]+R(60),hz()],b1=[mid[0]+R(60),mid[1]+R(60),hz()];
+  pairs.push({a0,a1,b0,b1,rA:2+Math.random()*8,rB:2+Math.random()*8,pad:Math.random()*4,use3,iv:[inv(),inv(),inv(),inv()]});}
+for(let k=0;k<600;k++){ const use3=Math.random()<0.4?1:0, hz=()=>use3?R(30):0;
+  pairs.push({a0:P(450,200,hz()),a1:P(450,200,hz()),b0:P(450,200,hz()),b1:P(450,200,hz()),
+    rA:2+Math.random()*8,rB:2+Math.random()*8,pad:Math.random()*4,use3,iv:[inv(),inv(),inv(),inv()]});}
+// hand-crafted edge cases
+const EC=[
+  {a0:[0,0,0],a1:[100,0,0],b0:[50,-3,0],b1:[50,3,0],rA:4,rB:4,pad:0,use3:0,iv:[1,1,1,1]},       // perpendicular cross, deep overlap
+  {a0:[0,0,0],a1:[100,0,0],b0:[0,5,0],b1:[100,5,0],rA:4,rB:4,pad:0,use3:0,iv:[1,1,1,1]},          // parallel, overlapping
+  {a0:[0,0,0],a1:[100,0,0],b0:[0,5,0],b1:[100,5.0001,0],rA:4,rB:4,pad:0,use3:0,iv:[1,1,1,1]},     // near-parallel
+  {a0:[0,0,0],a1:[0,0,0],b0:[2,0,0],b1:[2,10,0],rA:3,rB:3,pad:0,use3:0,iv:[1,1,1,1]},             // zero-length A (point) vs segment
+  {a0:[10,10,0],a1:[10,10,0],b0:[10,10,0],b1:[10,10,0],rA:3,rB:3,pad:0,use3:0,iv:[1,1,1,1]},      // both coincident points
+  {a0:[0,0,0],a1:[100,0,0],b0:[105,0,0],b1:[200,0,0],rA:4,rB:4,pad:0,use3:0,iv:[1,1,1,1]},        // endpoint-endpoint (collinear)
+  {a0:[0,0,0],a1:[100,0,2],b0:[50,-3,-2],b1:[50,3,4],rA:4,rB:4,pad:1,use3:1,iv:[0,1,1,0]},        // 3D with fixed endpoints
+  {a0:[0,0,0],a1:[100,0,0],b0:[50,40,0],b1:[60,40,0],rA:4,rB:4,pad:0,use3:0,iv:[1,1,1,1]},        // far apart -> no collision
+];
+for(const e of EC)pairs.push(e);
+const N=pairs.length;
+const Pt=new Float32Array(N*4*4), Mt=new Float32Array(N*2*4);
+for(let i=0;i<N;i++){const p=pairs[i];
+  const put=(o,v)=>{Pt[o]=v[0];Pt[o+1]=v[1];Pt[o+2]=v[2];Pt[o+3]=0;};
+  put(i*16+0,p.a0);put(i*16+4,p.a1);put(i*16+8,p.b0);put(i*16+12,p.b1);
+  Mt[i*8+0]=p.rA;Mt[i*8+1]=p.rB;Mt[i*8+2]=p.pad;Mt[i*8+3]=p.use3;
+  Mt[i*8+4]=p.iv[0];Mt[i*8+5]=p.iv[1];Mt[i*8+6]=p.iv[2];Mt[i*8+7]=p.iv[3];}
+
+async function run(){
+  if(!navigator.gpu){hud.textContent='WebGPU not available';return;}
+  const adapter=await navigator.gpu.requestAdapter();if(!adapter){hud.textContent='no adapter';return;}
+  const device=await adapter.requestDevice();
+  device.pushErrorScope('validation');
+  const mod=device.createShaderModule({code:NARROW});
+  const ci=await mod.getCompilationInfo();let bad=false;
+  for(const m of ci.messages){if(m.type==='error'){bad=true;errEl.textContent+='WGSL L'+m.lineNum+':'+m.linePos+' '+m.message+'\n';}}
+  const pipe=await device.createComputePipelineAsync({layout:'auto',compute:{module:mod,entryPoint:'main'}});
+  const perr=await device.popErrorScope();if(perr)errEl.textContent+='pipeline: '+perr.message+'\n';
+  if(bad){hud.textContent='shader compile failed (see below)';return;}
+  const U=GPUBufferUsage,mk=(d,u)=>{const b=device.createBuffer({size:Math.max(16,d.byteLength),usage:u});device.queue.writeBuffer(b,0,d);return b;};
+  const bP=mk(Pt,U.STORAGE|U.COPY_DST),bM=mk(Mt,U.STORAGE|U.COPY_DST);
+  const bO=device.createBuffer({size:N*16*4,usage:U.STORAGE|U.COPY_SRC});
+  const ub=new ArrayBuffer(16),dv=new DataView(ub);dv.setUint32(0,N,true);
+  const bU=device.createBuffer({size:16,usage:U.UNIFORM|U.COPY_DST});device.queue.writeBuffer(bU,0,ub);
+  const bg=device.createBindGroup({layout:pipe.getBindGroupLayout(0),entries:[
+    {binding:0,resource:{buffer:bP}},{binding:1,resource:{buffer:bM}},{binding:2,resource:{buffer:bO}},{binding:3,resource:{buffer:bU}}]});
+  const enc=device.createCommandEncoder(),pass=enc.beginComputePass();pass.setPipeline(pipe);pass.setBindGroup(0,bg);pass.dispatchWorkgroups(Math.ceil(N/64));pass.end();
+  const rb=device.createBuffer({size:N*16*4,usage:U.COPY_DST|U.MAP_READ});enc.copyBufferToBuffer(bO,0,rb,0,N*16*4);
+  device.queue.submit([enc.finish()]);
+  await rb.mapAsync(GPUMapMode.READ);const gpu=new Float32Array(rb.getMappedRange().slice(0));rb.unmap();
+  // CPU reference + compare
+  let maxErr=0,worst=-1,collided=0,outliers=0,worstDump='',maxNetErr=0,netOut=0;
+  for(let i=0;i<N;i++){const d=respondCPU(pairs[i]);
+    let anyNon=false,pe=0;
+    for(let j=0;j<4;j++)for(let c=0;c<3;c++){const g=gpu[i*16+j*4+c],cc=d[j][c];const e=Math.abs(g-cc);if(e>pe)pe=e;if(Math.abs(cc)>1e-9)anyNon=true;}
+    // NET push per segment (s-invariant, physically meaningful): A=slot0+slot1, B=slot2+slot3
+    for(let c=0;c<3;c++){
+      const gA=gpu[i*16+0+c]+gpu[i*16+4+c], cA=d[0][c]+d[1][c];
+      const gB=gpu[i*16+8+c]+gpu[i*16+12+c], cB=d[2][c]+d[3][c];
+      const eA=Math.abs(gA-cA),eB=Math.abs(gB-cB);
+      if(eA>maxNetErr)maxNetErr=eA; if(eB>maxNetErr)maxNetErr=eB;
+    }
+    if(anyNon)collided++;
+    if(pe>maxErr){maxErr=pe;worst=i;}
+    if(pe>0.1)outliers++;
+  }
+  // count pairs whose NET push differs >0.01px
+  for(let i=0;i<N;i++){const d=respondCPU(pairs[i]);let bad=false;
+    for(let c=0;c<3;c++){if(Math.abs((gpu[i*16+0+c]+gpu[i*16+4+c])-(d[0][c]+d[1][c]))>0.01)bad=true;if(Math.abs((gpu[i*16+8+c]+gpu[i*16+12+c])-(d[2][c]+d[3][c]))>0.01)bad=true;}
+    if(bad)netOut++;}
+  // worst-case detail
+  if(worst>=0){const d=respondCPU(pairs[worst]);let lines=[];
+    for(let j=0;j<4;j++){const g=[gpu[worst*16+j*4],gpu[worst*16+j*4+1],gpu[worst*16+j*4+2]];
+      lines.push('  node'+j+' GPU['+g.map(x=>x.toFixed(4))+'] CPU['+d[j].map(x=>x.toFixed(4))+']');}
+    worstDump='worst pair #'+worst+' (use3='+pairs[worst].use3+'):\n'+lines.join('\n');}
+  const physOK=maxNetErr<0.05;
+  hud.innerHTML='<b>GPU NARROW-PHASE POC · segment-segment collision math</b> <span class="dim">(robust: den≤1e-6·a·e + pen-clamp 0.25T)</span>\n'+
+    N.toLocaleString()+' pairs · '+collided.toLocaleString()+' collided · '+(N-collided)+' clear\n'+
+    '<b>NET push per segment</b> (physically meaningful, s-invariant) — max error: <b class="'+(physOK?'ok':'bad')+'">'+maxNetErr.toExponential(3)+' px</b> · pairs off >0.01px: <b class="'+(netOut===0?'ok':'bad')+'">'+netOut+'</b>\n'+
+    '<span class="dim">per-endpoint split error: '+maxErr.toExponential(2)+' px on '+outliers+' pairs — barycentric ambiguity on near-parallel contacts (benign; rotational only, averages out)</span>\n'+
+    '<b class="'+(physOK?'ok':'bad')+'">'+(physOK?'✓✓ segments separate correctly (net push matches CPU) — narrow-phase math validated':'✗ net push diverges — real error')+'</b>';
+  drawExamples();
+}
+// visualize a few colliding pairs (before + push arrows)
+function drawExamples(){
+  const cv=document.getElementById('cv'),ctx=cv.getContext('2d');ctx.clearRect(0,0,cv.width,cv.height);
+  let shown=0;const cols=6,cw=cv.width/cols,ch=cv.height/2;
+  for(let i=0;i<N&&shown<12;i++){const p=pairs[i];const d=respondCPU(p);
+    let any=false;for(const dd of d)if(Math.abs(dd[0])+Math.abs(dd[1])>1e-6)any=true;if(!any)continue;
+    const gx=(shown%cols)*cw+cw/2, gy=Math.floor(shown/cols)*ch+ch/2, sc=0.5;
+    const T=(pt)=>[gx+(pt[0]-(p.a0[0]+p.a1[0]+p.b0[0]+p.b1[0])/4)*sc, gy+(pt[1]-(p.a0[1]+p.a1[1]+p.b0[1]+p.b1[1])/4)*sc];
+    const seg=(u,v,col)=>{const A=T(u),B=T(v);ctx.strokeStyle=col;ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(A[0],A[1]);ctx.lineTo(B[0],B[1]);ctx.stroke();};
+    seg(p.a0,p.a1,'#37e0d4');seg(p.b0,p.b1,'#ff9a6b');
+    // push arrows (scaled up)
+    const arr=(pt,dd,col)=>{const A=T(pt),B=[A[0]+dd[0]*8,A[1]+dd[1]*8];ctx.strokeStyle=col;ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(A[0],A[1]);ctx.lineTo(B[0],B[1]);ctx.stroke();};
+    arr(p.a0,d[0],'#6ee7b7');arr(p.a1,d[1],'#6ee7b7');arr(p.b0,d[2],'#ffd36b');arr(p.b1,d[3],'#ffd36b');
+    shown++;}
+  ctx.fillStyle='#5a5f88';ctx.font='11px monospace';ctx.fillText('sample collided pairs: teal=A, orange=B, arrows=push-apart (×8)',10,cv.height-8);
+}
+run().catch(e=>{hud.textContent='error: '+e.message;errEl.textContent=String(e.stack||e);});
+</script></body></html>

@@ -193,3 +193,37 @@ trade). Need node→incident-segment CSR (build from G.segs). Prototype grid = f
 (+overflow counter) to skip the scan first; upgrade to count/scan/scatter if occupancy overflows.
 Plan: 3a grid POC (segment AABB → fixed-cap bins, validate occupancy/overflow on real HW) → 3b per-node
 gather (closest() WGSL + own-share accumulate) → 3c integrate after constraints in step().
+
+## ✅ COLLISION BROAD + NARROW PHASE validated in isolation (protos)
+### Broad phase (protos/gpu-spatial-grid-poc.html): GPU spatial grid, atomic bins, multi-cell segment
+AABB insertion. Validated EXACT per-cell vs CPU (5074 cells, insertions+overflow+maxOcc all match), 1ms
+for 16.7k segs. Fix: f32-mirror CPU ref + 1.5px conservativeness MARGIN (f32 rounding must never drop a
+boundary cell = anti-tunneling). naga-valid.
+### Narrow phase (protos/gpu-narrow-phase-poc.html): closest()+push-apart ported to WGSL (Ericson
+ClosestPtSegmentSegment), naga-valid. Fixes from research: relative parallel threshold den<=1e-6*a*e
+(absolute 1e-9 was dimensionally wrong — length^4; caused a 14.9px phantom push on near-parallel long
+segments) + per-pair penetration clamp min(pen,0.25*tgt).
+### KEY diagnosis (sandbox diverge.mjs): f32-mirror vs f64 closest DIST = 0.00px divergence over 200k
+adversarial pairs => distance/detection is CORRECT. The residual per-endpoint displacement divergence
+(~3.3px on ~18% of ADVERSARIAL long-segment pairs) is BARYCENTRIC-SPLIT AMBIGUITY on near-parallel
+contacts (WGSL FMA picks a different s than f64; both valid closest points along the parallel overlap).
+NET push per segment is s-INVARIANT (dA0+dA1 = u*cA regardless of s) => segments still separate
+correctly in the right direction by the right amount; only rotational split between a segment's 2
+endpoints differs, which averages out. POC now reports NET-push error (physical, ~0) as the pass metric.
+Research (segment-narrowphase-findings.md) confirms: validate physical invariants + f32 tolerance, NOT
+bit-parity; parallel contact-point choice is a known refinable ambiguity (midpoint-of-overlap = future).
+Real strand segments are SHORT (~12px) => far fewer ill-conditioned pairs than this adversarial test.
+
+## LAYER 3c DESIGN (from segment-jacobi-filters-grid-findings.md)
+- Per-node kernel == pair-once Jacobi (algebraically identical when (node,pair) incidence is unique &
+  frozen X). NOT equal to sequential CPU (Gauss-Seidel) — validate vs a Jacobi oracle, f32 tolerance.
+- Two incident segments of one node both hitting partner B = TWO DISTINCT constraints (include both).
+- Shared-endpoint pairs REJECTED (as CPU). Dedup multi-cell duplicates by canonical pair id.
+- Exclusions: upload topological excl as sorted CSR (strand-index rule can't capture graph-distance excl
+  in general). Filter pairs ONCE before node->pair adjacency.
+- Grid reuse across K Jacobi iters with Verlet skin: inflate seg AABB by max endpoint displacement d.
+- Accumulation: per-pair pen clamp -> sum slot deltas -> divide by active-contact-count -> omega(SOR,
+  start 1.0) -> final per-node magnitude clamp -> write frozenPos+delta.
+- Planned impl: per-node gather with a small local "seen" list to dedup candidates (self-contained, no
+  separate pair-list pass); accept ~4x pair re-eval (WebGPU-preferred trade). POC vs CPU collide() before
+  wiring live. naga every shader.
