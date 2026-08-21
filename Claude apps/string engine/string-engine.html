@@ -1466,7 +1466,7 @@ function profRow(label,getV,setV,min,max,step){
   rng.addEventListener('input',()=>apply(rng.value,'r'));num.addEventListener('input',()=>apply(num.value,'n'));
   return row;}
 function bindPair(rid,nid,fn){const r=document.getElementById(rid),n=document.getElementById(nid);
-  const apply=(val,src)=>{const o=selObj();if(!o)return;let v=parseFloat(val);if(isNaN(v))return;if(src!=='r')r.value=v;if(src!=='n')n.value=v;fn(o,v);};
+  const apply=(val,src)=>{const o=selObj();if(!o)return;let v=parseFloat(val);if(isNaN(v))return;if(src!=='r')r.value=v;if(src!=='n')n.value=v;fn(o,v);if(typeof GP!=='undefined'&&GP.active&&typeof gpuRefreshProps==='function')gpuRefreshProps();};
   r.addEventListener('input',()=>apply(r.value,'r'));n.addEventListener('input',()=>apply(n.value,'n'));}
 bindPair('eThick','eThickN',(o,v)=>{o.r=v;computeExclusions();refreshObjMass(o);if(curReachUpd)curReachUpd();});
 bindPair('eStiff','eStiffN',(o,v)=>o.stiff=v);
@@ -2082,7 +2082,7 @@ function buildScene(){
   GP.bgConAB=bg(GP.conPipe,conE(GP.bufA,GP.bufB)); GP.bgConBA=bg(GP.conPipe,conE(GP.bufB,GP.bufA));
   GP.bgRenA=bg(GP.renPipe,[B(0,GP.bufA),B(1,GP.bufSeg),B(2,GP.bufStyle),B(3,GP.bufCam)]);
   GP.bgRenB=bg(GP.renPipe,[B(0,GP.bufB),B(1,GP.bufSeg),B(2,GP.bufStyle),B(3,GP.bufCam)]);
-  GP._pos0=pos.slice(); GP._segCache=segList.map(sg=>[sg.a,sg.b,sg.rest||1]); GP._fixed=[]; for(let i=0;i<N;i++){ if(G.nodes[i]&&G.nodes[i].fixed)GP._fixed.push(i); }
+  GP._pos0=pos.slice(); GP._segCache=segList.map(sg=>[sg.a,sg.b,sg.rest||1]); GP._segList=segList; GP._fixed=[]; for(let i=0;i<N;i++){ if(G.nodes[i]&&G.nodes[i].fixed)GP._fixed.push(i); }
   packCollision(segList,N,device,mk,bg,B,ST,CD,CS,UN);
   GP.curBuf=0; GP.frameN=0;
 }
@@ -2129,7 +2129,7 @@ function packCollision(segList,N,device,mk,bg,B,ST,CD,CS,UN){
     GP.bgGridA=bg(GP.gridPipe,gE(GP.bufA)); GP.bgGridB=bg(GP.gridPipe,gE(GP.bufB));
     const cE=(pIn,pOut)=>[B(0,pIn),B(1,pOut),B(2,GP.bufNSR),B(3,GP.bufNSL),B(4,GP.bufSegI),B(5,GP.bufSegF),B(6,GP.bufSegCell),B(7,GP.bufCellBins),B(8,GP.bufMeta),B(9,GP.bufCollP)];
     GP.bgCollAB=bg(GP.collPipe,cE(GP.bufA,GP.bufB)); GP.bgCollBA=bg(GP.collPipe,cE(GP.bufB,GP.bufA));
-    GP.collReady=true;
+    GP._segF=segF; GP.collReady=true;
   }catch(e){ GP.collReady=false; console.warn('[gpuCollision] buildScene packing failed:',e.message); }
 }
 
@@ -2144,6 +2144,24 @@ function packCam(){ const w=cw.width||1,h=cw.height||1,sc=S.dpr*view.z,ox=S.dpr*
 function syncCanvas(){ const w=Math.max(1,Math.floor(cw.clientWidth*S.dpr)),h=Math.max(1,Math.floor(cw.clientHeight*S.dpr));
   if(cw.width!==w||cw.height!==h){ cw.width=w; cw.height=h; } }
 
+function gpuRefreshProps(){ if(!GP.active||!GP.device)return; const dev=GP.device, N=GP.N; try{
+  // refresh ONLY property-derived buffers (mass, collision radius/pad/skip, render) — positions untouched so the running sim is preserved
+  const meta=new Float32Array(N*4);
+  for(let i=0;i<N;i++){ const n=G.nodes[i]||{}, o=G.objs[n.obj]||{}; meta[i*4]=n.fixed?0.0:((n.inv!=null&&n.inv>0)?n.inv:1.0); meta[i*4+1]=(o.damp||0); meta[i*4+2]=n.solid?1.0:0.0; }
+  if(GP.bufMeta)dev.queue.writeBuffer(GP.bufMeta,0,meta);
+  const segList=GP._segList;
+  if(segList){
+    if(GP.bufStyle){ const ns=segList.length, style=new Float32Array(Math.max(1,ns)*4);
+      for(let sI=0;sI<ns;sI++){ const o=G.objs[segList[sI].obj]||{}, col=parseCol(o.color||'#88eeee'), rr=(typeof effR==='function'?effR(o):(o.r||4));
+        style[sI*4]=col[0];style[sI*4+1]=col[1];style[sI*4+2]=col[2];style[sI*4+3]=Math.max(0.6,rr); }
+      dev.queue.writeBuffer(GP.bufStyle,0,style); }
+    if(GP.bufSegF && GP._segF){ const sf=GP._segF, ns=segList.length;
+      for(let sI=0;sI<ns;sI++){ const sg=segList[sI], o=G.objs[sg.obj]||{}, er=(typeof effR==='function'?effR(o):(o.r||4));
+        const skip=Math.max(1,Math.ceil(2*(o.r||er)/Math.max(1,sg.rest||1))+1);
+        sf[sI*4]=er; sf[sI*4+1]=(o.padSelf||o.padOther||0); sf[sI*4+3]=skip; }
+      dev.queue.writeBuffer(GP.bufSegF,0,sf); }
+  }
+}catch(e){ console.warn('[gpuRefreshProps]',e.message); } }
 function step(speed){ if(GP.diagRunning)return; if(!GP.active||!GP.device)return; const dev=GP.device, WG=Math.max(1,Math.ceil(GP.N/64)); const n=speed||1;
   for(let s=0;s<n;s++){ packParams();
     const enc=dev.createCommandEncoder();

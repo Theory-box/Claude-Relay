@@ -324,3 +324,19 @@ grab. The integrate shader ALREADY has a plumbed-but-unused grab:i32 uniform + f
 target xy. PLAN: (a) on pointerdown in GPU mode, one readback to refresh G.nodes for picking; (b) pass
 grab idx + grabX/grabY in params; (c) integrate shader pins node==grab to target (np.xy=target, prev=target
 =no velocity). Selection (S.selected) uses same pick -> works once (a) lands. Deferred to its own careful turn.
+
+## FOUNDATION: gpuRefreshProps() — property edits now take effect LIVE in GPU mode (no sim reset)
+Problem: GPU snapshots scene at buildScene; editing object props did nothing (design was edit-on-CPU/run-on-
+GPU). Naive buildScene rebuild would reset positions (NX/NY stale in GPU mode, readbacks:0).
+Fix: gpuRefreshProps() rewrites ONLY property-derived buffers (meta invMass/damp/solid, segF effR/pad/skipK,
+style color/radius) via writeBuffer — positions/prev/grid untouched, running sim preserved. Cached GP._segList
+(seg objs) + GP._segF (array). Hooked into bindPair.apply so ANY per-object slider triggers it when GP.active.
+NOW LIVE in GPU mode: thickness (collision radius + render + mass), per-object damp, solid, color.
+Refreshes but no visible effect until solver lands: stiff, curl (no GPU bend pass yet).
+Still needs topology rebuild (not covered): grow, bonding, cut. Global sliders (gThick/gStiff/gCurl/gGrow)
+not yet hooked (separate handlers) — TODO.
+
+## DIFFICULTY MAP (told user): infra done (collision proved it). Remaining tiers: live-scalars DONE;
+static per-obj props = refresh hook (DONE for thickness/mass); per-frame forces (bend/curl, affinity) = 1
+compute pass each (medium, bend findings ready); topology forces (grow/bond/cut) = hybrid (CPU event -> GPU
+re-upload, harder tier but known pattern). Not a research problem, a finite list. Next natural: GPU bend/curl.
