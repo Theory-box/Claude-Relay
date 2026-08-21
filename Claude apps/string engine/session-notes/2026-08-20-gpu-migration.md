@@ -93,3 +93,38 @@ readback on disable/save/topology-edit. Stage order:
   2. Interaction w/o per-frame readback: GPU grab (uniform), integer picking target for clicks.
   3. Collision: WGSL spatial-hash compute (atomics) — the real speedup.
   4. Chemistry/topology events as compact GPU event buffers; CPU keeps graph-mutation authority initially.
+
+## ✅ LAYER 1 SHIPPED + user-confirmed working ("seems to work", green badge, no errors)
+WebGPU physics integrated into the engine as an isolated `GpuPhysics` subsystem (3rd <script> block,
+same cross-script-globals pattern the WebGL glM module already uses). CPU engine byte-identical + default.
+- Toggle: Sim tab → "GPU physics (experimental)". Own canvas #cwgpu (CSS bg = .screen gradient so it
+  covers the stale 2D #c). Green "● GPU PHYSICS" badge.
+- WGSL (validated parse + reserved-clean, bindings 5/7/4): INTEGRATE = engine-accurate (Verlet + temp
+  jitter via GPU hash rnd() + per-object damping + energy-aware fr + depth slab, **NO gravity**);
+  CONSTRAIN = mass-weighted Jacobi length over CSR; REN = per-segment coloured capsules.
+- Data: buildScene() packs pos/prev/meta(invMass,objDamp,solid) from NX..NPH + G.nodes; CSR from G.segs
+  (skip dead/bond); render seg+style(rgb+radius) buffers. Ownership: single authoritative copy; one
+  readback (mapAsync) on toggle-off/edit; discard (no readback) on clearGraph/resetSim.
+- Frame hooks gate on S.gpuPhysics (sim + render). stepFrame hook. Interaction routing: while active,
+  move=pan-only, edit tools=DropToCPU(readback). GP_PASSES=8, GP_RELAX=0.6.
+- Fixed: cwgpu transparent-bg showed stale 2D through → gave #cwgpu the .screen gradient CSS bg.
+
+## ✅ DEV TAB + telemetry (Claude debug tooling) — user asked for a log they export for me
+New always-visible "Dev" vertical tab. Live readout (solver CPU/GPU, nodes/segs, fps, pos span x×y,
+y range, NaN count). "Export log for Claude" → downloads JSON: build tag, adapter info, config
+(temp/damp/depth/speed/quality/GP_PASSES/GP_RELAX), view, scene counts, gpuPhysicsDiagnostics(),
+last WGSL messages, cpuStatsNow, gpuStatsLast, and 240× 1Hz telemetry samples (rolling ~4min:
+fps, pos min/max/span, NaN). GPU stats via a cheap 1/sec async readback (guarded by telemBusy).
+BUILD tag bumped per build so I know which version's log I'm reading. Export = .json file (user uploads).
+
+## KNOWN LAYER-1 LIMITS (by design, not bugs)
+No collision (layer 3, the prize). No bend/curl (length only). Editing paused while on (toggle off to
+edit). Simpler render (no depth over/under sort, heat, selection, microscope). Jacobi≠Gauss-Seidel so
+motion is statistically similar not identical.
+
+## NEXT
+1. Read first dev-log export → confirm positions stable (spans steady, NaN=0) on user HW.
+2. Bend/curl constraints (degree-2) in WGSL.
+3. Collision = WGSL spatial-hash compute w/ atomics (the real speedup). Consider asking ChatGPT (via user
+   relay) to (a) check if its env has WebGPU or can install naga-cli for pre-flight WGSL validation, and
+   (b) research fastest WebGPU spatial-hash-with-atomics for ~10k particles. Keep integration single-author.

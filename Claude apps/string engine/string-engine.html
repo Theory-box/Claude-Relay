@@ -101,7 +101,7 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="7.2"/><circle cx="12" cy="12" r="2.6"/></svg>
     </button>
   </div>
-  <div class="screen"><canvas id="c"></canvas><canvas id="cgl" style="position:absolute;inset:0;width:100%;height:100%;display:none;pointer-events:none"></canvas><div class="tag">topology engine · <b id="tagScene" style="color:var(--muted)">demo</b> · <b id="tagSel" style="color:var(--accent)">Scene</b></div></div>
+  <div class="screen"><canvas id="c"></canvas><canvas id="cgl" style="position:absolute;inset:0;width:100%;height:100%;display:none;pointer-events:none"></canvas><canvas id="cwgpu" style="position:absolute;inset:0;width:100%;height:100%;display:none;pointer-events:none;background:radial-gradient(900px 600px at 50% 40%,#0e1020 0%,#090a12 100%)"></canvas><div id="gpuPhysicsBadge" style="position:absolute;top:8px;right:10px;font:600 11px monospace;color:#6ee7b7;display:none;pointer-events:none;text-shadow:0 0 4px #000"></div><div class="tag">topology engine · <b id="tagScene" style="color:var(--muted)">demo</b> · <b id="tagSel" style="color:var(--accent)">Scene</b></div></div>
   <div class="rail">
     <div class="rail-scroll">
     <div class="railtop">
@@ -180,6 +180,8 @@
     <div class="tabpanel" data-panel="simulation">
       <div class="card">
         <p class="eyebrow">Simulation</p>
+        <label class="ctrl" style="display:flex;align-items:center;gap:8px;cursor:pointer;margin:2px 0 4px"><input type="checkbox" id="gpuPhysicsToggle" style="width:auto"><span>GPU physics <span style="color:var(--dim)">(experimental) — solver runs on the GPU</span></span></label>
+        <div class="stat" id="gpuPhysicsStatus" style="margin:0 0 10px;color:var(--dim)">off · CPU solver</div>
         <div class="ctrl"><label>Motion <span class="val" id="vTemp">0.7</span></label><input id="sTemp" type="range" min="0" max="3" value="0.7" step="0.05"><div class="stat" style="margin-top:3px"><span>calm</span><span>violent</span></div></div>
         <div class="ctrl"><label>Damping <span class="val" id="vDamp">0.02</span></label><input id="sDamp" type="range" min="0" max="0.7" value="0.02" step="0.01"><div class="stat" style="margin-top:3px"><span>lively</span><span>settled</span></div></div>
         <div class="ctrl"><label>Speed <span class="val" id="vSpeed">1×</span></label><input id="sSpeed" type="range" min="1" max="8" value="1" step="1"></div>
@@ -221,6 +223,22 @@
       <div class="card">
         <p class="eyebrow">About</p>
         <p class="sub" style="margin:0">Geometry is a graph: shared vertices stay joined, detached parts float free. Any strand can be a solid wall (nothing weaves past it) and fixed or movable. Built to import from Blender and grow.</p>
+      </div>
+    </div>
+
+    <div class="tabpanel" data-panel="dev">
+      <div class="card">
+        <p class="eyebrow">Dev · Claude debug</p>
+        <div class="stat"><span>build</span><span id="devBuild" style="color:var(--muted)">—</span></div>
+        <div class="stat"><span>solver</span><span id="devActive" style="color:var(--accent)">CPU</span></div>
+        <div class="stat"><span>nodes / segs</span><span><b id="devNodes">0</b> / <b id="devSegs">0</b></span></div>
+        <div class="stat"><span>fps</span><span id="devFps">0</span></div>
+        <div class="stat"><span>pos span (x × y)</span><span id="devSpan">—</span></div>
+        <div class="stat"><span>y range</span><span id="devY">—</span></div>
+        <div class="stat"><span>NaN nodes</span><span id="devNan" style="color:var(--warn)">—</span></div>
+        <div class="seg" style="margin-top:12px"><button id="devExport">⭳ Export log for Claude</button></div>
+        <div class="seg" style="margin-top:6px"><button id="devClear">clear rolling buffer</button></div>
+        <div class="stat" style="margin-top:8px"><span>Downloads a JSON snapshot + the last ~4 min of 1&#8202;Hz telemetry (fps, position spans, NaN counts). Upload the file to Claude.</span></div>
       </div>
     </div>
 
@@ -272,6 +290,7 @@
       <button class="tab" data-tab="objects"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="7" height="7" rx="1"/><rect x="13" y="4" width="7" height="7" rx="1"/><rect x="4" y="13" width="7" height="7" rx="1"/><rect x="13" y="13" width="7" height="7" rx="1"/></svg><span>Objects</span></button>
       <button class="tab" data-tab="simulation"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="2"/><ellipse cx="12" cy="12" rx="9" ry="4"/><ellipse cx="12" cy="12" rx="9" ry="4" transform="rotate(60 12 12)"/><ellipse cx="12" cy="12" rx="9" ry="4" transform="rotate(120 12 12)"/></svg><span>Sim</span></button>
       <button class="tab" data-tab="about"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 8h.01"/></svg><span>About</span></button>
+      <button class="tab" data-tab="dev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M8 9l-4 3 4 3"/><path d="M16 9l4 3-4 3"/><path d="M13 5l-2 14"/></svg><span>Dev</span></button>
     </div>
   </div>
 </div>
@@ -464,7 +483,7 @@ function fitToView(pad){ // scale/center all nodes into the canvas
   for(const n of G.nodes){n.x=n.x*sc+ox;n.y=n.y*sc+oy;n.h*=sc;n.px=n.x;n.py=n.y;n.ph=n.h;}
   for(const s of G.segs){s.rest*=sc;if(s.rest0!==undefined)s.rest0*=sc;}   // scale the authored-length backup too, so expand-to-fit measures against the fitted size (not the raw import size)
 }
-function clearGraph(){G.nodes=[];G.segs=[];G.objs=[];G.nbrs=[];G.ends=[];G.piece=[];G.bondBank=new Map();}
+function clearGraph(){if(window.gpuPhysicsDiscard)window.gpuPhysicsDiscard('scene replaced');G.nodes=[];G.segs=[];G.objs=[];G.nbrs=[];G.ends=[];G.piece=[];G.bondBank=new Map();}
 // live per-object edits: push down to the object's nodes/segments
 function setObjSolid(o,v){o.solid=v;
   for(const i of o.nodeIdx){const n=G.nodes[i];n.solid=v;}   // solid no longer changes mass (mass = thickness)
@@ -539,7 +558,7 @@ function objBrk(o){const p=o&&o.endType&&o.endType[objType(o)];return (p&&p.brk)
 function objType(o){return (o.ids&&o.ids.length?o.ids[0]:o.name);}   // connector-type = object's base id
 function interVal(o,tids,same){if(same)return o.interSelf||0;if(!o.inter)return 0;
   let best=0;for(const id of tids){const v=o.inter[id];if(v!==undefined&&Math.abs(v)>Math.abs(best))best=v;}return best;}
-function resetSim(){
+function resetSim(){if(window.gpuPhysicsDiscard)window.gpuPhysicsDiscard('reset');
   if(G.lastImport){const saved=captureSettings(),sel=S.selected;importJSON(G.lastImport);restoreSettings(saved);
     if(typeof renderObjectList==='function')renderObjectList();
     if(sel>=0&&G.objs[sel])selectObject(sel);
@@ -1221,6 +1240,7 @@ function dragApply(){if(grab<0||grab>=G.nodes.length)return;const n=G.nodes[grab
 cvs.style.cursor='grab';
 cvs.addEventListener('pointerdown',e=>{
   if(e.button===1){const r=cvs.getBoundingClientRect();panning=true;panSX=e.clientX-r.left;panSY=e.clientY-r.top;panOX=view.ox;panOY=view.oy;cvs.setPointerCapture(e.pointerId);cvs.style.cursor='move';e.preventDefault();return;}   // middle-mouse pan
+  if(window.gpuPhysicsActive&&window.gpuPhysicsActive()){if(tool==='move'){const rr=cvs.getBoundingClientRect();panning=true;panSX=e.clientX-rr.left;panSY=e.clientY-rr.top;panOX=view.ox;panOY=view.oy;cvs.setPointerCapture(e.pointerId);cvs.style.cursor='move';return;}if(window.gpuPhysicsDropToCPU)window.gpuPhysicsDropToCPU('editing');return;}
   const [mx,my]=canvasXY(e);
   if(tool==='draw'){let oi=S.selected;if(oi<0||!G.objs[oi])oi=G.objs.length?G.objs.length-1:newMaterial('Material 1');
     stroke=[{x:mx,y:my}];stroke.oi=oi;cvs.setPointerCapture(e.pointerId);return;}
@@ -1263,7 +1283,7 @@ function startCDRamp(){S.contactDamp=1;S.cdRamping=true;S.cdRamp0=S.frame;const 
 function advanceCDRamp(){if(!S.cdRamping)return;const t=(S.frame-S.cdRamp0)/180;   // 180 frames ~= 3s at 60fps
   if(t>=1){S.contactDamp=0;S.cdRamping=false;}else S.contactDamp=1-t;
   const el=document.getElementById('sCD'),v=document.getElementById('vCD');if(el)el.value=S.contactDamp;if(v)v.textContent=S.contactDamp.toFixed(2);}
-function stepFrame(){S.frame=(S.frame||0)+1;advanceCDRamp();attract();endpointForces();relaxSpacing();for(let k=0;k<S.speed;k++){integrate();flagBondBreaks();constraints();collide();wallCCD();dragApply();flagStrainBreaks();flagBendBreaks();}maintainBonds();removeDead();}
+function stepFrame(){if(S.gpuPhysics&&window.gpuPhysicsStep){window.gpuPhysicsStep(S.speed);return;}S.frame=(S.frame||0)+1;advanceCDRamp();attract();endpointForces();relaxSpacing();for(let k=0;k<S.speed;k++){integrate();flagBondBreaks();constraints();collide();wallCCD();dragApply();flagStrainBreaks();flagBendBreaks();}maintainBonds();removeDead();}
 window.addEventListener('keydown',e=>{const tag=(e.target.tagName||'').toLowerCase();if(tag==='input'||tag==='select'||tag==='textarea')return;
   const k=e.key.toLowerCase();
   if(k==='r'){resetSim();startCDRamp();}
@@ -1278,9 +1298,9 @@ window.addEventListener('keydown',e=>{const tag=(e.target.tagName||'').toLowerCa
 let ema=60,lastT=performance.now();window.RD=true;   // RD = render-dirty; paused & idle -> stop re-rendering. window.* avoids any load-order TDZ so scene mutations can mark it dirty
 function frame(now){const dt=now-lastT;lastT=now;
   let did=false;
-  if(S.running){S.frame=(S.frame||0)+1;advanceCDRamp();attract();endpointForces();relaxSpacing();for(let k=0;k<S.speed;k++){integrate();flagBondBreaks();constraints();collide();wallCCD();dragApply();flagStrainBreaks();flagBendBreaks();}maintainBonds();removeDead();did=true;}
+  if(S.running){if(S.gpuPhysics&&window.gpuPhysicsStep){window.gpuPhysicsStep(S.speed);}else{S.frame=(S.frame||0)+1;advanceCDRamp();attract();endpointForces();relaxSpacing();for(let k=0;k<S.speed;k++){integrate();flagBondBreaks();constraints();collide();wallCCD();dragApply();flagStrainBreaks();flagBendBreaks();}maintainBonds();removeDead();}did=true;}
   else if(grab>=0){dragApply();constraints();collide();did=true;}
-  if(did||window.RD||panning){ema=ema*0.9+(1000/Math.max(1,dt))*0.1;if(S.micro&&typeof renderMicro==='function')renderMicro();else if(S.gpu&&typeof renderGPU==='function')renderGPU();else render();window.RD=false;document.getElementById('sFps').textContent=Math.round(ema)+' fps';}
+  if(did||window.RD||panning){ema=ema*0.9+(1000/Math.max(1,dt))*0.1;if(S.gpuPhysics&&typeof window.gpuPhysicsRender==='function')window.gpuPhysicsRender();else if(S.micro&&typeof renderMicro==='function')renderMicro();else if(S.gpu&&typeof renderGPU==='function')renderGPU();else render();window.RD=false;document.getElementById('sFps').textContent=Math.round(ema)+' fps';}
   requestAnimationFrame(frame);}
 ['pointerdown','pointermove','pointerup','wheel','keydown'].forEach(ev=>window.addEventListener(ev,()=>{window.RD=true;},true));   // any interaction marks a redraw
 ['input','change'].forEach(ev=>document.addEventListener(ev,()=>{window.RD=true;},true));                                        // any slider/toggle change too
@@ -1741,6 +1761,312 @@ void main(){
   const fo=document.getElementById('m_focus');if(fo)fo.addEventListener('input',()=>{mp.autofocus=false;const cb=document.getElementById('m_autofocus');if(cb)cb.checked=false;});
   const af=document.getElementById('m_autofocus');if(af)af.addEventListener('change',()=>{mp.autofocus=af.checked;});
   const bg=document.getElementById('m_bg');if(bg)bg.addEventListener('input',()=>{mp.bg=bg.value;window.RD=true;});
+})();
+</script>
+<script>
+/* ===== GPU physics (experimental) — isolated WebGPU subsystem. CPU engine stays default + untouched. ===== */
+(function(){
+"use strict";
+const cw=document.getElementById('cwgpu');
+if(!cw){ return; }
+const GP={active:false,initing:false,device:null,ctx:null,format:null,prevGpu:false,
+  intPipe:null,conPipe:null,renPipe:null,
+  bufA:null,bufB:null,bufPrev:null,bufMeta:null,bufRange:null,bufNbr:null,bufRest:null,bufSeg:null,bufStyle:null,bufParams:null,bufCam:null,
+  bgIntAB:null,bgIntBA:null,bgConAB:null,bgConBA:null,bgRenA:null,bgRenB:null,
+  N:0,numSeg:0,numDir:0,curBuf:0,frameN:0,readbacks:0,lastExit:null,wgslMsgs:[],adapterInfo:null,lastStats:null,lastStatsT:0,telemBusy:false,log:[]};
+const GP_PASSES=8, GP_RELAX=0.6;
+
+function status(msg,bad){const e=document.getElementById('gpuPhysicsStatus');if(e){e.textContent=msg;e.style.color=bad?'#ff8a9a':'var(--dim)';}}
+function badge(on,reason){const e=document.getElementById('gpuPhysicsBadge');if(!e)return;
+  if(on){e.textContent='\u25CF GPU PHYSICS';e.style.color='#6ee7b7';e.style.display='';}
+  else if(reason){e.textContent='\u25CF CPU \u00B7 '+reason;e.style.color='#ffb86b';e.style.display='';}
+  else{e.style.display='none';}}
+function setToggle(on){const cb=document.getElementById('gpuPhysicsToggle');if(cb)cb.checked=on;}
+function supported(){return typeof navigator!=='undefined'&&!!navigator.gpu;}
+
+/* CSS colour -> [r,g,b] 0..1 */
+const _cc=document.createElement('canvas');_cc.width=_cc.height=1;const _cx=_cc.getContext('2d');const _colCache=new Map();
+function parseCol(css){ if(_colCache.has(css))return _colCache.get(css);
+  try{_cx.clearRect(0,0,1,1);_cx.fillStyle='#88eeee';_cx.fillStyle=css;_cx.fillRect(0,0,1,1);const d=_cx.getImageData(0,0,1,1).data;const r=[d[0]/255,d[1]/255,d[2]/255];_colCache.set(css,r);return r;}
+  catch(e){return [0.53,0.93,0.93];} }
+
+const WGSL_INT=`
+struct P { count:u32, temp:f32, damp:f32, depth:f32, relax:f32, grab:i32, frameN:u32, pad:u32, };
+@group(0) @binding(0) var<storage, read>       posIn  : array<vec4<f32>>;
+@group(0) @binding(1) var<storage, read_write> posOut : array<vec4<f32>>;
+@group(0) @binding(2) var<storage, read_write> prv    : array<vec4<f32>>;
+@group(0) @binding(3) var<storage, read>       nmeta  : array<vec4<f32>>;
+@group(0) @binding(4) var<uniform>             U      : P;
+fn rnd(x:u32)->f32{ var h=x; h=h^(h>>16u); h=h*0x7feb352du; h=h^(h>>15u); h=h*0x846ca68bu; h=h^(h>>16u); return f32(h)/4294967296.0; }
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid:vec3<u32>){
+  let i=gid.x; if(i>=U.count){ return; }
+  let mv=nmeta[i]; let invm=mv.x; let odamp=mv.y; let solid=mv.z;
+  let p=posIn[i].xyz; let pr=prv[i].xyz;
+  if(invm==0.0){ posOut[i]=vec4<f32>(p,0.0); prv[i]=vec4<f32>(p,0.0); return; }
+  let kick=U.temp*0.8;
+  var fr=min(0.95, 0.05+U.damp+odamp);
+  var vx=p.x-pr.x; var vy=p.y-pr.y;
+  let sp=length(vec2<f32>(vx,vy));
+  if(sp>1.5){ fr=fr*max(0.35, 1.0-0.65*min(1.0,(sp-1.5)/4.5)); }
+  vx=vx*(1.0-fr); vy=vy*(1.0-fr);
+  let seed=i*3u + U.frameN*9781u;
+  var nx=p.x+vx+(rnd(seed)-0.5)*kick;
+  var ny=p.y+vy+(rnd(seed+1u)-0.5)*kick;
+  var nh=0.0;
+  if(U.depth>0.0 && solid<0.5){
+    let slab=U.depth; let hk=U.temp*(0.3+U.depth*0.005);
+    let vh=(p.z-pr.z)*(1.0-fr);
+    nh=p.z+vh+(rnd(seed+2u)-0.5)*hk - p.z*0.004;
+    nh=clamp(nh,-slab,slab);
+  }
+  var np=vec3<f32>(nx,ny,nh);
+  if(any(np!=np)){ np=p; }
+  posOut[i]=vec4<f32>(np,0.0);
+  prv[i]=vec4<f32>(p,0.0);
+}`;
+const WGSL_CON=`
+struct P { count:u32, temp:f32, damp:f32, depth:f32, relax:f32, grab:i32, frameN:u32, pad:u32, };
+@group(0) @binding(0) var<storage, read>       posIn     : array<vec4<f32>>;
+@group(0) @binding(1) var<storage, read_write> posOut    : array<vec4<f32>>;
+@group(0) @binding(2) var<storage, read>       nmeta     : array<vec4<f32>>;
+@group(0) @binding(3) var<storage, read>       nodeRange : array<vec2<u32>>;
+@group(0) @binding(4) var<storage, read>       edgeNbr   : array<u32>;
+@group(0) @binding(5) var<storage, read>       edgeRest  : array<f32>;
+@group(0) @binding(6) var<uniform>             U         : P;
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid:vec3<u32>){
+  let i=gid.x; if(i>=U.count){ return; }
+  let mi=nmeta[i].x; let p=posIn[i].xyz;
+  if(mi==0.0){ posOut[i]=vec4<f32>(p,0.0); return; }
+  let rng=nodeRange[i]; let start=rng.x; let cnt=rng.y;
+  var k=vec3<f32>(0.0);
+  for(var e:u32=0u; e<cnt; e=e+1u){
+    let j=edgeNbr[start+e]; let rest=edgeRest[start+e];
+    let mj=nmeta[j].x; let wsum=mi+mj;
+    if(wsum<=0.0){ continue; }
+    let d=posIn[j].xyz-p; let dist=max(length(d),0.0001);
+    let corr=d*((dist-rest)/dist)*(mi/wsum)*U.relax;
+    k=k+clamp(corr, vec3<f32>(-rest), vec3<f32>(rest));
+  }
+  var np=p+k; if(any(np!=np)){ np=p; }
+  posOut[i]=vec4<f32>(np,0.0);
+}`;
+const WGSL_REN=`
+struct Cam { uA:vec2<f32>, uB:vec2<f32>, };
+@group(0) @binding(0) var<storage, read> pos   : array<vec4<f32>>;
+@group(0) @binding(1) var<storage, read> segs  : array<vec2<u32>>;
+@group(0) @binding(2) var<storage, read> style : array<vec4<f32>>;
+@group(0) @binding(3) var<uniform>       cam   : Cam;
+struct VSOut { @builtin(position) clip:vec4<f32>, @location(0) t:f32, @location(1) col:vec3<f32>, };
+@vertex
+fn vs(@builtin(vertex_index) vi:u32, @builtin(instance_index) ii:u32)->VSOut{
+  var corners=array<vec2<f32>,4>(vec2<f32>(0.0,-1.0),vec2<f32>(0.0,1.0),vec2<f32>(1.0,-1.0),vec2<f32>(1.0,1.0));
+  let c=corners[vi]; let ed=segs[ii]; let st=style[ii];
+  let p0=pos[ed.x].xy; let p1=pos[ed.y].xy; let r=max(st.w,0.6);
+  let d=p1-p0; let L=length(d); var dir=vec2<f32>(1.0,0.0); if(L>1e-4){ dir=d/L; }
+  let perp=vec2<f32>(-dir.y,dir.x);
+  let world=mix(p0-dir*r, p1+dir*r, vec2<f32>(c.x)) + perp*(c.y*r);
+  var o:VSOut; o.clip=vec4<f32>(world*cam.uA+cam.uB,0.0,1.0); o.t=c.y; o.col=st.xyz; return o;
+}
+@fragment
+fn fs(in:VSOut)->@location(0) vec4<f32>{
+  let a=1.0-smoothstep(0.55,1.0,abs(in.t));
+  let sh=0.65+0.35*(1.0-abs(in.t));
+  return vec4<f32>(in.col*sh*a, a);
+}`;
+
+async function reportShader(mod,label){ if(!mod||!mod.getCompilationInfo)return true;
+  const info=await mod.getCompilationInfo(); let bad=false;
+  for(const m of info.messages){ try{GP.wgslMsgs.push({label:label,type:m.type,line:m.lineNum,pos:m.linePos,msg:m.message});}catch(e){} if(m.type==='error'){bad=true; status('WGSL '+label+' L'+m.lineNum+':'+m.linePos+' \u2014 '+m.message,true); console.error('[gpuPhysics '+label+']','L'+m.lineNum+':'+m.linePos,m.message);} }
+  return !bad; }
+
+async function ensureDevice(){
+  if(GP.device)return true;
+  if(!supported()){ status('WebGPU not available in this browser',true); return false; }
+  try{
+    const adapter=await navigator.gpu.requestAdapter({powerPreference:'high-performance'});
+    if(!adapter){ status('No WebGPU adapter (GPU unavailable)',true); return false; }
+    try{ GP.adapterInfo = adapter.info || (adapter.requestAdapterInfo? await adapter.requestAdapterInfo():null); }catch(e){}
+    const device=await adapter.requestDevice();
+    device.lost.then(info=>{ GP.active=false;S.gpuPhysics=false;GP.device=null;cw.style.display='none';badge(false,'device lost');setToggle(false);status('WebGPU device lost \u2014 reload to retry',true); });
+    GP.device=device;
+    GP.ctx=cw.getContext('webgpu'); GP.format=navigator.gpu.getPreferredCanvasFormat();
+    GP.ctx.configure({device,format:GP.format,alphaMode:'premultiplied'});
+    device.pushErrorScope('validation');
+    const im=device.createShaderModule({code:WGSL_INT});
+    const cm=device.createShaderModule({code:WGSL_CON});
+    const rm=device.createShaderModule({code:WGSL_REN});
+    const ok=(await reportShader(im,'integrate'))&(await reportShader(cm,'constrain'))&(await reportShader(rm,'render'));
+    GP.intPipe=await device.createComputePipelineAsync({layout:'auto',compute:{module:im,entryPoint:'main'}});
+    GP.conPipe=await device.createComputePipelineAsync({layout:'auto',compute:{module:cm,entryPoint:'main'}});
+    GP.renPipe=await device.createRenderPipelineAsync({layout:'auto',
+      vertex:{module:rm,entryPoint:'vs'},
+      fragment:{module:rm,entryPoint:'fs',targets:[{format:GP.format,blend:{
+        color:{srcFactor:'src-alpha',dstFactor:'one-minus-src-alpha',operation:'add'},
+        alpha:{srcFactor:'one',dstFactor:'one-minus-src-alpha',operation:'add'}}}]},
+      primitive:{topology:'triangle-strip'}});
+    const err=await device.popErrorScope(); if(err){ status('pipeline error: '+err.message,true); console.error('[gpuPhysics pipeline]',err.message); return false; }
+    return ok;
+  }catch(e){ status('WebGPU init failed: '+e.message,true); console.error(e); return false; }
+}
+
+function disposeBuffers(){ for(const k of ['bufA','bufB','bufPrev','bufMeta','bufRange','bufNbr','bufRest','bufSeg','bufStyle','bufParams','bufCam']){ if(GP[k]){try{GP[k].destroy();}catch(e){}GP[k]=null;} } }
+
+function buildScene(){
+  const device=GP.device, N=G.nodes.length; GP.N=N;
+  const pos=new Float32Array(N*4), prev=new Float32Array(N*4), meta=new Float32Array(N*4);
+  for(let i=0;i<N;i++){ const n=G.nodes[i]; const o=G.objs[n.obj]||{};
+    pos[i*4]=NX[i];pos[i*4+1]=NY[i];pos[i*4+2]=NH[i];
+    prev[i*4]=NPX[i];prev[i*4+1]=NPY[i];prev[i*4+2]=NPH[i];
+    meta[i*4]= n.fixed?0.0:((n.inv!=null&&n.inv>0)?n.inv:1.0);
+    meta[i*4+1]= (o.damp||0);
+    meta[i*4+2]= n.solid?1.0:0.0;
+  }
+  const adj=new Array(N); for(let i=0;i<N;i++)adj[i]=[];
+  const segList=[];
+  for(let s=0;s<G.segs.length;s++){ const sg=G.segs[s]; if(sg.dead||sg.bond)continue;
+    const a=sg.a,b=sg.b,rest=sg.rest||1; if(a>=N||b>=N)continue; adj[a].push([b,rest]); adj[b].push([a,rest]); segList.push(sg); }
+  const numSeg=segList.length; GP.numSeg=numSeg;
+  let numDir=0; for(let i=0;i<N;i++)numDir+=adj[i].length; GP.numDir=numDir;
+  const range=new Uint32Array(N*2), nbr=new Uint32Array(Math.max(1,numDir)), rest=new Float32Array(Math.max(1,numDir));
+  let c=0; for(let i=0;i<N;i++){ range[i*2]=c; range[i*2+1]=adj[i].length; for(const pr of adj[i]){ nbr[c]=pr[0]; rest[c]=pr[1]; c++; } }
+  const seg=new Uint32Array(Math.max(1,numSeg)*2), style=new Float32Array(Math.max(1,numSeg)*4);
+  for(let s=0;s<numSeg;s++){ const sg=segList[s]; seg[s*2]=sg.a; seg[s*2+1]=sg.b;
+    const o=G.objs[sg.obj]||{}; const col=parseCol(o.color||'#88eeee'); const rr=(typeof effR==='function'?effR(o):(o.r||4));
+    style[s*4]=col[0];style[s*4+1]=col[1];style[s*4+2]=col[2];style[s*4+3]=Math.max(0.6,rr); }
+  disposeBuffers();
+  const U=GPUBufferUsage, ST=U.STORAGE,CD=U.COPY_DST,CS=U.COPY_SRC,UN=U.UNIFORM;
+  const mk=(data,usage)=>{ const bf=device.createBuffer({size:Math.max(16,data.byteLength),usage}); device.queue.writeBuffer(bf,0,data); return bf; };
+  GP.bufA=mk(pos,ST|CD|CS); GP.bufB=mk(new Float32Array(N*4),ST|CD|CS); GP.bufPrev=mk(prev,ST|CD|CS);
+  GP.bufMeta=mk(meta,ST|CD); GP.bufRange=mk(range,ST|CD); GP.bufNbr=mk(nbr,ST|CD); GP.bufRest=mk(rest,ST|CD);
+  GP.bufSeg=mk(seg,ST|CD); GP.bufStyle=mk(style,ST|CD);
+  GP.bufParams=device.createBuffer({size:32,usage:UN|CD}); GP.bufCam=device.createBuffer({size:16,usage:UN|CD});
+  const bg=(pipe,entries)=>device.createBindGroup({layout:pipe.getBindGroupLayout(0),entries});
+  const B=(k,b)=>({binding:k,resource:{buffer:b}});
+  GP.bgIntAB=bg(GP.intPipe,[B(0,GP.bufA),B(1,GP.bufB),B(2,GP.bufPrev),B(3,GP.bufMeta),B(4,GP.bufParams)]);
+  GP.bgIntBA=bg(GP.intPipe,[B(0,GP.bufB),B(1,GP.bufA),B(2,GP.bufPrev),B(3,GP.bufMeta),B(4,GP.bufParams)]);
+  const conE=(inB,outB)=>[B(0,inB),B(1,outB),B(2,GP.bufMeta),B(3,GP.bufRange),B(4,GP.bufNbr),B(5,GP.bufRest),B(6,GP.bufParams)];
+  GP.bgConAB=bg(GP.conPipe,conE(GP.bufA,GP.bufB)); GP.bgConBA=bg(GP.conPipe,conE(GP.bufB,GP.bufA));
+  GP.bgRenA=bg(GP.renPipe,[B(0,GP.bufA),B(1,GP.bufSeg),B(2,GP.bufStyle),B(3,GP.bufCam)]);
+  GP.bgRenB=bg(GP.renPipe,[B(0,GP.bufB),B(1,GP.bufSeg),B(2,GP.bufStyle),B(3,GP.bufCam)]);
+  GP.curBuf=0; GP.frameN=0;
+}
+
+function packParams(){ const ab=new ArrayBuffer(32),dv=new DataView(ab);
+  dv.setUint32(0,GP.N>>>0,true); dv.setFloat32(4,S.temp||0,true); dv.setFloat32(8,S.damp||0,true); dv.setFloat32(12,S.depth||0,true);
+  dv.setFloat32(16,GP_RELAX,true); dv.setInt32(20,-1,true); dv.setUint32(24,GP.frameN>>>0,true); dv.setUint32(28,0,true);
+  GP.device.queue.writeBuffer(GP.bufParams,0,ab); }
+function packCam(){ const w=cw.width||1,h=cw.height||1,sc=S.dpr*view.z,ox=S.dpr*view.ox,oy=S.dpr*view.oy;
+  const cam=new Float32Array([ sc*2/w, -sc*2/h, ox*2/w-1, 1-oy*2/h ]); GP.device.queue.writeBuffer(GP.bufCam,0,cam); }
+function syncCanvas(){ const w=Math.max(1,Math.floor(cw.clientWidth*S.dpr)),h=Math.max(1,Math.floor(cw.clientHeight*S.dpr));
+  if(cw.width!==w||cw.height!==h){ cw.width=w; cw.height=h; } }
+
+function step(speed){ if(!GP.active||!GP.device)return; const dev=GP.device, WG=Math.max(1,Math.ceil(GP.N/64)); const n=speed||1;
+  for(let s=0;s<n;s++){ packParams();
+    const enc=dev.createCommandEncoder();
+    { const pass=enc.beginComputePass(); pass.setPipeline(GP.intPipe); pass.setBindGroup(0,GP.curBuf===0?GP.bgIntAB:GP.bgIntBA); pass.dispatchWorkgroups(WG); pass.end(); GP.curBuf=1-GP.curBuf; }
+    for(let k=0;k<GP_PASSES;k++){ const pass=enc.beginComputePass(); pass.setPipeline(GP.conPipe); pass.setBindGroup(0,GP.curBuf===0?GP.bgConAB:GP.bgConBA); pass.dispatchWorkgroups(WG); pass.end(); GP.curBuf=1-GP.curBuf; }
+    dev.queue.submit([enc.finish()]); GP.frameN++;
+  } }
+function render(){ if(!GP.active||!GP.device)return; syncCanvas(); packCam();
+  const dev=GP.device, enc=dev.createCommandEncoder();
+  let tex; try{ tex=GP.ctx.getCurrentTexture(); }catch(e){ return; }
+  const rp=enc.beginRenderPass({colorAttachments:[{view:tex.createView(),clearValue:{r:0,g:0,b:0,a:0},loadOp:'clear',storeOp:'store'}]});
+  rp.setPipeline(GP.renPipe); rp.setBindGroup(0,GP.curBuf===0?GP.bgRenA:GP.bgRenB); rp.draw(4,Math.max(1,GP.numSeg)); rp.end();
+  dev.queue.submit([enc.finish()]); }
+
+async function readbackToCPU(){ if(!GP.device||!GP.N)return false;
+  const dev=GP.device, src=GP.curBuf===0?GP.bufA:GP.bufB, bytes=GP.N*16;
+  const rb=dev.createBuffer({size:bytes,usage:GPUBufferUsage.COPY_DST|GPUBufferUsage.MAP_READ});
+  const enc=dev.createCommandEncoder(); enc.copyBufferToBuffer(src,0,rb,0,bytes); dev.queue.submit([enc.finish()]);
+  await rb.mapAsync(GPUMapMode.READ); const arr=new Float32Array(rb.getMappedRange().slice(0)); rb.unmap(); rb.destroy();
+  const N=Math.min(GP.N,G.nodes.length);
+  for(let i=0;i<N;i++){ NX[i]=arr[i*4]; NY[i]=arr[i*4+1]; NH[i]=arr[i*4+2]; NPX[i]=arr[i*4]; NPY[i]=arr[i*4+1]; NPH[i]=arr[i*4+2]; }
+  GP.readbacks++; window.RD=true; return true; }
+
+async function activate(){ if(GP.active)return true; if(GP.initing)return false; GP.initing=true;
+  status('initializing WebGPU\u2026');
+  if(!supported()){ status('WebGPU not available in this browser',true); GP.initing=false; setToggle(false); return false; }
+  const ok=await ensureDevice(); if(!ok){ GP.initing=false; setToggle(false); return false; }
+  try{ syncCanvas(); buildScene(); }catch(e){ status('scene upload failed: '+e.message,true); console.error(e); GP.initing=false; setToggle(false); return false; }
+  GP.prevGpu=!!S.gpu; GP.active=true; S.gpuPhysics=true; S.gpu=false; S.micro=false;
+  cw.style.display='block'; const cgl=document.getElementById('cgl'); if(cgl)cgl.style.display='none';
+  badge(true); status('on \u00B7 '+GP.N+' nodes / '+GP.numSeg+' segs \u00B7 collision & editing paused (toggle off to edit)');
+  GP.initing=false; setToggle(true); window.RD=true; return true; }
+
+async function deactivate(readback,reason){ if(!GP.active){ S.gpuPhysics=false; return true; }
+  if(readback){ try{ await readbackToCPU(); }catch(e){ console.error('readback failed',e); } }
+  GP.active=false; S.gpuPhysics=false; GP.lastExit=reason||'off'; S.gpu=GP.prevGpu;
+  cw.style.display='none'; const cgl=document.getElementById('cgl'); if(cgl)cgl.style.display=(S.gpu||S.micro)?'block':'none';
+  badge(false, readback?null:reason); setToggle(false); status(reason?('off \u00B7 '+reason):'off \u00B7 CPU solver restored'); window.RD=true; return true; }
+
+window.gpuPhysicsSupported=supported;
+window.gpuPhysicsActive=()=>GP.active;
+window.gpuPhysicsStep=step;
+window.gpuPhysicsRender=render;
+window.setGpuPhysicsMode=function(on){ if(on){ activate(); } else { deactivate(true,'toggled off'); } };
+window.gpuPhysicsDiscard=function(reason){ if(GP.active){ GP.active=false; S.gpuPhysics=false; S.gpu=GP.prevGpu; cw.style.display='none'; const cgl=document.getElementById('cgl'); if(cgl)cgl.style.display=(S.gpu||S.micro)?'block':'none'; badge(false,reason||'scene changed'); setToggle(false); status('off \u00B7 '+(reason||'scene changed')); window.RD=true; } };
+window.gpuPhysicsDropToCPU=function(reason){ if(GP.active) deactivate(true,reason||'editing'); };
+window.gpuPhysicsDiagnostics=()=>({active:GP.active,supported:supported(),nodes:GP.N,segs:GP.numSeg,directedLinks:GP.numDir,frame:GP.frameN,readbacks:GP.readbacks,lastExit:GP.lastExit,passes:GP_PASSES,relax:GP_RELAX});
+
+const _cb=document.getElementById('gpuPhysicsToggle'); if(_cb)_cb.addEventListener('change',function(e){ window.setGpuPhysicsMode(!!e.target.checked); });
+
+/* ---- Dev telemetry: 1 Hz rolling buffer + JSON export (Claude debug) ---- */
+const BUILD='gpu-layer1 + devlog \u00B7 2026-08-21';
+const T0=performance.now();
+function statsOf(a,n){ let mnx=1e30,mxx=-1e30,mny=1e30,mxy=-1e30,mnh=1e30,mxh=-1e30,nan=0;
+  for(let i=0;i<n;i++){const x=a[i*4],y=a[i*4+1],h=a[i*4+2];
+    if(!isFinite(x)||!isFinite(y)||!isFinite(h)){nan++;continue;}
+    if(x<mnx)mnx=x;if(x>mxx)mxx=x;if(y<mny)mny=y;if(y>mxy)mxy=y;if(h<mnh)mnh=h;if(h>mxh)mxh=h;}
+  if(n-nan===0)return{n:n,nan:nan,ok:0};
+  return{n:n,nan:nan,ok:n-nan,x:[Math.round(mnx),Math.round(mxx)],y:[Math.round(mny),Math.round(mxy)],h:[+mnh.toFixed(1),+mxh.toFixed(1)],spanX:Math.round(mxx-mnx),spanY:Math.round(mxy-mny)};}
+function cpuStats(){ const n=G.nodes.length; if(!n)return{n:0,nan:0,ok:0};
+  let mnx=1e30,mxx=-1e30,mny=1e30,mxy=-1e30,mnh=1e30,mxh=-1e30,nan=0;
+  for(let i=0;i<n;i++){const x=NX[i],y=NY[i],h=NH[i];
+    if(!isFinite(x)||!isFinite(y)||!isFinite(h)){nan++;continue;}
+    if(x<mnx)mnx=x;if(x>mxx)mxx=x;if(y<mny)mny=y;if(y>mxy)mxy=y;if(h<mnh)mnh=h;if(h>mxh)mxh=h;}
+  if(n-nan===0)return{n:n,nan:nan,ok:0};
+  return{n:n,nan:nan,ok:n-nan,x:[Math.round(mnx),Math.round(mxx)],y:[Math.round(mny),Math.round(mxy)],h:[+mnh.toFixed(1),+mxh.toFixed(1)],spanX:Math.round(mxx-mnx),spanY:Math.round(mxy-mny)};}
+async function gpuStatsReadback(){ if(GP.telemBusy||!GP.device||!GP.active||!GP.N)return; GP.telemBusy=true;
+  try{ const dev=GP.device,src=GP.curBuf===0?GP.bufA:GP.bufB,bytes=GP.N*16;
+    const rb=dev.createBuffer({size:bytes,usage:GPUBufferUsage.COPY_DST|GPUBufferUsage.MAP_READ});
+    const enc=dev.createCommandEncoder(); enc.copyBufferToBuffer(src,0,rb,0,bytes); dev.queue.submit([enc.finish()]);
+    await rb.mapAsync(GPUMapMode.READ); const a=new Float32Array(rb.getMappedRange().slice(0)); rb.unmap(); rb.destroy();
+    GP.lastStats=statsOf(a,GP.N); GP.lastStatsT=performance.now();
+  }catch(e){} GP.telemBusy=false; }
+function liveReadout(){ const set=(id,v)=>{const e=document.getElementById(id);if(e)e.textContent=v;};
+  set('devActive',GP.active?'GPU':'CPU'); set('devNodes',G.nodes.length); set('devSegs',G.segs.length); set('devFps',Math.round(ema||0));
+  const st=GP.active?GP.lastStats:cpuStats();
+  if(st&&st.ok){ set('devSpan',st.spanX+' \u00D7 '+st.spanY); set('devNan',st.nan); set('devY',st.y?st.y.join(' \u2026 '):'\u2014'); }
+  else if(st){ set('devSpan','\u2014'); set('devNan',st.nan||0); set('devY','\u2014'); }
+  else { set('devSpan','\u2014'); set('devNan','\u2014'); set('devY','\u2014'); } }
+setInterval(function(){ const mode=GP.active?'gpu':'cpu';
+  const sample={t:+((performance.now()-T0)/1000).toFixed(1),mode:mode,fps:Math.round(ema||0),nodes:G.nodes.length,segs:G.segs.length,running:!!S.running};
+  if(GP.active){ if(GP.lastStats)Object.assign(sample,GP.lastStats); gpuStatsReadback(); }
+  else { Object.assign(sample,cpuStats()); }
+  GP.log.push(sample); if(GP.log.length>240)GP.log.shift(); liveReadout();
+},1000);
+function buildLog(){ return {
+  build:BUILD, capturedAt:new Date().toISOString(), uaFragment:(navigator.userAgent||'').slice(0,180),
+  webgpu:{supported:supported(),adapter:GP.adapterInfo,canvas:{w:cw.width,h:cw.height,dpr:S.dpr}},
+  config:{temp:S.temp,damp:S.damp,depth:S.depth,speed:S.speed,quality:(S.iters!=null?S.iters:null),GP_PASSES:GP_PASSES,GP_RELAX:GP_RELAX},
+  view:{z:+(view.z||0).toFixed(3),ox:Math.round(view.ox||0),oy:Math.round(view.oy||0)},
+  scene:{nodes:G.nodes.length,segs:G.segs.length,objs:G.objs.length},
+  gpuPhysics:(window.gpuPhysicsDiagnostics?window.gpuPhysicsDiagnostics():null),
+  wgslMessages:GP.wgslMsgs.slice(-20), cpuStatsNow:cpuStats(), gpuStatsLast:GP.lastStats||null,
+  telemetry:GP.log.slice() }; }
+function exportLog(){ try{ const data=JSON.stringify(buildLog(),null,2);
+  const blob=new Blob([data],{type:'application/json'}); const url=URL.createObjectURL(blob);
+  const a=document.createElement('a'); a.href=url; a.download='string-engine-devlog-'+Date.now()+'.json'; document.body.appendChild(a); a.click();
+  setTimeout(function(){URL.revokeObjectURL(url);a.remove();},150);
+  }catch(e){ status('export failed: '+e.message,true); } }
+const _ex=document.getElementById('devExport'); if(_ex)_ex.addEventListener('click',exportLog);
+const _cl=document.getElementById('devClear'); if(_cl)_cl.addEventListener('click',function(){GP.log.length=0;liveReadout();});
+const _bt=document.getElementById('devBuild'); if(_bt)_bt.textContent=BUILD;
+liveReadout();
+
+if(!supported()){ const cb=document.getElementById('gpuPhysicsToggle'); if(cb){cb.disabled=true;} status('WebGPU not available in this browser',true); }
 })();
 </script>
 
