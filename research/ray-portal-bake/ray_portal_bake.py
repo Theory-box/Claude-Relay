@@ -234,8 +234,9 @@ def _store_result(png_path):
 
 class RPBAKE_OT_bake(bpy.types.Operator):
     bl_idname = "rpbake.bake"
-    bl_label = "Bake to UV (Portal)"
-    bl_description = "Bake the active object's real, lit surface into UV space (background Cycles)"
+    bl_label = "Render"
+    bl_description = ("Bake the active object's real, lit surface into its UV space, then "
+                      "apply the result back onto the mesh when done (background Cycles)")
     bl_options = {"REGISTER"}
 
     def execute(self, context):
@@ -286,8 +287,8 @@ class RPBAKE_OT_bake(bpy.types.Operator):
             return {"CANCELLED"}
 
         _state["job"] = {"proc": proc, "blend": blend, "png": png, "status": status,
-                         "started": time.time()}
-        scene.rpbake_status = "Baking..."
+                         "obj": obj.name, "started": time.time()}
+        scene.rpbake_status = "Rendering..."
         if not bpy.app.timers.is_registered(_poll):
             bpy.app.timers.register(_poll, first_interval=0.2)
         self.report({"INFO"}, "Baking in background...")
@@ -312,7 +313,16 @@ def _poll():
         try:
             if not status_txt.startswith("ERR:"):
                 _store_result(job["png"])
-                _set_status("Baked (%s)" % (status_txt.strip() or "?"))
+                obj = bpy.data.objects.get(job.get("obj", ""))
+                applied = False
+                try:
+                    applied = _apply_result_to_object(obj)
+                except Exception:
+                    applied = False
+                if applied:
+                    _set_status("Rendered (%s) - applied to mesh" % (status_txt.strip() or "?"))
+                else:
+                    _set_status("Rendered (%s) - image ready" % (status_txt.strip() or "?"))
             else:
                 _set_status("Failed: " + status_txt[4:70])
         except Exception as exc:
@@ -364,6 +374,40 @@ def _finish(job):
         pass
 
 
+def _apply_result_to_object(obj):
+    """Put the baked RESULT image on obj as its active image-texture node.
+    The image IS the object's 0..1 UV space, so no mapping node is needed."""
+    res = bpy.data.images.get(RESULT_IMAGE_NAME)
+    if res is None or obj is None or obj.type != "MESH":
+        return False
+    mat = obj.active_material
+    if mat is None:
+        mat = bpy.data.materials.new(obj.name + "_RPBake")
+        mat.use_nodes = True
+        if len(obj.data.materials) == 0:
+            obj.data.materials.append(mat)
+        else:
+            # object has an empty slot that is the active one - fill it, so the
+            # new material actually becomes the object's active material.
+            obj.data.materials[obj.active_material_index] = mat
+    elif not mat.use_nodes:
+        mat.use_nodes = True
+    nt = mat.node_tree
+    tex = None
+    for n in nt.nodes:
+        if n.type == "TEX_IMAGE" and n.image == res:
+            tex = n
+            break
+    if tex is None:
+        anchor = nt.nodes.active
+        tex = nt.nodes.new("ShaderNodeTexImage")
+        tex.image = res
+        if anchor is not None and anchor != tex:
+            tex.location = (anchor.location.x - 400, anchor.location.y)
+    nt.nodes.active = tex
+    return True
+
+
 class RPBAKE_OT_show_on_mesh(bpy.types.Operator):
     bl_idname = "rpbake.show_on_mesh"
     bl_label = "Show on Mesh"
@@ -372,37 +416,13 @@ class RPBAKE_OT_show_on_mesh(bpy.types.Operator):
     bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
-        res = bpy.data.images.get(RESULT_IMAGE_NAME)
-        if res is None:
+        if bpy.data.images.get(RESULT_IMAGE_NAME) is None:
             self.report({"WARNING"}, "No baked image yet.")
             return {"CANCELLED"}
-        obj = context.active_object
-        if obj is None:
-            self.report({"WARNING"}, "No active object.")
+        if not _apply_result_to_object(context.active_object):
+            self.report({"WARNING"}, "Need an active mesh object.")
             return {"CANCELLED"}
-        mat = obj.active_material
-        if mat is None:
-            mat = bpy.data.materials.new(obj.name + "_RPBake")
-            mat.use_nodes = True
-            obj.data.materials.append(mat)
-        elif not mat.use_nodes:
-            mat.use_nodes = True
-        nt = mat.node_tree
-        tex = None
-        for n in nt.nodes:
-            if n.type == "TEX_IMAGE" and n.image == res:
-                tex = n
-                break
-        if tex is None:
-            anchor = nt.nodes.active
-            tex = nt.nodes.new("ShaderNodeTexImage")
-            tex.image = res
-            # The baked image IS the object's 0..1 UV space, so an Image Texture
-            # with its default UV input lands on the mesh exactly - no mapping node.
-            if anchor is not None and anchor != tex:
-                tex.location = (anchor.location.x - 400, anchor.location.y)
-        nt.nodes.active = tex
-        self.report({"INFO"}, "Baked image set as active texture. View in Solid + Texture.")
+        self.report({"INFO"}, "Baked image applied to mesh.")
         return {"FINISHED"}
 
 
@@ -572,14 +592,10 @@ class RPBAKE_PT_panel(bpy.types.Panel):
         busy = _state["job"] is not None
         r = layout.row()
         r.enabled = not busy
-        r.operator("rpbake.bake", icon="RENDER_STILL")
+        r.scale_y = 1.4
+        r.operator("rpbake.bake", text="Render", icon="RENDER_STILL")
         if sc.rpbake_status:
             layout.label(text=sc.rpbake_status, icon=("SORTTIME" if busy else "CHECKMARK"))
-        has_result = bpy.data.images.get(RESULT_IMAGE_NAME) is not None
-        col2 = layout.column(align=True)
-        col2.enabled = has_result and not busy
-        col2.operator("rpbake.show_on_mesh", icon="MESH_DATA")
-        col2.operator("rpbake.save", icon="FILE_TICK")
         layout.separator()
         layout.operator("rpbake.diagnostics", icon="CONSOLE")
 

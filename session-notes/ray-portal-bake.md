@@ -234,3 +234,27 @@ At the start of a session on this topic: `git checkout feature/ray-portal-bake &
   coincident object -> dark). Fix path identified; not implemented per user request.
 - Other deferred niceties: albedo/unlit mode, edge-padding/dilation for inter-island
   gaps, 32-bit/other formats, GPU device pref, eventual merge into Node Preview.
+
+## v0.10 — single Render button + auto-apply, and native-vs-portal benchmark
+- UI: collapsed to ONE "Render" button. It bakes, then auto-applies the result onto the
+  mesh (the old Show-on-Mesh logic) when the worker finishes. Save is manual (Image
+  editor) for now. Show-on-Mesh + Save operators still registered (F3) but off the panel.
+  Diagnostics button kept.
+- Refactored apply into _apply_result_to_object(obj); _poll calls it on completion using
+  the target object name stored in the job.
+- BUGFIX found while testing: objects with an EMPTY material slot (slot present, no
+  material, active) - append() added the new material at a new index while the active
+  slot stayed empty, so nothing showed. Now fills the active slot instead.
+- BENCHMARK (CPU, FloorplanTrace.001 isolated, gray Principled):
+    res/samples | native Combined bake | portal core render | ratio
+    512 @ 32    | 2.7s                 | 5.0s               | 1.84x slower
+    1024 @ 64   | 20.1s                | 38.6s              | 1.92x slower
+  Full addon Render (worker: 44MB scene write + subprocess startup + render) at 512@32
+  = 15.7s (the ~10s over the 5s core render is writing the whole scene + launching a
+  background Blender; scales with scene size).
+- TAKEAWAY: our method is SLOWER than native baking - ~1.9x for the raw Cycles work
+  (the ray-portal teleport roughly doubles ray cost), and more in practice because the
+  addon writes the whole scene and spawns a subprocess. The tradeoffs it buys: runs in
+  the BACKGROUND (native bake blocks the UI), one-click + auto-apply, and no per-object
+  bake-target setup. Speedup options if wanted: write only needed objects instead of the
+  whole scene; optional in-process mode (faster, but freezes UI); or a native-bake mode.
