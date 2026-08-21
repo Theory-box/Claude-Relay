@@ -253,12 +253,24 @@ class RPBAKE_OT_bake(bpy.types.Operator):
                      "Smart UV Project so the bake is clean. This discards the current UVs"),
         default=False)
 
+    backup_first: bpy.props.BoolProperty(
+        name="Back up object first",
+        description=("Before applying, duplicate this object (modifiers intact) into a "
+                     "'backup' collection that is excluded from the view layer, so you can "
+                     "recover the un-applied version later"),
+        default=False)
+
     def invoke(self, context, event):
         obj = context.active_object
         if obj is not None and obj.type == "MESH" and len(obj.modifiers) > 0:
-            # default the re-unwrap ON when a modifier that breaks UVs is present
             self.reunwrap_after = _has_uv_hurting_modifier(obj)
-            return context.window_manager.invoke_props_dialog(self, width=340)
+            self.backup_first = False
+            try:
+                return context.window_manager.invoke_props_dialog(
+                    self, width=340, title="Bake - object has modifiers",
+                    confirm_text="Apply & Continue")
+            except TypeError:
+                return context.window_manager.invoke_props_dialog(self, width=340)
         return self.execute(context)
 
     def draw(self, context):
@@ -273,6 +285,7 @@ class RPBAKE_OT_bake(bpy.types.Operator):
         sub = col.column()
         sub.enabled = self.collapse_modifiers
         sub.prop(self, "reunwrap_after")
+        sub.prop(self, "backup_first")
         if obj is not None and _has_uv_hurting_modifier(obj):
             col.separator()
             col.label(text="A modifier here breaks UVs -", icon="ERROR")
@@ -287,6 +300,8 @@ class RPBAKE_OT_bake(bpy.types.Operator):
             self.report({"WARNING"}, "Select a mesh object.")
             return {"CANCELLED"}
         if self.collapse_modifiers and len(obj.modifiers) > 0:
+            if self.backup_first:
+                _backup_object(context, obj)
             _apply_all_modifiers(context, obj)
             if self.reunwrap_after:
                 _smart_project(context, obj)
@@ -524,6 +539,39 @@ def _apply_result_to_object(obj):
             tex.location = (anchor.location.x - 400, anchor.location.y)
     nt.nodes.active = tex
     return True
+
+
+def _exclude_collection(context, coll):
+    """Set the given collection's layer-collection to excluded in the active view layer."""
+    def find(lc):
+        if lc.collection == coll:
+            return lc
+        for child in lc.children:
+            r = find(child)
+            if r is not None:
+                return r
+        return None
+    lc = find(context.view_layer.layer_collection)
+    if lc is not None:
+        lc.exclude = True
+
+
+def _backup_object(context, obj):
+    """Duplicate obj (with its modifiers + independent mesh data) into a 'backup'
+    collection, and exclude that collection from the view layer. Returns the copy."""
+    backup_coll = bpy.data.collections.get("backup")
+    if backup_coll is None:
+        backup_coll = bpy.data.collections.new("backup")
+        context.scene.collection.children.link(backup_coll)
+    dup = obj.copy()                 # copies the modifier stack too
+    if obj.data is not None:
+        dup.data = obj.data.copy()   # independent mesh data
+    dup.name = obj.name + "_backup"
+    for c in list(dup.users_collection):
+        c.objects.unlink(dup)
+    backup_coll.objects.link(dup)
+    _exclude_collection(context, backup_coll)
+    return dup
 
 
 def _apply_all_modifiers(context, obj):

@@ -406,3 +406,19 @@ At the start of a session on this topic: `git checkout feature/ray-portal-bake &
 - Refactored the unwrap core into _smart_project(); _ensure_uvs now calls it when no UVs.
 - Verified: Solidify detected; collapse->re-unwrap gives 0-1 UVs and better coverage
   (29.9% vs 11.7% with the overlapping post-Solidify UVs).
+
+## v0.13.6 — modifier popup: "Back up object first" option
+- Added a "Back up object first" checkbox to the modifier-collapse popup, plus the OK
+  button is now labelled "Apply & Continue" (via invoke_props_dialog confirm_text, with a
+  TypeError fallback for older Blender). Checkbox unchecked = apply & continue; checked =
+  backup, apply & continue.
+- _backup_object(context, obj): duplicates obj (obj.copy() keeps the modifier stack) with
+  independent mesh data (obj.data.copy()), unlinks the dup from all collections and links
+  it ONLY to a 'backup' collection (created if missing), then _exclude_collection() sets
+  that collection's layer-collection exclude=True (hidden from the view layer).
+- execute: when collapsing, if backup_first -> _backup_object BEFORE _apply_all_modifiers.
+- Verified: dup in 'backup' collection with modifiers intact + independent mesh; original
+  applied (0 modifiers); backup collection excluded from view layer; dup only in 'backup'.
+- NOTE: implemented as a checkbox + "Apply & Continue" button rather than two separate
+  buttons (invoke_props_dialog is single-confirm); functionally covers both paths. Can do
+  a true two-button custom popup if preferred.
