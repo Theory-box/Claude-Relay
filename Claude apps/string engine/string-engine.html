@@ -2462,7 +2462,8 @@ window.gpuPhysicsDropToCPU=function(reason){ if(GP.active) deactivate(true,reaso
 window.gpuPhysicsDiagnostics=()=>({active:GP.active,supported:supported(),nodes:GP.N,segs:GP.numSeg,directedLinks:GP.numDir,frame:GP.frameN,readbacks:GP.readbacks,lastExit:GP.lastExit,passes:GP_PASSES,relax:GP_RELAX,
   refreshN:GP.refreshN,refreshErr:GP.refreshErr,bendReady:GP.bendReady,
   collision:{supported:GP.collSupported,ready:GP.collReady,maxStorageBuf:GP.maxStorageBuf,iters:(S.gpuCollIters!=null?(S.gpuCollIters|0):(S.iters||4)),lastOverflow:(GP.lastOverflow!=null?GP.lastOverflow:null),
-    grid:(GP.grid?{gx:GP.grid.gx,gy:GP.grid.gy,cell:GP.grid.cell,numCells:GP.grid.numCells,cap:GP.grid.cap,reach:+GP.grid.reach.toFixed(2)}:null),omega:GP_COLL_OMEGA,penFrac:GP_COLL_PENFRAC,maxDisp:GP_COLL_MAXDISP}});
+    grid:(GP.grid?{gx:GP.grid.gx,gy:GP.grid.gy,cell:GP.grid.cell,numCells:GP.grid.numCells,cap:GP.grid.cap,reach:+GP.grid.reach.toFixed(2)}:null),omega:GP_COLL_OMEGA,penFrac:GP_COLL_PENFRAC,maxDisp:GP_COLL_MAXDISP},
+  affinity:{supported:GP.affSupported,ready:GP.affReady,lastOverflow:(GP.lastAffOverflow!=null?GP.lastAffOverflow:null),base:GP_AFF_BASE,maxDisp:GP_AFF_MAXDISP,nObj:(GP.affGrid?GP.affGrid.nO:0),grid:(GP.affGrid?{gx:GP.affGrid.gx,gy:GP.affGrid.gy,cell:+GP.affGrid.cell.toFixed(1),numCells:GP.affGrid.numCells,cap:GP.affGrid.cap,reach:+GP.affGrid.reach.toFixed(1)}:null)}});
 
 const _cb=document.getElementById('gpuPhysicsToggle'); if(_cb)_cb.addEventListener('change',function(e){ window.setGpuPhysicsMode(!!e.target.checked); });
 
@@ -2489,6 +2490,9 @@ async function gpuStatsReadback(){ if(GP.telemBusy||!GP.device||!GP.active||!GP.
     await rb.mapAsync(GPUMapMode.READ); const a=new Float32Array(rb.getMappedRange().slice(0)); rb.unmap(); rb.destroy();
     GP.lastStats=statsOf(a,GP.N); GP.lastStatsT=performance.now();
   }catch(e){} GP.telemBusy=false; }
+async function affOverflowReadback(){ if(!GP.device||!GP.active||!GP.affReady||!GP.bufOverflowA)return;
+  try{ const rb=GP.device.createBuffer({size:16,usage:GPUBufferUsage.COPY_DST|GPUBufferUsage.MAP_READ}); const e=GP.device.createCommandEncoder(); e.copyBufferToBuffer(GP.bufOverflowA,0,rb,0,16); GP.device.queue.submit([e.finish()]);
+    await rb.mapAsync(GPUMapMode.READ); const a=new Uint32Array(rb.getMappedRange().slice(0)); rb.unmap(); rb.destroy(); GP.lastAffOverflow=a[0]; }catch(e){} }
 async function collOverflowReadback(){ if(!GP.device||!GP.active||!GP.collReady||!GP.bufOverflow)return;
   try{ const dev=GP.device; const rb=dev.createBuffer({size:16,usage:GPUBufferUsage.COPY_DST|GPUBufferUsage.MAP_READ});
     const enc=dev.createCommandEncoder(); enc.copyBufferToBuffer(GP.bufOverflow,0,rb,0,16); dev.queue.submit([enc.finish()]);
@@ -2501,7 +2505,7 @@ function liveReadout(){ const set=(id,v)=>{const e=document.getElementById(id);i
   else { set('devSpan','\u2014'); set('devNan','\u2014'); set('devY','\u2014'); } }
 setInterval(function(){ const mode=GP.active?'gpu':'cpu';
   const sample={t:+((performance.now()-T0)/1000).toFixed(1),mode:mode,fps:Math.round(ema||0),nodes:G.nodes.length,segs:G.segs.length,running:!!S.running};
-  if(GP.active){ if(GP.lastStats)Object.assign(sample,GP.lastStats); if(GP.lastOverflow!=null)sample.collOverflow=GP.lastOverflow; gpuStatsReadback(); collOverflowReadback(); }
+  if(GP.active){ if(GP.lastStats)Object.assign(sample,GP.lastStats); if(GP.lastOverflow!=null)sample.collOverflow=GP.lastOverflow; if(GP.lastAffOverflow!=null)sample.affOverflow=GP.lastAffOverflow; gpuStatsReadback(); collOverflowReadback(); affOverflowReadback(); }
   else { Object.assign(sample,cpuStats()); }
   GP.log.push(sample); if(GP.log.length>240)GP.log.shift(); liveReadout();
 },1000);
