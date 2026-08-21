@@ -73,3 +73,21 @@ At the start of a session on this topic: `git checkout feature/ray-portal-bake &
 - DEFERRED (user asked for later, not now): 32-bit/raw output, JPG/other formats,
   follow scene colour grading (currently forces neutral Standard). Basic first.
 - NEXT: try on real scenes/GPU; GPU device pref; then consider Node Preview merge.
+
+## v0.4 — frame to UV bounds (fixes "black/transparent" on atlas objects)
+- REPORT (user's Exterior_78_Farmington.blend, roof FloorplanTrace.006): bake
+  looked black/transparent. Diagnosis: object uses a SHARED texture atlas so its
+  UVs are a tiny thin strip (UV area 0.0008, bounds u[0.13..0.24] v[0.41..0.48]);
+  at the old fixed 0..1 framing it was a ~0.08%-coverage speck. Also dark shingle
+  material. It was baking correctly, just invisible.
+- FIX: worker now frames the ortho camera to the object's actual UV bounds
+  (centre + max-extent square, 5% margin) instead of 0..1. Full-0..1 unwraps
+  (helmet) unchanged (frame ~0..1, coverage 0.87). Atlas objects now fill frame.
+- Worker reports frame (fminx fminy span) in the status; Show-on-Mesh adds a
+  Mapping node remapping the object's UVs into that framed region so it lines up
+  (correct in Material Preview/Rendered; Solid uses raw UVs so atlas objects
+  won't match there).
+- Verified: roof now visible (shingles), helmet unregressed.
+- Notes for user: dark = the roof's dark material + scene lighting (not a bug);
+  a full-res per-object bake still wants a proper 0..1 unwrap. Possible future:
+  warn on tiny UV coverage; optional auto-unwrap-for-bake mode.

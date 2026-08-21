@@ -154,8 +154,17 @@ try:
                 zmax = wz if not found else max(zmax, wz); found = True
         z = (zmax if found else 0.0) + 10.0
         flat_obj.location = (0.0, 0.0, z)
-        cam_d = bpy.data.cameras.new("RPBake_Cam"); cam_d.type = "ORTHO"; cam_d.ortho_scale = 1.0
-        cam = bpy.data.objects.new("RPBake_Cam", cam_d); cam.location = (0.5, 0.5, z + 5.0)
+        # Frame the camera to the object's actual UV bounds (not a fixed 0..1),
+        # so objects that only use part of UV space (atlas / thin strips) still
+        # fill the image. For a full-0..1 unwrap this is unchanged.
+        xs = [v.co.x for v in flat_me.vertices]
+        ys = [v.co.y for v in flat_me.vertices]
+        umin = min(xs); umax = max(xs); vmin = min(ys); vmax = max(ys)
+        cx = (umin + umax) / 2.0; cy = (vmin + vmax) / 2.0
+        span = max(umax - umin, vmax - vmin, 1e-4) * 1.05
+        fminx = cx - span / 2.0; fminy = cy - span / 2.0
+        cam_d = bpy.data.cameras.new("RPBake_Cam"); cam_d.type = "ORTHO"; cam_d.ortho_scale = span
+        cam = bpy.data.objects.new("RPBake_Cam", cam_d); cam.location = (cx, cy, z + 5.0)
         scene.collection.objects.link(cam)
         scene.camera = cam
         scene.render.engine = "CYCLES"
@@ -179,7 +188,7 @@ try:
         scene.render.image_settings.color_mode = "RGBA"
         bpy.ops.render.render(write_still=True)
     with open(status, "w") as f:
-        f.write(dev)
+        f.write("%s|%g %g %g" % (dev, fminx, fminy, span))
 except Exception:
     import traceback
     try:
@@ -197,7 +206,7 @@ def _worker_path():
     return p
 
 
-_state = {"job": None}
+_state = {"job": None, "frame": None}
 
 
 def _get_device_mode():
@@ -305,8 +314,17 @@ def _poll():
             pass
         try:
             if not status_txt.startswith("ERR:"):
+                dev = status_txt
+                _state["frame"] = None
+                if "|" in status_txt:
+                    dev, bnds = status_txt.split("|", 1)
+                    try:
+                        fx, fy, sp = (float(x) for x in bnds.split())
+                        _state["frame"] = (fx, fy, sp)
+                    except Exception:
+                        _state["frame"] = None
                 _store_result(job["png"])
-                _set_status("Baked (%s)" % (status_txt or "?"))
+                _set_status("Baked (%s)" % (dev or "?"))
             else:
                 _set_status("Failed: " + status_txt[4:70])
         except Exception as exc:
@@ -387,6 +405,21 @@ class RPBAKE_OT_show_on_mesh(bpy.types.Operator):
             tex.image = res
             if anchor is not None and anchor != tex:
                 tex.location = (anchor.location.x - 400, anchor.location.y)
+            # If the bake was framed to a sub-region of UV space (atlas / thin
+            # strip), remap the object's UVs into that region so it lines up.
+            # (Shows correctly in Material Preview / Rendered; Solid uses raw UVs.)
+            frame = _state.get("frame")
+            if frame is not None and (abs(frame[0]) > 1e-4 or abs(frame[1]) > 1e-4
+                                      or abs(frame[2] - 1.0) > 1e-3):
+                fx, fy, sp = frame
+                uvn = nt.nodes.new("ShaderNodeUVMap")
+                mapn = nt.nodes.new("ShaderNodeMapping")
+                mapn.inputs["Location"].default_value = (-fx / sp, -fy / sp, 0.0)
+                mapn.inputs["Scale"].default_value = (1.0 / sp, 1.0 / sp, 1.0)
+                uvn.location = (tex.location.x - 400, tex.location.y)
+                mapn.location = (tex.location.x - 200, tex.location.y)
+                nt.links.new(uvn.outputs["UV"], mapn.inputs["Vector"])
+                nt.links.new(mapn.outputs["Vector"], tex.inputs["Vector"])
         nt.nodes.active = tex
         self.report({"INFO"}, "Baked image set as active texture. View in Solid + Texture.")
         return {"FINISHED"}
