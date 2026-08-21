@@ -1773,7 +1773,7 @@ void main(){
 const cw=document.getElementById('cwgpu');
 if(!cw){ return; }
 const GP={active:false,initing:false,device:null,ctx:null,format:null,prevGpu:false,
-  intPipe:null,conPipe:null,renPipe:null,clearPipe:null,gridPipe:null,collPipe:null,collReady:false,collSupported:false,grid:null,maxStorageBuf:8,lastOverflow:null,bendPipe:null,bendSupported:false,bendReady:false,propsDirty:false,refreshN:0,refreshErr:null,affPipe:null,gridTPipe:null,affSupported:false,affReady:false,affGrid:null,grabNode:-1,grabX:0,grabY:0,
+  intPipe:null,conPipe:null,renPipe:null,clearPipe:null,gridPipe:null,collPipe:null,collReady:false,collSupported:false,grid:null,maxStorageBuf:8,lastOverflow:null,bendPipe:null,bendSupported:false,bendReady:false,propsDirty:false,refreshN:0,refreshErr:null,affPipe:null,gridTPipe:null,affSupported:false,affReady:false,affGrid:null,grabNode:-1,grabX:0,grabY:0,bondEvery:3,_bondBusy:false,bondTicks:0,bondEvents:0,
   bufA:null,bufB:null,bufPrev:null,bufMeta:null,bufRange:null,bufNbr:null,bufRest:null,bufSeg:null,bufStyle:null,bufParams:null,bufCam:null,
   bgIntAB:null,bgIntBA:null,bgConAB:null,bgConBA:null,bgRenA:null,bgRenB:null,
   N:0,numSeg:0,numDir:0,curBuf:0,frameN:0,readbacks:0,lastExit:null,wgslMsgs:[],adapterInfo:null,lastStats:null,lastStatsT:0,telemBusy:false,log:[],diagRunning:false,_pos0:null,_segCache:null,_fixed:null};
@@ -2383,7 +2383,31 @@ function gpuRefreshProps(){ if(!GP.active||!GP.device)return; const dev=GP.devic
     for(let c=0;c<nd;c++){ const o=G.objs[EO[c]]||{}; const g=(typeof effGrow==='function'?effGrow(o):(o.grow||0)); out[c]=R[c]*Math.max(0,1+g); }
     dev.queue.writeBuffer(GP.bufRest,0,out); }
 }catch(e){ GP.refreshErr=e.message; console.warn('[gpuRefreshProps]',e.message); if(typeof status==='function')status('gpuRefresh error: '+e.message,true); } }
+async function gpuBondTick(){
+  // Hybrid bonding (stage A): throttled readback -> run the exact CPU bond pipeline -> rebuild GPU buffers on topology change.
+  if(!GP.active || !S.bonding || GP._bondBusy) return;
+  GP.bondTicks=(GP.bondTicks||0)+1; if((GP.bondTicks%(GP.bondEvery||3))!==0) return;
+  GP._bondBusy=true;
+  try{
+    await readbackToCPU();                                  // NX/NY current (but readback sets prev=cur -> zero velocity)
+    try{ const dev=GP.device, N=Math.min(GP.N,G.nodes.length);   // restore REAL prev so velocity survives the rebuild
+      const rbp=dev.createBuffer({size:GP.N*16,usage:GPUBufferUsage.COPY_DST|GPUBufferUsage.MAP_READ});
+      const e=dev.createCommandEncoder(); e.copyBufferToBuffer(GP.bufPrev,0,rbp,0,GP.N*16); dev.queue.submit([e.finish()]);
+      await rbp.mapAsync(GPUMapMode.READ); const pa=new Float32Array(rbp.getMappedRange().slice(0)); rbp.unmap(); rbp.destroy();
+      for(let i=0;i<N;i++){ NPX[i]=pa[i*4]; NPY[i]=pa[i*4+1]; NPH[i]=pa[i*4+2]; } }catch(_){}
+    const s0=G.segs.length, n0=G.nodes.length;
+    if(typeof endpointForces==='function')endpointForces();     // formation (proximity) + pull
+    if(typeof flagBondBreaks==='function')flagBondBreaks();
+    if(typeof flagStrainBreaks==='function')flagStrainBreaks();
+    if(typeof flagBendBreaks==='function')flagBendBreaks();
+    if(typeof maintainBonds==='function')maintainBonds();       // harden / merge
+    if(typeof removeDead==='function')removeDead();             // remove dead (self-rebuilds nbrs/ends/piece)
+    if(G.segs.length!==s0 || G.nodes.length!==n0){ GP.bondEvents=(GP.bondEvents||0)+1; buildScene(); }   // topology changed -> rebuild GPU buffers
+  }catch(e){ console.warn('[gpuBond]',e&&e.message); }
+  GP._bondBusy=false;
+}
 function step(speed){ if(GP.diagRunning)return; if(!GP.active||!GP.device)return; const dev=GP.device, WG=Math.max(1,Math.ceil(GP.N/64)); const n=speed||1;
+  gpuBondTick();
   if(GP.affReady){ const g=GP.affGrid;
     { const ab=new ArrayBuffer(48),dv=new DataView(ab); dv.setUint32(0,GP.N,true);dv.setUint32(4,g.gx,true);dv.setUint32(8,g.gy,true);dv.setUint32(12,g.cap,true);
       dv.setFloat32(16,g.cell,true);dv.setFloat32(20,g.ox,true);dv.setFloat32(24,g.oy,true);dv.setUint32(28,g.nO,true);
@@ -2479,7 +2503,7 @@ window.setGpuPhysicsMode=function(on){ if(on){ activate(); } else { deactivate(t
 window.gpuPhysicsDiscard=function(reason){ if(GP.active){ GP.active=false; S.gpuPhysics=false; S.gpu=GP.prevGpu; cw.style.display='none'; const cgl=document.getElementById('cgl'); if(cgl)cgl.style.display=(S.gpu||S.micro)?'block':'none'; badge(false,reason||'scene changed'); setToggle(false); status('off \u00B7 '+(reason||'scene changed')); window.RD=true; } };
 window.gpuPhysicsDropToCPU=function(reason){ if(GP.active) deactivate(true,reason||'editing'); };
 window.gpuPhysicsDiagnostics=()=>({active:GP.active,supported:supported(),nodes:GP.N,segs:GP.numSeg,directedLinks:GP.numDir,frame:GP.frameN,readbacks:GP.readbacks,lastExit:GP.lastExit,passes:GP_PASSES,relax:GP_RELAX,
-  refreshN:GP.refreshN,refreshErr:GP.refreshErr,bendReady:GP.bendReady,
+  refreshN:GP.refreshN,refreshErr:GP.refreshErr,bendReady:GP.bendReady,bonding:{on:!!S.bonding,every:GP.bondEvery,ticks:GP.bondTicks,events:GP.bondEvents,busy:GP._bondBusy},
   collision:{supported:GP.collSupported,ready:GP.collReady,maxStorageBuf:GP.maxStorageBuf,iters:(S.gpuCollIters!=null?(S.gpuCollIters|0):(S.iters||4)),lastOverflow:(GP.lastOverflow!=null?GP.lastOverflow:null),
     grid:(GP.grid?{gx:GP.grid.gx,gy:GP.grid.gy,cell:GP.grid.cell,numCells:GP.grid.numCells,cap:GP.grid.cap,reach:+GP.grid.reach.toFixed(2)}:null),omega:GP_COLL_OMEGA,penFrac:GP_COLL_PENFRAC,maxDisp:GP_COLL_MAXDISP},
   affinity:{supported:GP.affSupported,ready:GP.affReady,lastOverflow:(GP.lastAffOverflow!=null?GP.lastAffOverflow:null),base:GP_AFF_BASE,maxDisp:GP_AFF_MAXDISP,nObj:(GP.affGrid?GP.affGrid.nO:0),grid:(GP.affGrid?{gx:GP.affGrid.gx,gy:GP.affGrid.gy,cell:+GP.affGrid.cell.toFixed(1),numCells:GP.affGrid.numCells,cap:GP.affGrid.cap,reach:+GP.affGrid.reach.toFixed(1)}:null)}});

@@ -478,3 +478,17 @@ NEXT (stage 2): formation + breaking. Plan = pragmatic hybrid first (throttled r
 logic endpointForces/flag*Breaks/maintainBonds/removeDead -> rebuild GPU buffers on topology change; reuses ALL
 CPU bond code, bounded cost via throttle), then stage 3 = move free-endpoint proximity DETECTION to a GPU pass
 (research design: atomic-append candidate buffer, overflow fatal, double-buffered readback) to kill the CPU hotspot.
+
+## BONDING stage 2A: pragmatic hybrid (formation + breaking) — the oracle for stage B
+gpuBondTick() (async, in step(), throttled GP.bondEvery=3 frames, _bondBusy guard): readbackToCPU -> read REAL
+prev buffer into NPX/NPY/NPH (readback alone sets prev=cur=zero velocity; restoring real prev preserves velocity
+across rebuild) -> run the EXACT CPU bond pipeline (endpointForces formation+pull, flagBond/Strain/BendBreaks,
+maintainBonds, removeDead — these self-maintain nbrs/ends/piece via buildNbrs) -> if seg/node count changed,
+buildScene() (disposes+recreates all buffers; reads NX/NY + real prev so velocity survives). Formation + breaking
+now WORK in GPU mode, reusing all CPU bond code = exact behavior parity. This is the ORACLE for stage B.
+Costs (accepted for A, fixed by B): a readback + CPU bond work + full rebuild per bond-event, ~1-2 frame position
+rewind from readback latency. Throttle + rebuild-only-on-change bound it. endpointForces pull is applied only on
+rebuild frames (discarded otherwise) = proximity-formation with deferred pull (user OK with pull "after").
+Telemetry: diag.bonding {on,every,ticks,events,busy}. Gated on S.bonding (inert until bonding configured).
+NEXT (stage B): move free-endpoint proximity DETECTION to a GPU pass (atomic-append candidates, overflow fatal,
+double-buffered readback) -> CPU only arbitrates/mutates/rebuilds. Validate B's candidate set vs this A pipeline.
