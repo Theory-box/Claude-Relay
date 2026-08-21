@@ -124,3 +124,23 @@ At the start of a session on this topic: `git checkout feature/ray-portal-bake &
   still active, RPBake_UV added. Dark = the roof's dark material + scene light.
 - Note: normalize stretches non-square islands to fill 0..1 (consistent with the
   RPBake_UV it bakes through, so Show-on-Mesh via that map lines up).
+
+## v0.7 — removed Smart Unwrap; added Diagnostics button
+- Per user: NO smart-unwrap option. Reverted addon to clean v0.5 (exact 0..1 bake,
+  no Mapping node). Added "Copy Diagnostics" operator: dumps object transform
+  (incl. matrix determinant / negative-scale check), all UV maps + bounds + uv_area
+  + %in-0..1, world-space normal up/down counts, materials (surface/node types/
+  images), SCENE lights + world strength + engine + view_transform, and bake
+  settings -> clipboard + a RPBake_Diagnostics text block.
+- FIT TEST (repro of user workflow: manual smart_project active UV -> bake 0..1 ->
+  re-apply via RAW UVs, no mapping): re-applied roof lands EXACTLY on the object
+  (visually correct position/scale). So there is NO coordinate/scaling bug in the
+  0..1 path; it fits per UVs already.
+- Diagnostics on uploaded Exterior_78_Farmington.blend / FloorplanTrace.006 reveal
+  the real causes of "black/empty":
+  * SCENE HAS 0 LIGHTS (engine EEVEE, world strength 1.0, view AgX) -> dim/dark bake.
+  * roof UVMap is the tiny atlas sliver (uv_area 0.0008) in THIS file -> empty-looking.
+  * normals mostly point DOWN (108 down / 24 up) -> portal may sample underside.
+- NEXT: get user's Diagnostics dump from THEIR object (post their manual unwrap) to
+  see if it differs. Candidate real fix if normals are down: bake the camera-facing
+  / opposite side (flip option) — but confirm from their data first.
