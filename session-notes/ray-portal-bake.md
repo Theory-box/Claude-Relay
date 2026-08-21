@@ -200,3 +200,21 @@ At the start of a session on this topic: `git checkout feature/ray-portal-bake &
   camera). Investigating normal-direction handling next.
 - NOTE: v4 file has NO image textures on materials (plain), Sun energy 1.0, world 0.051
   x3.9. Dim scene.
+
+## v0.9.1 — OFFSET root-caused & fixed (measured in UV space)
+- User screenshot: to align the baked walls they moved UVs by X=0.0076, Y=0.1526
+  (translation only, scaling correct).
+- DIRECT UV-space offset measurement (bake a COLOR_GRID onto a wall, cross-correlate
+  baked vs reference):
+    * 0-1 TILE (current build): dx=0.0000 dy=0.0000  -> ZERO offset.
+    * FRAME-TO-BOUNDS (old v0.8): dx=-0.0078 (== user's X) ; dy grows to ~(span-h)/2,
+      = ~0.15 when the UV box is non-square (walls pack wider than tall). Cube packed
+      near-square so its dy was only 0.002, but the mechanism matches the user's 0.15.
+- CONCLUSION: the user is still running the OLD frame-to-bounds build. The reverted
+  0-1 tile build (image IS UV space) removes the offset entirely. Re-delivered.
+- Also hardened build_flat: shift by the UV bbox CENTRE's tile, not floor(min), so a
+  UV dipping just below 0 no longer jumps the island up a tile and clips it.
+- NOTE (separate, non-blocking): on objects COINCIDENT with other geometry (e.g. a
+  flat FloorplanTrace sitting on a building block), the portal ray can hit the block
+  instead of the trace -> dark bake. User confirmed this is NOT their normal case
+  ("bakes the right object fine"); logged for later robustness.

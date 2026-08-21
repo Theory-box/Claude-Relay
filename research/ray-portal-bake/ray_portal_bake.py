@@ -48,9 +48,14 @@ def build_flat(obj, depsgraph):
             corner_normals = me.corner_normals if len(me.corner_normals) else None
         except Exception:
             corner_normals = None
-        umin = min(uv_data[li].uv[0] for p in me.polygons for li in p.loop_indices)
-        vmin = min(uv_data[li].uv[1] for p in me.polygons for li in p.loop_indices)
-        su = -math.floor(umin); sv = -math.floor(vmin)
+        _us = [uv_data[li].uv[0] for p in me.polygons for li in p.loop_indices]
+        _vs = [uv_data[li].uv[1] for p in me.polygons for li in p.loop_indices]
+        # Shift the UVs so their bounding-box CENTRE lands in the 0..1 tile. Using
+        # the centre (not the min) means a UV that dips a hair below 0 - common with
+        # smart-project margins - does NOT shove the whole island up a tile and clip
+        # it out of frame. For normal 0..1 UVs this is a no-op (shift 0).
+        su = -math.floor((min(_us) + max(_us)) * 0.5)
+        sv = -math.floor((min(_vs) + max(_vs)) * 0.5)
         verts = []; faces = []; pos = []; nrm = []
         for poly in me.polygons:
             fidx = []
