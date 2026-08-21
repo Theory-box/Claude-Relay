@@ -379,16 +379,16 @@ class RPBAKE_OT_bake(bpy.types.Operator):
         bake_kwargs = {}
         if bake_type in ("DIFFUSE", "GLOSSY", "TRANSMISSION"):
             bake_kwargs["pass_filter"] = {"DIRECT", "INDIRECT", "COLOR"}
-        try:
-            bpy.ops.object.bake("INVOKE_DEFAULT", type=bake_type, **bake_kwargs)
-        except Exception as exc:
-            _restore_scene(orig)
-            self.report({"ERROR"}, "Native bake failed: %s" % exc)
-            return {"CANCELLED"}
-        _state["job"] = {"native": True, "obj": obj.name, "orig": orig, "started": time.time()}
+        # IMPORTANT: do NOT launch the modal bake here. When Render was confirmed through
+        # the modifier pop-up (invoke_props_dialog), launching a modal operator from inside
+        # that pop-up's execute can freeze Blender. Defer the launch by a hair via a
+        # one-shot timer so it starts in a clean context, popup fully closed.
+        _state["job"] = {"native": True, "pending": True, "obj": obj.name, "orig": orig,
+                         "bake_type": bake_type, "bake_kwargs": bake_kwargs,
+                         "started": time.time()}
         scene.rpbake_status = "Baking (native, background)..."
-        if not bpy.app.timers.is_registered(_poll_native):
-            bpy.app.timers.register(_poll_native, first_interval=0.5)
+        if not bpy.app.timers.is_registered(_launch_native):
+            bpy.app.timers.register(_launch_native, first_interval=0.02)
         self.report({"INFO"}, "Native bake started in background.")
         return {"FINISHED"}
 
@@ -583,10 +583,36 @@ def _apply_device_to_scene(scene):
         return "CPU"
 
 
+def _launch_native():
+    """One-shot: actually start the native bake, decoupled from the pop-up/execute
+    context that would otherwise deadlock a modal operator."""
+    job = _state["job"]
+    if job is None or not job.get("native") or not job.get("pending"):
+        return None
+    obj = bpy.data.objects.get(job.get("obj", "") or "")
+    try:
+        if obj is not None:
+            for o in list(bpy.context.view_layer.objects.selected):
+                o.select_set(False)
+            obj.select_set(True)
+            bpy.context.view_layer.objects.active = obj
+        bpy.ops.object.bake("INVOKE_DEFAULT", type=job["bake_type"], **job.get("bake_kwargs", {}))
+    except Exception as exc:
+        _restore_scene(job.get("orig"))
+        _set_status("Native bake failed: %s" % (str(exc)[:50]))
+        _state["job"] = None
+        return None
+    job["pending"] = False
+    job["started"] = time.time()
+    if not bpy.app.timers.is_registered(_poll_native):
+        bpy.app.timers.register(_poll_native, first_interval=0.5)
+    return None
+
+
 def _poll_native():
     """Watch Blender's own (non-blocking) bake job; when it ends, apply + restore."""
     job = _state["job"]
-    if job is None or not job.get("native"):
+    if job is None or not job.get("native") or job.get("pending"):
         return None
     try:
         running = bpy.app.is_job_running("OBJECT_BAKE")
@@ -1042,7 +1068,7 @@ def unregister():
         else:
             _restore_scene(job.get("orig"))
             _state["job"] = None
-    for t in (_poll, _poll_native):
+    for t in (_poll, _poll_native, _launch_native):
         if bpy.app.timers.is_registered(t):
             bpy.app.timers.unregister(t)
     for c in reversed(_classes):

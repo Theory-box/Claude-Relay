@@ -373,3 +373,25 @@ At the start of a session on this topic: `git checkout feature/ray-portal-bake &
   UVs before Render (auto-unwrap kicks in) or re-unwrap. Could add a "re-unwrap after
   collapse" option if wanted.
 - Committed to feature/ray-portal-bake.
+
+## GIT HYGIENE NOTE (fixed)
+- v0.12.1..v0.13.3 accidentally got committed to MAIN (a stray `git checkout main` in a
+  test command during the resolution fix was never undone). main had everything and matched
+  the delivered file; feature branch was stuck at v0.12. Fast-forwarded feature -> main so
+  both are at 651f7b0. Watch the working branch before committing.
+
+## v0.13.4 — FREEZE fix: defer native bake launch (modal-in-popup deadlock)
+- Symptom (user): intermittent hard freezes during bake; started around the modifier
+  pop-up addition; roofs (which have Solidify -> hit the pop-up path) freeze a lot.
+- Cause: Render's modifier confirmation uses invoke_props_dialog. Launching the modal
+  bake operator (bpy.ops.object.bake INVOKE_DEFAULT) from INSIDE that pop-up's execute is
+  a classic Blender deadlock/freeze.
+- Fix: _render_native no longer calls bake directly. It stores the bake params in the job
+  (pending=True) and registers a one-shot _launch_native timer (0.02s). _launch_native
+  runs AFTER the pop-up/execute context is gone, re-selects the object, launches the modal
+  bake, then registers _poll_native. _poll_native skips while pending. _launch_native added
+  to timer cleanup on unregister.
+- Verified headless: operator returns FINISHED with job pending -> launcher fires -> bake
+  runs -> poller completes -> applied + scene settings restored.
+- If freezing persists on objects with NO modifiers, cause is different (bake not
+  backgrounding from script) -> would move native bake to a subprocess like the portal path.
