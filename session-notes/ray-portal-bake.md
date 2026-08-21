@@ -258,3 +258,25 @@ At the start of a session on this topic: `git checkout feature/ray-portal-bake &
   the BACKGROUND (native bake blocks the UI), one-click + auto-apply, and no per-object
   bake-target setup. Speedup options if wanted: write only needed objects instead of the
   whole scene; optional in-process mode (faster, but freezes UI); or a native-bake mode.
+
+## v0.11 — two bake methods: Ray Portal + Blender native
+- Added a Method selector (rpbake_method enum: PORTAL / NATIVE) at the top of the panel.
+  The single Render button honours the selected method.
+- NATIVE mode: sets up the shared RESULT image as an active Image Texture node (bake
+  target) on the object's active material (creates/fills the slot if needed), sets
+  Cycles + samples + bake margin/use_clear + device, then runs
+  bpy.ops.object.bake('INVOKE_DEFAULT', type='COMBINED') - Blender's own NON-BLOCKING
+  bake (user confirmed native bake doesn't freeze Blender; it shows Blender's progress
+  bar). A _poll_native timer watches bpy.app.is_job_running('OBJECT_BAKE'); on completion
+  it ensures the result node is active (shown on mesh) and RESTORES the user's scene
+  settings (engine, samples, device, bake margin/use_clear) that the bake temporarily
+  changed.
+- PORTAL mode unchanged (background subprocess worker) - regression-tested, still bakes
+  + auto-applies.
+- epsilon (Surface Offset) shown only in PORTAL mode.
+- Verified headless: native bake produces a correct lit result (combined pass) into the
+  RESULT image as the active node; operator path FINISHED -> poller applies -> settings
+  restored; portal path still works; register/unregister clean; both timers cleaned up.
+- Guidance recap for the user: NATIVE = faster, foreground (own progress bar), needs a
+  material; PORTAL = ~1.9x slower + scene-write overhead but fully background and needs
+  no bake-target setup.

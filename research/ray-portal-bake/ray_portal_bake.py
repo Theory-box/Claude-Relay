@@ -241,7 +241,7 @@ class RPBAKE_OT_bake(bpy.types.Operator):
 
     def execute(self, context):
         if _state["job"] is not None:
-            self.report({"WARNING"}, "A bake is already running.")
+            self.report({"WARNING"}, "A render is already running.")
             return {"CANCELLED"}
         obj = context.active_object
         if obj is None or obj.type != "MESH":
@@ -250,13 +250,17 @@ class RPBAKE_OT_bake(bpy.types.Operator):
         if obj.data.uv_layers.active is None:
             self.report({"WARNING"}, "Object has no UV map.")
             return {"CANCELLED"}
-        if not obj.data.materials:
-            self.report({"WARNING"}, "Object has no material.")
-            return {"CANCELLED"}
 
         scene = context.scene
         res = int(scene.rpbake_resolution)
         samples = int(scene.rpbake_samples)
+
+        if scene.rpbake_method == "NATIVE":
+            return self._render_native(context, obj, res, samples)
+
+        if not obj.data.materials:
+            self.report({"WARNING"}, "Object has no material.")
+            return {"CANCELLED"}
         eps = float(scene.rpbake_epsilon)
         mode = _get_device_mode()
 
@@ -291,13 +295,81 @@ class RPBAKE_OT_bake(bpy.types.Operator):
         scene.rpbake_status = "Rendering..."
         if not bpy.app.timers.is_registered(_poll):
             bpy.app.timers.register(_poll, first_interval=0.2)
-        self.report({"INFO"}, "Baking in background...")
+        self.report({"INFO"}, "Rendering in background (Ray Portal)...")
+        return {"FINISHED"}
+
+    def _render_native(self, context, obj, res, samples):
+        scene = context.scene
+        if context.object is not None and context.object.mode != "OBJECT":
+            try:
+                bpy.ops.object.mode_set(mode="OBJECT")
+            except Exception:
+                pass
+        # ensure a real active material with nodes (fill an empty active slot if needed)
+        mat = obj.active_material
+        if mat is None:
+            mat = bpy.data.materials.new(obj.name + "_RPBake")
+            mat.use_nodes = True
+            if len(obj.data.materials) == 0:
+                obj.data.materials.append(mat)
+            else:
+                obj.data.materials[obj.active_material_index] = mat
+        elif not mat.use_nodes:
+            mat.use_nodes = True
+        nt = mat.node_tree
+        # target image = the shared RESULT image at the requested resolution
+        res_img = bpy.data.images.get(RESULT_IMAGE_NAME)
+        if res_img is None:
+            res_img = bpy.data.images.new(RESULT_IMAGE_NAME, res, res, alpha=True)
+            res_img.use_fake_user = True
+        elif tuple(res_img.size) != (res, res):
+            res_img.scale(res, res)
+        tex = None
+        for n in nt.nodes:
+            if n.type == "TEX_IMAGE" and n.image == res_img:
+                tex = n
+                break
+        if tex is None:
+            anchor = nt.nodes.active
+            tex = nt.nodes.new("ShaderNodeTexImage")
+            tex.image = res_img
+            if anchor is not None and anchor != tex:
+                tex.location = (anchor.location.x - 400, anchor.location.y)
+        nt.nodes.active = tex  # native bake targets the active image node
+        # remember user's settings so we can restore them after the async bake
+        orig = {"scene": scene.name, "engine": scene.render.engine,
+                "samples": scene.cycles.samples,
+                "device": scene.cycles.device, "margin": scene.render.bake.margin,
+                "use_clear": scene.render.bake.use_clear}
+        scene.render.engine = "CYCLES"
+        scene.cycles.samples = samples
+        _apply_device_to_scene(scene)
+        try:
+            scene.render.bake.margin = max(2, res // 128)
+            scene.render.bake.use_clear = True
+        except Exception:
+            pass
+        for o in list(context.view_layer.objects.selected):
+            o.select_set(False)
+        obj.select_set(True)
+        context.view_layer.objects.active = obj
+        try:
+            bpy.ops.object.bake("INVOKE_DEFAULT", type="COMBINED")
+        except Exception as exc:
+            _restore_scene(orig)
+            self.report({"ERROR"}, "Native bake failed: %s" % exc)
+            return {"CANCELLED"}
+        _state["job"] = {"native": True, "obj": obj.name, "orig": orig, "started": time.time()}
+        scene.rpbake_status = "Baking (native, background)..."
+        if not bpy.app.timers.is_registered(_poll_native):
+            bpy.app.timers.register(_poll_native, first_interval=0.5)
+        self.report({"INFO"}, "Native bake started in background.")
         return {"FINISHED"}
 
 
 def _poll():
     job = _state["job"]
-    if job is None:
+    if job is None or job.get("native"):
         return None
     proc = job["proc"]
     done = proc.poll() is not None
@@ -406,6 +478,75 @@ def _apply_result_to_object(obj):
             tex.location = (anchor.location.x - 400, anchor.location.y)
     nt.nodes.active = tex
     return True
+
+
+def _apply_device_to_scene(scene):
+    """Set scene.cycles.device from the addon device preference, but only switch to
+    GPU if the user actually has a GPU device enabled in Cycles prefs. Returns label."""
+    mode = _get_device_mode()
+    try:
+        if mode == "CPU":
+            scene.cycles.device = "CPU"; return "CPU"
+        prefs = bpy.context.preferences.addons.get("cycles")
+        gpu = False
+        if prefs is not None:
+            for d in prefs.preferences.devices:
+                if getattr(d, "type", "") != "CPU" and getattr(d, "use", False):
+                    gpu = True; break
+        scene.cycles.device = "GPU" if gpu else "CPU"
+        return "GPU" if gpu else "CPU"
+    except Exception:
+        return "CPU"
+
+
+def _poll_native():
+    """Watch Blender's own (non-blocking) bake job; when it ends, apply + restore."""
+    job = _state["job"]
+    if job is None or not job.get("native"):
+        return None
+    try:
+        running = bpy.app.is_job_running("OBJECT_BAKE")
+    except Exception:
+        running = False
+    # is_job_running can read False in the instant before the job thread spins up,
+    # so give it a short grace period before trusting a "finished" reading.
+    if not running and time.time() - job["started"] > 2.0:
+        obj = bpy.data.objects.get(job.get("obj", ""))
+        try:
+            _apply_result_to_object(obj)
+        except Exception:
+            pass
+        _restore_scene(job.get("orig"))
+        _set_status("Baked (native)")
+        _state["job"] = None
+        try:
+            for area in bpy.context.screen.areas:
+                area.tag_redraw()
+        except Exception:
+            pass
+        return None
+    if time.time() - job["started"] > 3600:
+        _restore_scene(job.get("orig"))
+        _set_status("Native bake timed out.")
+        _state["job"] = None
+        return None
+    return 0.5
+
+
+def _restore_scene(orig):
+    if not orig:
+        return
+    sc = bpy.data.scenes.get(orig.get("scene", ""))
+    if sc is None:
+        return
+    try:
+        sc.render.engine = orig["engine"]
+        sc.cycles.samples = orig["samples"]
+        sc.cycles.device = orig["device"]
+        sc.render.bake.margin = orig["margin"]
+        sc.render.bake.use_clear = orig["use_clear"]
+    except Exception:
+        pass
 
 
 class RPBAKE_OT_show_on_mesh(bpy.types.Operator):
@@ -585,10 +726,12 @@ class RPBAKE_PT_panel(bpy.types.Panel):
     def draw(self, context):
         layout = self.layout
         sc = context.scene
+        layout.prop(sc, "rpbake_method", expand=True)
         col = layout.column(align=True)
         col.prop(sc, "rpbake_resolution")
         col.prop(sc, "rpbake_samples")
-        col.prop(sc, "rpbake_epsilon")
+        if sc.rpbake_method == "PORTAL":
+            col.prop(sc, "rpbake_epsilon")
         busy = _state["job"] is not None
         r = layout.row()
         r.enabled = not busy
@@ -605,6 +748,16 @@ _classes = (RPBAKE_OT_bake, RPBAKE_OT_show_on_mesh, RPBAKE_OT_save,
 
 
 def register():
+    bpy.types.Scene.rpbake_method = bpy.props.EnumProperty(
+        name="Method", default="PORTAL",
+        items=[
+            ("PORTAL", "Ray Portal",
+             "Bake the lit surface via the Ray Portal BSDF in a background process "
+             "(non-blocking; needs no bake-target setup on the object)"),
+            ("NATIVE", "Blender Bake",
+             "Use Blender's native Combined bake (faster; runs in the background with "
+             "Blender's own progress bar)"),
+        ])
     bpy.types.Scene.rpbake_resolution = bpy.props.IntProperty(name="Resolution", default=1024, min=64, max=8192)
     bpy.types.Scene.rpbake_samples = bpy.props.IntProperty(name="Samples", default=128, min=1, max=4096)
     bpy.types.Scene.rpbake_epsilon = bpy.props.FloatProperty(name="Surface Offset", default=0.02, min=0.0001, max=1.0, precision=4)
@@ -616,16 +769,21 @@ def register():
 def unregister():
     job = _state["job"]
     if job is not None:
-        try:
-            job["proc"].kill()
-        except Exception:
-            pass
-        _finish(job)
-    if bpy.app.timers.is_registered(_poll):
-        bpy.app.timers.unregister(_poll)
+        if not job.get("native"):
+            try:
+                job["proc"].kill()
+            except Exception:
+                pass
+            _finish(job)
+        else:
+            _restore_scene(job.get("orig"))
+            _state["job"] = None
+    for t in (_poll, _poll_native):
+        if bpy.app.timers.is_registered(t):
+            bpy.app.timers.unregister(t)
     for c in reversed(_classes):
         bpy.utils.unregister_class(c)
-    for p in ("rpbake_resolution", "rpbake_samples", "rpbake_epsilon", "rpbake_status"):
+    for p in ("rpbake_method", "rpbake_resolution", "rpbake_samples", "rpbake_epsilon", "rpbake_status"):
         if hasattr(bpy.types.Scene, p):
             delattr(bpy.types.Scene, p)
 
