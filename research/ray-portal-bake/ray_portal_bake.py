@@ -239,6 +239,29 @@ class RPBAKE_OT_bake(bpy.types.Operator):
                       "apply the result back onto the mesh when done (background Cycles)")
     bl_options = {"REGISTER"}
 
+    collapse_modifiers: bpy.props.BoolProperty(
+        name="Apply (collapse) all modifiers",
+        description=("Permanently apply every modifier so the bake sees real geometry. "
+                     "Modifier-made geometry (e.g. Solidify) has no real UVs and bakes "
+                     "black. Uncheck to bake the object as-is"),
+        default=True)
+
+    def invoke(self, context, event):
+        obj = context.active_object
+        if obj is not None and obj.type == "MESH" and len(obj.modifiers) > 0:
+            return context.window_manager.invoke_props_dialog(self, width=340)
+        return self.execute(context)
+
+    def draw(self, context):
+        obj = context.active_object
+        n = len(obj.modifiers) if (obj is not None and obj.type == "MESH") else 0
+        col = self.layout.column()
+        col.label(text="This object has %d modifier%s." % (n, "s" if n != 1 else ""), icon="MODIFIER")
+        col.label(text="Baking needs real geometry - modifier-made")
+        col.label(text="geometry (e.g. Solidify) can bake black.")
+        col.separator()
+        col.prop(self, "collapse_modifiers")
+
     def execute(self, context):
         if _state["job"] is not None:
             self.report({"WARNING"}, "A render is already running.")
@@ -247,6 +270,8 @@ class RPBAKE_OT_bake(bpy.types.Operator):
         if obj is None or obj.type != "MESH":
             self.report({"WARNING"}, "Select a mesh object.")
             return {"CANCELLED"}
+        if self.collapse_modifiers and len(obj.modifiers) > 0:
+            _apply_all_modifiers(context, obj)
         if obj.data.uv_layers.active is None:
             if not _ensure_uvs(context, obj):
                 self.report({"WARNING"}, "Object has no UV map and auto smart-unwrap failed.")
@@ -481,6 +506,34 @@ def _apply_result_to_object(obj):
             tex.location = (anchor.location.x - 400, anchor.location.y)
     nt.nodes.active = tex
     return True
+
+
+def _apply_all_modifiers(context, obj):
+    """Permanently apply (collapse) every modifier on obj so the bake sees real geometry."""
+    if not obj.modifiers:
+        return True
+    try:
+        if context.object is not None and context.object.mode != "OBJECT":
+            bpy.ops.object.mode_set(mode="OBJECT")
+    except Exception:
+        pass
+    if obj.data.users > 1:  # modifier_apply refuses on shared mesh data
+        obj.data = obj.data.copy()
+    for o in list(context.view_layer.objects.selected):
+        o.select_set(False)
+    obj.select_set(True)
+    context.view_layer.objects.active = obj
+    ok = True
+    with context.temp_override(active_object=obj, selected_objects=[obj], object=obj):
+        for mod in list(obj.modifiers):
+            try:
+                bpy.ops.object.modifier_apply(modifier=mod.name)
+            except Exception:
+                try:
+                    obj.modifiers.remove(mod)  # e.g. disabled/invalid - drop it
+                except Exception:
+                    ok = False
+    return ok
 
 
 def _ensure_uvs(context, obj):

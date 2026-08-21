@@ -356,3 +356,20 @@ At the start of a session on this topic: `git checkout feature/ray-portal-bake &
 - Verified: stripped an object's UVs (0 layers) -> _ensure_uvs creates 1 layer filling
   ~0-1, mode returns to OBJECT, and a subsequent bake fills (59.6%).
 - Committed to feature/ray-portal-bake.
+
+## v0.13.3 — Render asks to collapse modifiers (fixes Solidify black bake)
+- Problem (user): a roof with a Solidify modifier baked black - native bake works off the
+  base mesh UVs, so modifier-generated geometry has no real UVs. Fix is to apply modifiers.
+- Added: if the active object has modifiers, Render's invoke() shows a props dialog
+  ("This object has N modifiers... bake needs real geometry") with a checkbox
+  "Apply (collapse) all modifiers" (default ON) + OK/Cancel. OK -> execute collapses then
+  bakes; Cancel -> abort. No modifiers -> no popup, bakes directly.
+- Helper _apply_all_modifiers: OBJECT mode, single-users shared mesh data (modifier_apply
+  refuses on multi-user), applies each modifier (removes any that can't apply).
+- execute() collapses (when checkbox on & modifiers present) BEFORE the UV check/bake.
+- Verified: Solidify(0.1)+Bevel applied -> 890->6177 faces, 0 modifiers left, bake proceeds.
+- NOTE for user: Solidify's applied underside copies the top's UVs (overlap); the top
+  bakes fine but the shared underside overlaps. If a fully clean bake is needed, delete the
+  UVs before Render (auto-unwrap kicks in) or re-unwrap. Could add a "re-unwrap after
+  collapse" option if wanted.
+- Committed to feature/ray-portal-bake.
