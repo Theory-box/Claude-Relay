@@ -388,10 +388,16 @@ class RPBAKE_OT_show_on_mesh(bpy.types.Operator):
             self.report({"WARNING"}, "No baked image yet.")
             return {"CANCELLED"}
         obj = context.active_object
-        mat = obj.active_material if obj is not None else None
-        if mat is None or mat.node_tree is None:
-            self.report({"WARNING"}, "Active object has no material.")
+        if obj is None:
+            self.report({"WARNING"}, "No active object.")
             return {"CANCELLED"}
+        mat = obj.active_material
+        if mat is None:
+            mat = bpy.data.materials.new(obj.name + "_RPBake")
+            mat.use_nodes = True
+            obj.data.materials.append(mat)
+        elif not mat.use_nodes:
+            mat.use_nodes = True
         nt = mat.node_tree
         tex = None
         for n in nt.nodes:

@@ -164,3 +164,19 @@ At the start of a session on this topic: `git checkout feature/ray-portal-bake &
   sub-region object: diff 0.0022 (exact).
 - NOTE for messy/overlapping atlas UVs: bake still visible, but faces that overlap in
   UV can't all round-trip (physics of shared UV space, not a bug). Clean unwraps fit.
+
+## v0.8.1 — tested on CORRECT file (Exterior_78_Farmington_v4.blend)
+- v4 file IS lit: Cycles, Sun (energy 1.0) + world 0.051 strength 3.9. 64 mesh objects.
+- Ran the ACTUAL addon bake on a smart-projected object: NOT transparent. Coverage
+  23.7% (the smart-project islands; gaps between islands are transparent, normal),
+  lit gray ~0.44, frame captured (fx0.007 fy0.011 span0.978). Bake image shows the
+  page-4 surface correctly in each island.
+- Fit on the real file (FloorplanTrace.006, smart-projected, has page-4 material):
+  bake + Show-on-Mesh lands EXACTLY on the mesh (shape/seams/position match). Residual
+  0.17 diff is view-dependent shading (lit bake head-on vs viewed at an angle), not a
+  coordinate error.
+- FIX: some objects (e.g. FloorplanTrace.001) have NO material -> Show-on-Mesh used to
+  cancel. Now it creates a material if the object has none.
+- CONCLUSION: v0.8 resolves the "transparent for any object" (was 0-1 framing on sub-
+  region UVs). Frame-to-bounds + inverse Mapping = visible bake that fits the object's
+  own UVs.
