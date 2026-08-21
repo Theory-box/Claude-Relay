@@ -1771,7 +1771,7 @@ void main(){
 const cw=document.getElementById('cwgpu');
 if(!cw){ return; }
 const GP={active:false,initing:false,device:null,ctx:null,format:null,prevGpu:false,
-  intPipe:null,conPipe:null,renPipe:null,clearPipe:null,gridPipe:null,collPipe:null,collReady:false,collSupported:false,grid:null,maxStorageBuf:8,lastOverflow:null,bendPipe:null,bendSupported:false,bendReady:false,propsDirty:false,
+  intPipe:null,conPipe:null,renPipe:null,clearPipe:null,gridPipe:null,collPipe:null,collReady:false,collSupported:false,grid:null,maxStorageBuf:8,lastOverflow:null,bendPipe:null,bendSupported:false,bendReady:false,propsDirty:false,refreshN:0,refreshErr:null,
   bufA:null,bufB:null,bufPrev:null,bufMeta:null,bufRange:null,bufNbr:null,bufRest:null,bufSeg:null,bufStyle:null,bufParams:null,bufCam:null,
   bgIntAB:null,bgIntBA:null,bgConAB:null,bgConBA:null,bgRenA:null,bgRenB:null,
   N:0,numSeg:0,numDir:0,curBuf:0,frameN:0,readbacks:0,lastExit:null,wgslMsgs:[],adapterInfo:null,lastStats:null,lastStatsT:0,telemBusy:false,log:[],diagRunning:false,_pos0:null,_segCache:null,_fixed:null};
@@ -2192,7 +2192,7 @@ function packBend(N,device,mk,bg,B,ST,CD,UN){
     GP.bendReady=true;
   }catch(e){ GP.bendReady=false; console.warn('[gpuBend] pack failed:',e.message); }
 }
-function gpuRefreshProps(){ if(!GP.active||!GP.device)return; const dev=GP.device, N=GP.N; try{
+function gpuRefreshProps(){ if(!GP.active||!GP.device)return; const dev=GP.device, N=GP.N; GP.refreshN=(GP.refreshN||0)+1; try{
   // refresh ONLY property-derived buffers (mass, collision radius/pad/skip, render) — positions untouched so the running sim is preserved
   const meta=new Float32Array(N*4);
   for(let i=0;i<N;i++){ const n=G.nodes[i]||{}, o=G.objs[n.obj]||{}; meta[i*4]=n.fixed?0.0:((n.inv!=null&&n.inv>0)?n.inv:1.0); meta[i*4+1]=(o.damp||0); meta[i*4+2]=n.solid?1.0:0.0; }
@@ -2200,7 +2200,7 @@ function gpuRefreshProps(){ if(!GP.active||!GP.device)return; const dev=GP.devic
   const segList=GP._segList;
   if(segList){
     if(GP.bufStyle){ const ns=segList.length, style=new Float32Array(Math.max(1,ns)*4);
-      for(let sI=0;sI<ns;sI++){ const o=G.objs[segList[sI].obj]||{}, col=parseCol(o.color||'#88eeee'), rr=(typeof effR==='function'?effR(o):(o.r||4));
+      for(let sI=0;sI<ns;sI++){ const o=G.objs[segList[sI].obj]||{}, col=(typeof parseCol==='function'?parseCol(o.color||'#88eeee'):[136,238,238]), rr=(typeof effR==='function'?effR(o):(o.r||4));
         style[sI*4]=col[0];style[sI*4+1]=col[1];style[sI*4+2]=col[2];style[sI*4+3]=Math.max(0.6,rr); }
       dev.queue.writeBuffer(GP.bufStyle,0,style); }
     if(GP.bufSegF && GP._segF){ const sf=GP._segF, ns=segList.length;
@@ -2213,7 +2213,7 @@ function gpuRefreshProps(){ if(!GP.active||!GP.device)return; const dev=GP.devic
     for(let i=0;i<N;i++){ const nb=G.nbrs[i], n=G.nodes[i]||{}, o=G.objs[n.obj]||{};
       if(nb && nb.length===2){ bd[i*4+2]=(typeof effStiff==='function'?effStiff(o):(o.stiff||0))*0.5; bd[i*4+3]=(typeof effCurl==='function'?effCurl(o):(o.curl||0))*((o.r||4)*3); } }
     dev.queue.writeBuffer(GP.bufBend,0,bd); }
-}catch(e){ console.warn('[gpuRefreshProps]',e.message); } }
+}catch(e){ GP.refreshErr=e.message; console.warn('[gpuRefreshProps]',e.message); if(typeof status==='function')status('gpuRefresh error: '+e.message,true); } }
 function step(speed){ if(GP.diagRunning)return; if(!GP.active||!GP.device)return; const dev=GP.device, WG=Math.max(1,Math.ceil(GP.N/64)); const n=speed||1;
   for(let s=0;s<n;s++){ packParams();
     const enc=dev.createCommandEncoder();
@@ -2275,12 +2275,14 @@ async function deactivate(readback,reason){ if(!GP.active){ S.gpuPhysics=false; 
 
 window.gpuPhysicsSupported=supported;
 window.gpuPhysicsActive=()=>GP.active;
+setInterval(function(){ if(GP.active && GP.propsDirty){ GP.propsDirty=false; gpuRefreshProps(); } },120);
 window.gpuPhysicsStep=step;
 window.gpuPhysicsRender=render;
 window.setGpuPhysicsMode=function(on){ if(on){ activate(); } else { deactivate(true,'toggled off'); } };
 window.gpuPhysicsDiscard=function(reason){ if(GP.active){ GP.active=false; S.gpuPhysics=false; S.gpu=GP.prevGpu; cw.style.display='none'; const cgl=document.getElementById('cgl'); if(cgl)cgl.style.display=(S.gpu||S.micro)?'block':'none'; badge(false,reason||'scene changed'); setToggle(false); status('off \u00B7 '+(reason||'scene changed')); window.RD=true; } };
 window.gpuPhysicsDropToCPU=function(reason){ if(GP.active) deactivate(true,reason||'editing'); };
 window.gpuPhysicsDiagnostics=()=>({active:GP.active,supported:supported(),nodes:GP.N,segs:GP.numSeg,directedLinks:GP.numDir,frame:GP.frameN,readbacks:GP.readbacks,lastExit:GP.lastExit,passes:GP_PASSES,relax:GP_RELAX,
+  refreshN:GP.refreshN,refreshErr:GP.refreshErr,bendReady:GP.bendReady,
   collision:{supported:GP.collSupported,ready:GP.collReady,maxStorageBuf:GP.maxStorageBuf,iters:(S.gpuCollIters!=null?(S.gpuCollIters|0):(S.iters||4)),lastOverflow:(GP.lastOverflow!=null?GP.lastOverflow:null),
     grid:(GP.grid?{gx:GP.grid.gx,gy:GP.grid.gy,cell:GP.grid.cell,numCells:GP.grid.numCells,cap:GP.grid.cap,reach:+GP.grid.reach.toFixed(2)}:null),omega:GP_COLL_OMEGA,penFrac:GP_COLL_PENFRAC,maxDisp:GP_COLL_MAXDISP}});
 
