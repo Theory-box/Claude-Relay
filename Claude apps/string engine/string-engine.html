@@ -1240,7 +1240,7 @@ function dragApply(){if(grab<0||grab>=G.nodes.length)return;const n=G.nodes[grab
 cvs.style.cursor='grab';
 cvs.addEventListener('pointerdown',e=>{
   if(e.button===1){const r=cvs.getBoundingClientRect();panning=true;panSX=e.clientX-r.left;panSY=e.clientY-r.top;panOX=view.ox;panOY=view.oy;cvs.setPointerCapture(e.pointerId);cvs.style.cursor='move';e.preventDefault();return;}   // middle-mouse pan
-  if(window.gpuPhysicsActive&&window.gpuPhysicsActive()){ if(tool==='move'){ const [gmx,gmy]=canvasXY(e); if(window.gpuPick)window.gpuPick(gmx,gmy); return; } if(window.gpuPhysicsDropToCPU)window.gpuPhysicsDropToCPU('editing'); return; }  // GPU move = pick+select (readback); middle-mouse pans; other tools change topology -> drop to CPU
+  if(window.gpuPhysicsActive&&window.gpuPhysicsActive()){ if(tool==='move'){ const [gmx,gmy]=canvasXY(e); if(window.gpuPick)window.gpuPick(gmx,gmy); try{cvs.setPointerCapture(e.pointerId);}catch(_){} return; } if(window.gpuPhysicsDropToCPU)window.gpuPhysicsDropToCPU('editing'); return; }  // GPU move = pick+select (readback); middle-mouse pans; other tools change topology -> drop to CPU
   const [mx,my]=canvasXY(e);
   if(tool==='draw'){let oi=S.selected;if(oi<0||!G.objs[oi])oi=G.objs.length?G.objs.length-1:newMaterial('Material 1');
     stroke=[{x:mx,y:my}];stroke.oi=oi;cvs.setPointerCapture(e.pointerId);return;}
@@ -1260,15 +1260,17 @@ cvs.addEventListener('pointermove',e=>{
     if(hyp2(mx-last.x,my-last.y)>=minD)stroke.push({x:mx,y:my});return;}
   if(erasing){eraseAt(mx,my,Math.max(10,14/view.z));return;}
   if(cutting){cx1=mx;cy1=my;return;}
+  if(window.gpuGrabActive&&window.gpuGrabActive()){ if(window.gpuGrabMove)window.gpuGrabMove(mx,my); return; }
   if(grab>=0){gx=mx;gy=my;return;}
   if(tool==='move')pickHover(mx,my);});   // idle hover highlight
 cvs.addEventListener('pointerup',()=>{
+  if(window.gpuGrabClear)window.gpuGrabClear();
   if(stroke){if(stroke.length>=2)addStrokeToObject(stroke.oi,stroke);stroke=null;return;}
   if(erasing){erasing=false;return;}
   if(panning){panning=false;cvs.style.cursor=tool==='cut'?'crosshair':'grab';return;}
   if(cutting){cutting=false;if(hyp2(cx1-cx0,cy1-cy0)>4)cutLine(cx0,cy0,cx1,cy1);return;}
   grab=-1;cvs.style.cursor=(tool==='draw'||tool==='erase')?'crosshair':'grab';});
-cvs.addEventListener('pointercancel',()=>{grab=-1;cutting=false;panning=false;erasing=false;stroke=null;cvs.style.cursor=tool==='cut'?'crosshair':'grab';});
+cvs.addEventListener('pointercancel',()=>{if(window.gpuGrabClear)window.gpuGrabClear();grab=-1;cutting=false;panning=false;erasing=false;stroke=null;cvs.style.cursor=tool==='cut'?'crosshair':'grab';});
 cvs.addEventListener('wheel',e=>{e.preventDefault();const r=cvs.getBoundingClientRect();const sx=e.clientX-r.left,sy=e.clientY-r.top;
   const pinch=e.ctrlKey;                                                          // Mac pinch surfaces as wheel+ctrlKey
   const mouseWheel=!pinch&&e.deltaX===0&&Math.abs(e.deltaY)>=50&&Number.isInteger(e.deltaY);   // classic mouse notch
@@ -1771,7 +1773,7 @@ void main(){
 const cw=document.getElementById('cwgpu');
 if(!cw){ return; }
 const GP={active:false,initing:false,device:null,ctx:null,format:null,prevGpu:false,
-  intPipe:null,conPipe:null,renPipe:null,clearPipe:null,gridPipe:null,collPipe:null,collReady:false,collSupported:false,grid:null,maxStorageBuf:8,lastOverflow:null,bendPipe:null,bendSupported:false,bendReady:false,propsDirty:false,refreshN:0,refreshErr:null,affPipe:null,gridTPipe:null,affSupported:false,affReady:false,affGrid:null,
+  intPipe:null,conPipe:null,renPipe:null,clearPipe:null,gridPipe:null,collPipe:null,collReady:false,collSupported:false,grid:null,maxStorageBuf:8,lastOverflow:null,bendPipe:null,bendSupported:false,bendReady:false,propsDirty:false,refreshN:0,refreshErr:null,affPipe:null,gridTPipe:null,affSupported:false,affReady:false,affGrid:null,grabNode:-1,grabX:0,grabY:0,
   bufA:null,bufB:null,bufPrev:null,bufMeta:null,bufRange:null,bufNbr:null,bufRest:null,bufSeg:null,bufStyle:null,bufParams:null,bufCam:null,
   bgIntAB:null,bgIntBA:null,bgConAB:null,bgConBA:null,bgRenA:null,bgRenB:null,
   N:0,numSeg:0,numDir:0,curBuf:0,frameN:0,readbacks:0,lastExit:null,wgslMsgs:[],adapterInfo:null,lastStats:null,lastStatsT:0,telemBusy:false,log:[],diagRunning:false,_pos0:null,_segCache:null,_fixed:null};
@@ -2041,7 +2043,7 @@ function parseCol(css){ if(_colCache.has(css))return _colCache.get(css);
   catch(e){return [0.53,0.93,0.93];} }
 
 const WGSL_INT=`
-struct P { count:u32, temp:f32, damp:f32, depth:f32, relax:f32, grab:i32, frameN:u32, pad:u32, W:f32, H:f32, wpad:f32, pad2:f32, };
+struct P { count:u32, temp:f32, damp:f32, depth:f32, relax:f32, grab:i32, frameN:u32, grabX:f32, W:f32, H:f32, wpad:f32, grabY:f32, };
 @group(0) @binding(0) var<storage, read>       posIn  : array<vec4<f32>>;
 @group(0) @binding(1) var<storage, read_write> posOut : array<vec4<f32>>;
 @group(0) @binding(2) var<storage, read_write> prv    : array<vec4<f32>>;
@@ -2053,6 +2055,7 @@ fn main(@builtin(global_invocation_id) gid:vec3<u32>){
   let i=gid.x; if(i>=U.count){ return; }
   let mv=nmeta[i]; let invm=mv.x; let odamp=mv.y; let solid=mv.z;
   let p=posIn[i].xyz; let pr=prv[i].xyz;
+  if(i32(i)==U.grab){ posOut[i]=vec4<f32>(U.grabX,U.grabY,p.z,0.0); prv[i]=vec4<f32>(U.grabX,U.grabY,p.z,0.0); return; }
   if(invm==0.0){ posOut[i]=vec4<f32>(p,0.0); prv[i]=vec4<f32>(p,0.0); return; }
   let kick=U.temp*0.8;
   var fr=min(0.95, 0.05+U.damp+odamp);
@@ -2077,7 +2080,7 @@ fn main(@builtin(global_invocation_id) gid:vec3<u32>){
   prv[i]=vec4<f32>(p,0.0);
 }`;
 const WGSL_CON=`
-struct P { count:u32, temp:f32, damp:f32, depth:f32, relax:f32, grab:i32, frameN:u32, pad:u32, W:f32, H:f32, wpad:f32, pad2:f32, };
+struct P { count:u32, temp:f32, damp:f32, depth:f32, relax:f32, grab:i32, frameN:u32, grabX:f32, W:f32, H:f32, wpad:f32, grabY:f32, };
 @group(0) @binding(0) var<storage, read>       posIn     : array<vec4<f32>>;
 @group(0) @binding(1) var<storage, read_write> posOut    : array<vec4<f32>>;
 @group(0) @binding(2) var<storage, read>       nmeta     : array<vec4<f32>>;
@@ -2273,8 +2276,8 @@ function packCollision(segList,N,device,mk,bg,B,ST,CD,CS,UN){
 
 function writeParamsTo(buf,count){ const ab=new ArrayBuffer(48),dv=new DataView(ab);
   dv.setUint32(0,count>>>0,true); dv.setFloat32(4,S.temp||0,true); dv.setFloat32(8,S.damp||0,true); dv.setFloat32(12,S.depth||0,true);
-  dv.setFloat32(16,GP_RELAX,true); dv.setInt32(20,-1,true); dv.setUint32(24,GP.frameN>>>0,true); dv.setUint32(28,0,true);
-  dv.setFloat32(32,S.W||0,true); dv.setFloat32(36,S.H||0,true); dv.setFloat32(40,S.pad||0,true); dv.setFloat32(44,0,true);
+  dv.setFloat32(16,GP_RELAX,true); dv.setInt32(20,(GP.grabNode!=null&&GP.grabNode>=0)?GP.grabNode:-1,true); dv.setUint32(24,GP.frameN>>>0,true); dv.setFloat32(28,GP.grabX||0,true);
+  dv.setFloat32(32,S.W||0,true); dv.setFloat32(36,S.H||0,true); dv.setFloat32(40,S.pad||0,true); dv.setFloat32(44,GP.grabY||0,true);
   GP.device.queue.writeBuffer(buf,0,ab); }
 function packParams(){ writeParamsTo(GP.bufParams,GP.N); }
 function packCam(){ const w=cw.width||1,h=cw.height||1,sc=S.dpr*view.z,ox=S.dpr*view.ox,oy=S.dpr*view.oy;
@@ -2436,10 +2439,14 @@ async function readbackToCPU(){ if(!GP.device||!GP.N)return false;
   const N=Math.min(GP.N,G.nodes.length);
   for(let i=0;i<N;i++){ NX[i]=arr[i*4]; NY[i]=arr[i*4+1]; NH[i]=arr[i*4+2]; NPX[i]=arr[i*4]; NPY[i]=arr[i*4+1]; NPH[i]=arr[i*4+2]; }
   GP.readbacks++; window.RD=true; return true; }
+window.gpuGrabMove=function(x,y){ if(GP.grabNode>=0){ GP.grabX=x; GP.grabY=y; } };
+window.gpuGrabClear=function(){ GP.grabNode=-1; };
+window.gpuGrabActive=function(){ return GP.active && GP.grabNode>=0; };
 window.gpuPick=function(mx,my){ if(!GP.active)return;
   readbackToCPU().then(function(){
     let best=-1,bd=28*28;
     for(let i=0;i<G.nodes.length;i++){ const n=G.nodes[i]; const dx=n.x-mx,dy=n.y-my,d=dx*dx+dy*dy; if(d<bd){bd=d;best=i;} }
+    if(best>=0){ GP.grabNode=best; GP.grabX=mx; GP.grabY=my; }   // start dragging the picked node
     let obj=-1;
     if(best>=0){ obj=G.nodes[best].obj; }
     else { const si=(typeof nearestSeg==='function')?nearestSeg(mx,my,Math.max(8,12/(view.z||1))):-1; if(si>=0)obj=G.segs[si].obj; }

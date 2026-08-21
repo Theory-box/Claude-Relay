@@ -451,3 +451,17 @@ rebuildAffinityLive) and on->off (affReady=false). So enabling affinity from zer
 the pass starts next frame; disabling stops it. Uses the same packAffinity that already works on rebuild.
 LESSON: a subsystem gated on a build-time-latched ready flag can't self-enable from a zero start — the enable
 transition must (re)initialize it. (Collision/bend don't hit this: they're active from build in normal scenes.)
+
+## GRAB-TO-DRAG wired in GPU mode. Audit also corrected two audit-time assumptions.
+- Collision is NOT enable-latched (packCollision builds whenever segments exist + wantColl; not gated on solids).
+  The collide shader's bit-0 check is BOND not solid; solid (bit1) only toggles 2D vs 3D depth. So the "collision-
+  solid latch" flagged in the audit isn't real. Minor remaining: toggling an object's solid doesn't refresh bufSegI
+  live (segI built once) so the 2D/3D-depth choice for that seg is stale until rebuild — low priority.
+- Grab was half-plumbed: WGSL_INT struct had grab:i32 but main() never used it, packParams hard-coded grab=-1, and
+  there was no target position. FIX: renamed the two P-struct pad slots -> grabX/grabY (same offsets; WGSL_CON
+  ignores them); WGSL_INT now pins node[grab] to (grabX,grabY,z) with zero velocity at top of main. All grab state
+  on GP (grabNode/grabX/grabY) via window.gpuGrabMove/Clear/Active. gpuPick sets grabNode=picked node + grabX/Y.
+  pointerdown(move,GPU) setPointerCapture; pointermove updates target via gpuGrabMove; pointerup/cancel clear.
+  CPU grab var untouched (separate path); no conflict since GP.active gates the GPU branch. WGSL_INT+CON naga-valid.
+Remaining GPU-mode gaps: BONDING (formation+breaking+holding existing bonds — next, hybrid), auto-spacing
+(relaxSpacing CPU-only), advanceCDRamp (minor), solid->segI live refresh (minor 3D-depth nuance).
