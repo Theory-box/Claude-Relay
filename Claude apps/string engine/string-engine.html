@@ -1303,7 +1303,7 @@ function frame(now){const dt=now-lastT;lastT=now;
   if(did||window.RD||panning){ema=ema*0.9+(1000/Math.max(1,dt))*0.1;if(S.gpuPhysics&&typeof window.gpuPhysicsRender==='function')window.gpuPhysicsRender();else if(S.micro&&typeof renderMicro==='function')renderMicro();else if(S.gpu&&typeof renderGPU==='function')renderGPU();else render();window.RD=false;document.getElementById('sFps').textContent=Math.round(ema)+' fps';}
   requestAnimationFrame(frame);}
 ['pointerdown','pointermove','pointerup','wheel','keydown'].forEach(ev=>window.addEventListener(ev,()=>{window.RD=true;},true));
-['input','change'].forEach(ev=>document.addEventListener(ev,()=>{ if(window.gpuRefreshProps)window.gpuRefreshProps(); },true));   // any control change -> refresh GPU property buffers live
+['input','change'].forEach(ev=>document.addEventListener(ev,()=>{ if(window.gpuRefreshProps)window.gpuRefreshProps(); },false));  // BUBBLE phase: fires AFTER the control's own handler writes the model, so vmat/props read fresh values
 ['input','change'].forEach(ev=>document.addEventListener(ev,()=>{window.RD=true;},true));                                        // any slider/toggle change too
 function refreshStats(){window.RD=true;document.getElementById('sObjs').textContent=G.objs.length;
   document.getElementById('sNS').textContent=G.nodes.length+' · '+G.segs.length;

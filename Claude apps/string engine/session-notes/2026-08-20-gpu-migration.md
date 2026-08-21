@@ -424,3 +424,15 @@ Two-AI research (research/webgpu-collision-handoff/gpu-affinity-design-findings.
   repulsion, clamp-activation telemetry counter, direct all-pairs path for tiny tagged sets.
 BONDING (hybrid) findings also in hand (gpu-bonding-hybrid-design-findings.md) — confirms CPU topology authority +
 GPU proximity discovery (atomic append, overflow fatal, double-buffered readback). Next build after affinity verified.
+
+## FIXED: affinity (and any catch-all-driven control) didn't update live — capture-vs-bubble ordering bug
+Diag confirmed affinity healthy (ready, overflow 0, refreshN=185 so refresh WAS firing) but values only took
+after a rebuild. ROOT CAUSE: the catch-all refresh listener (line 1306) was registered in CAPTURE phase (true),
+so it fired on the way DOWN to the control, BEFORE the control's own 'input' handler wrote the model. So
+gpuRefreshProps recomputed vmat/affF from the OLD value; only a later unrelated event caught up. The per-object
+sliders worked only because bindPair ALSO calls gpuRefreshProps directly after its setter. The affinity matrix
+(interRow -> o.interSelf / o.inter[id]) relies solely on the catch-all -> stale.
+FIX (1 char): capture true -> bubble false. Bubble fires AFTER target-phase handlers write the model, so the
+refresh reads fresh values. Fixes affinity live-update AND the whole class (any control relying on the catch-all).
+Verified the lone stopPropagation is on a click handler (material delete), not input/change, so bubble misses nothing.
+LESSON: a global capture-phase refresh listener races ahead of the very handlers whose writes it needs to read.
