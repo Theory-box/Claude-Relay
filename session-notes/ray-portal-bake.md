@@ -347,3 +347,12 @@ At the start of a session on this topic: `git checkout feature/ray-portal-bake &
   RESULT) -> A STILL = FloorplanTrace_001.png (unaffected), B=RESULT; save B -> B=FloorplanTrace_005.png.
   Both files on disk; RESULT datablock persists.
 - Committed to feature/ray-portal-bake.
+
+## v0.13.2 — Render auto smart-unwraps objects with no UVs
+- If the active object has no UV map, Render now smart-projects one (island_margin 0.02),
+  returns to Object mode, and continues the bake as normal instead of cancelling.
+- Helper _ensure_uvs(context, obj): OBJECT mode -> select only obj -> EDIT -> select all ->
+  uv.smart_project -> OBJECT (wrapped in temp_override for context safety).
+- Verified: stripped an object's UVs (0 layers) -> _ensure_uvs creates 1 layer filling
+  ~0-1, mode returns to OBJECT, and a subsequent bake fills (59.6%).
+- Committed to feature/ray-portal-bake.

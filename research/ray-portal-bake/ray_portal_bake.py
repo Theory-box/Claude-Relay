@@ -248,8 +248,10 @@ class RPBAKE_OT_bake(bpy.types.Operator):
             self.report({"WARNING"}, "Select a mesh object.")
             return {"CANCELLED"}
         if obj.data.uv_layers.active is None:
-            self.report({"WARNING"}, "Object has no UV map.")
-            return {"CANCELLED"}
+            if not _ensure_uvs(context, obj):
+                self.report({"WARNING"}, "Object has no UV map and auto smart-unwrap failed.")
+                return {"CANCELLED"}
+            self.report({"INFO"}, "No UV map found - auto smart-unwrapped.")
 
         scene = context.scene
         res = int(scene.rpbake_resolution)
@@ -479,6 +481,34 @@ def _apply_result_to_object(obj):
             tex.location = (anchor.location.x - 400, anchor.location.y)
     nt.nodes.active = tex
     return True
+
+
+def _ensure_uvs(context, obj):
+    """If the object has no active UV map, smart-project one, then return to Object mode.
+    Returns True if a UV map is present afterwards."""
+    if obj.data.uv_layers.active is not None:
+        return True
+    try:
+        if context.object is not None and context.object.mode != "OBJECT":
+            bpy.ops.object.mode_set(mode="OBJECT")
+    except Exception:
+        pass
+    for o in list(context.view_layer.objects.selected):
+        o.select_set(False)
+    obj.select_set(True)
+    context.view_layer.objects.active = obj
+    try:
+        with context.temp_override(active_object=obj, selected_objects=[obj], object=obj):
+            bpy.ops.object.mode_set(mode="EDIT")
+            bpy.ops.mesh.select_all(action="SELECT")
+            bpy.ops.uv.smart_project(island_margin=0.02)
+            bpy.ops.object.mode_set(mode="OBJECT")
+    except Exception:
+        try:
+            bpy.ops.object.mode_set(mode="OBJECT")
+        except Exception:
+            pass
+    return obj.data.uv_layers.active is not None
 
 
 def _apply_device_to_scene(scene):
