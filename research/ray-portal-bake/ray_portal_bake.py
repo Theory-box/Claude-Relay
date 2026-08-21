@@ -317,13 +317,8 @@ class RPBAKE_OT_bake(bpy.types.Operator):
         elif not mat.use_nodes:
             mat.use_nodes = True
         nt = mat.node_tree
-        # target image = the shared RESULT image at the requested resolution
-        res_img = bpy.data.images.get(RESULT_IMAGE_NAME)
-        if res_img is None:
-            res_img = bpy.data.images.new(RESULT_IMAGE_NAME, res, res, alpha=True)
-            res_img.use_fake_user = True
-        elif tuple(res_img.size) != (res, res):
-            res_img.scale(res, res)
+        # target image = the shared RESULT image at the requested resolution/depth
+        res_img = _get_result_image(res, scene.rpbake_float, scene.rpbake_colorspace)
         tex = None
         for n in nt.nodes:
             if n.type == "TEX_IMAGE" and n.image == res_img:
@@ -345,7 +340,7 @@ class RPBAKE_OT_bake(bpy.types.Operator):
         scene.cycles.samples = samples
         _apply_device_to_scene(scene)
         try:
-            scene.render.bake.margin = max(2, res // 128)
+            scene.render.bake.margin = max(0, scene.rpbake_margin)
             scene.render.bake.use_clear = True
         except Exception:
             pass
@@ -353,8 +348,12 @@ class RPBAKE_OT_bake(bpy.types.Operator):
             o.select_set(False)
         obj.select_set(True)
         context.view_layer.objects.active = obj
+        bake_type = scene.rpbake_bake_type
+        bake_kwargs = {}
+        if bake_type in ("DIFFUSE", "GLOSSY", "TRANSMISSION"):
+            bake_kwargs["pass_filter"] = {"DIRECT", "INDIRECT", "COLOR"}
         try:
-            bpy.ops.object.bake("INVOKE_DEFAULT", type="COMBINED")
+            bpy.ops.object.bake("INVOKE_DEFAULT", type=bake_type, **bake_kwargs)
         except Exception as exc:
             _restore_scene(orig)
             self.report({"ERROR"}, "Native bake failed: %s" % exc)
@@ -549,6 +548,32 @@ def _restore_scene(orig):
         pass
 
 
+def _get_result_image(res, float_buf, colorspace):
+    """Return the shared RESULT image at the requested size/bit-depth/colorspace.
+    If the bit depth changed we make a new datablock and re-point existing users."""
+    img = bpy.data.images.get(RESULT_IMAGE_NAME)
+    if img is not None and img.is_float != float_buf:
+        new = bpy.data.images.new(RESULT_IMAGE_NAME + "__new", res, res, alpha=True, float_buffer=float_buf)
+        for m in bpy.data.materials:
+            if m.use_nodes and m.node_tree:
+                for n in m.node_tree.nodes:
+                    if getattr(n, "image", None) == img:
+                        n.image = new
+        bpy.data.images.remove(img)
+        new.name = RESULT_IMAGE_NAME
+        img = new
+    if img is None:
+        img = bpy.data.images.new(RESULT_IMAGE_NAME, res, res, alpha=True, float_buffer=float_buf)
+    img.use_fake_user = True
+    if tuple(img.size) != (res, res):
+        img.scale(res, res)
+    try:
+        img.colorspace_settings.name = colorspace
+    except Exception:
+        pass
+    return img
+
+
 class RPBAKE_OT_show_on_mesh(bpy.types.Operator):
     bl_idname = "rpbake.show_on_mesh"
     bl_label = "Show on Mesh"
@@ -726,12 +751,9 @@ class RPBAKE_PT_panel(bpy.types.Panel):
     def draw(self, context):
         layout = self.layout
         sc = context.scene
-        layout.prop(sc, "rpbake_method", expand=True)
         col = layout.column(align=True)
         col.prop(sc, "rpbake_resolution")
         col.prop(sc, "rpbake_samples")
-        if sc.rpbake_method == "PORTAL":
-            col.prop(sc, "rpbake_epsilon")
         busy = _state["job"] is not None
         r = layout.row()
         r.enabled = not busy
@@ -739,29 +761,77 @@ class RPBAKE_PT_panel(bpy.types.Panel):
         r.operator("rpbake.bake", text="Render", icon="RENDER_STILL")
         if sc.rpbake_status:
             layout.label(text=sc.rpbake_status, icon=("SORTTIME" if busy else "CHECKMARK"))
-        layout.separator()
-        layout.operator("rpbake.diagnostics", icon="CONSOLE")
+
+
+class RPBAKE_PT_bakesettings(bpy.types.Panel):
+    bl_label = "Bake Settings"
+    bl_idname = "RPBAKE_PT_bakesettings"
+    bl_space_type = "NODE_EDITOR"
+    bl_region_type = "UI"
+    bl_category = "Portal Bake"
+    bl_parent_id = "RPBAKE_PT_panel"
+    bl_options = {"DEFAULT_CLOSED"}
+
+    @classmethod
+    def poll(cls, context):
+        sd = context.space_data
+        return sd is not None and getattr(sd, "tree_type", "") == "ShaderNodeTree"
+
+    def draw(self, context):
+        layout = self.layout
+        sc = context.scene
+        col = layout.column(align=True)
+        col.prop(sc, "rpbake_bake_type")
+        col.prop(sc, "rpbake_colorspace")
+        col.prop(sc, "rpbake_float")
+        col.prop(sc, "rpbake_margin")
 
 
 _classes = (RPBAKE_OT_bake, RPBAKE_OT_show_on_mesh, RPBAKE_OT_save,
-            RPBAKE_OT_diagnostics, RPBAKE_PT_panel)
+            RPBAKE_OT_diagnostics, RPBAKE_PT_panel, RPBAKE_PT_bakesettings)
 
 
 def register():
     bpy.types.Scene.rpbake_method = bpy.props.EnumProperty(
-        name="Method", default="PORTAL",
+        name="Method", default="NATIVE",
         items=[
             ("PORTAL", "Ray Portal",
              "Bake the lit surface via the Ray Portal BSDF in a background process "
              "(non-blocking; needs no bake-target setup on the object)"),
             ("NATIVE", "Blender Bake",
-             "Use Blender's native Combined bake (faster; runs in the background with "
+             "Use Blender's native bake (faster; runs in the background with "
              "Blender's own progress bar)"),
         ])
     bpy.types.Scene.rpbake_resolution = bpy.props.IntProperty(name="Resolution", default=1024, min=64, max=8192)
     bpy.types.Scene.rpbake_samples = bpy.props.IntProperty(name="Samples", default=128, min=1, max=4096)
     bpy.types.Scene.rpbake_epsilon = bpy.props.FloatProperty(name="Surface Offset", default=0.02, min=0.0001, max=1.0, precision=4)
     bpy.types.Scene.rpbake_status = bpy.props.StringProperty(name="Status", default="")
+    bpy.types.Scene.rpbake_bake_type = bpy.props.EnumProperty(
+        name="Bake Type", default="COMBINED",
+        items=[
+            ("COMBINED", "Combined", "Full lit result: direct + indirect light and all shading"),
+            ("DIFFUSE", "Diffuse", "Diffuse lighting and colour"),
+            ("GLOSSY", "Glossy", "Glossy / specular response"),
+            ("AO", "Ambient Occlusion", "Ambient occlusion only"),
+            ("SHADOW", "Shadow", "Shadowing only"),
+            ("EMIT", "Emission", "Emission only"),
+            ("ROUGHNESS", "Roughness", "Surface roughness"),
+            ("NORMAL", "Normal", "Tangent-space normal map"),
+        ])
+    bpy.types.Scene.rpbake_float = bpy.props.BoolProperty(
+        name="32-bit Float", default=False,
+        description=("Store the result as a 32-bit float image so HDR values above 1 "
+                     "(bright sun, highlights) survive. Off = 8-bit. 16-bit is chosen "
+                     "when you save (PNG 16-bit / EXR half)"))
+    bpy.types.Scene.rpbake_colorspace = bpy.props.EnumProperty(
+        name="Color Space", default="sRGB",
+        items=[
+            ("sRGB", "sRGB", "Standard colour-texture encoding - use for a normal lit/diffuse bake"),
+            ("Non-Color", "Non-Color (raw/linear)", "Store raw linear values - use for data passes or accurate re-lighting"),
+        ])
+    bpy.types.Scene.rpbake_margin = bpy.props.IntProperty(
+        name="Margin (px)", default=16, min=0, max=64,
+        description="Bleed the baked result this many pixels past each UV island edge to hide seams")
     for c in _classes:
         bpy.utils.register_class(c)
 
@@ -783,7 +853,9 @@ def unregister():
             bpy.app.timers.unregister(t)
     for c in reversed(_classes):
         bpy.utils.unregister_class(c)
-    for p in ("rpbake_method", "rpbake_resolution", "rpbake_samples", "rpbake_epsilon", "rpbake_status"):
+    for p in ("rpbake_method", "rpbake_resolution", "rpbake_samples", "rpbake_epsilon",
+              "rpbake_status", "rpbake_bake_type", "rpbake_float", "rpbake_colorspace",
+              "rpbake_margin"):
         if hasattr(bpy.types.Scene, p):
             delattr(bpy.types.Scene, p)
 

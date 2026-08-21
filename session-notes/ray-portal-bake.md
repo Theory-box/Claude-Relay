@@ -280,3 +280,25 @@ At the start of a session on this topic: `git checkout feature/ray-portal-bake &
 - Guidance recap for the user: NATIVE = faster, foreground (own progress bar), needs a
   material; PORTAL = ~1.9x slower + scene-write overhead but fully background and needs
   no bake-target setup.
+
+## v0.12 — native-only UI + Bake Settings sub-panel; Ray Portal hidden (code kept)
+- UI now defaults to Blender native bake. rpbake_method still exists (default NATIVE) and
+  the PORTAL code path is fully intact, just not exposed in the panel - re-add the
+  selector to bring it back.
+- Removed the Diagnostics button from the panel (operator class still registered, F3).
+- New collapsible "Bake Settings" sub-panel (RPBAKE_PT_bakesettings, child of main panel,
+  DEFAULT_CLOSED) with:
+    * Bake Type: Combined / Diffuse / Glossy / AO / Shadow / Emit / Roughness / Normal
+      (Diffuse/Glossy/Transmission pass DIRECT+INDIRECT+COLOR).
+    * Color Space: sRGB / Non-Color.
+    * 32-bit Float: float image datablock for HDR (>1) values; 8-bit otherwise.
+    * Margin (px): bake edge bleed (default 16).
+  Verified: float image is_float honored, colorspace set, margin widens island coverage,
+  bake type drives bpy.ops.object.bake.
+- COLOR-MANAGEMENT NOTE: native bake writes SCENE-LINEAR values; the view transform
+  (Filmic/AgX/Standard) is a DISPLAY transform and is NOT baked in. Re-applying the bake
+  in Blender + the scene's view transform reproduces the original look, so linear is the
+  correct choice for re-render workflows. Baking the tonemapped look "in" (for export to
+  engines/other apps) is a separate feature (post-bake view-transform apply) - NOT built,
+  offered to user.
+- Status: committed to feature/ray-portal-bake. NOT merged to main (no explicit request).
