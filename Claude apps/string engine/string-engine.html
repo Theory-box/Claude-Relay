@@ -2087,11 +2087,13 @@ function buildScene(){
   const adj=new Array(N); for(let i=0;i<N;i++)adj[i]=[];
   const segList=[];
   for(let s=0;s<G.segs.length;s++){ const sg=G.segs[s]; if(sg.dead||sg.bond)continue;
-    const a=sg.a,b=sg.b,rest=sg.rest||1; if(a>=N||b>=N)continue; adj[a].push([b,rest]); adj[b].push([a,rest]); segList.push(sg); }
+    const a=sg.a,b=sg.b,rest=sg.rest||1; if(a>=N||b>=N)continue; adj[a].push([b,rest,sg.obj]); adj[b].push([a,rest,sg.obj]); segList.push(sg); }
   const numSeg=segList.length; GP.numSeg=numSeg;
   let numDir=0; for(let i=0;i<N;i++)numDir+=adj[i].length; GP.numDir=numDir;
-  const range=new Uint32Array(N*2), nbr=new Uint32Array(Math.max(1,numDir)), rest=new Float32Array(Math.max(1,numDir));
-  let c=0; for(let i=0;i<N;i++){ range[i*2]=c; range[i*2+1]=adj[i].length; for(const pr of adj[i]){ nbr[c]=pr[0]; rest[c]=pr[1]; c++; } }
+  const range=new Uint32Array(N*2), nbr=new Uint32Array(Math.max(1,numDir)), rest=new Float32Array(Math.max(1,numDir)), edgeObj=new Uint32Array(Math.max(1,numDir));
+  let c=0; for(let i=0;i<N;i++){ range[i*2]=c; range[i*2+1]=adj[i].length; for(const pr of adj[i]){ nbr[c]=pr[0]; rest[c]=pr[1]; edgeObj[c]=pr[2]||0; c++; } }
+  GP._baseRest=rest.slice(); GP._edgeObj=edgeObj;
+  for(let cc=0;cc<numDir;cc++){ const o=G.objs[edgeObj[cc]]||{}; const g=(typeof effGrow==='function'?effGrow(o):(o.grow||0)); rest[cc]=GP._baseRest[cc]*Math.max(0,1+g); }
   const seg=new Uint32Array(Math.max(1,numSeg)*2), style=new Float32Array(Math.max(1,numSeg)*4);
   for(let s=0;s<numSeg;s++){ const sg=segList[s]; seg[s*2]=sg.a; seg[s*2+1]=sg.b;
     const o=G.objs[sg.obj]||{}; const col=parseCol(o.color||'#88eeee'); const rr=(typeof effR==='function'?effR(o):(o.r||4));
@@ -2213,6 +2215,9 @@ function gpuRefreshProps(){ if(!GP.active||!GP.device)return; const dev=GP.devic
     for(let i=0;i<N;i++){ const nb=G.nbrs[i], n=G.nodes[i]||{}, o=G.objs[n.obj]||{};
       if(nb && nb.length===2){ bd[i*4+2]=(typeof effStiff==='function'?effStiff(o):(o.stiff||0))*0.5; bd[i*4+3]=(typeof effCurl==='function'?effCurl(o):(o.curl||0))*((o.r||4)*3); } }
     dev.queue.writeBuffer(GP.bufBend,0,bd); }
+  if(GP.bufRest && GP._baseRest && GP._edgeObj){ const R=GP._baseRest, EO=GP._edgeObj, nd=R.length, out=new Float32Array(nd);
+    for(let c=0;c<nd;c++){ const o=G.objs[EO[c]]||{}; const g=(typeof effGrow==='function'?effGrow(o):(o.grow||0)); out[c]=R[c]*Math.max(0,1+g); }
+    dev.queue.writeBuffer(GP.bufRest,0,out); }
 }catch(e){ GP.refreshErr=e.message; console.warn('[gpuRefreshProps]',e.message); if(typeof status==='function')status('gpuRefresh error: '+e.message,true); } }
 function step(speed){ if(GP.diagRunning)return; if(!GP.active||!GP.device)return; const dev=GP.device, WG=Math.max(1,Math.ceil(GP.N/64)); const n=speed||1;
   for(let s=0;s<n;s++){ packParams();

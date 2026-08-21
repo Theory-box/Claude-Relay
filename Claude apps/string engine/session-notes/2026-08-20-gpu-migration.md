@@ -384,3 +384,12 @@ FIX (3 lines): expose window.gpuRefreshProps=gpuRefreshProps inside the IIFE; bi
 now call window.gpuRefreshProps() (self-guards on GP.active, safe anytime). Also bufStyle +COPY_SRC so the
 style probe can read back. Diag also confirmed GPU health: 2.32x speedup, 0 NaN, overflow 0, maxStorageBuf=16.
 Lesson: defensive typeof guards HID a real wiring failure — cross-IIFE access must go through window.*.
+
+## GROW wired to GPU: effGrow scales constraint rest length (rest*(1+grow)) -> strand expands. GPU constraint
+used static rest -> grow was inert. Fix: buildScene now stores GP._baseRest + GP._edgeObj (obj per directed
+edge); initial bufRest = base*(1+effGrow); gpuRefreshProps refreshes bufRest = base*(1+effGrow) live. Grow
+slider now expands/shrinks on GPU. (Auto-spacing/relaxSpacing o.autoSpace is a separate CPU-only per-frame
+ramp - still CPU; manual grow slider works.)
+LIVE on GPU now: thickness, mass, damp, solid, color, stiffness, curl, GROW, + global scalars. Remaining
+CPU-only: affinity (attract/repel - needs GPU force pass, medium), bonding (topology, hard tier), cut/draw/
+erase (edit -> drop to CPU, fine), auto-spacing ramp.
