@@ -227,3 +227,32 @@ Real strand segments are SHORT (~12px) => far fewer ill-conditioned pairs than t
 - Planned impl: per-node gather with a small local "seen" list to dedup candidates (self-contained, no
   separate pair-list pass); accept ~4x pair re-eval (WebGPU-preferred trade). POC vs CPU collide() before
   wiring live. naga every shader.
+
+## ✅✅ LAYER 3c COLLISION GATHER VALIDATED (protos/gpu-collision-gather-poc.html)
+Full assembled GPU collision pipeline vs faithful CPU JACOBI mirror: 832 nodes, 800 segs, 32 strands,
+bin overflow 0, nodes pushed GPU 576 = CPU 576, max per-node displacement error 1.056e-4 px (f32 noise).
+Deep dense overlaps (maxDisp hit the 6px clamp) matched too — the deterministic fallback normal for
+dist<0.25 neutralized the n/dist sensitivity that made the isolated narrow POC diverge. All 3 GPU-collision
+primitives now proven: broad (grid), narrow (closest+push), integrated gather (home-cell dedup + filters +
+exclusion + accumulate/average/omega/clamp). Shader: /home/claude/collide_shader.mjs (COLLIDE).
+Buffer layout: pos vec4(xyz+invMass), posOut, nodeRange vec2u(start,count), nodeList u32(seg ids),
+segI vec4u(a,b,strand,packed=bond|solid<<1|selfSolid<<2|obj<<3), segF vec4f(effR,pad,along,skipK),
+segCell vec4u(xMin,xMax,yMin,yMax), cellBins u32(cap ids, 0xffffffff sentinel), U uniform(48B).
+
+## FINAL DESIGN REVIEW (layer3c-final-design-review.md) — 4 integration decisions:
+1. Ring exclusion needs CIRCULAR along-distance (abs is chains-only) -> gate strand rule on topology class.
+2. Pinned nodes: discarding their slot under-applies pair response; I DISCARD to match CPU restore (parity).
+3. Fallback normal needs 2D vs 3D branch + canonical-ID sign fallback (POC was 2D/depth=0; add 3D for use3).
+4. Verlet skin must cover ALL position changes in reuse window -> rebuild grid AFTER constraints, just
+   before the K collision iters, so skin spans only collision displacement.
+
+## GPU GRID-REBUILD PIPELINE built + naga-valid (for integration): grid_shaders.mjs
+- CLEARGRID: per cell, zero cellCount + fill cellBins with 0xffffffff sentinel.
+- GRIDBUILD: per seg, compute+store clamped segCell bounds (AABB+reach, reach incl anti-tunnel margin),
+  atomicAdd slot into cellCount, write id to cellBins, atomicAdd overflow if >cap.
+- Per substep: clearGrid -> gridBuild -> collide xK (ping-pong pos). overflow[0]!=0 = hard fail (dev-log).
+
+## NEXT: wire into engine (GpuPhysics): buildScene() adds node->seg CSR (nodeRange,nodeList) + segI/segF
+(static per topology) + allocate segCell/cellBins/cellCount/overflow; step runs clear->build->collide xK
+after constraints; grid params from wall-box bounds + reach=maxEffR+maxPad(+margin); behind gpuPhysics
+toggle; dev-log measures overflow/NaN/tunneling/penetration. Then tune omega/K; then bend/curl on GPU.
