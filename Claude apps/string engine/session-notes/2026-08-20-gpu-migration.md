@@ -406,3 +406,21 @@ match (run affinity pass once per step() call, not in the substep loop); Q needs
 Q stability alongside collision. vmat build (CPU, like attract's precompute) + affF + affinity grid params +
 packAffinity + step wiring = NEXT once research lands. Disciplined: not wiring unvalidated design (collision
 blowup lesson). Also drafted: bonding = hybrid (GPU proximity detect -> CPU form+reupload).
+
+## GPU AFFINITY wired (attract/repel) — awaiting live test
+Two-AI research (research/webgpu-collision-handoff/gpu-affinity-design-findings.md) confirmed + refined the design.
+- SECOND coarser tagged-only grid (cell~affRange~140, ~6x collision's). New shaders: WGSL_GRIDBUILDT (tagged-only
+  insert; stores AABB for all, inserts bins only if affF.w tagged) + WGSL_AFFINITY (per-node Jacobi gather).
+- Reuses collision infra: bufNSR/bufNSL (node->seg CSR), bufSegI (a,b,obj), bufMeta (invMass), bufA/bufB. Requires
+  collReady (affinity off if collision off — documented).
+- vmat (nO*nO) precomputed CPU-side via interVal (a's pull toward b via a.inter keyed by b.ids). NON-RECIPROCAL:
+  X endpoints use vmat[objX*nO+objY], Y endpoints use vmat[objY*nO+objX] = CPU parity (COM drift intentional).
+- Force: barycentric slots (1-s,s,1-t,t), equal/opposite pair force x own invMass, SUM (not contact-averaged —
+  affinity is additive many-body). Per-node magnitude clamp GP_AFF_MAXDISP=8 (research: mandatory). GP_AFF_BASE=0.18.
+- Runs ONCE per frame before the substep loop (attract() is a per-step DISPLACEMENT not h^2 force — matches CPU
+  cadence). clear affinity grid -> gridBuildT -> affinity gather (own encoder+submit), ping-pong curBuf once.
+- gpuRefreshProps refreshes affF + vmat live. Guarded (affSupported/affReady). All 9 shaders naga-valid, JS valid.
+- TODO refinements (research): smoothstep gate+cutoff (used CPU-parity linear clamp), zero-dist fallback normal for
+  repulsion, clamp-activation telemetry counter, direct all-pairs path for tiny tagged sets.
+BONDING (hybrid) findings also in hand (gpu-bonding-hybrid-design-findings.md) — confirms CPU topology authority +
+GPU proximity discovery (atomic append, overflow fatal, double-buffered readback). Next build after affinity verified.
