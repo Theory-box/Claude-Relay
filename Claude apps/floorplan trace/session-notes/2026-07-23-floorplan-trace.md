@@ -389,3 +389,20 @@ Blender to re-verify. Everything above re-tested green.
 STILL ON THE TABLE (discussed, not built): on-screen-only + basics-only hold-keys; snap Sources vs
 Types panel split; world-axis global guide planes (X/Y/Z + offset, view-independent, taggable from
 objects); a cursor readout of *why* it snapped.
+
+---
+
+## Update — calibrate tools (Type Length / Fit to Line) snap like the trace tool
+
+The two-click calibrate line-drawers now share the tracing tool's snapping niceties while keeping the
+same buttons/flow:
+  - Angle snapping (view-plane) on the END point of each drawn line, using the shared use_angle_snap /
+    angle_increment / angle_tolerance settings. New helper _angle_snap_point (right/up from
+    rv3d.view_rotation, snap dir to increment within tolerance). Faint green guide ray drawn when locked.
+  - Alt = free placement (no snap), via _free_held() mapping prefs.free_placement_key to the event
+    modifier (alt/ctrl/shift/oskey; falls back to tracked state for non-modifier keys).
+  - Vertex snapping generalized: reference/measure line snaps to the DRAWING (selected objects),
+    LINE-mode target line snaps to the MODEL (unselected). invoke builds snap_sel / snap_unsel (200k
+    cap). get_point(context, coord, event) now does free -> vertex -> angle in priority order.
+Header now shows "Alt: free (no snap)". Verified in 4.4.3: 44.4deg->45, 26.6deg->free, ~2deg->0;
+_line_start correct for n=1/2/3; Alt free-held true; enable/disable x3 clean; calibrate RNA intact.

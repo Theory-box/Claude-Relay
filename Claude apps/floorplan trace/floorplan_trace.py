@@ -1644,6 +1644,25 @@ def _calib_draw(self):
         n = len(self.points)
         ref = (1.0, 0.6, 0.1, 1.0)   # reference line (orange)
         tgt = (0.2, 0.8, 1.0, 1.0)   # target line (blue)
+        # angle-lock guide ray (faint) behind the live line
+        if getattr(self, "_angle_locked", False) and self.cur is not None:
+            prev = None
+            if n == 1:
+                prev = self.points[0]
+            elif n == 3:
+                prev = self.points[2]
+            if prev is not None:
+                a = s(prev)
+                b = s(self.cur)
+                if a and b:
+                    dv = Vector((b[0] - a[0], b[1] - a[1]))
+                    if dv.length > 1e-6:
+                        dv = dv.normalized() * 2000.0
+                        batch = batch_for_shader(shader, 'LINES', {"pos": [
+                            (a[0] - dv.x, a[1] - dv.y), (a[0] + dv.x, a[1] + dv.y)]})
+                        shader.bind()
+                        shader.uniform_float("color", (0.55, 0.9, 0.55, 0.4))
+                        batch.draw(shader)
         if n >= 2:
             seg(self.points[0], self.points[1], ref)
         if n >= 4:
@@ -1862,15 +1881,18 @@ class OBJECT_OT_floorplan_calibrate(bpy.types.Operator):
             context.area.header_text_set(None)
             context.area.tag_redraw()
 
-    def _should_snap(self):
-        # snap only while placing the target (second) line in LINE mode
-        return self.mode == 'LINE' and len(self.points) >= 2
+    def _snap_verts_for_current_line(self):
+        # reference/measure line snaps to the drawing (selected objects); the
+        # LINE-mode target line snaps to the model (unselected objects)
+        if self.mode == 'LINE' and len(self.points) >= 2:
+            return self.snap_unsel
+        return self.snap_sel
 
     def _nearest_vertex(self, coord):
         m = Vector(coord)
         best = None
         best_d = self.snap_px
-        for w in self.snap_verts:
+        for w in self._snap_verts_for_current_line():
             r = location_3d_to_region_2d(self.region, self.rv3d, w)
             if r is None:
                 continue
@@ -1880,13 +1902,69 @@ class OBJECT_OT_floorplan_calibrate(bpy.types.Operator):
                 best = w
         return best.copy() if best is not None else None
 
-    def get_point(self, context, coord):
-        if self._should_snap():
-            v = self._nearest_vertex(coord)
-            if v is not None:
-                return v, True
+    def _line_start(self):
+        # the fixed start point of the line currently being drawn, if any
+        n = len(self.points)
+        if n == 1:
+            return self.points[0]
+        if n == 3:
+            return self.points[2]
+        return None
+
+    def _free_held(self, event):
+        prefs = get_prefs(bpy.context)
+        key = prefs.free_placement_key if prefs else 'LEFT_ALT'
+        if key in {'LEFT_ALT', 'RIGHT_ALT'}:
+            return event.alt
+        if key in {'LEFT_CTRL', 'RIGHT_CTRL'}:
+            return event.ctrl
+        if key in {'LEFT_SHIFT', 'RIGHT_SHIFT'}:
+            return event.shift
+        if key == 'OSKEY':
+            return event.oskey
+        return getattr(self, '_free_active', False)
+
+    def _angle_snap_point(self, p, prev, s):
+        # snap the direction prev->p to angle increments, measured in the view plane
+        right = (self.rv3d.view_rotation @ Vector((1.0, 0.0, 0.0))).normalized()
+        up = (self.rv3d.view_rotation @ Vector((0.0, 1.0, 0.0))).normalized()
+        vec = p - prev
+        x = vec.dot(right)
+        y = vec.dot(up)
+        L = Vector((x, y)).length
+        if L < 1e-6:
+            return None
+        ang = atan2(y, x)
+        inc = radians(max(s.angle_increment, 1.0))
+        snapped = round(ang / inc) * inc
+        diff = abs((ang - snapped + pi) % (2 * pi) - pi)
+        if diff <= radians(s.angle_tolerance):
+            return prev + right * (cos(snapped) * L) + up * (sin(snapped) * L)
+        return None
+
+    def get_point(self, context, coord, event=None):
         p = self.plane_point(coord)
-        return (p, False)
+        if p is None:
+            return None, False
+        # free placement (hold Alt by default): no snapping at all
+        if event is not None and self._free_held(event):
+            self._angle_locked = False
+            return p, False
+        s = context.scene.floorplan_trace
+        # vertex snap (drawing verts, or model verts for the LINE-mode target line)
+        v = self._nearest_vertex(coord)
+        if v is not None:
+            self._angle_locked = False
+            return v, True
+        # angle snap for the end point of the line being drawn
+        prev = self._line_start()
+        if prev is not None and s.use_angle_snap:
+            ap = self._angle_snap_point(p, prev, s)
+            if ap is not None:
+                self._angle_locked = True
+                return ap, False
+        self._angle_locked = False
+        return p, False
 
     def _update_header(self, context):
         if not context.area:
@@ -1899,7 +1977,7 @@ class OBJECT_OT_floorplan_calibrate(bpy.types.Operator):
                 msg = "Reference line: click 2 points on the drawing"
             else:
                 msg = "Target line: click 2 model vertices (snaps to verts)"
-        context.area.header_text_set(msg + "  |  Esc: cancel")
+        context.area.header_text_set(msg + "  |  Alt: free (no snap)  |  Esc: cancel")
 
     def _apply_line_fit(self, context, a0, a1, b0, b1):
         av = a1 - a0
@@ -1934,14 +2012,21 @@ class OBJECT_OT_floorplan_calibrate(bpy.types.Operator):
         self.snap_world = None
         self.snap_px = 14
         self.needed = 2 if self.mode == 'DIMENSION' else 4
-        # precompute world-space vertices of unselected meshes for target snapping
-        self.snap_verts = []
-        if self.mode == 'LINE':
-            sel = set(context.selected_objects)
-            for obj in context.visible_objects:
-                if obj.type == 'MESH' and obj not in sel and obj.data:
-                    mw = obj.matrix_world
-                    self.snap_verts.extend(mw @ v.co for v in obj.data.vertices)
+        self._angle_locked = False
+        self._free_active = False
+        # precompute world-space vertices for snapping: the drawing (selected) and
+        # the model (unselected). The reference/measure line snaps to the drawing;
+        # the LINE-mode target line snaps to the model.
+        self.snap_sel = []
+        self.snap_unsel = []
+        sel = set(context.selected_objects)
+        CAP = 200000
+        for obj in context.visible_objects:
+            if obj.type == 'MESH' and obj.data:
+                mw = obj.matrix_world
+                bucket = self.snap_sel if obj in sel else self.snap_unsel
+                if len(bucket) < CAP:
+                    bucket.extend(mw @ v.co for v in obj.data.vertices)
         self._handle = bpy.types.SpaceView3D.draw_handler_add(
             _calib_draw, (self,), 'WINDOW', 'POST_PIXEL')
         self._update_header(context)
@@ -1964,12 +2049,12 @@ class OBJECT_OT_floorplan_calibrate(bpy.types.Operator):
         if not inside:
             return {'PASS_THROUGH'}
         if event.type == 'MOUSEMOVE':
-            w, snapped = self.get_point(context, coord)
+            w, snapped = self.get_point(context, coord, event)
             self.cur = w
             self.snap_world = w if snapped else None
             return {'RUNNING_MODAL'}
         if event.type == 'LEFTMOUSE' and event.value == 'PRESS':
-            p, snapped = self.get_point(context, coord)
+            p, snapped = self.get_point(context, coord, event)
             if p is not None:
                 self.points.append(p.copy())
                 if len(self.points) >= self.needed:
