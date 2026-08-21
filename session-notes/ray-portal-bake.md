@@ -91,3 +91,19 @@ At the start of a session on this topic: `git checkout feature/ray-portal-bake &
 - Notes for user: dark = the roof's dark material + scene lighting (not a bug);
   a full-res per-object bake still wants a proper 0..1 unwrap. Possible future:
   warn on tiny UV coverage; optional auto-unwrap-for-bake mode.
+
+## v0.5 — revert to exact 0..1 bake (no Mapping node)
+- User feedback: bake must be the 0..1 UV tile directly, NO Mapping node. The
+  v0.4 frame-to-bounds was wrong: its 5% margin made span!=1 even for full 0..1
+  UVs, so it always injected a Mapping node into Show-on-Mesh.
+- REVERTED: worker frames exactly 0..1 (ortho 1.0 @ (0.5,0.5)); status = device
+  only; Show-on-Mesh adds only the image-texture node (raw UVs). Bake is now a
+  standard 0..1 texture that drops in against the object's real UVs.
+- Note re uploaded Exterior_78_Farmington.blend: roof FloorplanTrace.006's UV
+  island is objectively a small sliver at u[0.13..0.24] v[0.40..0.48] (rendered
+  the layout to confirm; no modifiers; material samples page-4.jpg there). So a
+  0..1 bake of THAT file places the roof small/correct. If the user has since
+  unwrapped the roof to fill 0..1, the 0..1 bake fills the frame with no Mapping.
+- Verified: 0..1 UV plane -> coverage 1.0; Show-on-Mesh adds only TEX_IMAGE.
+- ATLAS/partial-UV support (frame-to-bounds or auto-unwrap) is a FUTURE OPTION,
+  off by default; the correct default is a straight 0..1 bake.
