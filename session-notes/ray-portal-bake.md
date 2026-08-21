@@ -180,3 +180,23 @@ At the start of a session on this topic: `git checkout feature/ray-portal-bake &
 - CONCLUSION: v0.8 resolves the "transparent for any object" (was 0-1 framing on sub-
   region UVs). Frame-to-bounds + inverse Mapping = visible bake that fits the object's
   own UVs.
+
+## v0.9 — REVERTED to 0-1 tile bake (the actual fix for "offset")
+- User reported OFFSET with v0.8 frame-to-bounds+mapping. Root realization: user's
+  stated ideal is "fits exactly by UVs WITHOUT a mapping node" = the standard 0-1 tile
+  bake (image IS UV space), which is what Blender's own baker does. Frame-to-bounds +
+  mapping was over-engineering; applied without the mapping node (or when the object
+  fills <100% of 0-1) it reads as an offset.
+- Reverted: build_flat floor-shifts UVs into the 0-1 tile again; worker camera is ortho
+  1.0 @ (0.5,0.5); no frame reporting; Show-on-Mesh just adds the image (default UV
+  input, no Mapping node). Kept: diagnostics button, material-creation-if-missing.
+- VERIFIED with a COLOR/UV grid on v4 FloorplanTrace.006 (smart-projected): 0-1 tile
+  bake re-applied with RAW UVs (no mapping) = grid lines match perfectly, diff 0.0079.
+  Zero offset.
+- Worker path on v4 confirmed: coverage 70.5% (NOT transparent), status Baked.
+- OPEN ISSUE: v4 .006 bake is very DARK (mean 0.065). Likely the portal samples the
+  +normal side and this roof's normals point down/inward -> samples shadowed underside,
+  while a normal camera render sees the lit top (Cycles flips backface normals to
+  camera). Investigating normal-direction handling next.
+- NOTE: v4 file has NO image textures on materials (plain), Sun energy 1.0, world 0.051
+  x3.9. Dim scene.
