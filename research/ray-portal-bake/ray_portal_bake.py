@@ -358,12 +358,71 @@ def _finish(job):
         pass
 
 
+class RPBAKE_OT_show_on_mesh(bpy.types.Operator):
+    bl_idname = "rpbake.show_on_mesh"
+    bl_label = "Show on Mesh"
+    bl_description = ("Add the baked image as an image-texture node on the active object's material "
+                     "and make it active, so Solid/Workbench viewport shows it on the mesh")
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        res = bpy.data.images.get(RESULT_IMAGE_NAME)
+        if res is None:
+            self.report({"WARNING"}, "No baked image yet.")
+            return {"CANCELLED"}
+        obj = context.active_object
+        mat = obj.active_material if obj is not None else None
+        if mat is None or mat.node_tree is None:
+            self.report({"WARNING"}, "Active object has no material.")
+            return {"CANCELLED"}
+        nt = mat.node_tree
+        tex = None
+        for n in nt.nodes:
+            if n.type == "TEX_IMAGE" and n.image == res:
+                tex = n
+                break
+        if tex is None:
+            anchor = nt.nodes.active
+            tex = nt.nodes.new("ShaderNodeTexImage")
+            tex.image = res
+            if anchor is not None and anchor != tex:
+                tex.location = (anchor.location.x - 400, anchor.location.y)
+        nt.nodes.active = tex
+        self.report({"INFO"}, "Baked image set as active texture. View in Solid + Texture.")
+        return {"FINISHED"}
+
+
+class RPBAKE_OT_save(bpy.types.Operator):
+    bl_idname = "rpbake.save"
+    bl_label = "Save Image..."
+    bl_description = "Open Blender's Save As dialog for the baked image (choose format, path, options)"
+    bl_options = {"REGISTER"}
+
+    def execute(self, context):
+        res = bpy.data.images.get(RESULT_IMAGE_NAME)
+        if res is None:
+            self.report({"WARNING"}, "No baked image yet.")
+            return {"CANCELLED"}
+        try:
+            with context.temp_override(edit_image=res):
+                bpy.ops.image.save_as("INVOKE_DEFAULT")
+        except Exception as exc:
+            self.report({"ERROR"}, "Could not open save dialog: %s" % exc)
+            return {"CANCELLED"}
+        return {"FINISHED"}
+
+
 class RPBAKE_PT_panel(bpy.types.Panel):
     bl_label = "Ray Portal Bake"
     bl_idname = "RPBAKE_PT_panel"
-    bl_space_type = "VIEW_3D"
+    bl_space_type = "NODE_EDITOR"
     bl_region_type = "UI"
     bl_category = "Portal Bake"
+
+    @classmethod
+    def poll(cls, context):
+        sd = context.space_data
+        return sd is not None and getattr(sd, "tree_type", "") == "ShaderNodeTree"
 
     def draw(self, context):
         layout = self.layout
@@ -378,11 +437,14 @@ class RPBAKE_PT_panel(bpy.types.Panel):
         r.operator("rpbake.bake", icon="RENDER_STILL")
         if sc.rpbake_status:
             layout.label(text=sc.rpbake_status, icon=("SORTTIME" if busy else "CHECKMARK"))
-        if bpy.data.images.get(RESULT_IMAGE_NAME) is not None:
-            layout.label(text="Result: %s" % RESULT_IMAGE_NAME, icon="IMAGE_DATA")
+        has_result = bpy.data.images.get(RESULT_IMAGE_NAME) is not None
+        col2 = layout.column(align=True)
+        col2.enabled = has_result and not busy
+        col2.operator("rpbake.show_on_mesh", icon="MESH_DATA")
+        col2.operator("rpbake.save", icon="FILE_TICK")
 
 
-_classes = (RPBAKE_OT_bake, RPBAKE_PT_panel)
+_classes = (RPBAKE_OT_bake, RPBAKE_OT_show_on_mesh, RPBAKE_OT_save, RPBAKE_PT_panel)
 
 
 def register():

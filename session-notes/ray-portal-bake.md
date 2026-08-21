@@ -59,3 +59,17 @@ At the start of a session on this topic: `git checkout feature/ray-portal-bake &
 - NEXT: Show-on-Mesh (add result as active image texture) + Save-to-File
   (packable) operators — reuse Node Preview patterns; shader-editor panel; GPU
   device pref; denoise/quality note; then consider merge into Node Preview.
+
+## v0.3 addon — Show on Mesh + native Save + shader-editor panel
+- Panel moved to Shader Editor N-panel (NODE_EDITOR, ShaderNodeTree poll), tab
+  "Portal Bake". (Per user: shader panel not 3D viewport for now.)
+- "Show on Mesh": adds RayPortalBake_Result as an image-texture node on the
+  active object's material and makes it active (Solid+Texture shows it). No dup.
+- "Save Image...": opens Blender's NATIVE image Save As dialog via
+  temp_override(edit_image=result)+image.save_as INVOKE_DEFAULT (gives format /
+  bit-depth / path options). No custom save UI (user saves via Blender's popup).
+- Verified headless: show-on-mesh adds+activates node, save guards no-image,
+  register/unregister clean, panel in shader editor.
+- DEFERRED (user asked for later, not now): 32-bit/raw output, JPG/other formats,
+  follow scene colour grading (currently forces neutral Standard). Basic first.
+- NEXT: try on real scenes/GPU; GPU device pref; then consider Node Preview merge.
