@@ -2159,10 +2159,13 @@ function step(speed){ if(GP.diagRunning)return; if(!GP.active||!GP.device)return
       { const ab=new ArrayBuffer(16),dv=new DataView(ab); dv.setUint32(0,g.numCells,true);dv.setUint32(4,g.cap,true); dev.queue.writeBuffer(GP.bufClearP,0,ab); }
       dev.queue.writeBuffer(GP.bufOverflow,0,new Uint32Array([0,0,0,0]));
       const WGc=Math.max(1,Math.ceil(g.numCells/64)), WGs=Math.max(1,Math.ceil(GP.numSeg/64));
+      // build grid ONCE per substep (from post-constraint positions), then K Jacobi iters CONVERGE on the
+      // fixed contact set - matches CPU's per-frame pair list + review's build-time stored bounds. Rebuilding
+      // each iter re-aggressed contacts and injected runaway Verlet velocity -> blowups.
+      { const pass=enc.beginComputePass(); pass.setPipeline(GP.clearPipe); pass.setBindGroup(0,GP.bgClear); pass.dispatchWorkgroups(WGc); pass.end(); }
+      { const pass=enc.beginComputePass(); pass.setPipeline(GP.gridPipe); pass.setBindGroup(0,GP.curBuf===0?GP.bgGridA:GP.bgGridB); pass.dispatchWorkgroups(WGs); pass.end(); }
       for(let k=0;k<K;k++){
-        { const pass=enc.beginComputePass(); pass.setPipeline(GP.clearPipe); pass.setBindGroup(0,GP.bgClear); pass.dispatchWorkgroups(WGc); pass.end(); }
-        { const pass=enc.beginComputePass(); pass.setPipeline(GP.gridPipe); pass.setBindGroup(0,GP.curBuf===0?GP.bgGridA:GP.bgGridB); pass.dispatchWorkgroups(WGs); pass.end(); }
-        { const pass=enc.beginComputePass(); pass.setPipeline(GP.collPipe); pass.setBindGroup(0,GP.curBuf===0?GP.bgCollAB:GP.bgCollBA); pass.dispatchWorkgroups(WG); pass.end(); GP.curBuf=1-GP.curBuf; }
+        const pass=enc.beginComputePass(); pass.setPipeline(GP.collPipe); pass.setBindGroup(0,GP.curBuf===0?GP.bgCollAB:GP.bgCollBA); pass.dispatchWorkgroups(WG); pass.end(); GP.curBuf=1-GP.curBuf;
       }
     }
     dev.queue.submit([enc.finish()]); GP.frameN++;

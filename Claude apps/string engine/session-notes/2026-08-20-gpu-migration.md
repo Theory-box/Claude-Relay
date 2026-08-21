@@ -284,3 +284,18 @@ collision. Ref: Flex/Unified Particle Physics §4.3.
 untested (POC all inv=1); grid fixed-bounds (escaping nodes clamp->edge cells->possible overflow, monitored);
 runtime bind-group/param bugs only surface on user GPU (on-screen reportShader + status + console.warn =
 diagnostic channel). Next: user live test -> if clean, add slider + dev-log overflow/tunneling, then Stage B.
+
+## 🐛 FIX: collision blowup was REBUILD-GRID-EACH-ITER (over-aggression -> Verlet energy injection)
+Live test: collision WORKS (strands stop passing through) but scene eventually explodes (no NaN, just
+runaway tangling). Root cause: my step rebuilt the grid + re-discovered contacts EVERY collide iter, so
+each of K iters did a fresh full push instead of converging. CPU builds its pair list ONCE per frame and
+resolves that FIXED set over passes (Gauss-Seidel, converging -> overlaps shrink). Verlet turns position
+pushes into velocity (v=pos-prev); GPU integrate REDUCES friction at high speed -> injected energy cascades.
+Note: contactDamp & xpbd both DEFAULT 0, so CPU also injects collision velocity yet is stable -> difference
+is MAGNITUDE (converging vs re-aggressing), not velocity cancellation.
+FIX: build grid ONCE per substep (clear+gridBuild before the K-loop), K Jacobi iters converge on the fixed
+contact set. Matches CPU pair-list-per-frame + review's build-time stored bounds + AI Stage A. Shipped.
+NEXT LEVER if still lively: add velocity cancellation (prev update, CPU line 776) via a separate pass
+(preColl copy) to avoid a 10th storage buffer. Also: 3D fallback normal still 2D-only (depth=25 live).
+
+## BEND/CURL FINDINGS ARRIVED (gpu-bend-curl-jacobi-findings.md) — for the NEXT layer after collision.
