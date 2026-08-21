@@ -1770,11 +1770,131 @@ void main(){
 const cw=document.getElementById('cwgpu');
 if(!cw){ return; }
 const GP={active:false,initing:false,device:null,ctx:null,format:null,prevGpu:false,
-  intPipe:null,conPipe:null,renPipe:null,
+  intPipe:null,conPipe:null,renPipe:null,clearPipe:null,gridPipe:null,collPipe:null,collReady:false,collSupported:false,grid:null,maxStorageBuf:8,
   bufA:null,bufB:null,bufPrev:null,bufMeta:null,bufRange:null,bufNbr:null,bufRest:null,bufSeg:null,bufStyle:null,bufParams:null,bufCam:null,
   bgIntAB:null,bgIntBA:null,bgConAB:null,bgConBA:null,bgRenA:null,bgRenB:null,
   N:0,numSeg:0,numDir:0,curBuf:0,frameN:0,readbacks:0,lastExit:null,wgslMsgs:[],adapterInfo:null,lastStats:null,lastStatsT:0,telemBusy:false,log:[],diagRunning:false,_pos0:null,_segCache:null,_fixed:null};
 const GP_PASSES=8, GP_RELAX=0.6;
+const GP_COLL_OMEGA=1.0, GP_COLL_PENFRAC=0.25, GP_COLL_MAXDISP=6.0, GP_COLL_MARGIN=1.5, GP_COLL_CAP=64;
+const WGSL_CLEARGRID=`
+struct CG { numCells:u32, cap:u32, pad0:u32, pad1:u32, };
+@group(0) @binding(0) var<storage, read_write> cellBins  : array<u32>;
+@group(0) @binding(1) var<storage, read_write> cellCount : array<u32>;
+@group(0) @binding(2) var<uniform>             U         : CG;
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid:vec3<u32>){
+  let c=gid.x; if(c>=U.numCells){ return; }
+  cellCount[c]=0u;
+  let base=c*U.cap;
+  for(var k:u32=0u; k<U.cap; k=k+1u){ cellBins[base+k]=0xffffffffu; }
+}`;
+const WGSL_GRIDBUILD=`
+struct GB { count:u32, gx:u32, gy:u32, cap:u32, cell:f32, ox:f32, oy:f32, reach:f32, };
+@group(0) @binding(0) var<storage, read>       pos       : array<vec4<f32>>;   // xyz + invMass
+@group(0) @binding(1) var<storage, read>       segI      : array<vec4<u32>>;   // a,b,strand,packed
+@group(0) @binding(2) var<storage, read_write> segCell   : array<vec4<u32>>;   // write clamped cell bounds
+@group(0) @binding(3) var<storage, read_write> cellCount : array<atomic<u32>>;
+@group(0) @binding(4) var<storage, read_write> cellBins  : array<u32>;
+@group(0) @binding(5) var<storage, read_write> overflow  : array<atomic<u32>>; // [0]
+@group(0) @binding(6) var<uniform>             U         : GB;
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid:vec3<u32>){
+  let k=gid.x; if(k>=U.count){ return; }
+  let s=segI[k]; let a=pos[s.x].xyz; let b=pos[s.y].xyz;
+  let gxi=i32(U.gx)-1; let gyi=i32(U.gy)-1;
+  var x0=i32(floor((min(a.x,b.x)-U.reach-U.ox)/U.cell)); var x1=i32(floor((max(a.x,b.x)+U.reach-U.ox)/U.cell));
+  var y0=i32(floor((min(a.y,b.y)-U.reach-U.oy)/U.cell)); var y1=i32(floor((max(a.y,b.y)+U.reach-U.oy)/U.cell));
+  x0=clamp(x0,0,gxi); x1=clamp(x1,0,gxi); y0=clamp(y0,0,gyi); y1=clamp(y1,0,gyi);
+  segCell[k]=vec4<u32>(u32(x0),u32(x1),u32(y0),u32(y1));
+  for(var cy:i32=y0; cy<=y1; cy=cy+1){
+    for(var cx:i32=x0; cx<=x1; cx=cx+1){
+      let c=u32(cy)*U.gx+u32(cx);
+      let slot=atomicAdd(&cellCount[c],1u);
+      if(slot<U.cap){ cellBins[c*U.cap+slot]=k; } else { atomicAdd(&overflow[0],1u); }
+    }
+  }
+}`;
+const WGSL_COLLIDE=`
+struct GP { count:u32, gx:u32, gy:u32, cap:u32, cell:f32, ox:f32, oy:f32, depth:f32, omega:f32, penClampFrac:f32, maxDisp:f32, pad0:f32, };
+@group(0) @binding(0) var<storage, read>       pos       : array<vec4<f32>>;
+@group(0) @binding(1) var<storage, read_write> posOut    : array<vec4<f32>>;
+@group(0) @binding(2) var<storage, read>       nodeRange : array<vec2<u32>>;
+@group(0) @binding(3) var<storage, read>       nodeList  : array<u32>;
+@group(0) @binding(4) var<storage, read>       segI      : array<vec4<u32>>;
+@group(0) @binding(5) var<storage, read>       segF      : array<vec4<f32>>;
+@group(0) @binding(6) var<storage, read>       segCell   : array<vec4<u32>>;
+@group(0) @binding(7) var<storage, read>       cellBins  : array<u32>;
+@group(0) @binding(8) var<storage, read>       nmeta     : array<vec4<f32>>;
+@group(0) @binding(9) var<uniform>             U         : GP;
+struct CP { s:f32, t:f32, n:vec3<f32>, dist:f32, };
+fn closestSeg(p1:vec3<f32>, q1:vec3<f32>, p2:vec3<f32>, q2:vec3<f32>) -> CP {
+  let d1=q1-p1; let d2=q2-p2; let r=p1-p2;
+  let a=dot(d1,d1); let e=dot(d2,d2); let ff=dot(d2,r); let lenEps=1e-9;
+  var s=0.0; var t=0.0;
+  if(a<=lenEps && e<=lenEps){ s=0.0; t=0.0; }
+  else if(a<=lenEps){ s=0.0; t=clamp(ff/e,0.0,1.0); }
+  else{ let c=dot(d1,r);
+    if(e<=lenEps){ t=0.0; s=clamp(-c/a,0.0,1.0); }
+    else{ let b=dot(d1,d2); let den=a*e-b*b;
+      if(den > 1e-6*a*e){ s=clamp((b*ff-c*e)/den,0.0,1.0); } else { s=0.0; }
+      t=(b*s+ff)/e;
+      if(t<0.0){ t=0.0; s=clamp(-c/a,0.0,1.0); } else if(t>1.0){ t=1.0; s=clamp((b-c)/a,0.0,1.0); } } }
+  let c1=p1+d1*s; let c2=p2+d2*t; var nrm=c1-c2; var dist=length(nrm);
+  if(dist < 0.25){ var dir=d1; if(e>a){ dir=d2; } let dl=length(dir);
+    if(dl>1e-4){ let uu=dir/dl; var perp=vec3<f32>(-uu.y,uu.x,0.0);
+      let mid=((p1+q1)*0.5)-((p2+q2)*0.5); if(dot(perp,mid) < 0.0){ perp=-perp; } nrm=perp; dist=0.0001; } }
+  var o:CP; o.s=s; o.t=t; o.n=nrm; o.dist=max(dist,0.0001); return o;
+}
+fn shareEndpoint(A:vec4<u32>, B:vec4<u32>) -> bool { return A.x==B.x || A.x==B.y || A.y==B.x || A.y==B.y; }
+fn ownerCell(ca:vec4<u32>, cb:vec4<u32>) -> u32 { let xlo=max(ca.x,cb.x); let ylo=max(ca.z,cb.z); return ylo*U.gx + xlo; }
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid:vec3<u32>){
+  let i=gid.x; if(i>=U.count){ return; }
+  let p=pos[i].xyz; let invI=nmeta[i].x;
+  if(invI==0.0){ posOut[i]=vec4<f32>(p,0.0); return; }
+  var accum=vec3<f32>(0.0); var contacts=0u;
+  let rng=nodeRange[i]; let ns=rng.x; let nc=rng.y;
+  for(var xi:u32=0u; xi<nc; xi=xi+1u){
+    let X=nodeList[ns+xi]; let sxI=segI[X]; let sxC=segCell[X];
+    for(var cy:u32=sxC.z; cy<=sxC.w; cy=cy+1u){
+      for(var cx:u32=sxC.x; cx<=sxC.y; cx=cx+1u){
+        let cellId=cy*U.gx+cx; let base=cellId*U.cap;
+        for(var k:u32=0u; k<U.cap; k=k+1u){
+          let Y=cellBins[base+k];
+          if(Y==0xffffffffu){ break; }
+          if(Y==X){ continue; }
+          let syI=segI[Y]; let syC=segCell[Y];
+          if(ownerCell(sxC,syC) != cellId){ continue; }
+          if(shareEndpoint(sxI,syI)){ continue; }
+          if((sxI.w & 1u)!=0u || (syI.w & 1u)!=0u){ continue; }
+          let objX=sxI.w>>3u; let objY=syI.w>>3u;
+          if(objX==objY && ((sxI.w>>2u)&1u)==0u){ continue; }
+          let lo=min(X,Y); let hi=max(X,Y);
+          if(sxI.z==syI.z){ let along=abs(i32(segF[X].z)-i32(segF[Y].z)); if(along < (i32(segF[lo].w)+1)){ continue; } }
+          let la=segI[lo]; let ha=segI[hi];
+          var lp0=pos[la.x].xyz; var lp1=pos[la.y].xyz; var hp0=pos[ha.x].xyz; var hp1=pos[ha.y].xyz;
+          let use3=(U.depth>0.0) && !(((segI[lo].w>>1u)&1u)!=0u || ((segI[hi].w>>1u)&1u)!=0u);
+          if(!use3){ lp0.z=0.0; lp1.z=0.0; hp0.z=0.0; hp1.z=0.0; }
+          let cp=closestSeg(lp0,lp1,hp0,hp1);
+          let tgt=segF[lo].x+segF[hi].x+max(segF[lo].y,segF[hi].y);
+          if(cp.dist>=tgt){ continue; }
+          let ov=min(tgt-cp.dist, U.penClampFrac*tgt);
+          let u=cp.n/cp.dist;
+          let mobLo=(nmeta[la.x].x+nmeta[la.y].x)*0.5; let mobHi=(nmeta[ha.x].x+nmeta[ha.y].x)*0.5; let Wt=mobLo+mobHi;
+          if(Wt<=0.0){ continue; }
+          let cLo=ov*mobLo/Wt; let cHi=ov*mobHi/Wt; let s=cp.s; let t=cp.t;
+          var d=vec3<f32>(0.0);
+          if(i==la.x){ d=u*cLo*(1.0-s); } else if(i==la.y){ d=u*cLo*s; }
+          else if(i==ha.x){ d=-u*cHi*(1.0-t); } else if(i==ha.y){ d=-u*cHi*t; }
+          accum=accum+d; contacts=contacts+1u;
+        }
+      }
+    }
+  }
+  var delta=vec3<f32>(0.0);
+  if(contacts>0u){ delta=accum/f32(contacts); delta=delta*U.omega; let m=length(delta); if(m>U.maxDisp){ delta=delta*(U.maxDisp/m); } }
+  posOut[i]=vec4<f32>(p+delta, 0.0);
+}`;
 
 function status(msg,bad){const e=document.getElementById('gpuPhysicsStatus');if(e){e.textContent=msg;e.style.color=bad?'#ff8a9a':'var(--dim)';}}
 function badge(on,reason){const e=document.getElementById('gpuPhysicsBadge');if(!e)return;
@@ -1889,7 +2009,8 @@ async function ensureDevice(){
     const adapter=await navigator.gpu.requestAdapter({powerPreference:'high-performance'});
     if(!adapter){ status('No WebGPU adapter (GPU unavailable)',true); return false; }
     try{ GP.adapterInfo = adapter.info || (adapter.requestAdapterInfo? await adapter.requestAdapterInfo():null); }catch(e){}
-    const device=await adapter.requestDevice();
+    let reqLimits={}; try{ const mx=adapter.limits.maxStorageBuffersPerShaderStage; GP.maxStorageBuf=mx; if(mx>=10){reqLimits.maxStorageBuffersPerShaderStage=10;} else if(mx>=9){reqLimits.maxStorageBuffersPerShaderStage=mx;} }catch(e){}
+    const device=await adapter.requestDevice({requiredLimits:reqLimits});
     device.lost.then(info=>{ GP.active=false;S.gpuPhysics=false;GP.device=null;cw.style.display='none';badge(false,'device lost');setToggle(false);status('WebGPU device lost \u2014 reload to retry',true); });
     GP.device=device;
     GP.ctx=cw.getContext('webgpu'); GP.format=navigator.gpu.getPreferredCanvasFormat();
@@ -1907,12 +2028,22 @@ async function ensureDevice(){
         color:{srcFactor:'src-alpha',dstFactor:'one-minus-src-alpha',operation:'add'},
         alpha:{srcFactor:'one',dstFactor:'one-minus-src-alpha',operation:'add'}}}]},
       primitive:{topology:'triangle-strip'}});
+    try{
+      const clm=device.createShaderModule({code:WGSL_CLEARGRID}); const gbm=device.createShaderModule({code:WGSL_GRIDBUILD}); const com=device.createShaderModule({code:WGSL_COLLIDE});
+      const cok=(await reportShader(clm,'cleargrid'))&(await reportShader(gbm,'gridbuild'))&(await reportShader(com,'collide'));
+      if(cok){
+        GP.clearPipe=await device.createComputePipelineAsync({layout:'auto',compute:{module:clm,entryPoint:'main'}});
+        GP.gridPipe=await device.createComputePipelineAsync({layout:'auto',compute:{module:gbm,entryPoint:'main'}});
+        GP.collPipe=await device.createComputePipelineAsync({layout:'auto',compute:{module:com,entryPoint:'main'}});
+        GP.collSupported=true; status('GPU collision ready ('+GP.maxStorageBuf+' storage bufs)');
+      } else { GP.collSupported=false; }
+    }catch(e){ GP.collSupported=false; console.warn('[gpuCollision] setup failed \u2014 physics runs without it:',e.message); }
     const err=await device.popErrorScope(); if(err){ status('pipeline error: '+err.message,true); console.error('[gpuPhysics pipeline]',err.message); return false; }
     return ok;
   }catch(e){ status('WebGPU init failed: '+e.message,true); console.error(e); return false; }
 }
 
-function disposeBuffers(){ for(const k of ['bufA','bufB','bufPrev','bufMeta','bufRange','bufNbr','bufRest','bufSeg','bufStyle','bufParams','bufCam']){ if(GP[k]){try{GP[k].destroy();}catch(e){}GP[k]=null;} } }
+function disposeBuffers(){ GP.collReady=false; for(const k of ['bufA','bufB','bufPrev','bufMeta','bufRange','bufNbr','bufRest','bufSeg','bufStyle','bufParams','bufCam','bufNSR','bufNSL','bufSegI','bufSegF','bufSegCell','bufCellBins','bufCellCount','bufOverflow','bufCollP','bufGridP','bufClearP']){ if(GP[k]){try{GP[k].destroy();}catch(e){}GP[k]=null;} } }
 
 function buildScene(){
   const device=GP.device, N=G.nodes.length; GP.N=N;
@@ -1952,7 +2083,54 @@ function buildScene(){
   GP.bgRenA=bg(GP.renPipe,[B(0,GP.bufA),B(1,GP.bufSeg),B(2,GP.bufStyle),B(3,GP.bufCam)]);
   GP.bgRenB=bg(GP.renPipe,[B(0,GP.bufB),B(1,GP.bufSeg),B(2,GP.bufStyle),B(3,GP.bufCam)]);
   GP._pos0=pos.slice(); GP._segCache=segList.map(sg=>[sg.a,sg.b,sg.rest||1]); GP._fixed=[]; for(let i=0;i<N;i++){ if(G.nodes[i]&&G.nodes[i].fixed)GP._fixed.push(i); }
+  packCollision(segList,N,device,mk,bg,B,ST,CD,CS,UN);
   GP.curBuf=0; GP.frameN=0;
+}
+function packCollision(segList,N,device,mk,bg,B,ST,CD,CS,UN){
+  GP.collReady=false;
+  const wantColl=(S.gpuCollIters==null?true:(S.gpuCollIters|0)>0);
+  if(!(GP.collSupported && wantColl))return;
+  try{
+    const numSeg=segList.length; if(numSeg<1)return;
+    const incid=new Array(N); for(let i=0;i<N;i++)incid[i]=[];
+    for(let s=0;s<numSeg;s++){ incid[segList[s].a].push(s); incid[segList[s].b].push(s); }
+    let tot=0; for(let i=0;i<N;i++)tot+=incid[i].length;
+    const nsRange=new Uint32Array(N*2), nsList=new Uint32Array(Math.max(1,tot));
+    { let cc=0; for(let i=0;i<N;i++){ nsRange[i*2]=cc; nsRange[i*2+1]=incid[i].length; for(const sg of incid[i])nsList[cc++]=sg; } }
+    const piece=(G.piece&&G.piece.length>=N)?G.piece:new Array(N).fill(0);
+    const along=new Int32Array(numSeg).fill(-1); const visited=new Uint8Array(numSeg);
+    for(let i=0;i<N;i++){ if(incid[i].length===1){ let cur=i,prevSeg=-1,idx=0;
+      while(true){ let nx=-1; for(const sg of incid[cur]){ if(sg!==prevSeg && !visited[sg]){ nx=sg; break; } } if(nx<0)break;
+        visited[nx]=1; along[nx]=idx++; const so=segList[nx]; cur=(so.a===cur)?so.b:so.a; prevSeg=nx; } } }
+    for(let s=0;s<numSeg;s++)if(along[s]<0)along[s]=0;
+    const segI=new Uint32Array(numSeg*4), segF=new Float32Array(numSeg*4);
+    let maxR=0,maxPad=0;
+    for(let s=0;s<numSeg;s++){ const sg=segList[s], o=G.objs[sg.obj]||{}; const er=(typeof effR==='function'?effR(o):(o.r||4));
+      const pd=Math.max(o.padSelf||0,o.padOther||0,S.wallPad||0); if(er>maxR)maxR=er; if(pd>maxPad)maxPad=pd;
+      const skip=Math.max(1,Math.ceil(2*(o.r||er)/Math.max(1,sg.rest||1))+1);
+      const selfSolid=(o.selfSolid!==false)?1:0;
+      segI[s*4]=sg.a; segI[s*4+1]=sg.b; segI[s*4+2]=(piece[sg.a]|0); segI[s*4+3]=(sg.bond?1:0)|((sg.solid?1:0)<<1)|(selfSolid<<2)|((sg.obj||0)<<3);
+      segF[s*4]=er; segF[s*4+1]=(o.padSelf||o.padOther||0); segF[s*4+2]=along[s]; segF[s*4+3]=skip; }
+    const reach=maxR+maxPad+GP_COLL_MARGIN, cell=Math.max(10,2*(maxR+maxPad));
+    let bx0=1e9,by0=1e9,bx1=-1e9,by1=-1e9; for(let i=0;i<N;i++){ if(NX[i]<bx0)bx0=NX[i]; if(NY[i]<by0)by0=NY[i]; if(NX[i]>bx1)bx1=NX[i]; if(NY[i]>by1)by1=NY[i]; }
+    const Wb=Math.max((S.W||0),bx1)+60, Hb=Math.max((S.H||0),by1)+60;
+    const ox=Math.min(0,bx0)-reach-cell, oy=Math.min(0,by0)-reach-cell;
+    const gx=Math.max(1,Math.ceil((Wb-ox+reach+cell)/cell)), gy=Math.max(1,Math.ceil((Hb-oy+reach+cell)/cell));
+    const numCells=gx*gy, cap=GP_COLL_CAP;
+    GP.grid={gx,gy,cell,ox,oy,reach,cap,numCells};
+    GP.bufNSR=mk(nsRange,ST|CD); GP.bufNSL=mk(nsList,ST|CD); GP.bufSegI=mk(segI,ST|CD); GP.bufSegF=mk(segF,ST|CD);
+    GP.bufSegCell=device.createBuffer({size:Math.max(16,numSeg*16),usage:ST|CD});
+    GP.bufCellBins=device.createBuffer({size:Math.max(16,numCells*cap*4),usage:ST|CD});
+    GP.bufCellCount=device.createBuffer({size:Math.max(16,numCells*4),usage:ST|CD});
+    GP.bufOverflow=device.createBuffer({size:16,usage:ST|CD|CS});
+    GP.bufCollP=device.createBuffer({size:48,usage:UN|CD}); GP.bufGridP=device.createBuffer({size:32,usage:UN|CD}); GP.bufClearP=device.createBuffer({size:16,usage:UN|CD});
+    GP.bgClear=bg(GP.clearPipe,[B(0,GP.bufCellBins),B(1,GP.bufCellCount),B(2,GP.bufClearP)]);
+    const gE=(pIn)=>[B(0,pIn),B(1,GP.bufSegI),B(2,GP.bufSegCell),B(3,GP.bufCellCount),B(4,GP.bufCellBins),B(5,GP.bufOverflow),B(6,GP.bufGridP)];
+    GP.bgGridA=bg(GP.gridPipe,gE(GP.bufA)); GP.bgGridB=bg(GP.gridPipe,gE(GP.bufB));
+    const cE=(pIn,pOut)=>[B(0,pIn),B(1,pOut),B(2,GP.bufNSR),B(3,GP.bufNSL),B(4,GP.bufSegI),B(5,GP.bufSegF),B(6,GP.bufSegCell),B(7,GP.bufCellBins),B(8,GP.bufMeta),B(9,GP.bufCollP)];
+    GP.bgCollAB=bg(GP.collPipe,cE(GP.bufA,GP.bufB)); GP.bgCollBA=bg(GP.collPipe,cE(GP.bufB,GP.bufA));
+    GP.collReady=true;
+  }catch(e){ GP.collReady=false; console.warn('[gpuCollision] buildScene packing failed:',e.message); }
 }
 
 function writeParamsTo(buf,count){ const ab=new ArrayBuffer(48),dv=new DataView(ab);
@@ -1971,6 +2149,22 @@ function step(speed){ if(GP.diagRunning)return; if(!GP.active||!GP.device)return
     const enc=dev.createCommandEncoder();
     { const pass=enc.beginComputePass(); pass.setPipeline(GP.intPipe); pass.setBindGroup(0,GP.curBuf===0?GP.bgIntAB:GP.bgIntBA); pass.dispatchWorkgroups(WG); pass.end(); GP.curBuf=1-GP.curBuf; }
     for(let k=0;k<GP_PASSES;k++){ const pass=enc.beginComputePass(); pass.setPipeline(GP.conPipe); pass.setBindGroup(0,GP.curBuf===0?GP.bgConAB:GP.bgConBA); pass.dispatchWorkgroups(WG); pass.end(); GP.curBuf=1-GP.curBuf; }
+    const K=(S.gpuCollIters==null?4:(S.gpuCollIters|0));
+    if(GP.collReady && K>0){ const g=GP.grid;
+      { const ab=new ArrayBuffer(48),dv=new DataView(ab); dv.setUint32(0,GP.N,true);dv.setUint32(4,g.gx,true);dv.setUint32(8,g.gy,true);dv.setUint32(12,g.cap,true);
+        dv.setFloat32(16,g.cell,true);dv.setFloat32(20,g.ox,true);dv.setFloat32(24,g.oy,true);dv.setFloat32(28,S.depth||0,true);
+        dv.setFloat32(32,GP_COLL_OMEGA,true);dv.setFloat32(36,GP_COLL_PENFRAC,true);dv.setFloat32(40,GP_COLL_MAXDISP,true);dv.setFloat32(44,0,true); dev.queue.writeBuffer(GP.bufCollP,0,ab); }
+      { const ab=new ArrayBuffer(32),dv=new DataView(ab); dv.setUint32(0,GP.numSeg,true);dv.setUint32(4,g.gx,true);dv.setUint32(8,g.gy,true);dv.setUint32(12,g.cap,true);
+        dv.setFloat32(16,g.cell,true);dv.setFloat32(20,g.ox,true);dv.setFloat32(24,g.oy,true);dv.setFloat32(28,g.reach,true); dev.queue.writeBuffer(GP.bufGridP,0,ab); }
+      { const ab=new ArrayBuffer(16),dv=new DataView(ab); dv.setUint32(0,g.numCells,true);dv.setUint32(4,g.cap,true); dev.queue.writeBuffer(GP.bufClearP,0,ab); }
+      dev.queue.writeBuffer(GP.bufOverflow,0,new Uint32Array([0,0,0,0]));
+      const WGc=Math.max(1,Math.ceil(g.numCells/64)), WGs=Math.max(1,Math.ceil(GP.numSeg/64));
+      for(let k=0;k<K;k++){
+        { const pass=enc.beginComputePass(); pass.setPipeline(GP.clearPipe); pass.setBindGroup(0,GP.bgClear); pass.dispatchWorkgroups(WGc); pass.end(); }
+        { const pass=enc.beginComputePass(); pass.setPipeline(GP.gridPipe); pass.setBindGroup(0,GP.curBuf===0?GP.bgGridA:GP.bgGridB); pass.dispatchWorkgroups(WGs); pass.end(); }
+        { const pass=enc.beginComputePass(); pass.setPipeline(GP.collPipe); pass.setBindGroup(0,GP.curBuf===0?GP.bgCollAB:GP.bgCollBA); pass.dispatchWorkgroups(WG); pass.end(); GP.curBuf=1-GP.curBuf; }
+      }
+    }
     dev.queue.submit([enc.finish()]); GP.frameN++;
   } }
 function render(){ if(GP.diagRunning)return; if(!GP.active||!GP.device)return; syncCanvas(); packCam();

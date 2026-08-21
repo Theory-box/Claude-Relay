@@ -256,3 +256,31 @@ segCell vec4u(xMin,xMax,yMin,yMax), cellBins u32(cap ids, 0xffffffff sentinel), 
 (static per topology) + allocate segCell/cellBins/cellCount/overflow; step runs clear->build->collide xK
 after constraints; grid params from wall-box bounds + reach=maxEffR+maxPad(+margin); behind gpuPhysics
 toggle; dev-log measures overflow/NaN/tunneling/penetration. Then tune omega/K; then bend/curl on GPU.
+
+## 🔧 LAYER 3c COLLISION WIRED INTO ENGINE (string-engine.html) — Stage A, awaiting live test
+Full GPU collision integrated into GpuPhysics. Changes (all naga+JS validated, blind — no sandbox WebGPU):
+- requestDevice requests maxStorageBuffersPerShaderStage up to 10 (collide needs 9 storage bufs); graceful
+  fallback: if <9, GP.collSupported=false -> collision auto-disabled, physics still runs.
+- WGSL_CLEARGRID/WGSL_GRIDBUILD/WGSL_COLLIDE added; pipelines built in ensureDevice (try/catch guarded).
+- packCollision(): builds node->seg CSR (nsRange/nsList), strand id from G.piece, along-index via chain-walk
+  from degree-1 endpoints (rings/branches -> along=0 = over-excluded but SAFE), skipK per seg, segI/segF,
+  allocates segCell/cellBins/cellCount/overflow + 3 uniforms, grid params (reach=maxR+maxPad+1.5 margin,
+  cell=max(10,2*(maxR+maxPad)), bounds from wall box or node bounds). Wrapped try/catch -> GP.collReady.
+- step(): after constraint loop, if collReady && K>0 (K=S.gpuCollIters??4): per iter clear->gridBuild(reads
+  curBuf)->collide(ping-pong). Grid REBUILT EACH iter (no Verlet skin needed; reuse window=1 iter). Collision
+  LAST in substep (ends on nonpenetration) — matches AI Stage-A recommendation.
+- disposeBuffers extended with 11 collision buffers.
+- invMass read from nmeta buffer (binding 8) NOT pos.w (int/con write pos.w=0, clobbering it).
+Toggle: S.gpuCollIters (default 4; set 0 to disable). No UI slider yet (console-settable) — add after validated.
+
+## STEP-LOOP FINDINGS (layer3c-step-loop-integration-findings.md): validate in STAGES.
+Stage A = structural block -> grid build -> collision block, collision LAST (what I shipped). Confirm no
+state-transfer/pipeline bugs. Stage B = interleave structural+collision groups per outer iter (block
+Gauss-Seidel across groups; couples length+contact better). Stage C = tune group counts/SOR/substeps.
+Collision should be last (residual length error > ending penetrated). Walls are contact-like -> place with
+collision. Ref: Flex/Unified Particle Physics §4.3.
+
+## KNOWN RISKS (blind integration): 3D fallback normal still 2D-only (POC depth=0); pinned-node path
+untested (POC all inv=1); grid fixed-bounds (escaping nodes clamp->edge cells->possible overflow, monitored);
+runtime bind-group/param bugs only surface on user GPU (on-screen reportShader + status + console.warn =
+diagnostic channel). Next: user live test -> if clean, add slider + dev-log overflow/tunneling, then Stage B.
