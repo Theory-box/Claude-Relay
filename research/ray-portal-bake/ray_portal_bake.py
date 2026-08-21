@@ -48,13 +48,22 @@ def _build_flat_mesh(obj, depsgraph):
         faces = []
         pos = []
         nrm = []
+        # UVs may sit in a tile offset from 0..1 (glTF imports often land V in
+        # [-1,0]). Shift by the integer offset so the layout fills the 0..1 tile;
+        # because it's a whole-tile shift, texture repeat still maps it back
+        # correctly when the baked image is applied with the original UVs.
+        import math
+        umin = min(uv_data[li].uv[0] for p in me.polygons for li in p.loop_indices)
+        vmin = min(uv_data[li].uv[1] for p in me.polygons for li in p.loop_indices)
+        su = -math.floor(umin)
+        sv = -math.floor(vmin)
         for poly in me.polygons:
             fidx = []
             for li in poly.loop_indices:
                 loop = me.loops[li]
                 vi = loop.vertex_index
                 uv = uv_data[li].uv
-                verts.append((uv.x, uv.y, 0.0))
+                verts.append((uv.x + su, uv.y + sv, 0.0))
                 world_co = mw @ me.vertices[vi].co
                 pos.append((world_co.x, world_co.y, world_co.z))
                 if corner_normals is not None:
