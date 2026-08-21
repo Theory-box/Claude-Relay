@@ -360,3 +360,15 @@ GP.active; GPU render() calls gpuRefreshProps() once next frame if dirty. Covers
 hooking. gpuRefreshProps refreshes meta+style+segF+bendData (positions untouched). STILL needs cpu->gpu
 round-trip: topology changes (grow adds material, bonding, cut) - not property refreshes. Those wait for the
 hybrid topology-rebuild path.
+
+## ROOT CAUSE of "object settings dont update in GPU mode": line 1243 pointerdown DROPPED TO CPU on any
+edit-intent click (GPU was run-only by design). So you could NOT select an object in GPU mode -> per-object
+sliders (bindPair bails if nothing selected) had no target -> did nothing. Not a gpuRefreshProps bug.
+## FIX: GPU-mode SELECTION via readback pick. G.nodes[i].x is a getter for NX[i]; readbackToCPU() writes NX[]
+-> after readback the existing pick logic sees live positions. New window.gpuPick(mx,my): readbackToCPU().then
+-> nearest node (or nearestSeg) -> selectObject + showTab('objects'). Move-tool click in GPU mode now selects
+(stays in GPU); middle-mouse pans; non-move tools (draw/cut/erase = topology) still drop to CPU.
+NOW: in GPU mode, click an object with Move tool -> selects -> per-object sliders (thickness/curl/stiff/pad)
+apply LIVE via gpuRefreshProps. GRAB/DRAG (moving nodes with mouse) still TODO - needs the integrate grab
+uniform for continuous drag (readback gives pick; drag needs per-frame pin). Instrumentation (refreshN/
+refreshErr) retained for diagnostics.

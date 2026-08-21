@@ -1240,7 +1240,7 @@ function dragApply(){if(grab<0||grab>=G.nodes.length)return;const n=G.nodes[grab
 cvs.style.cursor='grab';
 cvs.addEventListener('pointerdown',e=>{
   if(e.button===1){const r=cvs.getBoundingClientRect();panning=true;panSX=e.clientX-r.left;panSY=e.clientY-r.top;panOX=view.ox;panOY=view.oy;cvs.setPointerCapture(e.pointerId);cvs.style.cursor='move';e.preventDefault();return;}   // middle-mouse pan
-  if(window.gpuPhysicsActive&&window.gpuPhysicsActive()){if(tool==='move'){const rr=cvs.getBoundingClientRect();panning=true;panSX=e.clientX-rr.left;panSY=e.clientY-rr.top;panOX=view.ox;panOY=view.oy;cvs.setPointerCapture(e.pointerId);cvs.style.cursor='move';return;}if(window.gpuPhysicsDropToCPU)window.gpuPhysicsDropToCPU('editing');return;}
+  if(window.gpuPhysicsActive&&window.gpuPhysicsActive()){ if(tool==='move'){ const [gmx,gmy]=canvasXY(e); if(window.gpuPick)window.gpuPick(gmx,gmy); return; } if(window.gpuPhysicsDropToCPU)window.gpuPhysicsDropToCPU('editing'); return; }  // GPU move = pick+select (readback); middle-mouse pans; other tools change topology -> drop to CPU
   const [mx,my]=canvasXY(e);
   if(tool==='draw'){let oi=S.selected;if(oi<0||!G.objs[oi])oi=G.objs.length?G.objs.length-1:newMaterial('Material 1');
     stroke=[{x:mx,y:my}];stroke.oi=oi;cvs.setPointerCapture(e.pointerId);return;}
@@ -2256,6 +2256,16 @@ async function readbackToCPU(){ if(!GP.device||!GP.N)return false;
   const N=Math.min(GP.N,G.nodes.length);
   for(let i=0;i<N;i++){ NX[i]=arr[i*4]; NY[i]=arr[i*4+1]; NH[i]=arr[i*4+2]; NPX[i]=arr[i*4]; NPY[i]=arr[i*4+1]; NPH[i]=arr[i*4+2]; }
   GP.readbacks++; window.RD=true; return true; }
+window.gpuPick=function(mx,my){ if(!GP.active)return;
+  readbackToCPU().then(function(){
+    let best=-1,bd=28*28;
+    for(let i=0;i<G.nodes.length;i++){ const n=G.nodes[i]; const dx=n.x-mx,dy=n.y-my,d=dx*dx+dy*dy; if(d<bd){bd=d;best=i;} }
+    let obj=-1;
+    if(best>=0){ obj=G.nodes[best].obj; }
+    else { const si=(typeof nearestSeg==='function')?nearestSeg(mx,my,Math.max(8,12/(view.z||1))):-1; if(si>=0)obj=G.segs[si].obj; }
+    if(obj>=0){ if(typeof selectObject==='function')selectObject(obj); if(typeof showTab==='function')showTab('objects'); if(typeof status==='function')status('selected \u00b7 edit props live in GPU mode'); }
+    window.RD=true;
+  }).catch(function(e){ console.warn('[gpuPick]',e&&e.message); }); };
 
 async function activate(){ if(GP.active)return true; if(GP.initing)return false; GP.initing=true;
   status('initializing WebGPU\u2026');
