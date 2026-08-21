@@ -465,3 +465,16 @@ transition must (re)initialize it. (Collision/bend don't hit this: they're activ
   CPU grab var untouched (separate path); no conflict since GP.active gates the GPU branch. WGSL_INT+CON naga-valid.
 Remaining GPU-mode gaps: BONDING (formation+breaking+holding existing bonds — next, hybrid), auto-spacing
 (relaxSpacing CPU-only), advanceCDRamp (minor), solid->segI live refresh (minor 3D-depth nuance).
+
+## BONDING stage 1: hold + render existing bonds on GPU (prerequisite)
+CPU treats bonds as ordinary length-constraint segments (constraints() length loop iterates ALL segs incl s.bond;
+formation is in endpointForces line 889 which pushes a bond:true seg on proximity). buildScene was skipping bonds
+(if(sg.dead||sg.bond)continue) so bonded structures fell apart on GPU. FIX (1 line): skip only dead, not bond.
+Now bonds are in segList -> held (constraint CSR/adj), drawn (bufSeg/style), collision-skipped (segI bond bit set
+-> collide line 52 `(w&1)` continues), affinity-skipped (bonds ids=[] -> affF.w=0). Branch nodes at bonds hit the
+collider's safe along-index over-exclude path. Grow applies to bonds too (obj=endpoint's obj) = CPU parity.
+Bonds are FROZEN on GPU for now (no formation/breaking/hardening yet) but held + visible = structures survive.
+NEXT (stage 2): formation + breaking. Plan = pragmatic hybrid first (throttled readback -> run existing CPU bond
+logic endpointForces/flag*Breaks/maintainBonds/removeDead -> rebuild GPU buffers on topology change; reuses ALL
+CPU bond code, bounded cost via throttle), then stage 3 = move free-endpoint proximity DETECTION to a GPU pass
+(research design: atomic-append candidate buffer, overflow fatal, double-buffered readback) to kill the CPU hotspot.

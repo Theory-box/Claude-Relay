@@ -2193,7 +2193,7 @@ function buildScene(){
   }
   const adj=new Array(N); for(let i=0;i<N;i++)adj[i]=[];
   const segList=[];
-  for(let s=0;s<G.segs.length;s++){ const sg=G.segs[s]; if(sg.dead||sg.bond)continue;
+  for(let s=0;s<G.segs.length;s++){ const sg=G.segs[s]; if(sg.dead)continue;   // bonds INCLUDED: held as length constraints, drawn, and skipped by collision via the segI bond bit
     const a=sg.a,b=sg.b,rest=sg.rest||1; if(a>=N||b>=N)continue; adj[a].push([b,rest,sg.obj]); adj[b].push([a,rest,sg.obj]); segList.push(sg); }
   const numSeg=segList.length; GP.numSeg=numSeg;
   let numDir=0; for(let i=0;i<N;i++)numDir+=adj[i].length; GP.numDir=numDir;
