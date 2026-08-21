@@ -395,3 +395,14 @@ At the start of a session on this topic: `git checkout feature/ray-portal-bake &
   runs -> poller completes -> applied + scene settings restored.
 - If freezing persists on objects with NO modifiers, cause is different (bake not
   backgrounding from script) -> would move native bake to a subprocess like the portal path.
+
+## v0.13.5 — re-unwrap after applying UV-breaking modifiers
+- When collapsing modifiers, the popup now offers "Re-unwrap after (Smart UV Project)".
+- It defaults ON when a UV-breaking modifier is present (_UV_HURTING_MODIFIERS: Solidify,
+  Mirror, Array, Bevel, Screw, Skin, Weld, Wireframe, Boolean, Build, Mask, Edge Split,
+  Triangulate, Decimate, Remesh); OFF otherwise (so clean deformers like Subsurf/Armature
+  don't needlessly discard good UVs). Popup shows an ERROR-icon note when a breaker exists.
+- execute: after _apply_all_modifiers, if reunwrap_after -> _smart_project (overwrites UVs).
+- Refactored the unwrap core into _smart_project(); _ensure_uvs now calls it when no UVs.
+- Verified: Solidify detected; collapse->re-unwrap gives 0-1 UVs and better coverage
+  (29.9% vs 11.7% with the overlapping post-Solidify UVs).

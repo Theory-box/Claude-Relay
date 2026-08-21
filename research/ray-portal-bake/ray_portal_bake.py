@@ -246,9 +246,18 @@ class RPBAKE_OT_bake(bpy.types.Operator):
                      "black. Uncheck to bake the object as-is"),
         default=True)
 
+    reunwrap_after: bpy.props.BoolProperty(
+        name="Re-unwrap after (Smart UV Project)",
+        description=("Some modifiers (Solidify, Mirror, Array, Bevel...) leave overlapping "
+                     "or broken UVs once applied. Re-unwrap replaces the UV map with a fresh "
+                     "Smart UV Project so the bake is clean. This discards the current UVs"),
+        default=False)
+
     def invoke(self, context, event):
         obj = context.active_object
         if obj is not None and obj.type == "MESH" and len(obj.modifiers) > 0:
+            # default the re-unwrap ON when a modifier that breaks UVs is present
+            self.reunwrap_after = _has_uv_hurting_modifier(obj)
             return context.window_manager.invoke_props_dialog(self, width=340)
         return self.execute(context)
 
@@ -261,6 +270,13 @@ class RPBAKE_OT_bake(bpy.types.Operator):
         col.label(text="geometry (e.g. Solidify) can bake black.")
         col.separator()
         col.prop(self, "collapse_modifiers")
+        sub = col.column()
+        sub.enabled = self.collapse_modifiers
+        sub.prop(self, "reunwrap_after")
+        if obj is not None and _has_uv_hurting_modifier(obj):
+            col.separator()
+            col.label(text="A modifier here breaks UVs -", icon="ERROR")
+            col.label(text="re-unwrap is recommended.")
 
     def execute(self, context):
         if _state["job"] is not None:
@@ -272,6 +288,8 @@ class RPBAKE_OT_bake(bpy.types.Operator):
             return {"CANCELLED"}
         if self.collapse_modifiers and len(obj.modifiers) > 0:
             _apply_all_modifiers(context, obj)
+            if self.reunwrap_after:
+                _smart_project(context, obj)
         if obj.data.uv_layers.active is None:
             if not _ensure_uvs(context, obj):
                 self.report({"WARNING"}, "Object has no UV map and auto smart-unwrap failed.")
@@ -536,11 +554,18 @@ def _apply_all_modifiers(context, obj):
     return ok
 
 
-def _ensure_uvs(context, obj):
-    """If the object has no active UV map, smart-project one, then return to Object mode.
-    Returns True if a UV map is present afterwards."""
-    if obj.data.uv_layers.active is not None:
-        return True
+_UV_HURTING_MODIFIERS = {
+    "SOLIDIFY", "MIRROR", "ARRAY", "BEVEL", "SCREW", "SKIN", "WELD", "WIREFRAME",
+    "BOOLEAN", "BUILD", "MASK", "EDGE_SPLIT", "TRIANGULATE", "DECIMATE", "REMESH",
+}
+
+
+def _has_uv_hurting_modifier(obj):
+    return any(m.type in _UV_HURTING_MODIFIERS for m in obj.modifiers)
+
+
+def _smart_project(context, obj):
+    """Smart-UV-project obj (overwrites the active UV map), then return to Object mode."""
     try:
         if context.object is not None and context.object.mode != "OBJECT":
             bpy.ops.object.mode_set(mode="OBJECT")
@@ -562,6 +587,13 @@ def _ensure_uvs(context, obj):
         except Exception:
             pass
     return obj.data.uv_layers.active is not None
+
+
+def _ensure_uvs(context, obj):
+    """If the object has no active UV map, smart-project one. Returns True if UVs exist."""
+    if obj.data.uv_layers.active is not None:
+        return True
+    return _smart_project(context, obj)
 
 
 def _apply_device_to_scene(scene):
