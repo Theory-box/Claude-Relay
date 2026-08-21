@@ -128,3 +128,32 @@ motion is statistically similar not identical.
 3. Collision = WGSL spatial-hash compute w/ atomics (the real speedup). Consider asking ChatGPT (via user
    relay) to (a) check if its env has WebGPU or can install naga-cli for pre-flight WGSL validation, and
    (b) research fastest WebGPU spatial-hash-with-atomics for ~10k particles. Keep integration single-author.
+
+## ✅ FIRST HARDWARE DIAGNOSTIC (Dev-tab one-press export) — layer 1 VALIDATED on real GPU
+HW: NVIDIA Lovelace (RTX 40-series), Chrome 151, Win64. Shaders compile clean (0 WGSL errors).
+Limits worth noting for collision design: maxStorageBuffersPerShaderStage=8, maxBindGroups=4,
+maxComputeWorkgroupSizeX=256, maxStorageBufferBindingSize=128MB, maxBufferSize=256MB.
+Scene: 2483 nodes / 1961 segs / 3922 directed. 120-step GPU run vs 120-step CPU (integrate+constraints)
+from identical state:
+- CORRECTNESS ✅: GPU NaN=0, edgeError mean 0.042 / max 0.25 / p95 0.138 — TIGHTER than CPU
+  (mean 0.045 / max 0.56). edgeErrRatio 0.93. spanRatioX 0.99. Trajectory spans stable 1197→1202→1193,
+  no explosion/drift/collapse. gpuStable=true, pinsHeld=true. => integrate (temp+damp+depth slab, no
+  gravity) + mass-weighted Jacobi length constraints are numerically correct on real hardware.
+- PERF ⚠️ (honest no): GPU 0.923 ms/step vs CPU 0.478 ms/step => speedup 0.52× (GPU ~2x SLOWER).
+  Cause: 2.5k nodes is tiny => overhead-bound (9 compute passes/step, fixed per-pass cost dominates
+  trivial compute). Also diagnostic stalls GPU 5x for trajectory readbacks (inflates GPU ms somewhat).
+  CONCLUSION: GPU physics does NOT win on cheap physics at small scale. Payoff is entirely (a) COLLISION
+  (48-73% of CPU frame; the reason we picked WebGPU) and (b) SCALE (10k-100k nodes). Bend would add
+  fidelity but not change perf. => go to collision next.
+Log saved: diag-logs/2026-08-21_layer1_first-hardware-run.json
+Minor polish TODO: buildLog webgpu.adapter serializes {} (raw GPUAdapterInfo getters non-enumerable) —
+use adapterCaps() extraction there too. Diagnostic perf: add a clean run (no checkpoint stalls) + a
+scaling sweep (clone scene x2/x4/x8… time GPU vs CPU) to find the crossover node-count.
+
+## NEXT (revised priority from data)
+1. Diagnostic v2: clean perf timing + scaling sweep (find GPU>CPU crossover) — small, informs scale push.
+2. COLLISION on GPU = WGSL spatial-hash compute w/ atomics (uniform grid; build cell counts via
+   atomicAdd, prefix-sum offsets, scatter node indices, then per-node gather neighbours in 3x3 cells,
+   push apart on overlap). The real prize. Good candidate for ChatGPT research relay (fastest WebGPU
+   spatial-hash-with-atomics for ~10k-100k particles; single-author the integration).
+3. (optional) bend/curl constraints for fidelity.

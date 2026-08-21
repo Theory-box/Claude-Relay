@@ -236,9 +236,9 @@
         <div class="stat"><span>pos span (x × y)</span><span id="devSpan">—</span></div>
         <div class="stat"><span>y range</span><span id="devY">—</span></div>
         <div class="stat"><span>NaN nodes</span><span id="devNan" style="color:var(--warn)">—</span></div>
-        <div class="seg" style="margin-top:12px"><button id="devExport">⭳ Export log for Claude</button></div>
+        <div class="seg" style="margin-top:12px"><button id="devExport">⭳ Run diagnostics &amp; export for Claude</button></div>
         <div class="seg" style="margin-top:6px"><button id="devClear">clear rolling buffer</button></div>
-        <div class="stat" style="margin-top:8px"><span>Downloads a JSON snapshot + the last ~4 min of 1&#8202;Hz telemetry (fps, position spans, NaN counts). Upload the file to Claude.</span></div>
+        <div class="stat" style="margin-top:8px"><span>One press runs a full GPU diagnostic (compile check, adapter caps, 120-step GPU run + CPU comparison, stability trajectory) and downloads it as JSON with the rolling telemetry. Upload the file to Claude.</span></div>
       </div>
     </div>
 
@@ -1773,7 +1773,7 @@ const GP={active:false,initing:false,device:null,ctx:null,format:null,prevGpu:fa
   intPipe:null,conPipe:null,renPipe:null,
   bufA:null,bufB:null,bufPrev:null,bufMeta:null,bufRange:null,bufNbr:null,bufRest:null,bufSeg:null,bufStyle:null,bufParams:null,bufCam:null,
   bgIntAB:null,bgIntBA:null,bgConAB:null,bgConBA:null,bgRenA:null,bgRenB:null,
-  N:0,numSeg:0,numDir:0,curBuf:0,frameN:0,readbacks:0,lastExit:null,wgslMsgs:[],adapterInfo:null,lastStats:null,lastStatsT:0,telemBusy:false,log:[]};
+  N:0,numSeg:0,numDir:0,curBuf:0,frameN:0,readbacks:0,lastExit:null,wgslMsgs:[],adapterInfo:null,lastStats:null,lastStatsT:0,telemBusy:false,log:[],diagRunning:false,_pos0:null,_segCache:null,_fixed:null};
 const GP_PASSES=8, GP_RELAX=0.6;
 
 function status(msg,bad){const e=document.getElementById('gpuPhysicsStatus');if(e){e.textContent=msg;e.style.color=bad?'#ff8a9a':'var(--dim)';}}
@@ -1950,6 +1950,7 @@ function buildScene(){
   GP.bgConAB=bg(GP.conPipe,conE(GP.bufA,GP.bufB)); GP.bgConBA=bg(GP.conPipe,conE(GP.bufB,GP.bufA));
   GP.bgRenA=bg(GP.renPipe,[B(0,GP.bufA),B(1,GP.bufSeg),B(2,GP.bufStyle),B(3,GP.bufCam)]);
   GP.bgRenB=bg(GP.renPipe,[B(0,GP.bufB),B(1,GP.bufSeg),B(2,GP.bufStyle),B(3,GP.bufCam)]);
+  GP._pos0=pos.slice(); GP._segCache=segList.map(sg=>[sg.a,sg.b,sg.rest||1]); GP._fixed=[]; for(let i=0;i<N;i++){ if(G.nodes[i]&&G.nodes[i].fixed)GP._fixed.push(i); }
   GP.curBuf=0; GP.frameN=0;
 }
 
@@ -1962,14 +1963,14 @@ function packCam(){ const w=cw.width||1,h=cw.height||1,sc=S.dpr*view.z,ox=S.dpr*
 function syncCanvas(){ const w=Math.max(1,Math.floor(cw.clientWidth*S.dpr)),h=Math.max(1,Math.floor(cw.clientHeight*S.dpr));
   if(cw.width!==w||cw.height!==h){ cw.width=w; cw.height=h; } }
 
-function step(speed){ if(!GP.active||!GP.device)return; const dev=GP.device, WG=Math.max(1,Math.ceil(GP.N/64)); const n=speed||1;
+function step(speed){ if(GP.diagRunning)return; if(!GP.active||!GP.device)return; const dev=GP.device, WG=Math.max(1,Math.ceil(GP.N/64)); const n=speed||1;
   for(let s=0;s<n;s++){ packParams();
     const enc=dev.createCommandEncoder();
     { const pass=enc.beginComputePass(); pass.setPipeline(GP.intPipe); pass.setBindGroup(0,GP.curBuf===0?GP.bgIntAB:GP.bgIntBA); pass.dispatchWorkgroups(WG); pass.end(); GP.curBuf=1-GP.curBuf; }
     for(let k=0;k<GP_PASSES;k++){ const pass=enc.beginComputePass(); pass.setPipeline(GP.conPipe); pass.setBindGroup(0,GP.curBuf===0?GP.bgConAB:GP.bgConBA); pass.dispatchWorkgroups(WG); pass.end(); GP.curBuf=1-GP.curBuf; }
     dev.queue.submit([enc.finish()]); GP.frameN++;
   } }
-function render(){ if(!GP.active||!GP.device)return; syncCanvas(); packCam();
+function render(){ if(GP.diagRunning)return; if(!GP.active||!GP.device)return; syncCanvas(); packCam();
   const dev=GP.device, enc=dev.createCommandEncoder();
   let tex; try{ tex=GP.ctx.getCurrentTexture(); }catch(e){ return; }
   const rp=enc.beginRenderPass({colorAttachments:[{view:tex.createView(),clearValue:{r:0,g:0,b:0,a:0},loadOp:'clear',storeOp:'store'}]});
@@ -2056,12 +2057,72 @@ function buildLog(){ return {
   gpuPhysics:(window.gpuPhysicsDiagnostics?window.gpuPhysicsDiagnostics():null),
   wgslMessages:GP.wgslMsgs.slice(-20), cpuStatsNow:cpuStats(), gpuStatsLast:GP.lastStats||null,
   telemetry:GP.log.slice() }; }
-function exportLog(){ try{ const data=JSON.stringify(buildLog(),null,2);
+function downloadJSON(obj,name){ try{ const data=JSON.stringify(obj,null,2);
   const blob=new Blob([data],{type:'application/json'}); const url=URL.createObjectURL(blob);
-  const a=document.createElement('a'); a.href=url; a.download='string-engine-devlog-'+Date.now()+'.json'; document.body.appendChild(a); a.click();
+  const a=document.createElement('a'); a.href=url; a.download=(name||'string-engine-devlog')+'-'+Date.now()+'.json'; document.body.appendChild(a); a.click();
   setTimeout(function(){URL.revokeObjectURL(url);a.remove();},150);
   }catch(e){ status('export failed: '+e.message,true); } }
-const _ex=document.getElementById('devExport'); if(_ex)_ex.addEventListener('click',exportLog);
+
+/* ---- Full GPU diagnostics harness: one press = compile + caps + GPU run + CPU compare ---- */
+function adapterCaps(){ const info=GP.adapterInfo||{}; const lim={}; let feats=[];
+  try{ if(GP.device&&GP.device.limits){ const L=GP.device.limits; for(const k of ['maxBufferSize','maxStorageBufferBindingSize','maxComputeWorkgroupSizeX','maxComputeInvocationsPerWorkgroup','maxComputeWorkgroupsPerDimension','maxStorageBuffersPerShaderStage','maxBindGroups']) lim[k]=L[k]; } }catch(e){}
+  try{ if(GP.device&&GP.device.features) feats=[...GP.device.features]; }catch(e){}
+  return {info:{vendor:info.vendor,architecture:info.architecture,device:info.device,description:info.description},features:feats,limits:lim}; }
+function stepOnceInternal(){ const dev=GP.device,WG=Math.max(1,Math.ceil(GP.N/64)); packParams();
+  const enc=dev.createCommandEncoder();
+  {const pass=enc.beginComputePass();pass.setPipeline(GP.intPipe);pass.setBindGroup(0,GP.curBuf===0?GP.bgIntAB:GP.bgIntBA);pass.dispatchWorkgroups(WG);pass.end();GP.curBuf=1-GP.curBuf;}
+  for(let k=0;k<GP_PASSES;k++){const pass=enc.beginComputePass();pass.setPipeline(GP.conPipe);pass.setBindGroup(0,GP.curBuf===0?GP.bgConAB:GP.bgConBA);pass.dispatchWorkgroups(WG);pass.end();GP.curBuf=1-GP.curBuf;}
+  dev.queue.submit([enc.finish()]); GP.frameN++; }
+async function readbackRaw(){ const dev=GP.device,src=GP.curBuf===0?GP.bufA:GP.bufB,bytes=Math.max(16,GP.N*16);
+  const rb=dev.createBuffer({size:bytes,usage:GPUBufferUsage.COPY_DST|GPUBufferUsage.MAP_READ});
+  const enc=dev.createCommandEncoder();enc.copyBufferToBuffer(src,0,rb,0,bytes);dev.queue.submit([enc.finish()]);
+  await rb.mapAsync(GPUMapMode.READ);const a=new Float32Array(rb.getMappedRange().slice(0));rb.unmap();rb.destroy();return a; }
+function edgeError(pos){ const sc=GP._segCache||[]; if(!sc.length)return null; let sum=0,mx=0,cnt=0; const errs=[];
+  for(const e of sc){ const a=e[0],b=e[1],rest=e[2]; const dx=pos[a*4]-pos[b*4],dy=pos[a*4+1]-pos[b*4+1],dh=pos[a*4+2]-pos[b*4+2];
+    const d=Math.hypot(dx,dy,dh),er=Math.abs(d-rest); if(!isFinite(er))continue; sum+=er; if(er>mx)mx=er; errs.push(er); cnt++; }
+  errs.sort((x,y)=>x-y); const p95=errs.length?errs[Math.min(errs.length-1,Math.floor(errs.length*0.95))]:0;
+  return {mean:+(sum/Math.max(1,cnt)).toFixed(3),max:+mx.toFixed(3),p95:+p95.toFixed(3),segs:cnt}; }
+function pinnedDisp(pos){ const fx=GP._fixed||[],p0=GP._pos0; if(!fx.length||!p0)return {pins:0,maxDisp:0};
+  let mx=0; for(const i of fx){const dx=pos[i*4]-p0[i*4],dy=pos[i*4+1]-p0[i*4+1],dh=pos[i*4+2]-p0[i*4+2];const d=Math.hypot(dx,dy,dh);if(d>mx)mx=d;} return {pins:fx.length,maxDisp:+mx.toFixed(4)}; }
+function packCPUvec4(){ const n=G.nodes.length,a=new Float32Array(Math.max(4,n*4)); for(let i=0;i<n;i++){a[i*4]=NX[i];a[i*4+1]=NY[i];a[i*4+2]=NH[i];} return a; }
+function snapCPU(){ return {NX:NX.slice(),NY:NY.slice(),NH:NH.slice(),NPX:NPX.slice(),NPY:NPY.slice(),NPH:NPH.slice()}; }
+function restoreCPU(sn){ NX.set(sn.NX);NY.set(sn.NY);NH.set(sn.NH);NPX.set(sn.NPX);NPY.set(sn.NPY);NPH.set(sn.NPH); }
+async function runDiagnostics(K){ K=K||120; const R={build:BUILD,at:new Date().toISOString(),webgpuSupported:supported()};
+  if(!supported()){ R.error='WebGPU not supported in this browser'; return R; }
+  GP.wgslMsgs.length=0;
+  const ok=await ensureDevice(); R.compile={ok:ok,messages:GP.wgslMsgs.slice()}; R.adapter=adapterCaps();
+  if(!ok){ R.error='shader/pipeline compile failed'; return R; }
+  if(!G.nodes.length){ R.error='empty scene'; return R; }
+  const wasActive=GP.active; GP.diagRunning=true;
+  try{
+    buildScene();
+    R.scene={nodes:GP.N,segs:GP.numSeg,directed:GP.numDir,fixed:(GP._fixed||[]).length};
+    const checkpoints=new Set([1,10,30,60,K]); const traj=[]; const gt0=performance.now();
+    for(let k=1;k<=K;k++){ stepOnceInternal(); if(checkpoints.has(k)){ const p=await readbackRaw(); const st=statsOf(p,GP.N); const ee=edgeError(p); traj.push({step:k,spanX:st.spanX,spanY:st.spanY,nan:st.nan,edgeMean:ee?ee.mean:null}); } }
+    const gpuPos=await readbackRaw(); const gms=performance.now()-gt0;
+    R.gpu={steps:K,ms:+gms.toFixed(1),msPerStep:+(gms/K).toFixed(3),stats:statsOf(gpuPos,GP.N),edgeError:edgeError(gpuPos),pinned:pinnedDisp(gpuPos),trajectory:traj};
+    const snap=snapCPU(); const wasGpu=S.gpuPhysics; S.gpuPhysics=false; const ct0=performance.now();
+    for(let k=0;k<K;k++){ integrate(); constraints(); } S.gpuPhysics=wasGpu; const cms=performance.now()-ct0;
+    const cpuPos=packCPUvec4();
+    R.cpu={steps:K,ms:+cms.toFixed(1),msPerStep:+(cms/K).toFixed(3),stats:statsOf(cpuPos,GP.N),edgeError:edgeError(cpuPos),pinned:pinnedDisp(cpuPos)};
+    restoreCPU(snap);
+    const ge=R.gpu.edgeError, ce=R.cpu.edgeError;
+    R.verdict={ gpuNaN:R.gpu.stats.nan, cpuNaN:R.cpu.stats.nan,
+      gpuStable:(R.gpu.stats.nan===0 && ge && ge.mean < Math.max(5,(ce?ce.mean:5)*3)),
+      pinsHeld:(R.gpu.pinned.maxDisp<0.5),
+      spanRatioX:(R.cpu.stats.spanX? +(R.gpu.stats.spanX/Math.max(1,R.cpu.stats.spanX)).toFixed(2):null),
+      edgeErrRatio:(ce&&ce.mean? +(ge.mean/Math.max(1e-6,ce.mean)).toFixed(2):null),
+      speedup:(R.gpu.ms>0? +(R.cpu.ms/R.gpu.ms).toFixed(2):null) };
+    if(wasActive){ buildScene(); }
+  }catch(e){ R.error='diagnostic run failed: '+e.message; console.error(e); }
+  GP.diagRunning=false; return R; }
+async function runAndExport(){ const btn=document.getElementById('devExport'); const lbl=btn?btn.textContent:'';
+  if(btn){btn.disabled=true;btn.textContent='running diagnostics\u2026';} status('running GPU diagnostics\u2026');
+  let diag=null; try{ diag=await runDiagnostics(120); }catch(e){ diag={error:String(e&&e.message||e)}; }
+  const log=buildLog(); log.diagnostics=diag; downloadJSON(log,'string-engine-diag');
+  const v=diag&&diag.verdict; status(diag&&diag.error?('diag ERROR: '+diag.error):('exported \u00B7 GPU NaN='+(v?v.gpuNaN:'?')+' pinsHeld='+(v?v.pinsHeld:'?')+' speedup='+(v?v.speedup:'?')+'\u00D7'), !!(diag&&diag.error));
+  if(btn){btn.disabled=false;btn.textContent=lbl||'\u2B73 Run diagnostics & export for Claude';} liveReadout(); }
+const _ex=document.getElementById('devExport'); if(_ex)_ex.addEventListener('click',runAndExport);
 const _cl=document.getElementById('devClear'); if(_cl)_cl.addEventListener('click',function(){GP.log.length=0;liveReadout();});
 const _bt=document.getElementById('devBuild'); if(_bt)_bt.textContent=BUILD;
 liveReadout();
