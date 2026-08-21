@@ -436,3 +436,18 @@ FIX (1 char): capture true -> bubble false. Bubble fires AFTER target-phase hand
 refresh reads fresh values. Fixes affinity live-update AND the whole class (any control relying on the catch-all).
 Verified the lone stopPropagation is on a click handler (material delete), not input/change, so bubble misses nothing.
 LESSON: a global capture-phase refresh listener races ahead of the very handlers whose writes it needs to read.
+
+## REAL FIX: affinity enabled-from-zero didn't init live (affReady latched at build) — the capture/bubble guess was wrong
+Diag: affinity.ready=true, overflow=0, refreshN=185, refreshErr=null — affinity was HEALTHY, refresh WAS firing.
+Symptom persisted: set an affinity value -> no effect until mode-switch/diag. ROOT CAUSE: affReady is decided ONCE
+at build time by packAffinity (anyAff = any nonzero interSelf/inter). Default scene has affinity TAGS but zero
+VALUES -> affReady=false at build. gpuRefreshProps's affinity block AND step()'s whole affinity pass are both gated
+on affReady, so setting a value from zero refreshed nothing and never ran the pass; only a rebuild (switch/diag)
+re-ran packAffinity, saw the nonzero value, and flipped affReady=true. (The earlier capture->bubble change was a
+wrong guess — timing was never the issue since bindPair/other controls kept refreshN climbing.)
+FIX: stash buffer helpers (GP._helpers={mk,bg,B,ST,CD,CS,UN,device}) at build; add rebuildAffinityLive() (dispose
+aff buffers + re-run packAffinity) + affinityEnabled(); in gpuRefreshProps detect off->on (anyAff && !affReady ->
+rebuildAffinityLive) and on->off (affReady=false). So enabling affinity from zero now builds its buffers live and
+the pass starts next frame; disabling stops it. Uses the same packAffinity that already works on rebuild.
+LESSON: a subsystem gated on a build-time-latched ready flag can't self-enable from a zero start — the enable
+transition must (re)initialize it. (Collision/bend don't hit this: they're active from build in normal scenes.)

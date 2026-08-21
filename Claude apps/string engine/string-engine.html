@@ -2221,6 +2221,7 @@ function buildScene(){
   packCollision(segList,N,device,mk,bg,B,ST,CD,CS,UN);
   packBend(N,device,mk,bg,B,ST,CD,UN);
   packAffinity(segList,N,device,mk,bg,B,ST,CD,CS,UN);
+  GP._helpers={mk,bg,B,ST,CD,CS,UN,device};
   GP.curBuf=0; GP.frameN=0;
 }
 function packCollision(segList,N,device,mk,bg,B,ST,CD,CS,UN){
@@ -2299,6 +2300,13 @@ function packBend(N,device,mk,bg,B,ST,CD,UN){
     GP.bendReady=true;
   }catch(e){ GP.bendReady=false; console.warn('[gpuBend] pack failed:',e.message); }
 }
+function rebuildAffinityLive(){
+  if(!GP._helpers || !GP.affSupported)return;
+  try{ for(const k of ['bufAffF','bufVmat','bufSegCellA','bufCellBinsA','bufCellCountA','bufOverflowA','bufAffP','bufGridTP','bufClearAP']){ if(GP[k]&&GP[k].destroy){try{GP[k].destroy();}catch(e){}} GP[k]=null; } }catch(e){}
+  GP.affReady=false; const h=GP._helpers;
+  packAffinity(GP._segList, GP.N, h.device, h.mk, h.bg, h.B, h.ST, h.CD, h.CS, h.UN);
+}
+function affinityEnabled(){ for(const o of G.objs){ if(o.interSelf)return true; if(o.inter){ for(const k in o.inter){ if(o.inter[k])return true; } } } return false; }
 function packAffinity(segList,N,device,mk,bg,B,ST,CD,CS,UN){
   GP.affReady=false;
   if(!(GP.affSupported && GP.collReady && GP.bufNSR && GP.bufSegI))return;
@@ -2360,6 +2368,10 @@ function gpuRefreshProps(){ if(!GP.active||!GP.device)return; const dev=GP.devic
     for(let i=0;i<N;i++){ const nb=G.nbrs[i], n=G.nodes[i]||{}, o=G.objs[n.obj]||{};
       if(nb && nb.length===2){ bd[i*4+2]=(typeof effStiff==='function'?effStiff(o):(o.stiff||0))*0.5; bd[i*4+3]=(typeof effCurl==='function'?effCurl(o):(o.curl||0))*((o.r||4)*3); } }
     dev.queue.writeBuffer(GP.bufBend,0,bd); }
+  if(GP.affSupported && GP._helpers){ const on=affinityEnabled();
+    if(on && !GP.affReady){ rebuildAffinityLive(); }           // enabled from zero -> build affinity buffers live
+    else if(!on && GP.affReady){ GP.affReady=false; }           // disabled -> pass stops running (buffers kept)
+  }
   if(GP.affReady && GP.bufAffF && GP._affF && GP._segList){ const af=GP._affF, sl=GP._segList, ns=sl.length;
     for(let sI=0;sI<ns;sI++){ const sg=sl[sI], o=G.objs[sg.obj]||{}; af[sI*4]=(typeof effR==='function'?effR(o):(o.r||4)); af[sI*4+1]=(o.padSelf||o.padOther||0); af[sI*4+2]=(o.affRange!=null?o.affRange:140); af[sI*4+3]=(sg.ids&&sg.ids.length)?1:0; }
     dev.queue.writeBuffer(GP.bufAffF,0,af);
