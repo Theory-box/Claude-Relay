@@ -394,6 +394,8 @@ def _poll():
                     _set_status("Rendered (%s) - applied to mesh" % (status_txt.strip() or "?"))
                 else:
                     _set_status("Rendered (%s) - image ready" % (status_txt.strip() or "?"))
+                if job.get("obj"):
+                    _state["last_baked"] = job["obj"]
             else:
                 _set_status("Failed: " + status_txt[4:70])
         except Exception as exc:
@@ -515,6 +517,8 @@ def _poll_native():
             _apply_result_to_object(obj)
         except Exception:
             pass
+        if job.get("obj"):
+            _state["last_baked"] = job["obj"]
         _restore_scene(job.get("orig"))
         _set_status("Baked (native)")
         _state["job"] = None
@@ -594,21 +598,74 @@ class RPBAKE_OT_show_on_mesh(bpy.types.Operator):
 
 class RPBAKE_OT_save(bpy.types.Operator):
     bl_idname = "rpbake.save"
-    bl_label = "Save Image..."
-    bl_description = "Open Blender's Save As dialog for the baked image (choose format, path, options)"
+    bl_label = "Save"
+    bl_description = ("Save the baked image straight to disk using the Save settings below "
+                      "(no dialog). Defaults to a 'bakes' folder next to your .blend file")
     bl_options = {"REGISTER"}
+
+    _ext = {"PNG": "png", "JPEG": "jpg", "OPEN_EXR": "exr", "TIFF": "tif"}
+    _allowed = {"PNG": ("8", "16"), "JPEG": ("8",), "OPEN_EXR": ("16", "32"),
+                "TIFF": ("8", "16", "32")}
 
     def execute(self, context):
         res = bpy.data.images.get(RESULT_IMAGE_NAME)
         if res is None:
-            self.report({"WARNING"}, "No baked image yet.")
+            self.report({"WARNING"}, "Nothing baked yet - hit Render first.")
             return {"CANCELLED"}
+        sc = context.scene
+        d = sc.rpbake_save_dir.strip()
+        if d:
+            directory = bpy.path.abspath(d)
+        else:
+            if not bpy.data.filepath:
+                self.report({"WARNING"}, "Save your .blend first, or set a Save Folder in Bake Settings.")
+                return {"CANCELLED"}
+            directory = os.path.join(os.path.dirname(bpy.data.filepath), "bakes")
         try:
-            with context.temp_override(edit_image=res):
-                bpy.ops.image.save_as("INVOKE_DEFAULT")
+            os.makedirs(directory, exist_ok=True)
         except Exception as exc:
-            self.report({"ERROR"}, "Could not open save dialog: %s" % exc)
+            self.report({"ERROR"}, "Could not create folder: %s" % exc)
             return {"CANCELLED"}
+        name = _state.get("last_baked")
+        if not name:
+            name = context.active_object.name if context.active_object else "bake"
+        fmt = sc.rpbake_save_format
+        ext = self._ext.get(fmt, "png")
+        filepath = os.path.join(directory, "%s.%s" % (bpy.path.clean_name(name), ext))
+        depth = sc.rpbake_save_depth
+        allowed = self._allowed.get(fmt, ("8",))
+        if depth not in allowed:
+            depth = allowed[-1]
+        o_vt = sc.view_settings.view_transform
+        o_fmt = sc.render.image_settings.file_format
+        o_depth = sc.render.image_settings.color_depth
+        o_q = sc.render.image_settings.quality
+        try:
+            if sc.rpbake_save_view != "FOLLOW":
+                try:
+                    sc.view_settings.view_transform = sc.rpbake_save_view
+                except Exception:
+                    pass  # transform not present in this OCIO config; fall back to scene
+            sc.render.image_settings.file_format = fmt
+            try:
+                sc.render.image_settings.color_depth = depth
+            except Exception:
+                pass
+            if fmt == "JPEG":
+                sc.render.image_settings.quality = 95
+            res.save_render(filepath, scene=sc)
+        except Exception as exc:
+            self.report({"ERROR"}, "Save failed: %s" % exc)
+            return {"CANCELLED"}
+        finally:
+            sc.view_settings.view_transform = o_vt
+            sc.render.image_settings.file_format = o_fmt
+            try:
+                sc.render.image_settings.color_depth = o_depth
+            except Exception:
+                pass
+            sc.render.image_settings.quality = o_q
+        self.report({"INFO"}, "Saved: %s" % filepath)
         return {"FINISHED"}
 
 
@@ -759,6 +816,9 @@ class RPBAKE_PT_panel(bpy.types.Panel):
         r.enabled = not busy
         r.scale_y = 1.4
         r.operator("rpbake.bake", text="Render", icon="RENDER_STILL")
+        rs = layout.row()
+        rs.enabled = (bpy.data.images.get(RESULT_IMAGE_NAME) is not None) and not busy
+        rs.operator("rpbake.save", text="Save", icon="FILE_TICK")
         if sc.rpbake_status:
             layout.label(text=sc.rpbake_status, icon=("SORTTIME" if busy else "CHECKMARK"))
 
@@ -785,6 +845,13 @@ class RPBAKE_PT_bakesettings(bpy.types.Panel):
         col.prop(sc, "rpbake_colorspace")
         col.prop(sc, "rpbake_float")
         col.prop(sc, "rpbake_margin")
+        layout.separator()
+        layout.label(text="Save", icon="FILE_TICK")
+        s = layout.column(align=True)
+        s.prop(sc, "rpbake_save_dir")
+        s.prop(sc, "rpbake_save_format")
+        s.prop(sc, "rpbake_save_depth")
+        s.prop(sc, "rpbake_save_view")
 
 
 _classes = (RPBAKE_OT_bake, RPBAKE_OT_show_on_mesh, RPBAKE_OT_save,
@@ -832,6 +899,29 @@ def register():
     bpy.types.Scene.rpbake_margin = bpy.props.IntProperty(
         name="Margin (px)", default=16, min=0, max=64,
         description="Bleed the baked result this many pixels past each UV island edge to hide seams")
+    bpy.types.Scene.rpbake_save_dir = bpy.props.StringProperty(
+        name="Save Folder", subtype="DIR_PATH", default="",
+        description="Where Save writes the image. Leave empty to use a 'bakes' folder next to your .blend file")
+    bpy.types.Scene.rpbake_save_format = bpy.props.EnumProperty(
+        name="Format", default="PNG",
+        items=[
+            ("PNG", "PNG", "Lossless, 8 or 16-bit"),
+            ("JPEG", "JPEG", "Lossy, 8-bit, small files"),
+            ("OPEN_EXR", "OpenEXR", "Float HDR, 16 or 32-bit"),
+            ("TIFF", "TIFF", "Lossless, 8 / 16 / 32-bit"),
+        ])
+    bpy.types.Scene.rpbake_save_depth = bpy.props.EnumProperty(
+        name="Bit Depth", default="16",
+        items=[("8", "8-bit", ""), ("16", "16-bit", ""), ("32", "32-bit float", "")])
+    bpy.types.Scene.rpbake_save_view = bpy.props.EnumProperty(
+        name="Color Grading", default="FOLLOW",
+        items=[
+            ("FOLLOW", "Follow Scene", "Use whatever view transform the scene is set to - matches your render look"),
+            ("Standard", "Standard (sRGB)", "Plain sRGB, no filmic tone mapping"),
+            ("AgX", "AgX", "Bake the AgX look into the file"),
+            ("Filmic", "Filmic", "Bake the Filmic look into the file"),
+            ("Raw", "Raw (linear)", "No colour management - raw linear values (best with EXR / 32-bit)"),
+        ])
     for c in _classes:
         bpy.utils.register_class(c)
 
@@ -855,7 +945,8 @@ def unregister():
         bpy.utils.unregister_class(c)
     for p in ("rpbake_method", "rpbake_resolution", "rpbake_samples", "rpbake_epsilon",
               "rpbake_status", "rpbake_bake_type", "rpbake_float", "rpbake_colorspace",
-              "rpbake_margin"):
+              "rpbake_margin", "rpbake_save_dir", "rpbake_save_format", "rpbake_save_depth",
+              "rpbake_save_view"):
         if hasattr(bpy.types.Scene, p):
             delattr(bpy.types.Scene, p)
 

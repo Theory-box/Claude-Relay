@@ -317,3 +317,21 @@ At the start of a session on this topic: `git checkout feature/ray-portal-bake &
 - Also raised rpbake_resolution max from 8192 -> 16384 (user needs 8000; now uncapped to
   16K). min stays 64.
 - Committed to feature/ray-portal-bake.
+
+## v0.13 — Save button (one-click, no dialog) + save settings in Bake Settings panel
+- Workflow the user wants: Render -> (if happy) Save -> next object -> Render -> Save.
+  Save must NOT open a dialog; it just writes the file using settings configured once.
+- Main panel: added a "Save" button under Render (enabled only when a bake exists & not busy).
+- Bake Settings sub-panel gained a "Save" section:
+    * Save Folder (DIR_PATH) - empty = a 'bakes' folder next to the .blend; or a custom path.
+    * Format: PNG / JPEG / OpenEXR / TIFF.
+    * Bit Depth: 8 / 16 / 32 (clamped to what the format allows: JPEG->8, EXR->16/32, PNG->8/16).
+    * Color Grading: Follow Scene (uses scene view transform) / Standard / AgX / Filmic / Raw.
+- RPBAKE_OT_save rewritten: no dialog. Resolves dir, names the file after the LAST-BAKED
+  object (tracked in _state['last_baked'] on completion of both native & portal paths),
+  temporarily sets scene image_settings (format/depth/quality) + view transform, calls
+  image.save_render(path, scene), then restores all scene settings.
+- Verified: default-folder PNG16 (Follow=AgX), custom-folder JPEG (Standard), EXR32 (Raw)
+  all written to disk with correct names; scene view transform restored; AgX vs Standard
+  files differ (grading really applied).
+- Committed to feature/ray-portal-bake.
