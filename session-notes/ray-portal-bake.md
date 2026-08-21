@@ -27,3 +27,18 @@ At the start of a session on this topic: `git checkout feature/ray-portal-bake &
 - [ ] Operator: duplicate object → GN flatten (+capture attrs) → portal mat → ortho cam.
 - [ ] Live look-dev mode vs capture-to-image mode (reuse Node Preview save path?).
 - [ ] Cleanup operator.
+
+## v0.1 addon — WORKING (research/ray-portal-bake/ray_portal_bake.py)
+- Operator "Set Up Portal Bake": builds a per-CORNER UV-flattened copy of the
+  active object (one vert per loop → seams/islands handled), stores world-space
+  rpbake_pos + rpbake_nrm attributes, assigns the portal material, and adds an
+  ortho bake camera placed above the scene (no occlusion). Sets Cycles + neutral
+  colour mgmt. "Clear Portal Bake" removes it all. Panel in View3D > Portal Bake.
+- Verified headless: lit grid plane bakes lighting into UV (coverage 1.0, near-
+  light corner brightest); curved + Suzanne (seamed) both render fine; flat_verts
+  == loop count confirms per-corner split. Cleanup leaves nothing behind.
+- World-space attrs mean object transforms are handled. Multi-material on the real
+  mesh works for free (portal samples the real surface, whatever materials it has).
+- NEXT: capture-to-image button (render bake cam → packable file, reuse Node
+  Preview save path); portal material as a shipped node group; denoise defaults
+  for cleaner live view; UI to pick the bake resolution; test hard-surface normals.
