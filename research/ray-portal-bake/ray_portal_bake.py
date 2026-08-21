@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Ray Portal Bake",
     "author": "Theory-box / Claude Relay",
-    "version": (0, 2, 0),
+    "version": (0, 8, 0),
     "blender": (4, 2, 0),
     "location": "Shader Editor / View3D > Sidebar > Portal Bake",
     "description": "One-shot bake of a mesh's real, lit surface (lighting + normal maps) into UV "
@@ -48,9 +48,9 @@ def build_flat(obj, depsgraph):
             corner_normals = me.corner_normals if len(me.corner_normals) else None
         except Exception:
             corner_normals = None
-        umin = min(uv_data[li].uv[0] for p in me.polygons for li in p.loop_indices)
-        vmin = min(uv_data[li].uv[1] for p in me.polygons for li in p.loop_indices)
-        su = -math.floor(umin); sv = -math.floor(vmin)
+        us = [uv_data[li].uv[0] for p in me.polygons for li in p.loop_indices]
+        vs = [uv_data[li].uv[1] for p in me.polygons for li in p.loop_indices]
+        umin = min(us); umax = max(us); vmin = min(vs); vmax = max(vs)
         verts = []; faces = []; pos = []; nrm = []
         for poly in me.polygons:
             fidx = []
@@ -58,7 +58,7 @@ def build_flat(obj, depsgraph):
                 loop = me.loops[li]
                 vi = loop.vertex_index
                 uv = uv_data[li].uv
-                verts.append((uv.x + su, uv.y + sv, 0.0))
+                verts.append((uv.x, uv.y, 0.0))
                 w = mw @ me.vertices[vi].co
                 pos.append((w.x, w.y, w.z))
                 if corner_normals is not None:
@@ -78,7 +78,7 @@ def build_flat(obj, depsgraph):
     ap.data.foreach_set("vector", [c for v in pos for c in v])
     an = flat.attributes.new(ATTR_NRM, "FLOAT_VECTOR", "POINT")
     an.data.foreach_set("vector", [c for v in nrm for c in v])
-    return flat
+    return flat, (umin, umax, vmin, vmax)
 
 def portal_mat(eps):
     mat = bpy.data.materials.new("RPBake_PortalMat")
@@ -139,9 +139,10 @@ try:
     obj = bpy.data.objects[obj_name]
     with bpy.context.temp_override(scene=scene):
         depsgraph = bpy.context.evaluated_depsgraph_get()
-        flat_me = build_flat(obj, depsgraph)
-        if flat_me is None:
+        built = build_flat(obj, depsgraph)
+        if built is None:
             raise RuntimeError("no active UV map on " + obj_name)
+        flat_me, (umin, umax, vmin, vmax) = built
         flat_obj = bpy.data.objects.new("RPBake_Flat", flat_me)
         flat_obj.data.materials.append(portal_mat(eps))
         scene.collection.objects.link(flat_obj)
@@ -154,8 +155,12 @@ try:
                 zmax = wz if not found else max(zmax, wz); found = True
         z = (zmax if found else 0.0) + 10.0
         flat_obj.location = (0.0, 0.0, z)
-        cam_d = bpy.data.cameras.new("RPBake_Cam"); cam_d.type = "ORTHO"; cam_d.ortho_scale = 1.0
-        cam = bpy.data.objects.new("RPBake_Cam", cam_d); cam.location = (0.5, 0.5, z + 5.0)
+        cx = (umin + umax) / 2.0; cy = (vmin + vmax) / 2.0
+        span = max(umax - umin, vmax - vmin, 1e-5)
+        fminx = cx - span / 2.0; fminy = cy - span / 2.0
+        cam_d = bpy.data.cameras.new("RPBake_Cam"); cam_d.type = "ORTHO"; cam_d.ortho_scale = span
+        cam_d.clip_start = 0.001; cam_d.clip_end = 1.0e9
+        cam = bpy.data.objects.new("RPBake_Cam", cam_d); cam.location = (cx, cy, z + 5.0)
         scene.collection.objects.link(cam)
         scene.camera = cam
         scene.render.engine = "CYCLES"
@@ -179,7 +184,7 @@ try:
         scene.render.image_settings.color_mode = "RGBA"
         bpy.ops.render.render(write_still=True)
     with open(status, "w") as f:
-        f.write(dev)
+        f.write("%s FRAME %.8f %.8f %.8f" % (dev, fminx, fminy, span))
 except Exception:
     import traceback
     try:
@@ -207,7 +212,7 @@ def _get_device_mode():
         return "AUTO"
 
 
-def _store_result(png_path):
+def _store_result(png_path, frame=None):
     tmp = bpy.data.images.load(png_path)
     try:
         w, h = tmp.size
@@ -221,6 +226,10 @@ def _store_result(png_path):
         tmp.pixels.foreach_get(buf)
         res.pixels.foreach_set(buf)
         res.update()
+        # store the UV frame the camera used, so Show-on-Mesh can rebuild the
+        # exact inverse mapping (baked image fits the object's own UVs).
+        if frame is not None:
+            res["rpbake_fminx"], res["rpbake_fminy"], res["rpbake_span"] = frame
     finally:
         bpy.data.images.remove(tmp)
     return res
@@ -305,8 +314,16 @@ def _poll():
             pass
         try:
             if not status_txt.startswith("ERR:"):
-                _store_result(job["png"])
-                _set_status("Baked (%s)" % (status_txt or "?"))
+                dev_txt = status_txt; frame = None
+                if " FRAME " in status_txt:
+                    dev_txt, fr = status_txt.split(" FRAME ", 1)
+                    try:
+                        fx, fy, sp = [float(x) for x in fr.split()]
+                        frame = (fx, fy, sp)
+                    except Exception:
+                        frame = None
+                _store_result(job["png"], frame)
+                _set_status("Baked (%s)" % (dev_txt.strip() or "?"))
             else:
                 _set_status("Failed: " + status_txt[4:70])
         except Exception as exc:
@@ -386,9 +403,23 @@ class RPBAKE_OT_show_on_mesh(bpy.types.Operator):
             tex = nt.nodes.new("ShaderNodeTexImage")
             tex.image = res
             if anchor is not None and anchor != tex:
-                tex.location = (anchor.location.x - 400, anchor.location.y)
+                tex.location = (anchor.location.x - 500, anchor.location.y)
+            # Rebuild the exact inverse of the frame-to-bounds camera so the
+            # baked image lands precisely on the object's existing UVs.
+            span = res.get("rpbake_span", 1.0) or 1.0
+            fminx = res.get("rpbake_fminx", 0.0)
+            fminy = res.get("rpbake_fminy", 0.0)
+            if abs(span - 1.0) > 1e-6 or abs(fminx) > 1e-6 or abs(fminy) > 1e-6:
+                uvn = nt.nodes.new("ShaderNodeUVMap")
+                mapn = nt.nodes.new("ShaderNodeMapping")
+                mapn.inputs["Location"].default_value = (-fminx / span, -fminy / span, 0.0)
+                mapn.inputs["Scale"].default_value = (1.0 / span, 1.0 / span, 1.0)
+                uvn.location = (tex.location.x - 520, tex.location.y - 230)
+                mapn.location = (tex.location.x - 300, tex.location.y - 200)
+                nt.links.new(uvn.outputs["UV"], mapn.inputs["Vector"])
+                nt.links.new(mapn.outputs["Vector"], tex.inputs["Vector"])
         nt.nodes.active = tex
-        self.report({"INFO"}, "Baked image set as active texture. View in Solid + Texture.")
+        self.report({"INFO"}, "Baked image set as active texture (auto-fit to UVs). View in Solid + Texture.")
         return {"FINISHED"}
 
 

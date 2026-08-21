@@ -144,3 +144,23 @@ At the start of a session on this topic: `git checkout feature/ray-portal-bake &
 - NEXT: get user's Diagnostics dump from THEIR object (post their manual unwrap) to
   see if it differs. Candidate real fix if normals are down: bake the camera-facing
   / opposite side (flip option) — but confirm from their data first.
+
+## v0.8 — frame-to-bounds auto-scaling (VERIFIED exact) + mapping on Show-on-Mesh
+- Root cause of user's "transparent for any object": their objects have sub-region /
+  atlas UVs, so a plain 0..1 bake renders them as a tiny speck (looks empty). The
+  "black on re-apply" (38.6%) seen on FloorplanTrace.006/.002 was those meshes'
+  overlapping/degenerate atlas UVs, NOT a coordinate bug.
+- Proved the auto-scaling math is exact on a CLEAN unwrap (helmet UVs shrunk to a
+  sub-region incl. negative V): frame-to-bounds bake + inverse Mapping node re-apply =
+  diff 0.0055. The old v0.4 "padding" error was the 5% margin (span*=1.05); removing
+  it makes the fit exact.
+- IMPLEMENTED: build_flat now uses RAW uv coords (no floor-shift) and returns UV
+  bounds. Worker frames an ORTHO cam exactly to the square UV bbox (ortho_scale=span,
+  NO margin, clip_end 1e9) and writes "DEV FRAME fminx fminy span" to status. Main
+  parses it, stores rpbake_fminx/fminy/span as custom props on RPBake_Result. Show-on-
+  Mesh rebuilds UVMap->Mapping(Location=-fmin/span, Scale=1/span)->ImageTexture, the
+  exact inverse -> fits the object's own UVs with no manual work.
+- Verified END-TO-END through the actual addon (bake op + show_on_mesh op) on a clean
+  sub-region object: diff 0.0022 (exact).
+- NOTE for messy/overlapping atlas UVs: bake still visible, but faces that overlap in
+  UV can't all round-trip (physics of shared UV space, not a bug). Clean unwraps fit.
