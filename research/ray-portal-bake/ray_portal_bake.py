@@ -665,6 +665,27 @@ class RPBAKE_OT_save(bpy.types.Operator):
             except Exception:
                 pass
             sc.render.image_settings.quality = o_q
+        # Re-point the just-baked object's texture from the shared RESULT image to the
+        # freshly-saved file, so the NEXT bake (which overwrites RESULT) can't replace
+        # this object's texture. The RESULT datablock stays as the reusable bake target.
+        try:
+            saved = bpy.data.images.load(filepath, check_existing=True)
+            try:
+                saved.reload()
+            except Exception:
+                pass
+            target = bpy.data.objects.get(_state.get("last_baked", "") or "")
+            if target is None:
+                target = context.active_object
+            if (target is not None and target.type == "MESH"
+                    and target.active_material and target.active_material.use_nodes):
+                nt = target.active_material.node_tree
+                for n in nt.nodes:
+                    if n.type == "TEX_IMAGE" and n.image == res:
+                        n.image = saved
+                        nt.nodes.active = n
+        except Exception:
+            pass
         self.report({"INFO"}, "Saved: %s" % filepath)
         return {"FINISHED"}
 

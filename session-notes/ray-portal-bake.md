@@ -335,3 +335,15 @@ At the start of a session on this topic: `git checkout feature/ray-portal-bake &
   all written to disk with correct names; scene view transform restored; AgX vs Standard
   files differ (grading really applied).
 - Committed to feature/ray-portal-bake.
+
+## v0.13.1 — Save re-points the mesh to the saved file (fixes shared-result clobber)
+- Problem (user): every bake writes the one shared RayPortalBake_Result image and the
+  mesh's texture node points at it, so baking the NEXT object overwrote the previous
+  object's on-mesh texture.
+- Fix: after Save writes the file, it loads that file as its own datablock and re-points
+  the just-baked object's TEX_IMAGE node (the one pointing at RESULT) to the saved image,
+  and makes it active. RESULT stays as the reusable bake target for the next object.
+- Verified: bake A -> node=RESULT; save A -> node=FloorplanTrace_001.png; bake B (overwrites
+  RESULT) -> A STILL = FloorplanTrace_001.png (unaffected), B=RESULT; save B -> B=FloorplanTrace_005.png.
+  Both files on disk; RESULT datablock persists.
+- Committed to feature/ray-portal-bake.
