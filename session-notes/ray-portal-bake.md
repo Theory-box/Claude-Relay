@@ -107,3 +107,20 @@ At the start of a session on this topic: `git checkout feature/ray-portal-bake &
 - Verified: 0..1 UV plane -> coverage 1.0; Show-on-Mesh adds only TEX_IMAGE.
 - ATLAS/partial-UV support (frame-to-bounds or auto-unwrap) is a FUTURE OPTION,
   off by default; the correct default is a straight 0..1 bake.
+
+## v0.6 — Smart Unwrap (fills 0..1) + segfault fix
+- Root of "nothing/black": ALL FloorplanTrace roof pieces share a photo-texture
+  atlas (UVs a small sub-region), no modifiers. Per user: Smart UV Project them.
+- ADDED "Smart Unwrap" toggle (default ON) + "Unwrap Margin": creates a dedicated
+  RPBake_UV map via bpy.ops.uv.smart_project, then NORMALIZES it to fill 0..1.
+  The object's original/active UV map is left untouched (RPBake_UV is separate).
+  Worker now bakes through a named UV map (arg 9); Show-on-Mesh adds a UVMap node
+  pointing at RPBake_UV so it lines up. Toggle OFF to bake existing UVs.
+- BUG FIXED: segfault — the RPBake_UV layer reference was fetched BEFORE the
+  edit-mode round-trip (smart_project enters/exits Edit), which rebuilds mesh UV
+  data and invalidates the pointer; the normalize loop then read freed memory.
+  Fix: re-fetch me.uv_layers.get(BAKE_UV_NAME) AFTER mode_set OBJECT.
+- Verified on roof FloorplanTrace.006: coverage 0.0008 -> 0.72, original UVMap
+  still active, RPBake_UV added. Dark = the roof's dark material + scene light.
+- Note: normalize stretches non-square islands to fill 0..1 (consistent with the
+  RPBake_UV it bakes through, so Show-on-Mesh via that map lines up).

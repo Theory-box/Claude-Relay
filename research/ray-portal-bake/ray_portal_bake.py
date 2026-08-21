@@ -16,6 +16,7 @@ import tempfile
 import subprocess
 
 RESULT_IMAGE_NAME = "RayPortalBake_Result"
+BAKE_UV_NAME = "RPBake_UV"
 
 # --- background worker -----------------------------------------------------
 # Runs in its own `blender -b --factory-startup` process on a copy of the scene.
@@ -34,11 +35,13 @@ except Exception:
 ATTR_POS = "rpbake_pos"
 ATTR_NRM = "rpbake_nrm"
 
-def build_flat(obj, depsgraph):
+def build_flat(obj, depsgraph, uv_name):
     eval_obj = obj.evaluated_get(depsgraph)
     me = eval_obj.to_mesh()
     try:
-        uvl = me.uv_layers.active
+        uvl = me.uv_layers.get(uv_name) if uv_name else None
+        if uvl is None:
+            uvl = me.uv_layers.active
         if uvl is None:
             return None
         uv_data = uvl.data
@@ -132,6 +135,7 @@ def setup_device(scene, mode):
 
 argv = sys.argv[sys.argv.index("--") + 1:]
 scene_name, obj_name, out_png, res, samples, eps, device, status = argv[:8]
+uv_name = argv[8] if len(argv) > 8 else ""
 res = int(res); samples = int(samples); eps = float(eps)
 
 try:
@@ -139,7 +143,7 @@ try:
     obj = bpy.data.objects[obj_name]
     with bpy.context.temp_override(scene=scene):
         depsgraph = bpy.context.evaluated_depsgraph_get()
-        flat_me = build_flat(obj, depsgraph)
+        flat_me = build_flat(obj, depsgraph, uv_name)
         if flat_me is None:
             raise RuntimeError("no active UV map on " + obj_name)
         flat_obj = bpy.data.objects.new("RPBake_Flat", flat_me)
@@ -207,6 +211,48 @@ def _get_device_mode():
         return "AUTO"
 
 
+def _smart_unwrap(obj, margin):
+    """Create/refresh a dedicated BAKE_UV_NAME map via Smart UV Project, then
+    normalize it to fill 0..1. The object's original/active UV map is untouched."""
+    me = obj.data
+    orig_idx = me.uv_layers.active_index
+    uvl = me.uv_layers.get(BAKE_UV_NAME)
+    if uvl is None:
+        uvl = me.uv_layers.new(name=BAKE_UV_NAME)
+    me.uv_layers.active = uvl
+    prev_active = bpy.context.view_layer.objects.active
+    prev_sel = list(bpy.context.selected_objects)
+    try:
+        for o in prev_sel:
+            o.select_set(False)
+        obj.select_set(True)
+        bpy.context.view_layer.objects.active = obj
+        with bpy.context.temp_override(active_object=obj, selected_objects=[obj], object=obj):
+            bpy.ops.object.mode_set(mode="EDIT")
+            bpy.ops.mesh.select_all(action="SELECT")
+            bpy.ops.uv.smart_project(island_margin=margin)
+            bpy.ops.object.mode_set(mode="OBJECT")
+        # Re-fetch after the edit-mode round-trip (the old reference is stale).
+        uvl = me.uv_layers.get(BAKE_UV_NAME)
+        data = uvl.data
+        us = [d.uv[0] for d in data]; vs = [d.uv[1] for d in data]
+        umin = min(us); umax = max(us); vmin = min(vs); vmax = max(vs)
+        du = max(umax - umin, 1e-6); dv = max(vmax - vmin, 1e-6)
+        for d in data:
+            d.uv[0] = (d.uv[0] - umin) / du
+            d.uv[1] = (d.uv[1] - vmin) / dv
+    finally:
+        me.uv_layers.active_index = orig_idx
+        try:
+            for o in bpy.context.selected_objects:
+                o.select_set(False)
+            for o in prev_sel:
+                o.select_set(True)
+            bpy.context.view_layer.objects.active = prev_active
+        except Exception:
+            pass
+
+
 def _store_result(png_path):
     tmp = bpy.data.images.load(png_path)
     try:
@@ -253,6 +299,15 @@ class RPBAKE_OT_bake(bpy.types.Operator):
         eps = float(scene.rpbake_epsilon)
         mode = _get_device_mode()
 
+        uv_name = ""
+        if scene.rpbake_smart_unwrap:
+            try:
+                _smart_unwrap(obj, float(scene.rpbake_margin))
+                uv_name = BAKE_UV_NAME
+            except Exception as exc:
+                self.report({"ERROR"}, "Smart unwrap failed: %s" % exc)
+                return {"CANCELLED"}
+
         tmpdir = tempfile.gettempdir()
         stamp = str(int(time.time() * 1000))
         blend = os.path.join(tmpdir, "rpbake_%s.blend" % stamp)
@@ -273,7 +328,7 @@ class RPBAKE_OT_bake(bpy.types.Operator):
                 kwargs["creationflags"] = 0x08000000
             proc = subprocess.Popen(
                 [exe, "-b", "--factory-startup", blend, "--python", worker, "--",
-                 scene.name, obj.name, png, str(res), str(samples), str(eps), mode, status],
+                 scene.name, obj.name, png, str(res), str(samples), str(eps), mode, status, uv_name],
                 **kwargs)
         except Exception as exc:
             self.report({"ERROR"}, "Could not launch worker: %s" % exc)
@@ -387,6 +442,13 @@ class RPBAKE_OT_show_on_mesh(bpy.types.Operator):
             tex.image = res
             if anchor is not None and anchor != tex:
                 tex.location = (anchor.location.x - 400, anchor.location.y)
+            # If the bake used a dedicated unwrap map, point the texture at it so
+            # it lines up (the object's original UVs are a different layout).
+            if obj.data.uv_layers.get(BAKE_UV_NAME) is not None:
+                uvn = nt.nodes.new("ShaderNodeUVMap")
+                uvn.uv_map = BAKE_UV_NAME
+                uvn.location = (tex.location.x - 200, tex.location.y - 150)
+                nt.links.new(uvn.outputs["UV"], tex.inputs["Vector"])
         nt.nodes.active = tex
         self.report({"INFO"}, "Baked image set as active texture. View in Solid + Texture.")
         return {"FINISHED"}
@@ -431,6 +493,10 @@ class RPBAKE_PT_panel(bpy.types.Panel):
         col.prop(sc, "rpbake_resolution")
         col.prop(sc, "rpbake_samples")
         col.prop(sc, "rpbake_epsilon")
+        col.prop(sc, "rpbake_smart_unwrap")
+        sub = col.row()
+        sub.enabled = sc.rpbake_smart_unwrap
+        sub.prop(sc, "rpbake_margin")
         busy = _state["job"] is not None
         r = layout.row()
         r.enabled = not busy
@@ -451,6 +517,13 @@ def register():
     bpy.types.Scene.rpbake_resolution = bpy.props.IntProperty(name="Resolution", default=1024, min=64, max=8192)
     bpy.types.Scene.rpbake_samples = bpy.props.IntProperty(name="Samples", default=128, min=1, max=4096)
     bpy.types.Scene.rpbake_epsilon = bpy.props.FloatProperty(name="Surface Offset", default=0.02, min=0.0001, max=1.0, precision=4)
+    bpy.types.Scene.rpbake_smart_unwrap = bpy.props.BoolProperty(
+        name="Smart Unwrap", default=True,
+        description="Smart UV Project the object into a dedicated UV map filling 0..1 before baking "
+                    "(your original UVs are kept). Turn off to bake with the object's existing UVs")
+    bpy.types.Scene.rpbake_margin = bpy.props.FloatProperty(
+        name="Unwrap Margin", default=0.02, min=0.0, max=0.5, precision=3,
+        description="Island padding for Smart UV Project")
     bpy.types.Scene.rpbake_status = bpy.props.StringProperty(name="Status", default="")
     for c in _classes:
         bpy.utils.register_class(c)
@@ -468,7 +541,8 @@ def unregister():
         bpy.app.timers.unregister(_poll)
     for c in reversed(_classes):
         bpy.utils.unregister_class(c)
-    for p in ("rpbake_resolution", "rpbake_samples", "rpbake_epsilon", "rpbake_status"):
+    for p in ("rpbake_resolution", "rpbake_samples", "rpbake_epsilon",
+              "rpbake_smart_unwrap", "rpbake_margin", "rpbake_status"):
         if hasattr(bpy.types.Scene, p):
             delattr(bpy.types.Scene, p)
 
