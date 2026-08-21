@@ -302,3 +302,18 @@ At the start of a session on this topic: `git checkout feature/ray-portal-bake &
   engines/other apps) is a separate feature (post-bake view-transform apply) - NOT built,
   offered to user.
 - Status: committed to feature/ray-portal-bake. NOT merged to main (no explicit request).
+
+## v0.12.1 — BUGFIX: Resolution setting did nothing (stuck at first-baked size)
+- Symptom (user): changing Resolution (128/1024/2048/4096) produced the same output size;
+  effectively stuck at whatever the RESULT image was first created at.
+- Root cause: _get_result_image reused the existing RESULT datablock and called
+  Image.scale(res,res) to resize it - but Image.scale() does NOT reliably resize a bake
+  target (verified headless: image stayed 256 across 1024/2048/4096/8000 requests).
+- Fix: when size OR bit depth differs, RECREATE the datablock via bpy.data.images.new at
+  the exact resolution (which sets size reliably) and re-point existing tex-node users to
+  the new image. Verified: 256/1024/2048/4096/8000 all produce the correct size; real
+  bakes at 512 and 2048 output (512,512)/(2048,2048) and the active tex node re-points so
+  it still shows on the mesh.
+- Also raised rpbake_resolution max from 8192 -> 16384 (user needs 8000; now uncapped to
+  16K). min stays 64.
+- Committed to feature/ray-portal-bake.

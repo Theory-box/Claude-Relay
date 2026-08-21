@@ -550,9 +550,11 @@ def _restore_scene(orig):
 
 def _get_result_image(res, float_buf, colorspace):
     """Return the shared RESULT image at the requested size/bit-depth/colorspace.
-    If the bit depth changed we make a new datablock and re-point existing users."""
+    If size or bit depth changed, make a fresh datablock at the exact resolution and
+    re-point existing users - bpy.data.images.new sets the size reliably, whereas
+    Image.scale() does not resize a bake target dependably."""
     img = bpy.data.images.get(RESULT_IMAGE_NAME)
-    if img is not None and img.is_float != float_buf:
+    if img is not None and (img.is_float != float_buf or tuple(img.size) != (res, res)):
         new = bpy.data.images.new(RESULT_IMAGE_NAME + "__new", res, res, alpha=True, float_buffer=float_buf)
         for m in bpy.data.materials:
             if m.use_nodes and m.node_tree:
@@ -565,8 +567,6 @@ def _get_result_image(res, float_buf, colorspace):
     if img is None:
         img = bpy.data.images.new(RESULT_IMAGE_NAME, res, res, alpha=True, float_buffer=float_buf)
     img.use_fake_user = True
-    if tuple(img.size) != (res, res):
-        img.scale(res, res)
     try:
         img.colorspace_settings.name = colorspace
     except Exception:
@@ -802,7 +802,7 @@ def register():
              "Use Blender's native bake (faster; runs in the background with "
              "Blender's own progress bar)"),
         ])
-    bpy.types.Scene.rpbake_resolution = bpy.props.IntProperty(name="Resolution", default=1024, min=64, max=8192)
+    bpy.types.Scene.rpbake_resolution = bpy.props.IntProperty(name="Resolution", default=1024, min=64, max=16384)
     bpy.types.Scene.rpbake_samples = bpy.props.IntProperty(name="Samples", default=128, min=1, max=4096)
     bpy.types.Scene.rpbake_epsilon = bpy.props.FloatProperty(name="Surface Offset", default=0.02, min=0.0001, max=1.0, precision=4)
     bpy.types.Scene.rpbake_status = bpy.props.StringProperty(name="Status", default="")
