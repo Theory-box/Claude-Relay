@@ -455,3 +455,21 @@ At the start of a session on this topic: `git checkout feature/ray-portal-bake &
   message if that save is cancelled (e.g. no folder / unsaved .blend). Unchecking = ignore
   and overwrite.
 - Verified: warn True for different object, False for same object, cleared after save.
+
+## v0.14 — BATCH baking (select many, one prompt, auto-save each)
+- Select 2+ mesh objects -> Render button reads "Render N Objects" and runs a batch.
+- ONE upfront dialog (no per-object prompts): "Bake N objects, one at a time. Each is baked
+  then auto-saved." + checkboxes: Apply modifiers where present / Re-unwrap after applying
+  (default ON if any selected obj has a UV-breaking modifier) / Back up originals first.
+  Confirm text "Bake All".
+- Refactor: extracted module fn _start_native_bake(context, obj) -> (dev, mode) from the
+  operator (both single + batch use it). Added _prep_object() (modifiers+UVs), _batch_advance()
+  (queue driver), _selected_meshes().
+- State machine: _state['batch']={names,i,apply_mods,reunwrap,backup,ok,fail}. execute ->
+  _start_batch (checks a save destination exists, since each object auto-saves) -> _batch_advance
+  preps + starts obj[i]'s bake. _poll_native completion, when batch active: bpy.ops.rpbake.save()
+  (writes obj's own file + re-points its node so it isn't clobbered), i+=1, _batch_advance next.
+  Ends with "Batch done: N baked, M skipped". Panel busy + unregister clear the batch.
+- Verified headless: 3-object batch (one with Solidify) -> all 3 baked, applied+re-unwrapped,
+  each saved to its own file (Cube.png / FloorplanTrace_001.png / FloorplanTrace_005.png),
+  each object references its own file. Single-object path regression-tested OK.

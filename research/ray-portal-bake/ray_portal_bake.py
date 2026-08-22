@@ -203,7 +203,7 @@ def _worker_path():
     return p
 
 
-_state = {"job": None}
+_state = {"job": None, "batch": None}
 
 
 def _get_device_mode():
@@ -271,6 +271,16 @@ class RPBAKE_OT_bake(bpy.types.Operator):
         return bool(_state.get("unsaved") and last and (obj is None or last != obj.name))
 
     def invoke(self, context, event):
+        sel = _selected_meshes(context)
+        if len(sel) >= 2:
+            self.collapse_modifiers = True
+            self.reunwrap_after = any(_has_uv_hurting_modifier(o) for o in sel)
+            self.backup_first = False
+            try:
+                return context.window_manager.invoke_props_dialog(
+                    self, width=340, title="Bake %d objects" % len(sel), confirm_text="Bake All")
+            except TypeError:
+                return context.window_manager.invoke_props_dialog(self, width=340)
         obj = context.active_object
         has_mods = obj is not None and obj.type == "MESH" and len(obj.modifiers) > 0
         unsaved = self._unsaved_prev(obj)
@@ -288,8 +298,19 @@ class RPBAKE_OT_bake(bpy.types.Operator):
         return self.execute(context)
 
     def draw(self, context):
-        obj = context.active_object
         col = self.layout.column()
+        sel = _selected_meshes(context)
+        if len(sel) >= 2:
+            col.label(text="Bake %d objects, one at a time." % len(sel), icon="RENDERLAYERS")
+            col.label(text="Each is baked then auto-saved.")
+            col.separator()
+            col.prop(self, "collapse_modifiers", text="Apply modifiers where present")
+            s = col.column()
+            s.enabled = self.collapse_modifiers
+            s.prop(self, "reunwrap_after", text="Re-unwrap after applying")
+            s.prop(self, "backup_first", text="Back up originals first")
+            return
+        obj = context.active_object
         last = _state.get("last_baked")
         if self._unsaved_prev(obj):
             col.label(text="Last bake ('%s') isn't saved." % last, icon="ERROR")
@@ -313,9 +334,12 @@ class RPBAKE_OT_bake(bpy.types.Operator):
                 col.label(text="re-unwrap is recommended.")
 
     def execute(self, context):
-        if _state["job"] is not None:
-            self.report({"WARNING"}, "A render is already running.")
+        if _state["job"] is not None or _state.get("batch") is not None:
+            self.report({"WARNING"}, "A bake is already running.")
             return {"CANCELLED"}
+        sel = _selected_meshes(context)
+        if len(sel) >= 2:
+            return self._start_batch(context, sel)
         obj = context.active_object
         if obj is None or obj.type != "MESH":
             self.report({"WARNING"}, "Select a mesh object.")
@@ -386,75 +410,28 @@ class RPBAKE_OT_bake(bpy.types.Operator):
         return {"FINISHED"}
 
     def _render_native(self, context, obj, res, samples):
-        scene = context.scene
-        if context.object is not None and context.object.mode != "OBJECT":
-            try:
-                bpy.ops.object.mode_set(mode="OBJECT")
-            except Exception:
-                pass
-        # ensure a real active material with nodes (fill an empty active slot if needed)
-        mat = obj.active_material
-        if mat is None:
-            mat = bpy.data.materials.new(obj.name + "_RPBake")
-            mat.use_nodes = True
-            if len(obj.data.materials) == 0:
-                obj.data.materials.append(mat)
-            else:
-                obj.data.materials[obj.active_material_index] = mat
-        elif not mat.use_nodes:
-            mat.use_nodes = True
-        nt = mat.node_tree
-        # target image = the shared RESULT image at the requested resolution/depth
-        res_img = _get_result_image(res, scene.rpbake_float, scene.rpbake_colorspace)
-        tex = None
-        for n in nt.nodes:
-            if n.type == "TEX_IMAGE" and n.image == res_img:
-                tex = n
-                break
-        if tex is None:
-            anchor = nt.nodes.active
-            tex = nt.nodes.new("ShaderNodeTexImage")
-            tex.image = res_img
-            if anchor is not None and anchor != tex:
-                tex.location = (anchor.location.x - 400, anchor.location.y)
-        nt.nodes.active = tex  # native bake targets the active image node
-        # remember user's settings so we can restore them after the async bake
-        orig = {"scene": scene.name, "engine": scene.render.engine,
-                "samples": scene.cycles.samples,
-                "device": scene.cycles.device, "margin": scene.render.bake.margin,
-                "use_clear": scene.render.bake.use_clear}
-        scene.render.engine = "CYCLES"
-        scene.cycles.samples = samples
-        mode = _get_device_mode()
-        dev = _apply_device_to_scene(scene)
-        try:
-            scene.render.bake.margin = max(0, scene.rpbake_margin)
-            scene.render.bake.use_clear = True
-        except Exception:
-            pass
-        for o in list(context.view_layer.objects.selected):
-            o.select_set(False)
-        obj.select_set(True)
-        context.view_layer.objects.active = obj
-        bake_type = scene.rpbake_bake_type
-        bake_kwargs = {}
-        if bake_type in ("DIFFUSE", "GLOSSY", "TRANSMISSION"):
-            bake_kwargs["pass_filter"] = {"DIRECT", "INDIRECT", "COLOR"}
-        # IMPORTANT: do NOT launch the modal bake here. When Render was confirmed through
-        # the modifier pop-up (invoke_props_dialog), launching a modal operator from inside
-        # that pop-up's execute can freeze Blender. Defer the launch by a hair via a
-        # one-shot timer so it starts in a clean context, popup fully closed.
-        _state["job"] = {"native": True, "pending": True, "obj": obj.name, "orig": orig,
-                         "bake_type": bake_type, "bake_kwargs": bake_kwargs,
-                         "device": dev, "started": time.time()}
-        scene.rpbake_status = "Baking (native, %s)..." % dev
+        dev, mode = _start_native_bake(context, obj)
         if mode != "CPU" and dev == "CPU":
             self.report({"WARNING"},
                         "GPU not available - baking on CPU. Enable a GPU in "
                         "Preferences > System > Cycles Render Devices.")
-        if not bpy.app.timers.is_registered(_launch_native):
-            bpy.app.timers.register(_launch_native, first_interval=0.02)
         self.report({"INFO"}, "Native bake started in background.")
+        return {"FINISHED"}
+
+    def _start_batch(self, context, sel):
+        scene = context.scene
+        # every object auto-saves, so a destination must exist
+        if not scene.rpbake_save_dir.strip() and not bpy.data.filepath:
+            self.report({"ERROR"}, "Batch baking auto-saves each object - set a Save Folder "
+                        "in Bake Settings, or save your .blend first.")
+            return {"CANCELLED"}
+        _state["batch"] = {"names": [o.name for o in sel], "i": 0,
+                           "apply_mods": self.collapse_modifiers,
+                           "reunwrap": self.reunwrap_after,
+                           "backup": self.backup_first, "ok": 0, "fail": 0}
+        _set_status("Baking 1/%d..." % len(sel))
+        _batch_advance(context)
+        self.report({"INFO"}, "Batch baking %d objects in the background..." % len(sel))
         return {"FINISHED"}
 
 
@@ -718,6 +695,113 @@ def _apply_device_to_scene(scene):
     return "CPU"
 
 
+def _selected_meshes(context):
+    return [o for o in context.selected_objects if o.type == "MESH"]
+
+
+def _start_native_bake(context, obj):
+    """Set up the RESULT image + bake target on obj and launch a deferred native bake.
+    Returns (device_label, requested_mode). Shared by single + batch baking."""
+    scene = context.scene
+    if context.object is not None and context.object.mode != "OBJECT":
+        try:
+            bpy.ops.object.mode_set(mode="OBJECT")
+        except Exception:
+            pass
+    mat = obj.active_material
+    if mat is None:
+        mat = bpy.data.materials.new(obj.name + "_RPBake")
+        mat.use_nodes = True
+        if len(obj.data.materials) == 0:
+            obj.data.materials.append(mat)
+        else:
+            obj.data.materials[obj.active_material_index] = mat
+    elif not mat.use_nodes:
+        mat.use_nodes = True
+    nt = mat.node_tree
+    res = int(scene.rpbake_resolution)
+    samples = int(scene.rpbake_samples)
+    res_img = _get_result_image(res, scene.rpbake_float, scene.rpbake_colorspace)
+    tex = None
+    for n in nt.nodes:
+        if n.type == "TEX_IMAGE" and n.image == res_img:
+            tex = n
+            break
+    if tex is None:
+        anchor = nt.nodes.active
+        tex = nt.nodes.new("ShaderNodeTexImage")
+        tex.image = res_img
+        if anchor is not None and anchor != tex:
+            tex.location = (anchor.location.x - 400, anchor.location.y)
+    nt.nodes.active = tex
+    orig = {"scene": scene.name, "engine": scene.render.engine,
+            "samples": scene.cycles.samples, "device": scene.cycles.device,
+            "margin": scene.render.bake.margin, "use_clear": scene.render.bake.use_clear}
+    scene.render.engine = "CYCLES"
+    scene.cycles.samples = samples
+    mode = _get_device_mode()
+    dev = _apply_device_to_scene(scene)
+    try:
+        scene.render.bake.margin = max(0, scene.rpbake_margin)
+        scene.render.bake.use_clear = True
+    except Exception:
+        pass
+    for o in list(context.view_layer.objects.selected):
+        o.select_set(False)
+    obj.select_set(True)
+    context.view_layer.objects.active = obj
+    bake_type = scene.rpbake_bake_type
+    bake_kwargs = {}
+    if bake_type in ("DIFFUSE", "GLOSSY", "TRANSMISSION"):
+        bake_kwargs["pass_filter"] = {"DIRECT", "INDIRECT", "COLOR"}
+    # Defer the modal bake to a one-shot timer (never launch it from inside a pop-up's
+    # execute - that deadlocks Blender).
+    _state["job"] = {"native": True, "pending": True, "obj": obj.name, "orig": orig,
+                     "bake_type": bake_type, "bake_kwargs": bake_kwargs,
+                     "device": dev, "started": time.time()}
+    scene.rpbake_status = "Baking (native, %s)..." % dev
+    if not bpy.app.timers.is_registered(_launch_native):
+        bpy.app.timers.register(_launch_native, first_interval=0.02)
+    return dev, mode
+
+
+def _prep_object(context, obj, apply_mods, reunwrap, backup):
+    """Apply modifiers (optional backup + re-unwrap) and make sure obj has UVs."""
+    if apply_mods and len(obj.modifiers) > 0:
+        if backup:
+            _backup_object(context, obj)
+        _apply_all_modifiers(context, obj)
+        if reunwrap:
+            _smart_project(context, obj)
+    _ensure_uvs(context, obj)
+
+
+def _batch_advance(context):
+    """Drive the batch queue: prep + start the next object's bake, or finish."""
+    batch = _state.get("batch")
+    if batch is None:
+        return
+    names = batch["names"]
+    while batch["i"] < len(names):
+        obj = bpy.data.objects.get(names[batch["i"]])
+        if obj is None or obj.type != "MESH":
+            batch["i"] += 1
+            continue
+        try:
+            _prep_object(context, obj, batch["apply_mods"], batch["reunwrap"], batch["backup"])
+        except Exception:
+            pass
+        if obj.data.uv_layers.active is None:
+            batch["i"] += 1
+            batch["fail"] += 1
+            continue
+        _set_status("Baking %d/%d: %s" % (batch["i"] + 1, len(names), obj.name))
+        _start_native_bake(context, obj)
+        return  # bake started; completion handler saves it + calls back here
+    _set_status("Batch done: %d baked, %d skipped" % (batch["ok"], batch["fail"]))
+    _state["batch"] = None
+
+
 def _launch_native():
     """One-shot: actually start the native bake, decoupled from the pop-up/execute
     context that would otherwise deadlock a modal operator."""
@@ -765,8 +849,21 @@ def _poll_native():
             _state["last_baked"] = job["obj"]
             _state["unsaved"] = True
         _restore_scene(job.get("orig"))
-        _set_status("Baked (native, %s)" % (job.get("device") or "?"))
         _state["job"] = None
+        batch = _state.get("batch")
+        if batch is not None:
+            try:
+                r = bpy.ops.rpbake.save()
+                if "CANCELLED" in r:
+                    batch["fail"] += 1
+                else:
+                    batch["ok"] += 1
+            except Exception:
+                batch["fail"] += 1
+            batch["i"] += 1
+            _batch_advance(bpy.context)
+        else:
+            _set_status("Baked (native, %s)" % (job.get("device") or "?"))
         try:
             for area in bpy.context.screen.areas:
                 area.tag_redraw()
@@ -1079,11 +1176,15 @@ class RPBAKE_PT_panel(bpy.types.Panel):
         col.prop(sc, "rpbake_resolution")
         col.prop(sc, "rpbake_samples")
         col.prop(sc, "rpbake_device")
-        busy = _state["job"] is not None
+        busy = _state["job"] is not None or _state.get("batch") is not None
+        sel = [o for o in context.selected_objects if o.type == "MESH"]
         r = layout.row()
         r.enabled = not busy
         r.scale_y = 1.4
-        r.operator("rpbake.bake", text="Render", icon="RENDER_STILL")
+        if len(sel) >= 2:
+            r.operator("rpbake.bake", text="Render %d Objects" % len(sel), icon="RENDER_STILL")
+        else:
+            r.operator("rpbake.bake", text="Render", icon="RENDER_STILL")
         rs = layout.row()
         rs.enabled = (bpy.data.images.get(RESULT_IMAGE_NAME) is not None) and not busy
         rs.operator("rpbake.save", text="Save", icon="FILE_TICK")
@@ -1215,6 +1316,7 @@ def unregister():
         else:
             _restore_scene(job.get("orig"))
             _state["job"] = None
+    _state["batch"] = None
     for t in (_poll, _poll_native, _launch_native):
         if bpy.app.timers.is_registered(t):
             bpy.app.timers.unregister(t)
