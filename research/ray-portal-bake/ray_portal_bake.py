@@ -215,14 +215,22 @@ def _get_device_mode():
         return "AUTO"
 
 
-def _store_result(png_path):
+def _store_result(png_path, obj):
+    """Worker path: load the worker's PNG into obj's own bake image (per-object, so it
+    matches the native flow and doesn't stack up across iterations)."""
     tmp = bpy.data.images.load(png_path)
     try:
         w, h = tmp.size
-        res = bpy.data.images.get(RESULT_IMAGE_NAME)
+        res = getattr(obj, "rpbake_image", None) if obj else None
+        name = ("RPBake_" + obj.name) if obj else RESULT_IMAGE_NAME
         if res is None:
-            res = bpy.data.images.new(RESULT_IMAGE_NAME, w, h, alpha=True)
+            res = bpy.data.images.new(name, w, h, alpha=True)
             res.use_fake_user = True
+            if obj is not None:
+                try:
+                    obj.rpbake_image = res
+                except Exception:
+                    pass
         elif tuple(res.size) != (w, h):
             res.scale(w, h)
         buf = [0.0] * (w * h * 4)
@@ -262,12 +270,6 @@ class RPBAKE_OT_bake(bpy.types.Operator):
                      "recover the un-applied version later"),
         default=False)
 
-    save_previous: bpy.props.BoolProperty(
-        name="Save the previous bake first",
-        description=("The last bake hasn't been saved yet. Save it to its own file (and lock "
-                     "it onto its object) before this bake overwrites the shared result image"),
-        default=True)
-
     fix_uvs: bpy.props.BoolProperty(
         name="Smart-unwrap first",
         description=("The current UVs look overlapping or out of bounds, which bakes wrong. "
@@ -275,10 +277,6 @@ class RPBAKE_OT_bake(bpy.types.Operator):
         default=False)
 
     uv_reason: bpy.props.StringProperty(default="", options={"HIDDEN"})
-
-    def _unsaved_prev(self, obj):
-        last = _state.get("last_baked")
-        return bool(_state.get("unsaved") and last and (obj is None or last != obj.name))
 
     def invoke(self, context, event):
         sel = _selected_meshes(context)
@@ -293,17 +291,15 @@ class RPBAKE_OT_bake(bpy.types.Operator):
                 return context.window_manager.invoke_props_dialog(self, width=340)
         obj = context.active_object
         has_mods = obj is not None and obj.type == "MESH" and len(obj.modifiers) > 0
-        unsaved = self._unsaved_prev(obj)
         uv_problem = ""
         if obj is not None and obj.type == "MESH" and not has_mods:
             uv_problem = _uv_looks_wrong(context, obj)
         self.uv_reason = uv_problem
         self.fix_uvs = bool(uv_problem)
-        if has_mods or unsaved or uv_problem:
+        if has_mods or uv_problem:
             if has_mods:
                 self.reunwrap_after = _has_uv_hurting_modifier(obj)
                 self.backup_first = False
-            self.save_previous = unsaved
             confirm = "Apply & Continue" if has_mods else "Continue"
             try:
                 return context.window_manager.invoke_props_dialog(
@@ -326,12 +322,6 @@ class RPBAKE_OT_bake(bpy.types.Operator):
             col.prop(self, "reunwrap_after", text="Fix UVs (overlap / after modifiers)")
             return
         obj = context.active_object
-        last = _state.get("last_baked")
-        if self._unsaved_prev(obj):
-            col.label(text="Last bake ('%s') isn't saved." % last, icon="ERROR")
-            col.label(text="Baking now overwrites it.")
-            col.prop(self, "save_previous")
-            col.separator()
         if self.uv_reason:
             col.label(text="These UVs look off:", icon="ERROR")
             col.label(text=self.uv_reason + ".")
@@ -364,12 +354,6 @@ class RPBAKE_OT_bake(bpy.types.Operator):
         if obj is None or obj.type != "MESH":
             self.report({"WARNING"}, "Select a mesh object.")
             return {"CANCELLED"}
-        if self.save_previous and self._unsaved_prev(obj):
-            r = bpy.ops.rpbake.save()
-            if "CANCELLED" in r:
-                self.report({"ERROR"}, "Couldn't save the previous bake - aborting. Set a "
-                            "Save Folder in Bake Settings, or save your .blend first.")
-                return {"CANCELLED"}
         if self.collapse_modifiers and len(obj.modifiers) > 0:
             if self.backup_first:
                 _backup_object(context, obj)
@@ -478,7 +462,7 @@ def _poll():
             pass
         try:
             if not status_txt.startswith("ERR:"):
-                _store_result(job["png"])
+                _store_result(job["png"], bpy.data.objects.get(job.get("obj", "")))
                 obj = bpy.data.objects.get(job.get("obj", ""))
                 applied = False
                 try:
@@ -489,9 +473,8 @@ def _poll():
                     _set_status("Rendered (%s) - applied to mesh" % (status_txt.strip() or "?"))
                 else:
                     _set_status("Rendered (%s) - image ready" % (status_txt.strip() or "?"))
-                if job.get("obj"):
-                    _state["last_baked"] = job["obj"]
-                    _state["unsaved"] = True
+                if job.get("obj") and obj is not None:
+                    _autosave_object(bpy.context, obj)
             else:
                 _set_status("Failed: " + status_txt[4:70])
         except Exception as exc:
@@ -544,10 +527,13 @@ def _finish(job):
 
 
 def _apply_result_to_object(obj):
-    """Put the baked RESULT image on obj as its active image-texture node.
-    The image IS the object's 0..1 UV space, so no mapping node is needed."""
-    res = bpy.data.images.get(RESULT_IMAGE_NAME)
-    if res is None or obj is None or obj.type != "MESH":
+    """Put obj's own baked image on it as its active image-texture node.
+    The image IS the object's 0..1 UV space, so no mapping node is needed. Reuses the
+    existing node if it already points at the object's bake image (no stacking)."""
+    if obj is None or obj.type != "MESH":
+        return False
+    res = getattr(obj, "rpbake_image", None)
+    if res is None:
         return False
     mat = obj.active_material
     if mat is None:
@@ -849,7 +835,7 @@ def _start_native_bake(context, obj):
             obj.rpbake_samples = samples
     except Exception:
         pass
-    res_img = _get_result_image(res, scene.rpbake_float, scene.rpbake_colorspace)
+    res_img = _object_bake_image(obj, res, scene.rpbake_float, scene.rpbake_colorspace)
     tex = None
     for n in nt.nodes:
         if n.type == "TEX_IMAGE" and n.image == res_img:
@@ -988,25 +974,25 @@ def _poll_native():
             _apply_result_to_object(obj)
         except Exception:
             pass
-        if job.get("obj"):
-            _state["last_baked"] = job["obj"]
-            _state["unsaved"] = True
+        saved_ok, saved_info = (False, "")
+        if obj is not None:
+            saved_ok, saved_info = _autosave_object(bpy.context, obj)
         _restore_scene(job.get("orig"))
         _state["job"] = None
         batch = _state.get("batch")
         if batch is not None:
-            try:
-                r = bpy.ops.rpbake.save()
-                if "CANCELLED" in r:
-                    batch["fail"] += 1
-                else:
-                    batch["ok"] += 1
-            except Exception:
+            if saved_ok:
+                batch["ok"] += 1
+            else:
                 batch["fail"] += 1
             batch["i"] += 1
             _batch_advance(bpy.context)
         else:
-            _set_status("Baked (native, %s)" % (job.get("device") or "?"))
+            dev = job.get("device") or "?"
+            if saved_ok:
+                _set_status("Baked & saved (native, %s)" % dev)
+            else:
+                _set_status("Baked (native, %s) - not saved: %s" % (dev, saved_info))
         try:
             for area in bpy.context.screen.areas:
                 area.tag_redraw()
@@ -1042,30 +1028,111 @@ def _restore_scene(orig):
         pass
 
 
-def _get_result_image(res, float_buf, colorspace):
-    """Return the shared RESULT image at the requested size/bit-depth/colorspace.
-    If size or bit depth changed, make a fresh datablock at the exact resolution and
-    re-point existing users - bpy.data.images.new sets the size reliably, whereas
-    Image.scale() does not resize a bake target dependably."""
-    img = bpy.data.images.get(RESULT_IMAGE_NAME)
+def _object_bake_image(obj, res, float_buf, colorspace):
+    """Return obj's own persistent bake image at the requested size/bit-depth/colorspace,
+    creating it (named after the object) or resizing it in place if the resolution or bit
+    depth changed. Stored on obj.rpbake_image so every rebake reuses the same datablock -
+    the bake writes into it and the same texture node keeps pointing at it, so nothing
+    stacks up across iterations."""
+    img = getattr(obj, "rpbake_image", None)
+    name = "RPBake_" + obj.name
     if img is not None and (img.is_float != float_buf or tuple(img.size) != (res, res)):
-        new = bpy.data.images.new(RESULT_IMAGE_NAME + "__new", res, res, alpha=True, float_buffer=float_buf)
+        new = bpy.data.images.new(name + "__new", res, res, alpha=True, float_buffer=float_buf)
         for m in bpy.data.materials:
             if m.use_nodes and m.node_tree:
                 for n in m.node_tree.nodes:
                     if getattr(n, "image", None) == img:
                         n.image = new
-        bpy.data.images.remove(img)
-        new.name = RESULT_IMAGE_NAME
+        try:
+            bpy.data.images.remove(img)
+        except Exception:
+            pass
+        new.name = name
         img = new
     if img is None:
-        img = bpy.data.images.new(RESULT_IMAGE_NAME, res, res, alpha=True, float_buffer=float_buf)
+        img = bpy.data.images.new(name, res, res, alpha=True, float_buffer=float_buf)
     img.use_fake_user = True
     try:
         img.colorspace_settings.name = colorspace
     except Exception:
         pass
+    try:
+        obj.rpbake_image = img
+    except Exception:
+        pass
     return img
+
+
+_SAVE_EXT = {"PNG": "png", "JPEG": "jpg", "OPEN_EXR": "exr", "TIFF": "tif"}
+_SAVE_ALLOWED = {"PNG": ("8", "16"), "JPEG": ("8",), "OPEN_EXR": ("16", "32"),
+                 "TIFF": ("8", "16", "32")}
+
+
+def _autosave_dir(context):
+    """Where auto-saved bakes go: the Save Folder if set, else a 'bakes' folder next to
+    the .blend. Returns (path, None) or (None, reason) if there's nowhere to write yet."""
+    sc = context.scene
+    d = sc.rpbake_save_dir.strip()
+    if d:
+        directory = bpy.path.abspath(d)
+    elif bpy.data.filepath:
+        directory = os.path.join(os.path.dirname(bpy.data.filepath), "bakes")
+    else:
+        return None, "save your .blend or set a Save Folder"
+    try:
+        os.makedirs(directory, exist_ok=True)
+    except Exception as exc:
+        return None, "couldn't create folder: %s" % exc
+    return directory, None
+
+
+def _autosave_object(context, obj):
+    """Write obj's baked image to disk using the Save settings, overwriting the same file
+    each bake. Returns (True, filepath) or (False, reason). Does NOT re-point the node -
+    the object keeps its in-Blender bake image so the next bake reuses it in place."""
+    img = getattr(obj, "rpbake_image", None) if obj else None
+    if img is None:
+        return False, "no baked image"
+    directory, reason = _autosave_dir(context)
+    if directory is None:
+        return False, reason
+    sc = context.scene
+    fmt = sc.rpbake_save_format
+    ext = _SAVE_EXT.get(fmt, "png")
+    filepath = os.path.join(directory, "%s.%s" % (bpy.path.clean_name(obj.name), ext))
+    depth = sc.rpbake_save_depth
+    allowed = _SAVE_ALLOWED.get(fmt, ("8",))
+    if depth not in allowed:
+        depth = allowed[-1]
+    o_vt = sc.view_settings.view_transform
+    o_fmt = sc.render.image_settings.file_format
+    o_depth = sc.render.image_settings.color_depth
+    o_q = sc.render.image_settings.quality
+    try:
+        if sc.rpbake_save_view != "FOLLOW":
+            try:
+                sc.view_settings.view_transform = sc.rpbake_save_view
+            except Exception:
+                pass
+        sc.render.image_settings.file_format = fmt
+        try:
+            sc.render.image_settings.color_depth = depth
+        except Exception:
+            pass
+        if fmt == "JPEG":
+            sc.render.image_settings.quality = 95
+        img.save_render(filepath, scene=sc)
+    except Exception as exc:
+        return False, "save failed: %s" % exc
+    finally:
+        sc.view_settings.view_transform = o_vt
+        sc.render.image_settings.file_format = o_fmt
+        try:
+            sc.render.image_settings.color_depth = o_depth
+        except Exception:
+            pass
+        sc.render.image_settings.quality = o_q
+    return True, filepath
 
 
 class RPBAKE_OT_show_on_mesh(bpy.types.Operator):
@@ -1076,108 +1143,14 @@ class RPBAKE_OT_show_on_mesh(bpy.types.Operator):
     bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
-        if bpy.data.images.get(RESULT_IMAGE_NAME) is None:
-            self.report({"WARNING"}, "No baked image yet.")
+        obj = context.active_object
+        if obj is None or getattr(obj, "rpbake_image", None) is None:
+            self.report({"WARNING"}, "No baked image yet for this object.")
             return {"CANCELLED"}
-        if not _apply_result_to_object(context.active_object):
+        if not _apply_result_to_object(obj):
             self.report({"WARNING"}, "Need an active mesh object.")
             return {"CANCELLED"}
         self.report({"INFO"}, "Baked image applied to mesh.")
-        return {"FINISHED"}
-
-
-class RPBAKE_OT_save(bpy.types.Operator):
-    bl_idname = "rpbake.save"
-    bl_label = "Save"
-    bl_description = ("Save the baked image straight to disk using the Save settings below "
-                      "(no dialog). Defaults to a 'bakes' folder next to your .blend file")
-    bl_options = {"REGISTER"}
-
-    _ext = {"PNG": "png", "JPEG": "jpg", "OPEN_EXR": "exr", "TIFF": "tif"}
-    _allowed = {"PNG": ("8", "16"), "JPEG": ("8",), "OPEN_EXR": ("16", "32"),
-                "TIFF": ("8", "16", "32")}
-
-    def execute(self, context):
-        res = bpy.data.images.get(RESULT_IMAGE_NAME)
-        if res is None:
-            self.report({"WARNING"}, "Nothing baked yet - hit Render first.")
-            return {"CANCELLED"}
-        sc = context.scene
-        d = sc.rpbake_save_dir.strip()
-        if d:
-            directory = bpy.path.abspath(d)
-        else:
-            if not bpy.data.filepath:
-                self.report({"WARNING"}, "Save your .blend first, or set a Save Folder in Bake Settings.")
-                return {"CANCELLED"}
-            directory = os.path.join(os.path.dirname(bpy.data.filepath), "bakes")
-        try:
-            os.makedirs(directory, exist_ok=True)
-        except Exception as exc:
-            self.report({"ERROR"}, "Could not create folder: %s" % exc)
-            return {"CANCELLED"}
-        name = _state.get("last_baked")
-        if not name:
-            name = context.active_object.name if context.active_object else "bake"
-        fmt = sc.rpbake_save_format
-        ext = self._ext.get(fmt, "png")
-        filepath = os.path.join(directory, "%s.%s" % (bpy.path.clean_name(name), ext))
-        depth = sc.rpbake_save_depth
-        allowed = self._allowed.get(fmt, ("8",))
-        if depth not in allowed:
-            depth = allowed[-1]
-        o_vt = sc.view_settings.view_transform
-        o_fmt = sc.render.image_settings.file_format
-        o_depth = sc.render.image_settings.color_depth
-        o_q = sc.render.image_settings.quality
-        try:
-            if sc.rpbake_save_view != "FOLLOW":
-                try:
-                    sc.view_settings.view_transform = sc.rpbake_save_view
-                except Exception:
-                    pass  # transform not present in this OCIO config; fall back to scene
-            sc.render.image_settings.file_format = fmt
-            try:
-                sc.render.image_settings.color_depth = depth
-            except Exception:
-                pass
-            if fmt == "JPEG":
-                sc.render.image_settings.quality = 95
-            res.save_render(filepath, scene=sc)
-        except Exception as exc:
-            self.report({"ERROR"}, "Save failed: %s" % exc)
-            return {"CANCELLED"}
-        finally:
-            sc.view_settings.view_transform = o_vt
-            sc.render.image_settings.file_format = o_fmt
-            try:
-                sc.render.image_settings.color_depth = o_depth
-            except Exception:
-                pass
-            sc.render.image_settings.quality = o_q
-        # Re-point the just-baked object's texture from the shared RESULT image to the
-        # freshly-saved file, so the NEXT bake (which overwrites RESULT) can't replace
-        # this object's texture. The RESULT datablock stays as the reusable bake target.
-        try:
-            saved = bpy.data.images.load(filepath, check_existing=True)
-            try:
-                saved.reload()
-            except Exception:
-                pass
-            target = bpy.data.objects.get(_state.get("last_baked", "") or "")
-            if target is None:
-                target = context.active_object
-            if (target is not None and target.type == "MESH"
-                    and target.active_material and target.active_material.use_nodes):
-                nt = target.active_material.node_tree
-                for n in nt.nodes:
-                    if n.type == "TEX_IMAGE" and n.image == res:
-                        n.image = saved
-                        nt.nodes.active = n
-        except Exception:
-            pass
-        _state["unsaved"] = False
-        self.report({"INFO"}, "Saved: %s" % filepath)
         return {"FINISHED"}
 
 
@@ -1343,9 +1316,11 @@ class RPBAKE_PT_panel(bpy.types.Panel):
             r.operator("rpbake.bake", text="Render %d Objects" % len(sel), icon="RENDER_STILL")
         else:
             r.operator("rpbake.bake", text="Render", icon="RENDER_STILL")
-        rs = layout.row()
-        rs.enabled = (bpy.data.images.get(RESULT_IMAGE_NAME) is not None) and not busy
-        rs.operator("rpbake.save", text="Save", icon="FILE_TICK")
+        aobj = context.active_object
+        if aobj is not None and getattr(aobj, "rpbake_image", None) is not None:
+            rs = layout.row()
+            rs.enabled = not busy
+            rs.operator("rpbake.show_on_mesh", text="Show on Mesh", icon="MATERIAL")
         if sc.rpbake_status:
             layout.label(text=sc.rpbake_status, icon=("SORTTIME" if busy else "CHECKMARK"))
 
@@ -1384,7 +1359,7 @@ class RPBAKE_PT_bakesettings(bpy.types.Panel):
         s.prop(sc, "rpbake_save_view")
 
 
-_classes = (RPBAKE_OT_bake, RPBAKE_OT_show_on_mesh, RPBAKE_OT_save,
+_classes = (RPBAKE_OT_bake, RPBAKE_OT_show_on_mesh,
             RPBAKE_OT_diagnostics, RPBAKE_PT_panel, RPBAKE_PT_bakesettings)
 
 
@@ -1480,6 +1455,9 @@ def register():
     bpy.types.Object.rpbake_samples = bpy.props.IntProperty(
         name="Samples", default=0, min=0, max=4096,
         description="This object's bake samples, remembered from its last bake. 0 = use the global input")
+    bpy.types.Object.rpbake_image = bpy.props.PointerProperty(
+        type=bpy.types.Image,
+        description="This object's own baked image - reused (baked into + overwritten) every bake")
     for c in _classes:
         bpy.utils.register_class(c)
 
@@ -1502,7 +1480,7 @@ def unregister():
             bpy.app.timers.unregister(t)
     for c in reversed(_classes):
         bpy.utils.unregister_class(c)
-    for p in ("rpbake_res", "rpbake_samples"):
+    for p in ("rpbake_res", "rpbake_samples", "rpbake_image"):
         if hasattr(bpy.types.Object, p):
             delattr(bpy.types.Object, p)
     for p in ("rpbake_method", "rpbake_resolution", "rpbake_samples", "rpbake_device",

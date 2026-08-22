@@ -586,3 +586,29 @@ At the start of a session on this topic: `git checkout feature/ray-portal-bake &
 - KEPT: rpbake_always_unwrap (always re-unwrap + pack every bake) - separate feature, works.
 - Verified: single (always_unwrap) + batch still bake; no leftover suggest/texel refs; clean
   unregister. math import retained (used by worker offset + diagnostics).
+
+## v0.17 — per-object persistent bake image + auto-save (removed the Save button)
+- Root fix for "bakes stacking up over iterations": the old shared RESULT image + manual Save
+  re-pointed each object's node to a saved file, so the NEXT bake found no RESULT node and made
+  a new one -> a duplicate image node accumulated every bake-after-save.
+- New model: each object owns its own persistent image via Object.rpbake_image (PointerProperty
+  to Image), named "RPBake_<obj.name>". The bake targets THAT image; the same texture node is
+  found/reused every bake; nothing stacks.
+  - _object_bake_image(obj,res,float,cs) replaces _get_result_image: get/create/resize the
+    object's own image in place (recreate at exact size on res/bit-depth change, re-point users).
+  - _apply_result_to_object(obj) now reads obj.rpbake_image (reuses existing node).
+  - Worker _store_result(png, obj) writes into obj.rpbake_image too (kept consistent; hidden path).
+- Auto-save: _autosave_object(context,obj) + _autosave_dir(context) save the object's image to
+  disk every bake (Save Folder or bakes/ next to .blend), overwriting <obj.name>.<ext>. Does NOT
+  re-point the node (keeps the in-Blender image so rebake reuses it). Native completion and worker
+  completion both auto-save. Status: "Baked & saved (native, DEV)" or "...not saved: <reason>".
+- REMOVED: RPBAKE_OT_save operator + Save button; the whole unsaved-guard (save_previous prop,
+  _unsaved_prev, dialog "last bake isn't saved" section, execute save-previous block,
+  _state["unsaved"], _state["last_baked"]). Per-object images can't clobber each other so the
+  guard is obsolete. Panel now shows Render + (when the object has a bake image) a "Show on Mesh"
+  button; Save settings (folder/format/depth/view) retained and used by auto-save.
+- Batch already required a save destination (kept); each object auto-saves via _autosave_object.
+- Verified: same object baked x3 -> 1 image node throughout, same datablock reused, 1 saved file
+  overwritten; res change 128->256 stays 1 node, resized; batch of 2 -> separate per-object images
+  + 2 files, re-batch stays 1 node each + 2 files; clean unregister. RESULT_IMAGE_NAME kept only as
+  worker no-object fallback.
