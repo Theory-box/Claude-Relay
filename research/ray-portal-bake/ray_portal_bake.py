@@ -283,7 +283,7 @@ class RPBAKE_OT_bake(bpy.types.Operator):
         sel = _selected_meshes(context)
         if len(sel) >= 2:
             self.collapse_modifiers = True
-            self.reunwrap_after = any(_has_uv_hurting_modifier(o) for o in sel)
+            self.reunwrap_after = True
             self.backup_first = False
             try:
                 return context.window_manager.invoke_props_dialog(
@@ -316,13 +316,13 @@ class RPBAKE_OT_bake(bpy.types.Operator):
         sel = _selected_meshes(context)
         if len(sel) >= 2:
             col.label(text="Bake %d objects, one at a time." % len(sel), icon="RENDERLAYERS")
-            col.label(text="Each is baked then auto-saved.")
+            col.label(text="Each is checked, baked, then auto-saved.")
             col.separator()
             col.prop(self, "collapse_modifiers", text="Apply modifiers where present")
             s = col.column()
             s.enabled = self.collapse_modifiers
-            s.prop(self, "reunwrap_after", text="Re-unwrap after applying")
             s.prop(self, "backup_first", text="Back up originals first")
+            col.prop(self, "reunwrap_after", text="Fix UVs (overlap / after modifiers)")
             return
         obj = context.active_object
         last = _state.get("last_baked")
@@ -865,15 +865,22 @@ def _start_native_bake(context, obj):
     return dev, mode
 
 
-def _prep_object(context, obj, apply_mods, reunwrap, backup):
-    """Apply modifiers (optional backup + re-unwrap) and make sure obj has UVs."""
+def _prep_object(context, obj, apply_mods, fix_uvs, backup):
+    """Per-object batch prep - the same checks the single-object flow runs:
+    apply modifiers where present, ensure UVs, and repair (smart-unwrap) UVs that are
+    missing, overlapping, or out of bounds - or that were just made by applying modifiers."""
+    applied = False
     if apply_mods and len(obj.modifiers) > 0:
         if backup:
             _backup_object(context, obj)
         _apply_all_modifiers(context, obj)
-        if reunwrap:
+        applied = True
+    _ensure_uvs(context, obj)  # smart-projects if the object had no UVs at all
+    if fix_uvs and obj.data.uv_layers.active is not None:
+        # re-unwrap if we just applied modifiers (Solidify etc. overlaps), or the
+        # existing UVs look overlapping / out of bounds
+        if applied or _uv_looks_wrong(context, obj):
             _smart_project(context, obj)
-    _ensure_uvs(context, obj)
 
 
 def _batch_advance(context):

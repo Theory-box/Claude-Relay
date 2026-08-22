@@ -505,3 +505,17 @@ At the start of a session on this topic: `git checkout feature/ray-portal-bake &
 - Verified: A(custom 128), B(custom 1024), C(global 512) selected + batch -> saved images are
   128/1024/512 respectively; _obj_res/_obj_samples resolve correctly. Unregister drops the
   Object props.
+
+## v0.15.1 — batch runs the FULL per-object checks (incl. UV overlap)
+- Gap: batch applied modifiers + re-unwrapped modifier objects, but did NOT check UV overlap
+  on objects WITHOUT modifiers - so hand-made overlapping UVs slipped through in multi-bake.
+- _prep_object now mirrors the single-object checks for every batch object: apply modifiers
+  where present (+optional backup); _ensure_uvs (auto-unwrap if none); then if the "Fix UVs"
+  option is on, re-unwrap when EITHER modifiers were just applied OR _uv_looks_wrong() finds
+  overlap / out-of-bounds. Clean UVs are left untouched (the overlap check short-circuits for
+  objects that were re-unwrapped after applying, so it only runs on non-modifier objects).
+- Batch dialog: the toggle is now "Fix UVs (overlap / after modifiers)", ungated from the
+  modifier toggle (it applies to all objects), default ON; "Back up originals first" gated
+  under "Apply modifiers". Sub-label now "Each is checked, baked, then auto-saved."
+- Verified per-object: overlap-no-modifier 1.00 -> 0.00 (re-unwrapped); clean UVs unchanged;
+  no-UV object auto-unwrapped; modifier objects applied.
