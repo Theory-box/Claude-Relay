@@ -489,3 +489,19 @@ At the start of a session on this topic: `git checkout feature/ray-portal-bake &
   smart-unwrap fix the reason clears. bmesh import added.
 - Scope: single-object flow only (batch relies on its Re-unwrap toggle); overlap check has a
   try/except safety net so a context issue just skips the check (no false warning).
+
+## v0.15 — per-object resolution & samples
+- Store bake res/samples on the object: Object.rpbake_use_custom (bool), Object.rpbake_res
+  (int, default 1024), Object.rpbake_samples (int, default 128). use_custom's update callback
+  seeds res/samples from the current scene globals when first enabled.
+- Panel: when a mesh object is active, shows "Custom res / samples for this object". On ->
+  edits the object's rpbake_res/rpbake_samples; Off -> shows the global scene inputs. Switching
+  the active object re-reads that object's stored values (panel binds to active object props).
+- _obj_res(obj, scene) / _obj_samples(obj, scene): return the object's custom value if
+  use_custom else the scene global. _start_native_bake + execute both use them, so BOTH single
+  and batch honor per-object settings automatically.
+- Objects without custom settings use the global inputs (unchanged behaviour).
+- Custom props persist in the .blend (saved on the object).
+- Verified: A(custom 128), B(custom 1024), C(global 512) selected + batch -> saved images are
+  128/1024/512 respectively; _obj_res/_obj_samples resolve correctly. Unregister drops the
+  Object props.

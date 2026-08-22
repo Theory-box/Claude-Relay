@@ -385,8 +385,8 @@ class RPBAKE_OT_bake(bpy.types.Operator):
             self.report({"INFO"}, "Smart-unwrapped before baking.")
 
         scene = context.scene
-        res = int(scene.rpbake_resolution)
-        samples = int(scene.rpbake_samples)
+        res = _obj_res(obj, scene)
+        samples = _obj_samples(obj, scene)
 
         if scene.rpbake_method == "NATIVE":
             return self._render_native(context, obj, res, samples)
@@ -773,6 +773,28 @@ def _apply_device_to_scene(scene):
     return "CPU"
 
 
+def _rpbake_use_custom_update(self, context):
+    # when enabling custom settings, seed them from the current global inputs
+    if getattr(self, "rpbake_use_custom", False):
+        try:
+            self.rpbake_res = context.scene.rpbake_resolution
+            self.rpbake_samples = context.scene.rpbake_samples
+        except Exception:
+            pass
+
+
+def _obj_res(obj, scene):
+    if obj is not None and getattr(obj, "rpbake_use_custom", False):
+        return int(obj.rpbake_res)
+    return int(scene.rpbake_resolution)
+
+
+def _obj_samples(obj, scene):
+    if obj is not None and getattr(obj, "rpbake_use_custom", False):
+        return int(obj.rpbake_samples)
+    return int(scene.rpbake_samples)
+
+
 def _selected_meshes(context):
     return [o for o in context.selected_objects if o.type == "MESH"]
 
@@ -797,8 +819,8 @@ def _start_native_bake(context, obj):
     elif not mat.use_nodes:
         mat.use_nodes = True
     nt = mat.node_tree
-    res = int(scene.rpbake_resolution)
-    samples = int(scene.rpbake_samples)
+    res = _obj_res(obj, scene)
+    samples = _obj_samples(obj, scene)
     res_img = _get_result_image(res, scene.rpbake_float, scene.rpbake_colorspace)
     tex = None
     for n in nt.nodes:
@@ -1251,8 +1273,18 @@ class RPBAKE_PT_panel(bpy.types.Panel):
         layout = self.layout
         sc = context.scene
         col = layout.column(align=True)
-        col.prop(sc, "rpbake_resolution")
-        col.prop(sc, "rpbake_samples")
+        aobj = context.active_object
+        if aobj is not None and aobj.type == "MESH":
+            col.prop(aobj, "rpbake_use_custom")
+            if aobj.rpbake_use_custom:
+                col.prop(aobj, "rpbake_res", text="Resolution")
+                col.prop(aobj, "rpbake_samples", text="Samples")
+            else:
+                col.prop(sc, "rpbake_resolution")
+                col.prop(sc, "rpbake_samples")
+        else:
+            col.prop(sc, "rpbake_resolution")
+            col.prop(sc, "rpbake_samples")
         col.prop(sc, "rpbake_device")
         busy = _state["job"] is not None or _state.get("batch") is not None
         sel = [o for o in context.selected_objects if o.type == "MESH"]
@@ -1378,6 +1410,14 @@ def register():
             ("Filmic", "Filmic", "Bake the Filmic look into the file"),
             ("Raw", "Raw (linear)", "No colour management - raw linear values (best with EXR / 32-bit)"),
         ])
+    bpy.types.Object.rpbake_use_custom = bpy.props.BoolProperty(
+        name="Custom res / samples for this object", default=False,
+        description=("Give this object its own bake resolution and samples. Objects without "
+                     "this use the global inputs above. Batch baking respects each object's own "
+                     "settings"),
+        update=_rpbake_use_custom_update)
+    bpy.types.Object.rpbake_res = bpy.props.IntProperty(name="Resolution", default=1024, min=64, max=16384)
+    bpy.types.Object.rpbake_samples = bpy.props.IntProperty(name="Samples", default=128, min=1, max=4096)
     for c in _classes:
         bpy.utils.register_class(c)
 
@@ -1400,6 +1440,9 @@ def unregister():
             bpy.app.timers.unregister(t)
     for c in reversed(_classes):
         bpy.utils.unregister_class(c)
+    for p in ("rpbake_use_custom", "rpbake_res", "rpbake_samples"):
+        if hasattr(bpy.types.Object, p):
+            delattr(bpy.types.Object, p)
     for p in ("rpbake_method", "rpbake_resolution", "rpbake_samples", "rpbake_device",
               "rpbake_epsilon", "rpbake_status", "rpbake_bake_type", "rpbake_float",
               "rpbake_colorspace", "rpbake_margin", "rpbake_save_dir", "rpbake_save_format",
