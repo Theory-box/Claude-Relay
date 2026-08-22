@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Ray Portal Bake",
     "author": "Theory-box / Claude Relay",
-    "version": (0, 8, 0),
+    "version": (0, 17, 2),
     "blender": (4, 2, 0),
     "location": "Shader Editor / View3D > Sidebar > Portal Bake",
     "description": "One-shot bake of a mesh's real, lit surface (lighting + normal maps) into UV "
