@@ -276,16 +276,6 @@ class RPBAKE_OT_bake(bpy.types.Operator):
 
     uv_reason: bpy.props.StringProperty(default="", options={"HIDDEN"})
 
-    auto_res: bpy.props.BoolProperty(
-        name="Auto-set resolution (texel density)", default=False,
-        description="Set each object's resolution from the target texel density in Bake Settings")
-
-    use_suggested_res: bpy.props.BoolProperty(
-        name="Use suggested resolution", default=True,
-        description="Bake at the resolution suggested for your target texel density")
-
-    suggested_res: bpy.props.IntProperty(default=0, options={"HIDDEN"})
-
     def _unsaved_prev(self, obj):
         last = _state.get("last_baked")
         return bool(_state.get("unsaved") and last and (obj is None or last != obj.name))
@@ -296,7 +286,6 @@ class RPBAKE_OT_bake(bpy.types.Operator):
             self.collapse_modifiers = True
             self.reunwrap_after = True
             self.backup_first = False
-            self.auto_res = False
             try:
                 return context.window_manager.invoke_props_dialog(
                     self, width=340, title="Bake %d objects" % len(sel), confirm_text="Bake All")
@@ -310,16 +299,7 @@ class RPBAKE_OT_bake(bpy.types.Operator):
             uv_problem = _uv_looks_wrong(context, obj)
         self.uv_reason = uv_problem
         self.fix_uvs = bool(uv_problem)
-        self.suggested_res = 0
-        if obj is not None and obj.type == "MESH" and context.scene.rpbake_suggest_on_render:
-            if obj.data.uv_layers.active is None:
-                _smart_project(context, obj)  # needed for the bake anyway
-            context.view_layer.update()
-            r = _suggest_resolution(obj, context.scene.rpbake_texel_density)
-            if r:
-                self.suggested_res = r
-                self.use_suggested_res = True
-        if has_mods or unsaved or uv_problem or self.suggested_res:
+        if has_mods or unsaved or uv_problem:
             if has_mods:
                 self.reunwrap_after = _has_uv_hurting_modifier(obj)
                 self.backup_first = False
@@ -344,7 +324,6 @@ class RPBAKE_OT_bake(bpy.types.Operator):
             s.enabled = self.collapse_modifiers
             s.prop(self, "backup_first", text="Back up originals first")
             col.prop(self, "reunwrap_after", text="Fix UVs (overlap / after modifiers)")
-            col.prop(self, "auto_res", text="Auto-set resolution (texel density)")
             return
         obj = context.active_object
         last = _state.get("last_baked")
@@ -352,11 +331,6 @@ class RPBAKE_OT_bake(bpy.types.Operator):
             col.label(text="Last bake ('%s') isn't saved." % last, icon="ERROR")
             col.label(text="Baking now overwrites it.")
             col.prop(self, "save_previous")
-            col.separator()
-        if self.suggested_res:
-            col.label(text="Suggested: %d px (%.0f px/m)." % (
-                self.suggested_res, context.scene.rpbake_texel_density), icon="TEXTURE")
-            col.prop(self, "use_suggested_res")
             col.separator()
         if self.uv_reason:
             col.label(text="These UVs look off:", icon="ERROR")
@@ -412,8 +386,6 @@ class RPBAKE_OT_bake(bpy.types.Operator):
         elif self.fix_uvs:
             _smart_project(context, obj)
             self.report({"INFO"}, "Smart-unwrapped before baking.")
-        if self.suggested_res and self.use_suggested_res:
-            obj.rpbake_res = self.suggested_res
 
         scene = context.scene
         res = _obj_res(obj, scene)
@@ -479,8 +451,7 @@ class RPBAKE_OT_bake(bpy.types.Operator):
         _state["batch"] = {"names": [o.name for o in sel], "i": 0,
                            "apply_mods": self.collapse_modifiers,
                            "reunwrap": self.reunwrap_after,
-                           "backup": self.backup_first, "auto_res": self.auto_res,
-                           "ok": 0, "fail": 0}
+                           "backup": self.backup_first, "ok": 0, "fail": 0}
         warn = _slow_warn(scene)
         if warn:
             self.report({"WARNING"}, warn)
@@ -708,45 +679,6 @@ def _smart_project(context, obj):
     return obj.data.uv_layers.active is not None
 
 
-def _round_resolution(r):
-    """Nearest standard texture size to r (compared in log space so ratios matter)."""
-    sizes = (64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384)
-    r = max(float(r), 1.0)
-    return min(sizes, key=lambda s: abs(math.log(s) - math.log(r)))
-
-
-def _obj_areas(obj):
-    """(world-space 3D surface area, UV area in 0-1 space) for the active UV map, else (0,0)."""
-    me = obj.data
-    uvl = me.uv_layers.active
-    if uvl is None or len(me.polygons) == 0:
-        return 0.0, 0.0
-    me.calc_loop_triangles()
-    uv = uvl.data
-    verts = me.vertices
-    mw = obj.matrix_world
-    a3d = 0.0
-    auv = 0.0
-    for lt in me.loop_triangles:
-        p0 = mw @ verts[lt.vertices[0]].co
-        p1 = mw @ verts[lt.vertices[1]].co
-        p2 = mw @ verts[lt.vertices[2]].co
-        a3d += (p1 - p0).cross(p2 - p0).length * 0.5
-        u0 = uv[lt.loops[0]].uv
-        u1 = uv[lt.loops[1]].uv
-        u2 = uv[lt.loops[2]].uv
-        auv += abs((u1 - u0).cross(u2 - u0)) * 0.5
-    return a3d, auv
-
-
-def _suggest_resolution(obj, texel_density):
-    """Resolution so texel density ~= texel_density px per world unit. None if not computable."""
-    a3d, auv = _obj_areas(obj)
-    if a3d <= 1e-9 or auv <= 1e-9:
-        return None
-    return _round_resolution(texel_density * math.sqrt(a3d / auv))
-
-
 def _ensure_uvs(context, obj):
     """If the object has no active UV map, smart-project one. Returns True if UVs exist."""
     if obj.data.uv_layers.active is not None:
@@ -966,11 +898,10 @@ def _start_native_bake(context, obj):
     return dev, _slow_warn(scene)
 
 
-def _prep_object(context, obj, apply_mods, fix_uvs, backup, auto_res=False):
+def _prep_object(context, obj, apply_mods, fix_uvs, backup):
     """Per-object batch prep - the same checks the single-object flow runs:
     apply modifiers where present, ensure UVs, and repair (smart-unwrap) UVs that are
-    missing, overlapping, or out of bounds - or that were just made by applying modifiers.
-    Optionally sets the object's resolution from the target texel density."""
+    missing, overlapping, or out of bounds - or that were just made by applying modifiers."""
     applied = False
     if apply_mods and len(obj.modifiers) > 0:
         if backup:
@@ -986,11 +917,6 @@ def _prep_object(context, obj, apply_mods, fix_uvs, backup, auto_res=False):
             # existing UVs look overlapping / out of bounds
             if applied or _uv_looks_wrong(context, obj):
                 _smart_project(context, obj)
-    if auto_res and obj.data.uv_layers.active is not None:
-        context.view_layer.update()
-        r = _suggest_resolution(obj, context.scene.rpbake_texel_density)
-        if r:
-            obj.rpbake_res = r
 
 
 def _batch_advance(context):
@@ -1005,8 +931,7 @@ def _batch_advance(context):
             batch["i"] += 1
             continue
         try:
-            _prep_object(context, obj, batch["apply_mods"], batch["reunwrap"], batch["backup"],
-                         batch.get("auto_res", False))
+            _prep_object(context, obj, batch["apply_mods"], batch["reunwrap"], batch["backup"])
         except Exception:
             pass
         if obj.data.uv_layers.active is None:
@@ -1158,30 +1083,6 @@ class RPBAKE_OT_show_on_mesh(bpy.types.Operator):
             self.report({"WARNING"}, "Need an active mesh object.")
             return {"CANCELLED"}
         self.report({"INFO"}, "Baked image applied to mesh.")
-        return {"FINISHED"}
-
-
-class RPBAKE_OT_suggest_res(bpy.types.Operator):
-    bl_idname = "rpbake.suggest_res"
-    bl_label = "Suggest Resolution"
-    bl_description = ("Unwrap if needed, then set this object's resolution from the target "
-                     "texel density in Bake Settings")
-    bl_options = {"REGISTER", "UNDO"}
-
-    def execute(self, context):
-        obj = context.active_object
-        if obj is None or obj.type != "MESH":
-            self.report({"WARNING"}, "Select a mesh object.")
-            return {"CANCELLED"}
-        if obj.data.uv_layers.active is None:
-            _smart_project(context, obj)
-        context.view_layer.update()  # make matrix_world (scale) current
-        res = _suggest_resolution(obj, context.scene.rpbake_texel_density)
-        if res is None:
-            self.report({"WARNING"}, "Couldn't compute - object has no usable UVs or area.")
-            return {"CANCELLED"}
-        obj.rpbake_res = res
-        self.report({"INFO"}, "Suggested %d px for %.0f px/m." % (res, context.scene.rpbake_texel_density))
         return {"FINISHED"}
 
 
@@ -1421,9 +1322,6 @@ class RPBAKE_PT_panel(bpy.types.Panel):
         sc = context.scene
         col = layout.column(align=True)
         aobj = context.active_object
-        single_mesh = aobj is not None and aobj.type == "MESH" and len(_selected_meshes(context)) < 2
-        if single_mesh:
-            col.operator("rpbake.suggest_res", icon="TEXTURE")
         baked = aobj is not None and aobj.type == "MESH" and aobj.rpbake_res > 0
         if baked:
             col.prop(aobj, "rpbake_res", text="Resolution")
@@ -1477,8 +1375,6 @@ class RPBAKE_PT_bakesettings(bpy.types.Panel):
         col.prop(sc, "rpbake_pack_margin")
         col.prop(sc, "rpbake_global_samples")
         col.prop(sc, "rpbake_always_unwrap")
-        col.prop(sc, "rpbake_texel_density")
-        col.prop(sc, "rpbake_suggest_on_render")
         layout.separator()
         layout.label(text="Save", icon="FILE_TICK")
         s = layout.column(align=True)
@@ -1488,7 +1384,7 @@ class RPBAKE_PT_bakesettings(bpy.types.Panel):
         s.prop(sc, "rpbake_save_view")
 
 
-_classes = (RPBAKE_OT_bake, RPBAKE_OT_show_on_mesh, RPBAKE_OT_save, RPBAKE_OT_suggest_res,
+_classes = (RPBAKE_OT_bake, RPBAKE_OT_show_on_mesh, RPBAKE_OT_save,
             RPBAKE_OT_diagnostics, RPBAKE_PT_panel, RPBAKE_PT_bakesettings)
 
 
@@ -1555,14 +1451,6 @@ def register():
         name="Always re-unwrap & pack", default=False,
         description=("Re-unwrap (Smart UV Project) and pack every object each time it's baked, "
                      "even if it already has UVs"))
-    bpy.types.Scene.rpbake_texel_density = bpy.props.FloatProperty(
-        name="Texel Density (px/m)", default=1024.0, min=1.0, max=65536.0,
-        description=("Target texels per world unit (per metre) used by the resolution "
-                     "suggester. Higher = sharper textures and larger images"))
-    bpy.types.Scene.rpbake_suggest_on_render = bpy.props.BoolProperty(
-        name="Suggest resolution on render", default=False,
-        description=("When rendering a single object, first compute a resolution for your "
-                     "target texel density and let you use it or keep the current one"))
     bpy.types.Scene.rpbake_save_dir = bpy.props.StringProperty(
         name="Save Folder", subtype="DIR_PATH", default="",
         description="Where Save writes the image. Leave empty to use a 'bakes' folder next to your .blend file")
@@ -1620,8 +1508,7 @@ def unregister():
     for p in ("rpbake_method", "rpbake_resolution", "rpbake_samples", "rpbake_device",
               "rpbake_epsilon", "rpbake_status", "rpbake_bake_type", "rpbake_float",
               "rpbake_colorspace", "rpbake_margin", "rpbake_pack_margin", "rpbake_global_samples",
-              "rpbake_always_unwrap", "rpbake_texel_density", "rpbake_suggest_on_render",
-              "rpbake_save_dir", "rpbake_save_format",
+              "rpbake_always_unwrap", "rpbake_save_dir", "rpbake_save_format",
               "rpbake_save_depth", "rpbake_save_view"):
         if hasattr(bpy.types.Scene, p):
             delattr(bpy.types.Scene, p)

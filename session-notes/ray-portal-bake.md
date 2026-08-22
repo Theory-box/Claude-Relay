@@ -577,3 +577,12 @@ At the start of a session on this topic: `git checkout feature/ray-portal-bake &
 - Verified: Small(1m)->128 vs Big(6m)->1024 via button; always_unwrap fixed pushed-out UVs on
   a bake; batch auto_res set 128/1024 per object. (Note: high texel density on large objects
   suggests 8k+ and can OOM the bake - that's expected; user picks the density.)
+
+## v0.16.1 — removed the resolution suggester (kept "always re-unwrap & pack")
+- User: the texel-density resolution suggester didn't work well in practice -> removed it.
+- Removed: RPBAKE_OT_suggest_res + button, _obj_areas/_suggest_resolution/_round_resolution,
+  rpbake_texel_density/rpbake_suggest_on_render props, operator auto_res/use_suggested_res/
+  suggested_res, the on-render suggestion (invoke/draw/execute) and batch auto_res option.
+- KEPT: rpbake_always_unwrap (always re-unwrap + pack every bake) - separate feature, works.
+- Verified: single (always_unwrap) + batch still bake; no leftover suggest/texel refs; clean
+  unregister. math import retained (used by worker offset + diagnostics).
