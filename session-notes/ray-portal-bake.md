@@ -671,3 +671,25 @@ At the start of a session on this topic: `git checkout feature/ray-portal-bake &
   (os.path.splitext(basename(filepath))[0]) instead of a generic bakes/ folder.
 - Updated the Save Folder description text to match.
 - Verified: MyProject.blend -> textures land in MyProject/; no bakes/ folder created.
+
+## v0.17.4 — save-failure hardening + full error logging (intermittent save fail after Save As)
+- User: image sometimes fails to save; started after a Save As into a folder shared with another
+  .blend copy; persisted after saving elsewhere. Could NOT reproduce headless (Save-As A->B same
+  folder -> C elsewhere -> rebakes all saved fine on current version).
+- v0.17.3 (per-.blend folder) likely already helps the shared-folder half: two .blend copies now
+  get separate <blendname>/ folders instead of both writing the same bakes/<obj>.png.
+- Hardening in _autosave_object:
+  - Full traceback printed to the SYSTEM CONSOLE on save_render failure (prefix "[RayPortalBake]
+    SAVE FAILED ...") + a concise status "(...see System Console)". Turns an intermittent silent
+    fail into a diagnosable error.
+  - Directory forced absolute + os.makedirs re-ensured immediately before write.
+  - Post-write existence check: if save_render returns without throwing but no file exists, report
+    "file not written (see System Console)".
+  - Load-back reuses the existing obj.rpbake_image datablock when its path already matches (avoids
+    piling up stale datablocks + stale relative paths after a Save As); sets source=FILE + filepath
+    + reload.
+  - import traceback added.
+- Verified: single/batch/Save-As A->B->C + same-file rebakes all still "Baked & saved"; disp reused
+  on same-file rebake (no churn).
+- NEXT: if it recurs, user opens Window > Toggle System Console (Windows) and copies the
+  [RayPortalBake] SAVE FAILED traceback -> that names the real cause (perms / file lock / path).

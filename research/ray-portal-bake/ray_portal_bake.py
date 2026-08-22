@@ -14,6 +14,7 @@ import bmesh
 import math
 import os
 import time
+import traceback
 import tempfile
 import subprocess
 
@@ -1124,11 +1125,12 @@ def _autosave_dir(context):
 
 
 def _autosave_object(context, obj):
-    """Save the object's linear working bake to disk with scene colour management applied
+    """Save the object's working bake to disk with scene colour management applied
     (save_render), then load that saved file back and put it on the mesh - so the Image
     Editor shows the real saved, colour-managed texture (marked saved), exactly like hitting
     Save used to. Overwrites the same file every bake; reuses the one tagged node (no stack).
-    Returns (True, filepath) or (False, reason)."""
+    Returns (True, filepath) or (False, reason). On failure the full error is printed to the
+    system console so the exact cause is visible."""
     work = bpy.data.images.get("RPBakeWork_" + obj.name) if obj else None
     if work is None:
         return False, "no baked image"
@@ -1136,6 +1138,7 @@ def _autosave_object(context, obj):
     if directory is None:
         _bake_node(obj, image=work, make_active=True)  # at least show the raw bake
         return False, reason
+    directory = os.path.abspath(directory)
     sc = context.scene
     fmt = sc.rpbake_save_format
     ext = _SAVE_EXT.get(fmt, "png")
@@ -1161,9 +1164,16 @@ def _autosave_object(context, obj):
             pass
         if fmt == "JPEG":
             sc.render.image_settings.quality = 95
+        try:
+            os.makedirs(directory, exist_ok=True)  # re-ensure right before writing
+        except Exception:
+            pass
         work.save_render(filepath, scene=sc)
     except Exception as exc:
-        return False, "save failed: %s" % exc
+        # print the full traceback to the system console so the real cause is visible
+        print("[RayPortalBake] SAVE FAILED for '%s' -> %s" % (obj.name, filepath))
+        traceback.print_exc()
+        return False, "%s (see System Console)" % (str(exc)[:60] or type(exc).__name__)
     finally:
         sc.view_settings.view_transform = o_vt
         sc.render.image_settings.file_format = o_fmt
@@ -1172,10 +1182,22 @@ def _autosave_object(context, obj):
         except Exception:
             pass
         sc.render.image_settings.quality = o_q
+    if not os.path.exists(filepath):
+        print("[RayPortalBake] save_render reported OK but no file at %s" % filepath)
+        return False, "file not written (see System Console)"
     # Load the just-saved (colour-managed) file back and show it on the mesh, so the Image
     # Editor displays the saved texture and marks it saved - not the raw linear buffer.
+    # Reuse the existing display image if it already points at this exact file (avoids a pile
+    # of stale datablocks and stale relative paths after a Save As).
     try:
-        disp = bpy.data.images.load(filepath, check_existing=True)
+        disp = getattr(obj, "rpbake_image", None)
+        if disp is None or bpy.path.abspath(disp.filepath or "") != filepath:
+            disp = bpy.data.images.load(filepath, check_existing=True)
+        disp.source = "FILE"
+        try:
+            disp.filepath = filepath
+        except Exception:
+            pass
         try:
             disp.reload()
         except Exception:
@@ -1184,7 +1206,7 @@ def _autosave_object(context, obj):
         obj.rpbake_image = disp
         _bake_node(obj, image=disp, make_active=True)
     except Exception:
-        pass
+        traceback.print_exc()
     return True, filepath
 
 
