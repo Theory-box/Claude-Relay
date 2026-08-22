@@ -557,3 +557,23 @@ At the start of a session on this topic: `git checkout feature/ray-portal-bake &
   otherwise per-object-if-baked else global. Resolution unaffected (still per-object).
 - Verified: per-object bake@8 -> A=8; global ON@32 -> _obj_samples=32; bake -> A still 8
   (preserved); global OFF -> _obj_samples back to 8 (restored).
+
+## v0.16 — texel-density resolution suggester + "always re-unwrap & pack"
+- New settings: rpbake_always_unwrap (bool), rpbake_texel_density (float px/m, default 1024),
+  rpbake_suggest_on_render (bool). All in Bake Settings.
+- Texel-density math: _obj_areas(obj) -> (world 3D area via matrix_world+loop_triangles, UV area
+  in 0-1). _suggest_resolution = round(texel_density * sqrt(A3d/Auv)) to nearest standard size
+  (_round_resolution, log-space nearest of 64..16384).
+- "Suggest Resolution" button (RPBAKE_OT_suggest_res) above Resolution in the main panel,
+  SINGLE object only (hidden with 2+ selected). Unwraps if no UVs, updates view_layer for
+  current scale, sets obj.rpbake_res.
+- Always re-unwrap & pack: when on, _prep_object (batch) and execute (single) force _smart_project
+  every bake regardless of existing UVs.
+- Suggest on render (single): invoke computes the suggestion (unwraps first if no UVs), shows
+  "Suggested: N px" + "Use suggested resolution" (default on) in the confirm dialog; execute
+  sets obj.rpbake_res if used. Forces the dialog to appear when enabled.
+- Batch prompt: "Auto-set resolution (texel density)" checkbox (op.auto_res) -> _prep_object
+  sets each object's rpbake_res from texel density after unwrap/pack.
+- Verified: Small(1m)->128 vs Big(6m)->1024 via button; always_unwrap fixed pushed-out UVs on
+  a bake; batch auto_res set 128/1024 per object. (Note: high texel density on large objects
+  suggests 8k+ and can OOM the bake - that's expected; user picks the density.)
