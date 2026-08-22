@@ -931,6 +931,47 @@ def _batch_advance(context):
     _state["batch"] = None
 
 
+def _bake_pre_handler(*args):
+    """Fires when a bake actually starts - proves the job is really running, which kills
+    the slow-start race (we never treat 'not running' as 'finished' before this)."""
+    job = _state.get("job")
+    if job and job.get("native"):
+        job["seen_running"] = True
+
+
+def _bake_complete_handler(*args):
+    """Fires when the bake finishes - the reliable completion signal (no polling race)."""
+    job = _state.get("job")
+    if job and job.get("native") and not job.get("pending"):
+        job["done"] = "complete"
+
+
+def _bake_cancel_handler(*args):
+    """Fires if the bake is cancelled/errors - treat as a finished (failed) job."""
+    job = _state.get("job")
+    if job and job.get("native") and not job.get("pending"):
+        job["done"] = "cancel"
+
+
+def _install_bake_handlers():
+    for hlist, fn in ((bpy.app.handlers.object_bake_pre, _bake_pre_handler),
+                      (bpy.app.handlers.object_bake_complete, _bake_complete_handler),
+                      (bpy.app.handlers.object_bake_cancel, _bake_cancel_handler)):
+        if fn not in hlist:
+            hlist.append(fn)
+
+
+def _remove_bake_handlers():
+    for hlist, fn in ((bpy.app.handlers.object_bake_pre, _bake_pre_handler),
+                      (bpy.app.handlers.object_bake_complete, _bake_complete_handler),
+                      (bpy.app.handlers.object_bake_cancel, _bake_cancel_handler)):
+        try:
+            if fn in hlist:
+                hlist.remove(fn)
+        except Exception:
+            pass
+
+
 def _launch_native():
     """One-shot: actually start the native bake, decoupled from the pop-up/execute
     context that would otherwise deadlock a modal operator."""
@@ -938,6 +979,15 @@ def _launch_native():
     if job is None or not job.get("native") or not job.get("pending"):
         return None
     obj = bpy.data.objects.get(job.get("obj", "") or "")
+    try:
+        # never stack a second bake on top of one that's still running - that GPU
+        # contention is a classic hard-freeze. Wait briefly for a stray job to clear.
+        if bpy.app.is_job_running("OBJECT_BAKE"):
+            n = job.get("launch_wait", 0) + 1
+            job["launch_wait"] = n
+            return 0.1 if n < 200 else None
+    except Exception:
+        pass
     try:
         if obj is not None:
             for o in list(bpy.context.view_layer.objects.selected):
@@ -957,54 +1007,70 @@ def _launch_native():
     return None
 
 
+_STARTUP_GRACE = 30.0  # max seconds to wait for a bake to *start* before assuming it ran
+                       # (kernel compilation can be slow on a cold start); overridable in tests
+
+
 def _poll_native():
-    """Watch Blender's own (non-blocking) bake job; when it ends, apply + restore."""
+    """Wait for the bake to finish, then apply + save + restore. Completion is driven by
+    Blender's object_bake_complete/cancel handlers (reliable in the UI's modal bake), with
+    is_job_running + a bounded startup grace as fallbacks. We never treat 'not running' as
+    finished the instant it reads false - only once the bake was confirmed to have started
+    (seen_running) or the startup grace elapsed - so a slow-to-start bake can't false-complete
+    and get a second bake stacked on top of it (the freeze). The launch guard is the final
+    backstop: even a wrong completion can't start a 2nd bake while one is still running."""
     job = _state["job"]
     if job is None or not job.get("native") or job.get("pending"):
         return None
-    try:
-        running = bpy.app.is_job_running("OBJECT_BAKE")
-    except Exception:
-        running = False
-    # is_job_running can read False in the instant before the job thread spins up,
-    # so give it a short grace period before trusting a "finished" reading.
-    if not running and time.time() - job["started"] > 2.0:
-        obj = bpy.data.objects.get(job.get("obj", ""))
+    done = job.get("done")
+    if not done:
+        try:
+            running = bpy.app.is_job_running("OBJECT_BAKE")
+        except Exception:
+            running = False
+        if running:
+            job["seen_running"] = True
+            return 0.25
+        if job.get("seen_running"):
+            done = "complete"          # ran and has now stopped
+        elif time.time() - job["started"] > _STARTUP_GRACE:
+            done = "complete"          # no start signal within the grace - assume it ran
+        else:
+            return 0.25                # still waiting for it to start (no false-complete)
+    # ---- finished (handler fired, or a fallback tripped) ----
+    obj = bpy.data.objects.get(job.get("obj", ""))
+    if done != "timeout":
         try:
             _apply_result_to_object(obj)
         except Exception:
             pass
-        saved_ok, saved_info = (False, "")
-        if obj is not None:
-            saved_ok, saved_info = _autosave_object(bpy.context, obj)
-        _restore_scene(job.get("orig"))
-        _state["job"] = None
-        batch = _state.get("batch")
-        if batch is not None:
-            if saved_ok:
-                batch["ok"] += 1
-            else:
-                batch["fail"] += 1
-            batch["i"] += 1
-            _batch_advance(bpy.context)
+    saved_ok, saved_info = (False, "")
+    if obj is not None and done != "cancel":
+        saved_ok, saved_info = _autosave_object(bpy.context, obj)
+    _restore_scene(job.get("orig"))
+    _state["job"] = None
+    batch = _state.get("batch")
+    if batch is not None:
+        if saved_ok:
+            batch["ok"] += 1
         else:
-            dev = job.get("device") or "?"
-            if saved_ok:
-                _set_status("Baked & saved (native, %s)" % dev)
-            else:
-                _set_status("Baked (native, %s) - not saved: %s" % (dev, saved_info))
-        try:
-            for area in bpy.context.screen.areas:
-                area.tag_redraw()
-        except Exception:
-            pass
-        return None
-    if time.time() - job["started"] > 3600:
-        _restore_scene(job.get("orig"))
-        _set_status("Native bake timed out.")
-        _state["job"] = None
-        return None
-    return 0.5
+            batch["fail"] += 1
+        batch["i"] += 1
+        _batch_advance(bpy.context)
+    else:
+        dev = job.get("device") or "?"
+        if done == "cancel":
+            _set_status("Bake cancelled.")
+        elif saved_ok:
+            _set_status("Baked & saved (native, %s)" % dev)
+        else:
+            _set_status("Baked (native, %s) - not saved: %s" % (dev, saved_info))
+    try:
+        for area in bpy.context.screen.areas:
+            area.tag_redraw()
+    except Exception:
+        pass
+    return None
 
 
 def _restore_scene(orig):
@@ -1460,9 +1526,11 @@ def register():
         description="This object's own baked image - reused (baked into + overwritten) every bake")
     for c in _classes:
         bpy.utils.register_class(c)
+    _install_bake_handlers()
 
 
 def unregister():
+    _remove_bake_handlers()
     job = _state["job"]
     if job is not None:
         if not job.get("native"):

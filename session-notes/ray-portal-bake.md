@@ -612,3 +612,31 @@ At the start of a session on this topic: `git checkout feature/ray-portal-bake &
   overwritten; res change 128->256 stays 1 node, resized; batch of 2 -> separate per-object images
   + 2 files, re-batch stays 1 node each + 2 files; clean unregister. RESULT_IMAGE_NAME kept only as
   worker no-object fallback.
+
+## v0.17.1 — freeze fix: handler-driven completion + launch guard (was a polling race)
+- User report: occasional HARD freeze (needs Blender restart), intermittent, same 2048 bake fast
+  last time. Classic race shape.
+- Root cause: _poll_native detected completion by polling is_job_running("OBJECT_BAKE") with only
+  a 2.0s grace. If a bake was slow to START (kernel recompile, GPU busy, driver hiccup), at 2.0s
+  is_job_running reads False (not started yet) -> poll FALSELY completes, restores scene, clears
+  _state["job"] while the real bake is still spinning up. Then a 2nd bake stacks on top (immediately
+  in a batch via _batch_advance; on next click for single) -> two Cycles bakes fight the GPU ->
+  hard freeze. Intermittent = depends on whether the bake started within 2.0s.
+- Fix (Blender 4.4 has real handlers - confirmed object_bake_pre/complete/cancel exist):
+  1. Handlers drive completion: object_bake_pre -> job["seen_running"], object_bake_complete/cancel
+     -> job["done"]. Reliable in the UI's modal bake (no polling race). Installed on register,
+     removed on unregister.
+  2. Gated fallback in _poll_native: never treat 'not running' as finished unless seen_running
+     (bake confirmed started) OR _STARTUP_GRACE (30s) elapsed -> kills the slow-start false-complete.
+  3. _STARTUP_GRACE=30s bounded fallback so it can NEVER hang if handlers don't fire (they don't
+     fire headless - bake runs synchronously there; overridable in tests).
+  4. Launch guard in _launch_native: if is_job_running("OBJECT_BAKE") when about to launch, defer
+     (retry ~0.1s up to ~20s) instead of stacking a 2nd bake. This is the hard backstop - even a
+     wrong completion can't start a concurrent bake (the actual freeze).
+- Caveat: can't reproduce the UI freeze headless (no GPU; headless bake is synchronous and doesn't
+  fire the handlers), so can't 100% confirm this was THE cause - but it's a real race matching the
+  symptom, and the launch guard prevents the double-launch freeze regardless. If freezes persist,
+  next suspects: pure Cycles/GPU driver hang (outside addon), or save_render() on the main thread in
+  completion (could defer to its own tick).
+- Verified headless (grace=3s): single "Baked & saved"; batch 2/2 with 0 launch-while-running
+  incidents; clean unregister.
