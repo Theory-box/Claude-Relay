@@ -533,3 +533,15 @@ At the start of a session on this topic: `git checkout feature/ray-portal-bake &
   settings where present and the global inputs where not.
 - Verified: unbaked A -> global 512; bake A@128 -> A remembers 128; multi-bake A+B (global 512)
   -> A@128 (saved), B@512 (global), saved images 128/512, B now remembers 512.
+
+## v0.15.3 — always pack after unwrap; denoiser->GPU; slow-path warning
+- _smart_project now runs bpy.ops.uv.pack_islands(margin=scene.rpbake_pack_margin) after
+  smart_project (select-all UVs first). New Scene.rpbake_pack_margin (Float, default 0.02,
+  0..0.5) in Bake Settings under Margin(px). Verified: pack margin 0.1 insets islands.
+- Denoiser to GPU: _start_native_bake sets scene.cycles.denoising_use_gpu=True when dev=='GPU';
+  saves it in orig and _restore_scene restores it. (Best-effort: harmless if baking doesn't
+  denoise, helpful if it does - not verifiable on the no-GPU test box.)
+- _slow_warn(scene): '' if device mode is CPU (user chose it) or a GPU is available; else
+  "No GPU enabled - baking[ and denoising] on CPU (slow). Enable a GPU in Preferences >
+  System..." _start_native_bake returns (dev, warn); _render_native reports it (single);
+  _start_batch reports it once. Verified: AUTO+no-GPU+denoise -> warns re both; CPU -> silent.

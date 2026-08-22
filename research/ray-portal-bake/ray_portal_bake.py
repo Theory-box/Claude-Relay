@@ -432,11 +432,9 @@ class RPBAKE_OT_bake(bpy.types.Operator):
         return {"FINISHED"}
 
     def _render_native(self, context, obj, res, samples):
-        dev, mode = _start_native_bake(context, obj)
-        if mode != "CPU" and dev == "CPU":
-            self.report({"WARNING"},
-                        "GPU not available - baking on CPU. Enable a GPU in "
-                        "Preferences > System > Cycles Render Devices.")
+        dev, warn = _start_native_bake(context, obj)
+        if warn:
+            self.report({"WARNING"}, warn)
         self.report({"INFO"}, "Native bake started in background.")
         return {"FINISHED"}
 
@@ -451,6 +449,9 @@ class RPBAKE_OT_bake(bpy.types.Operator):
                            "apply_mods": self.collapse_modifiers,
                            "reunwrap": self.reunwrap_after,
                            "backup": self.backup_first, "ok": 0, "fail": 0}
+        warn = _slow_warn(scene)
+        if warn:
+            self.report({"WARNING"}, warn)
         _set_status("Baking 1/%d..." % len(sel))
         _batch_advance(context)
         self.report({"INFO"}, "Batch baking %d objects in the background..." % len(sel))
@@ -660,6 +661,12 @@ def _smart_project(context, obj):
             bpy.ops.object.mode_set(mode="EDIT")
             bpy.ops.mesh.select_all(action="SELECT")
             bpy.ops.uv.smart_project(island_margin=0.02)
+            try:
+                bpy.ops.uv.select_all(action="SELECT")
+                pm = getattr(context.scene, "rpbake_pack_margin", 0.02)
+                bpy.ops.uv.pack_islands(margin=pm)
+            except Exception:
+                pass
             bpy.ops.object.mode_set(mode="OBJECT")
     except Exception:
         try:
@@ -786,6 +793,22 @@ def _obj_samples(obj, scene):
     return int(scene.rpbake_samples)
 
 
+def _slow_warn(scene):
+    """Warn if this bake will fall back to CPU for the device and/or the denoiser."""
+    if _get_device_mode() == "CPU":
+        return ""  # user explicitly chose CPU
+    if _gpu_available()[0]:
+        return ""  # GPU present -> device + denoiser both go GPU
+    extra = ""
+    try:
+        if scene.cycles.use_denoising:
+            extra = " and denoising"
+    except Exception:
+        pass
+    return ("No GPU enabled - baking%s on CPU (slow). Enable a GPU in "
+            "Preferences > System > Cycles Render Devices." % extra)
+
+
 def _selected_meshes(context):
     return [o for o in context.selected_objects if o.type == "MESH"]
 
@@ -833,11 +856,18 @@ def _start_native_bake(context, obj):
     nt.nodes.active = tex
     orig = {"scene": scene.name, "engine": scene.render.engine,
             "samples": scene.cycles.samples, "device": scene.cycles.device,
-            "margin": scene.render.bake.margin, "use_clear": scene.render.bake.use_clear}
+            "margin": scene.render.bake.margin, "use_clear": scene.render.bake.use_clear,
+            "denoise_gpu": getattr(scene.cycles, "denoising_use_gpu", False)}
     scene.render.engine = "CYCLES"
     scene.cycles.samples = samples
     mode = _get_device_mode()
     dev = _apply_device_to_scene(scene)
+    # push denoising to the GPU too when we're baking on the GPU
+    if dev == "GPU":
+        try:
+            scene.cycles.denoising_use_gpu = True
+        except Exception:
+            pass
     try:
         scene.render.bake.margin = max(0, scene.rpbake_margin)
         scene.render.bake.use_clear = True
@@ -851,15 +881,13 @@ def _start_native_bake(context, obj):
     bake_kwargs = {}
     if bake_type in ("DIFFUSE", "GLOSSY", "TRANSMISSION"):
         bake_kwargs["pass_filter"] = {"DIRECT", "INDIRECT", "COLOR"}
-    # Defer the modal bake to a one-shot timer (never launch it from inside a pop-up's
-    # execute - that deadlocks Blender).
     _state["job"] = {"native": True, "pending": True, "obj": obj.name, "orig": orig,
                      "bake_type": bake_type, "bake_kwargs": bake_kwargs,
                      "device": dev, "started": time.time()}
     scene.rpbake_status = "Baking (native, %s)..." % dev
     if not bpy.app.timers.is_registered(_launch_native):
         bpy.app.timers.register(_launch_native, first_interval=0.02)
-    return dev, mode
+    return dev, _slow_warn(scene)
 
 
 def _prep_object(context, obj, apply_mods, fix_uvs, backup):
@@ -994,6 +1022,11 @@ def _restore_scene(orig):
         sc.cycles.device = orig["device"]
         sc.render.bake.margin = orig["margin"]
         sc.render.bake.use_clear = orig["use_clear"]
+        if "denoise_gpu" in orig:
+            try:
+                sc.cycles.denoising_use_gpu = orig["denoise_gpu"]
+            except Exception:
+                pass
     except Exception:
         pass
 
@@ -1323,6 +1356,7 @@ class RPBAKE_PT_bakesettings(bpy.types.Panel):
         col.prop(sc, "rpbake_colorspace")
         col.prop(sc, "rpbake_float")
         col.prop(sc, "rpbake_margin")
+        col.prop(sc, "rpbake_pack_margin")
         layout.separator()
         layout.label(text="Save", icon="FILE_TICK")
         s = layout.column(align=True)
@@ -1386,6 +1420,10 @@ def register():
     bpy.types.Scene.rpbake_margin = bpy.props.IntProperty(
         name="Margin (px)", default=16, min=0, max=64,
         description="Bleed the baked result this many pixels past each UV island edge to hide seams")
+    bpy.types.Scene.rpbake_pack_margin = bpy.props.FloatProperty(
+        name="Pack Margin", default=0.02, min=0.0, max=0.5, precision=3,
+        description="Spacing left between UV islands when packing after an unwrap "
+                    "(fraction of the image; larger = more gap, less usable area)")
     bpy.types.Scene.rpbake_save_dir = bpy.props.StringProperty(
         name="Save Folder", subtype="DIR_PATH", default="",
         description="Where Save writes the image. Leave empty to use a 'bakes' folder next to your .blend file")
@@ -1442,7 +1480,8 @@ def unregister():
             delattr(bpy.types.Object, p)
     for p in ("rpbake_method", "rpbake_resolution", "rpbake_samples", "rpbake_device",
               "rpbake_epsilon", "rpbake_status", "rpbake_bake_type", "rpbake_float",
-              "rpbake_colorspace", "rpbake_margin", "rpbake_save_dir", "rpbake_save_format",
+              "rpbake_colorspace", "rpbake_margin", "rpbake_pack_margin", "rpbake_save_dir",
+              "rpbake_save_format",
               "rpbake_save_depth", "rpbake_save_view"):
         if hasattr(bpy.types.Scene, p):
             delattr(bpy.types.Scene, p)
