@@ -473,3 +473,19 @@ At the start of a session on this topic: `git checkout feature/ray-portal-bake &
 - Verified headless: 3-object batch (one with Solidify) -> all 3 baked, applied+re-unwrapped,
   each saved to its own file (Cube.png / FloorplanTrace_001.png / FloorplanTrace_005.png),
   each object references its own file. Single-object path regression-tested OK.
+
+## v0.14.1 — warn on overlapping / out-of-bounds UVs, offer to smart-unwrap
+- On single-object Render, if the object has NO modifiers (modifier objects use the modifier
+  re-unwrap flow instead) the existing UVs are checked; if they look wrong the confirm dialog
+  shows "These UVs look off: <reason>" + a "Smart-unwrap first" checkbox (default ON).
+- Detection (_uv_looks_wrong): (1) out-of-bounds - >25% of UV corners outside ~0-1 tile;
+  (2) overlap via bpy.ops.uv.select_overlap in a temp_override edit session, counting faces
+  with a selected UV loop via bmesh. Overlap fraction > 5% -> warn. Clean unwrap reads ~1%,
+  Solidify/Mirror-style overlap reads ~100%, so the 5% threshold separates them cleanly.
+  Reason cached in a hidden uv_reason StringProperty (computed in invoke, NOT in draw - the
+  check toggles edit mode and must never run on every redraw).
+- execute: if fix_uvs and the object already has UVs -> _smart_project before baking.
+- Verified: clean='', overlap='100% of faces...', OOB='most UVs sit outside...', and after a
+  smart-unwrap fix the reason clears. bmesh import added.
+- Scope: single-object flow only (batch relies on its Re-unwrap toggle); overlap check has a
+  try/except safety net so a context issue just skips the check (no false warning).

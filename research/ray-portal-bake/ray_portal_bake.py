@@ -10,6 +10,7 @@ bl_info = {
 }
 
 import bpy
+import bmesh
 import os
 import time
 import tempfile
@@ -266,6 +267,14 @@ class RPBAKE_OT_bake(bpy.types.Operator):
                      "it onto its object) before this bake overwrites the shared result image"),
         default=True)
 
+    fix_uvs: bpy.props.BoolProperty(
+        name="Smart-unwrap first",
+        description=("The current UVs look overlapping or out of bounds, which bakes wrong. "
+                     "Replace them with a fresh Smart UV Project before baking"),
+        default=False)
+
+    uv_reason: bpy.props.StringProperty(default="", options={"HIDDEN"})
+
     def _unsaved_prev(self, obj):
         last = _state.get("last_baked")
         return bool(_state.get("unsaved") and last and (obj is None or last != obj.name))
@@ -284,7 +293,12 @@ class RPBAKE_OT_bake(bpy.types.Operator):
         obj = context.active_object
         has_mods = obj is not None and obj.type == "MESH" and len(obj.modifiers) > 0
         unsaved = self._unsaved_prev(obj)
-        if has_mods or unsaved:
+        uv_problem = ""
+        if obj is not None and obj.type == "MESH" and not has_mods:
+            uv_problem = _uv_looks_wrong(context, obj)
+        self.uv_reason = uv_problem
+        self.fix_uvs = bool(uv_problem)
+        if has_mods or unsaved or uv_problem:
             if has_mods:
                 self.reunwrap_after = _has_uv_hurting_modifier(obj)
                 self.backup_first = False
@@ -316,6 +330,11 @@ class RPBAKE_OT_bake(bpy.types.Operator):
             col.label(text="Last bake ('%s') isn't saved." % last, icon="ERROR")
             col.label(text="Baking now overwrites it.")
             col.prop(self, "save_previous")
+            col.separator()
+        if self.uv_reason:
+            col.label(text="These UVs look off:", icon="ERROR")
+            col.label(text=self.uv_reason + ".")
+            col.prop(self, "fix_uvs")
             col.separator()
         n = len(obj.modifiers) if (obj is not None and obj.type == "MESH") else 0
         if n > 0:
@@ -361,6 +380,9 @@ class RPBAKE_OT_bake(bpy.types.Operator):
                 self.report({"WARNING"}, "Object has no UV map and auto smart-unwrap failed.")
                 return {"CANCELLED"}
             self.report({"INFO"}, "No UV map found - auto smart-unwrapped.")
+        elif self.fix_uvs:
+            _smart_project(context, obj)
+            self.report({"INFO"}, "Smart-unwrapped before baking.")
 
         scene = context.scene
         res = int(scene.rpbake_resolution)
@@ -652,6 +674,62 @@ def _ensure_uvs(context, obj):
     if obj.data.uv_layers.active is not None:
         return True
     return _smart_project(context, obj)
+
+
+def _uv_overlap_fraction(context, obj):
+    """Fraction (0..1) of faces flagged overlapping by uv.select_overlap; -1 if it can't run.
+    A clean unwrap reads ~0-0.01; Solidify/Mirror-style overlap reads near 1.0."""
+    me = obj.data
+    if me.uv_layers.active is None or len(me.polygons) == 0:
+        return 0.0
+    frac = -1.0
+    try:
+        if context.object is not None and context.object.mode != "OBJECT":
+            bpy.ops.object.mode_set(mode="OBJECT")
+        for o in list(context.view_layer.objects.selected):
+            o.select_set(False)
+        obj.select_set(True)
+        context.view_layer.objects.active = obj
+        with context.temp_override(active_object=obj, selected_objects=[obj], object=obj):
+            bpy.ops.object.mode_set(mode="EDIT")
+            bpy.ops.mesh.select_all(action="SELECT")
+            try:
+                bpy.ops.uv.select_all(action="SELECT")
+            except Exception:
+                pass
+            bpy.ops.uv.select_overlap()
+            bm = bmesh.from_edit_mesh(me)
+            uv = bm.loops.layers.uv.active
+            total = len(bm.faces)
+            if uv is not None and total:
+                cnt = sum(1 for f in bm.faces if any(l[uv].select for l in f.loops))
+                frac = cnt / total
+            bpy.ops.object.mode_set(mode="OBJECT")
+    except Exception:
+        try:
+            bpy.ops.object.mode_set(mode="OBJECT")
+        except Exception:
+            pass
+    return frac
+
+
+def _uv_looks_wrong(context, obj):
+    """Short reason string if the active UV map looks broken (overlap / out of bounds), else ''."""
+    me = obj.data
+    uvl = me.uv_layers.active
+    if uvl is None or len(me.polygons) == 0:
+        return ""
+    data = uvl.data
+    n = len(data)
+    if n:
+        oob = sum(1 for d in data
+                  if not (-0.002 <= d.uv[0] <= 1.002 and -0.002 <= d.uv[1] <= 1.002))
+        if oob / n > 0.25:
+            return "most UVs sit outside the 0-1 image area"
+    frac = _uv_overlap_fraction(context, obj)
+    if frac > 0.05:
+        return "%d%% of faces have overlapping UVs" % round(100 * frac)
+    return ""
 
 
 def _gpu_available():
