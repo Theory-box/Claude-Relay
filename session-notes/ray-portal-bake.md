@@ -665,3 +665,9 @@ At the start of a session on this topic: `git checkout feature/ray-portal-bake &
 - Caveat: couldn't confirm the colour-management LOOK numerically headless (couldn't get a reliably
   lit test bake on the sample object), but save_render is the identical call the old Save used and the
   displayed image is now the loaded saved file - user should eyeball it.
+
+## v0.17.3 — default save folder named after the .blend (was 'bakes')
+- _autosave_dir: when no Save Folder is set, save to <blendname>/ next to the .blend
+  (os.path.splitext(basename(filepath))[0]) instead of a generic bakes/ folder.
+- Updated the Save Folder description text to match.
+- Verified: MyProject.blend -> textures land in MyProject/; no bakes/ folder created.

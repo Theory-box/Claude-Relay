@@ -1104,14 +1104,16 @@ _SAVE_ALLOWED = {"PNG": ("8", "16"), "JPEG": ("8",), "OPEN_EXR": ("16", "32"),
 
 
 def _autosave_dir(context):
-    """Where auto-saved bakes go: the Save Folder if set, else a 'bakes' folder next to
-    the .blend. Returns (path, None) or (None, reason) if there's nowhere to write yet."""
+    """Where auto-saved bakes go: the Save Folder if set, else a folder named after the
+    .blend file (next to it). Returns (path, None) or (None, reason) if there's nowhere to
+    write yet."""
     sc = context.scene
     d = sc.rpbake_save_dir.strip()
     if d:
         directory = bpy.path.abspath(d)
     elif bpy.data.filepath:
-        directory = os.path.join(os.path.dirname(bpy.data.filepath), "bakes")
+        blend_name = os.path.splitext(os.path.basename(bpy.data.filepath))[0]
+        directory = os.path.join(os.path.dirname(bpy.data.filepath), blend_name)
     else:
         return None, "save your .blend or set a Save Folder"
     try:
@@ -1455,7 +1457,7 @@ def register():
                      "even if it already has UVs"))
     bpy.types.Scene.rpbake_save_dir = bpy.props.StringProperty(
         name="Save Folder", subtype="DIR_PATH", default="",
-        description="Where Save writes the image. Leave empty to use a 'bakes' folder next to your .blend file")
+        description="Where Save writes the image. Leave empty to use a folder named after your .blend file, next to it")
     bpy.types.Scene.rpbake_save_format = bpy.props.EnumProperty(
         name="Format", default="PNG",
         items=[
