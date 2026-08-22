@@ -640,3 +640,28 @@ At the start of a session on this topic: `git checkout feature/ray-portal-bake &
   completion (could defer to its own tick).
 - Verified headless (grace=3s): single "Baked & saved"; batch 2/2 with 0 launch-while-running
   incidents; clean unregister.
+
+## v0.17.2 — remove Show-on-Mesh button; fix auto-save (image now shows saved + colour-managed)
+- Removed the "Show on Mesh" button + RPBAKE_OT_show_on_mesh operator (added in v0.17). Redundant:
+  the bake already creates the node and makes it active - showing on the mesh is default behaviour.
+- Save bug: v0.17 auto-save called img.save_render() which writes a colour-managed FILE to disk but
+  never touches the in-Blender datablock, so the Image Editor kept showing the raw scene-linear bake
+  buffer, marked unsaved, with no view transform - user (correctly) read this as "not saving".
+- Fix - two-image + single tagged node (no stacking, matches the old Save behaviour):
+  - _bake_work_image(obj,res,float,colorspace): per-object WORKING image the bake writes into,
+    colorspace = rpbake_colorspace (sRGB default) so save_render output matches what Save produced.
+    Named RPBakeWork_<obj.name>.
+  - _bake_node(obj, image, make_active): finds/creates ONE tagged node (node['rpbake']=1) per material
+    and swaps its image - linear work image while baking, saved file after. Same node forever = no stack.
+  - _autosave_object: save_render(work) -> colour-managed file, then bpy.data.images.load(file) ->
+    obj.rpbake_image, reload, and point the tagged node at it. So the mesh + Image Editor show the
+    SAVED, colour-managed texture (source=FILE, is_dirty=False), exactly like hitting Save used to.
+    On no-destination it leaves the raw work image visible and reports the reason.
+  - _start_native_bake targets the work image via the tagged node; _apply_result_to_object + worker
+    _store_result updated to the tagged-node/work-image model; _poll_native lets autosave own the
+    node switch (removed the stale pre-apply). _object_bake_image removed.
+- Verified headless: single -> "Baked & saved", 1 tagged node, disp source=FILE + is_dirty False;
+  rebake -> 1 node, 1 file overwritten; batch 2 -> separate files, 1 node each; clean unregister.
+- Caveat: couldn't confirm the colour-management LOOK numerically headless (couldn't get a reliably
+  lit test bake on the sample object), but save_render is the identical call the old Save used and the
+  displayed image is now the loaded saved file - user should eyeball it.

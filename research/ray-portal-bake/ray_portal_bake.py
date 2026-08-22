@@ -216,22 +216,18 @@ def _get_device_mode():
 
 
 def _store_result(png_path, obj):
-    """Worker path: load the worker's PNG into obj's own bake image (per-object, so it
-    matches the native flow and doesn't stack up across iterations)."""
+    """Worker path: load the worker's PNG into obj's linear working image, matching the
+    native flow (autosave then colour-manages + displays it)."""
     tmp = bpy.data.images.load(png_path)
     try:
         w, h = tmp.size
-        res = getattr(obj, "rpbake_image", None) if obj else None
-        name = ("RPBake_" + obj.name) if obj else RESULT_IMAGE_NAME
-        if res is None:
-            res = bpy.data.images.new(name, w, h, alpha=True)
+        if obj is not None:
+            res = _bake_work_image(obj, w, False)
+        else:
+            res = bpy.data.images.get(RESULT_IMAGE_NAME) or bpy.data.images.new(
+                RESULT_IMAGE_NAME, w, h, alpha=True)
             res.use_fake_user = True
-            if obj is not None:
-                try:
-                    obj.rpbake_image = res
-                except Exception:
-                    pass
-        elif tuple(res.size) != (w, h):
+        if tuple(res.size) != (w, h):
             res.scale(w, h)
         buf = [0.0] * (w * h * 4)
         tmp.pixels.foreach_get(buf)
@@ -527,39 +523,14 @@ def _finish(job):
 
 
 def _apply_result_to_object(obj):
-    """Put obj's own baked image on it as its active image-texture node.
-    The image IS the object's 0..1 UV space, so no mapping node is needed. Reuses the
-    existing node if it already points at the object's bake image (no stacking)."""
+    """Put obj's baked image on it via its single tagged node - the saved file if we have
+    one, else the raw working image. Reuses the tagged node (no stacking)."""
     if obj is None or obj.type != "MESH":
         return False
-    res = getattr(obj, "rpbake_image", None)
-    if res is None:
+    img = getattr(obj, "rpbake_image", None) or bpy.data.images.get("RPBakeWork_" + obj.name)
+    if img is None:
         return False
-    mat = obj.active_material
-    if mat is None:
-        mat = bpy.data.materials.new(obj.name + "_RPBake")
-        mat.use_nodes = True
-        if len(obj.data.materials) == 0:
-            obj.data.materials.append(mat)
-        else:
-            # object has an empty slot that is the active one - fill it, so the
-            # new material actually becomes the object's active material.
-            obj.data.materials[obj.active_material_index] = mat
-    elif not mat.use_nodes:
-        mat.use_nodes = True
-    nt = mat.node_tree
-    tex = None
-    for n in nt.nodes:
-        if n.type == "TEX_IMAGE" and n.image == res:
-            tex = n
-            break
-    if tex is None:
-        anchor = nt.nodes.active
-        tex = nt.nodes.new("ShaderNodeTexImage")
-        tex.image = res
-        if anchor is not None and anchor != tex:
-            tex.location = (anchor.location.x - 400, anchor.location.y)
-    nt.nodes.active = tex
+    _bake_node(obj, image=img, make_active=True)
     return True
 
 
@@ -814,17 +785,6 @@ def _start_native_bake(context, obj):
             bpy.ops.object.mode_set(mode="OBJECT")
         except Exception:
             pass
-    mat = obj.active_material
-    if mat is None:
-        mat = bpy.data.materials.new(obj.name + "_RPBake")
-        mat.use_nodes = True
-        if len(obj.data.materials) == 0:
-            obj.data.materials.append(mat)
-        else:
-            obj.data.materials[obj.active_material_index] = mat
-    elif not mat.use_nodes:
-        mat.use_nodes = True
-    nt = mat.node_tree
     res = _obj_res(obj, scene)
     samples = _obj_samples(obj, scene)
     # remember on the object what it was baked with, so it reads back next time.
@@ -835,19 +795,8 @@ def _start_native_bake(context, obj):
             obj.rpbake_samples = samples
     except Exception:
         pass
-    res_img = _object_bake_image(obj, res, scene.rpbake_float, scene.rpbake_colorspace)
-    tex = None
-    for n in nt.nodes:
-        if n.type == "TEX_IMAGE" and n.image == res_img:
-            tex = n
-            break
-    if tex is None:
-        anchor = nt.nodes.active
-        tex = nt.nodes.new("ShaderNodeTexImage")
-        tex.image = res_img
-        if anchor is not None and anchor != tex:
-            tex.location = (anchor.location.x - 400, anchor.location.y)
-    nt.nodes.active = tex
+    work = _bake_work_image(obj, res, scene.rpbake_float, scene.rpbake_colorspace)
+    _bake_node(obj, image=work, make_active=True)
     orig = {"scene": scene.name, "engine": scene.render.engine,
             "samples": scene.cycles.samples, "device": scene.cycles.device,
             "margin": scene.render.bake.margin, "use_clear": scene.render.bake.use_clear,
@@ -1039,13 +988,10 @@ def _poll_native():
             return 0.25                # still waiting for it to start (no false-complete)
     # ---- finished (handler fired, or a fallback tripped) ----
     obj = bpy.data.objects.get(job.get("obj", ""))
-    if done != "timeout":
-        try:
-            _apply_result_to_object(obj)
-        except Exception:
-            pass
     saved_ok, saved_info = (False, "")
     if obj is not None and done != "cancel":
+        # autosave writes the colour-managed file AND puts the saved image on the mesh;
+        # if it can't save, it leaves the raw working bake visible instead.
         saved_ok, saved_info = _autosave_object(bpy.context, obj)
     _restore_scene(job.get("orig"))
     _state["job"] = None
@@ -1094,27 +1040,18 @@ def _restore_scene(orig):
         pass
 
 
-def _object_bake_image(obj, res, float_buf, colorspace):
-    """Return obj's own persistent bake image at the requested size/bit-depth/colorspace,
-    creating it (named after the object) or resizing it in place if the resolution or bit
-    depth changed. Stored on obj.rpbake_image so every rebake reuses the same datablock -
-    the bake writes into it and the same texture node keeps pointing at it, so nothing
-    stacks up across iterations."""
-    img = getattr(obj, "rpbake_image", None)
-    name = "RPBake_" + obj.name
+def _bake_work_image(obj, res, float_buf, colorspace="sRGB"):
+    """The per-object working image the bake writes into, kept separate from the displayed
+    saved file. Uses the Color Space setting so save_render output matches what Save always
+    produced. Reused/resized in place, named RPBakeWork_<obj.name>."""
+    name = "RPBakeWork_" + obj.name
+    img = bpy.data.images.get(name)
     if img is not None and (img.is_float != float_buf or tuple(img.size) != (res, res)):
-        new = bpy.data.images.new(name + "__new", res, res, alpha=True, float_buffer=float_buf)
-        for m in bpy.data.materials:
-            if m.use_nodes and m.node_tree:
-                for n in m.node_tree.nodes:
-                    if getattr(n, "image", None) == img:
-                        n.image = new
         try:
             bpy.data.images.remove(img)
         except Exception:
             pass
-        new.name = name
-        img = new
+        img = None
     if img is None:
         img = bpy.data.images.new(name, res, res, alpha=True, float_buffer=float_buf)
     img.use_fake_user = True
@@ -1122,11 +1059,43 @@ def _object_bake_image(obj, res, float_buf, colorspace):
         img.colorspace_settings.name = colorspace
     except Exception:
         pass
-    try:
-        obj.rpbake_image = img
-    except Exception:
-        pass
     return img
+
+
+def _bake_node(obj, image=None, make_active=False):
+    """Find (or create) this object's single tagged bake texture node and optionally set its
+    image + make it active. Tagging the node (node['rpbake']) means we always reuse the SAME
+    node and just swap its image (linear work image while baking, saved file after) - so
+    nothing stacks up no matter how many times the object is baked."""
+    if obj is None or obj.type != "MESH":
+        return None
+    mat = obj.active_material
+    if mat is None:
+        mat = bpy.data.materials.new(obj.name + "_RPBake")
+        mat.use_nodes = True
+        if len(obj.data.materials) == 0:
+            obj.data.materials.append(mat)
+        else:
+            obj.data.materials[obj.active_material_index] = mat
+    elif not mat.use_nodes:
+        mat.use_nodes = True
+    nt = mat.node_tree
+    node = None
+    for n in nt.nodes:
+        if n.type == "TEX_IMAGE" and n.get("rpbake"):
+            node = n
+            break
+    if node is None:
+        anchor = nt.nodes.active
+        node = nt.nodes.new("ShaderNodeTexImage")
+        node["rpbake"] = 1
+        if anchor is not None and anchor != node:
+            node.location = (anchor.location.x - 400, anchor.location.y)
+    if image is not None:
+        node.image = image
+    if make_active:
+        nt.nodes.active = node
+    return node
 
 
 _SAVE_EXT = {"PNG": "png", "JPEG": "jpg", "OPEN_EXR": "exr", "TIFF": "tif"}
@@ -1153,14 +1122,17 @@ def _autosave_dir(context):
 
 
 def _autosave_object(context, obj):
-    """Write obj's baked image to disk using the Save settings, overwriting the same file
-    each bake. Returns (True, filepath) or (False, reason). Does NOT re-point the node -
-    the object keeps its in-Blender bake image so the next bake reuses it in place."""
-    img = getattr(obj, "rpbake_image", None) if obj else None
-    if img is None:
+    """Save the object's linear working bake to disk with scene colour management applied
+    (save_render), then load that saved file back and put it on the mesh - so the Image
+    Editor shows the real saved, colour-managed texture (marked saved), exactly like hitting
+    Save used to. Overwrites the same file every bake; reuses the one tagged node (no stack).
+    Returns (True, filepath) or (False, reason)."""
+    work = bpy.data.images.get("RPBakeWork_" + obj.name) if obj else None
+    if work is None:
         return False, "no baked image"
     directory, reason = _autosave_dir(context)
     if directory is None:
+        _bake_node(obj, image=work, make_active=True)  # at least show the raw bake
         return False, reason
     sc = context.scene
     fmt = sc.rpbake_save_format
@@ -1187,7 +1159,7 @@ def _autosave_object(context, obj):
             pass
         if fmt == "JPEG":
             sc.render.image_settings.quality = 95
-        img.save_render(filepath, scene=sc)
+        work.save_render(filepath, scene=sc)
     except Exception as exc:
         return False, "save failed: %s" % exc
     finally:
@@ -1198,26 +1170,20 @@ def _autosave_object(context, obj):
         except Exception:
             pass
         sc.render.image_settings.quality = o_q
+    # Load the just-saved (colour-managed) file back and show it on the mesh, so the Image
+    # Editor displays the saved texture and marks it saved - not the raw linear buffer.
+    try:
+        disp = bpy.data.images.load(filepath, check_existing=True)
+        try:
+            disp.reload()
+        except Exception:
+            pass
+        disp.use_fake_user = True
+        obj.rpbake_image = disp
+        _bake_node(obj, image=disp, make_active=True)
+    except Exception:
+        pass
     return True, filepath
-
-
-class RPBAKE_OT_show_on_mesh(bpy.types.Operator):
-    bl_idname = "rpbake.show_on_mesh"
-    bl_label = "Show on Mesh"
-    bl_description = ("Add the baked image as an image-texture node on the active object's material "
-                     "and make it active, so Solid/Workbench viewport shows it on the mesh")
-    bl_options = {"REGISTER", "UNDO"}
-
-    def execute(self, context):
-        obj = context.active_object
-        if obj is None or getattr(obj, "rpbake_image", None) is None:
-            self.report({"WARNING"}, "No baked image yet for this object.")
-            return {"CANCELLED"}
-        if not _apply_result_to_object(obj):
-            self.report({"WARNING"}, "Need an active mesh object.")
-            return {"CANCELLED"}
-        self.report({"INFO"}, "Baked image applied to mesh.")
-        return {"FINISHED"}
 
 
 class RPBAKE_OT_diagnostics(bpy.types.Operator):
@@ -1382,11 +1348,6 @@ class RPBAKE_PT_panel(bpy.types.Panel):
             r.operator("rpbake.bake", text="Render %d Objects" % len(sel), icon="RENDER_STILL")
         else:
             r.operator("rpbake.bake", text="Render", icon="RENDER_STILL")
-        aobj = context.active_object
-        if aobj is not None and getattr(aobj, "rpbake_image", None) is not None:
-            rs = layout.row()
-            rs.enabled = not busy
-            rs.operator("rpbake.show_on_mesh", text="Show on Mesh", icon="MATERIAL")
         if sc.rpbake_status:
             layout.label(text=sc.rpbake_status, icon=("SORTTIME" if busy else "CHECKMARK"))
 
@@ -1425,7 +1386,7 @@ class RPBAKE_PT_bakesettings(bpy.types.Panel):
         s.prop(sc, "rpbake_save_view")
 
 
-_classes = (RPBAKE_OT_bake, RPBAKE_OT_show_on_mesh,
+_classes = (RPBAKE_OT_bake,
             RPBAKE_OT_diagnostics, RPBAKE_PT_panel, RPBAKE_PT_bakesettings)
 
 
