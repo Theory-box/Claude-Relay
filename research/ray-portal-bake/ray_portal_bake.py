@@ -788,6 +788,9 @@ def _obj_res(obj, scene):
 
 
 def _obj_samples(obj, scene):
+    # global-samples override: use the one global value, ignore per-object memory
+    if getattr(scene, "rpbake_global_samples", False):
+        return int(scene.rpbake_samples)
     if obj is not None and getattr(obj, "rpbake_samples", 0) > 0:
         return int(obj.rpbake_samples)
     return int(scene.rpbake_samples)
@@ -835,10 +838,12 @@ def _start_native_bake(context, obj):
     nt = mat.node_tree
     res = _obj_res(obj, scene)
     samples = _obj_samples(obj, scene)
-    # remember on the object what it was baked with, so it reads back next time
+    # remember on the object what it was baked with, so it reads back next time.
+    # while global-samples is on, leave the object's saved samples untouched.
     try:
         obj.rpbake_res = res
-        obj.rpbake_samples = samples
+        if not getattr(scene, "rpbake_global_samples", False):
+            obj.rpbake_samples = samples
     except Exception:
         pass
     res_img = _get_result_image(res, scene.rpbake_float, scene.rpbake_colorspace)
@@ -1311,11 +1316,16 @@ class RPBAKE_PT_panel(bpy.types.Panel):
         sc = context.scene
         col = layout.column(align=True)
         aobj = context.active_object
-        if aobj is not None and aobj.type == "MESH" and aobj.rpbake_res > 0:
+        baked = aobj is not None and aobj.type == "MESH" and aobj.rpbake_res > 0
+        if baked:
             col.prop(aobj, "rpbake_res", text="Resolution")
-            col.prop(aobj, "rpbake_samples", text="Samples")
         else:
             col.prop(sc, "rpbake_resolution")
+        if sc.rpbake_global_samples:
+            col.prop(sc, "rpbake_samples", text="Samples (global)")
+        elif baked:
+            col.prop(aobj, "rpbake_samples", text="Samples")
+        else:
             col.prop(sc, "rpbake_samples")
         col.prop(sc, "rpbake_device")
         busy = _state["job"] is not None or _state.get("batch") is not None
@@ -1357,6 +1367,7 @@ class RPBAKE_PT_bakesettings(bpy.types.Panel):
         col.prop(sc, "rpbake_float")
         col.prop(sc, "rpbake_margin")
         col.prop(sc, "rpbake_pack_margin")
+        col.prop(sc, "rpbake_global_samples")
         layout.separator()
         layout.label(text="Save", icon="FILE_TICK")
         s = layout.column(align=True)
@@ -1424,6 +1435,11 @@ def register():
         name="Pack Margin", default=0.02, min=0.0, max=0.5, precision=3,
         description="Spacing left between UV islands when packing after an unwrap "
                     "(fraction of the image; larger = more gap, less usable area)")
+    bpy.types.Scene.rpbake_global_samples = bpy.props.BoolProperty(
+        name="Global samples (all objects)", default=False,
+        description=("Bake every object at the one global Samples value instead of each "
+                     "object's own remembered samples. While on, baking does NOT change an "
+                     "object's saved samples - untick to return each object to what it had"))
     bpy.types.Scene.rpbake_save_dir = bpy.props.StringProperty(
         name="Save Folder", subtype="DIR_PATH", default="",
         description="Where Save writes the image. Leave empty to use a 'bakes' folder next to your .blend file")
@@ -1480,8 +1496,8 @@ def unregister():
             delattr(bpy.types.Object, p)
     for p in ("rpbake_method", "rpbake_resolution", "rpbake_samples", "rpbake_device",
               "rpbake_epsilon", "rpbake_status", "rpbake_bake_type", "rpbake_float",
-              "rpbake_colorspace", "rpbake_margin", "rpbake_pack_margin", "rpbake_save_dir",
-              "rpbake_save_format",
+              "rpbake_colorspace", "rpbake_margin", "rpbake_pack_margin", "rpbake_global_samples",
+              "rpbake_save_dir", "rpbake_save_format",
               "rpbake_save_depth", "rpbake_save_view"):
         if hasattr(bpy.types.Scene, p):
             delattr(bpy.types.Scene, p)

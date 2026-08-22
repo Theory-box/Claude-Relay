@@ -545,3 +545,15 @@ At the start of a session on this topic: `git checkout feature/ray-portal-bake &
   "No GPU enabled - baking[ and denoising] on CPU (slow). Enable a GPU in Preferences >
   System..." _start_native_bake returns (dev, warn); _render_native reports it (single);
   _start_batch reports it once. Verified: AUTO+no-GPU+denoise -> warns re both; CPU -> silent.
+
+## v0.15.4 — "Global samples (all objects)" toggle in Bake Settings
+- New Scene.rpbake_global_samples (bool, default False). When ON, every object bakes at the
+  one global Samples value (resolution stays per-object).
+- _obj_samples: returns scene.rpbake_samples when global_samples is on, else the object's
+  saved samples (>0) else the global.
+- _start_native_bake: while global_samples is on it does NOT write obj.rpbake_samples, so each
+  object's remembered samples is frozen and reappears when the toggle is turned back off.
+- Panel: samples field shows "Samples (global)" bound to the scene when the toggle is on;
+  otherwise per-object-if-baked else global. Resolution unaffected (still per-object).
+- Verified: per-object bake@8 -> A=8; global ON@32 -> _obj_samples=32; bake -> A still 8
+  (preserved); global OFF -> _obj_samples back to 8 (restored).
