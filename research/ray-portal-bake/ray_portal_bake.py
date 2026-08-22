@@ -260,36 +260,57 @@ class RPBAKE_OT_bake(bpy.types.Operator):
                      "recover the un-applied version later"),
         default=False)
 
+    save_previous: bpy.props.BoolProperty(
+        name="Save the previous bake first",
+        description=("The last bake hasn't been saved yet. Save it to its own file (and lock "
+                     "it onto its object) before this bake overwrites the shared result image"),
+        default=True)
+
+    def _unsaved_prev(self, obj):
+        last = _state.get("last_baked")
+        return bool(_state.get("unsaved") and last and (obj is None or last != obj.name))
+
     def invoke(self, context, event):
         obj = context.active_object
-        if obj is not None and obj.type == "MESH" and len(obj.modifiers) > 0:
-            self.reunwrap_after = _has_uv_hurting_modifier(obj)
-            self.backup_first = False
+        has_mods = obj is not None and obj.type == "MESH" and len(obj.modifiers) > 0
+        unsaved = self._unsaved_prev(obj)
+        if has_mods or unsaved:
+            if has_mods:
+                self.reunwrap_after = _has_uv_hurting_modifier(obj)
+                self.backup_first = False
+            self.save_previous = unsaved
+            confirm = "Apply & Continue" if has_mods else "Continue"
             try:
                 return context.window_manager.invoke_props_dialog(
-                    self, width=340, title="Bake - object has modifiers",
-                    confirm_text="Apply & Continue")
+                    self, width=340, title="Bake", confirm_text=confirm)
             except TypeError:
                 return context.window_manager.invoke_props_dialog(self, width=340)
         return self.execute(context)
 
     def draw(self, context):
         obj = context.active_object
-        n = len(obj.modifiers) if (obj is not None and obj.type == "MESH") else 0
         col = self.layout.column()
-        col.label(text="This object has %d modifier%s." % (n, "s" if n != 1 else ""), icon="MODIFIER")
-        col.label(text="Baking needs real geometry - modifier-made")
-        col.label(text="geometry (e.g. Solidify) can bake black.")
-        col.separator()
-        col.prop(self, "collapse_modifiers")
-        sub = col.column()
-        sub.enabled = self.collapse_modifiers
-        sub.prop(self, "reunwrap_after")
-        sub.prop(self, "backup_first")
-        if obj is not None and _has_uv_hurting_modifier(obj):
+        last = _state.get("last_baked")
+        if self._unsaved_prev(obj):
+            col.label(text="Last bake ('%s') isn't saved." % last, icon="ERROR")
+            col.label(text="Baking now overwrites it.")
+            col.prop(self, "save_previous")
             col.separator()
-            col.label(text="A modifier here breaks UVs -", icon="ERROR")
-            col.label(text="re-unwrap is recommended.")
+        n = len(obj.modifiers) if (obj is not None and obj.type == "MESH") else 0
+        if n > 0:
+            col.label(text="This object has %d modifier%s." % (n, "s" if n != 1 else ""), icon="MODIFIER")
+            col.label(text="Baking needs real geometry - modifier-made")
+            col.label(text="geometry (e.g. Solidify) can bake black.")
+            col.separator()
+            col.prop(self, "collapse_modifiers")
+            sub = col.column()
+            sub.enabled = self.collapse_modifiers
+            sub.prop(self, "reunwrap_after")
+            sub.prop(self, "backup_first")
+            if obj is not None and _has_uv_hurting_modifier(obj):
+                col.separator()
+                col.label(text="A modifier here breaks UVs -", icon="ERROR")
+                col.label(text="re-unwrap is recommended.")
 
     def execute(self, context):
         if _state["job"] is not None:
@@ -299,6 +320,12 @@ class RPBAKE_OT_bake(bpy.types.Operator):
         if obj is None or obj.type != "MESH":
             self.report({"WARNING"}, "Select a mesh object.")
             return {"CANCELLED"}
+        if self.save_previous and self._unsaved_prev(obj):
+            r = bpy.ops.rpbake.save()
+            if "CANCELLED" in r:
+                self.report({"ERROR"}, "Couldn't save the previous bake - aborting. Set a "
+                            "Save Folder in Bake Settings, or save your .blend first.")
+                return {"CANCELLED"}
         if self.collapse_modifiers and len(obj.modifiers) > 0:
             if self.backup_first:
                 _backup_object(context, obj)
@@ -461,6 +488,7 @@ def _poll():
                     _set_status("Rendered (%s) - image ready" % (status_txt.strip() or "?"))
                 if job.get("obj"):
                     _state["last_baked"] = job["obj"]
+                    _state["unsaved"] = True
             else:
                 _set_status("Failed: " + status_txt[4:70])
         except Exception as exc:
@@ -735,6 +763,7 @@ def _poll_native():
             pass
         if job.get("obj"):
             _state["last_baked"] = job["obj"]
+            _state["unsaved"] = True
         _restore_scene(job.get("orig"))
         _set_status("Baked (native, %s)" % (job.get("device") or "?"))
         _state["job"] = None
@@ -902,6 +931,7 @@ class RPBAKE_OT_save(bpy.types.Operator):
                         nt.nodes.active = n
         except Exception:
             pass
+        _state["unsaved"] = False
         self.report({"INFO"}, "Saved: %s" % filepath)
         return {"FINISHED"}
 

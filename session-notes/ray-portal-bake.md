@@ -438,3 +438,20 @@ At the start of a session on this topic: `git checkout feature/ray-portal-bake &
 - Verified headless (no GPU): default AUTO; AUTO/GPU/CPU all resolve to CPU correctly;
   device prop present; compiles/registers.
 - Portal worker path unaffected (still uses its own setup_device in the subprocess).
+
+## v0.13.8 — unsaved-bake warning before overwriting the shared result
+- Problem: baking object B overwrites the shared RESULT image that object A's un-saved bake
+  still lives on. Added a guard.
+- Track _state['unsaved']: set True when a bake completes (native + portal completion),
+  set False after a successful Save.
+- Render's invoke shows the confirm dialog when the object has modifiers OR there's an
+  unsaved previous bake of a DIFFERENT object (_unsaved_prev). Same object re-bake = no warn.
+- Dialog folds both concerns into one popup: an ERROR-icon line "Last bake ('X') isn't saved
+  - baking now overwrites it" + a "Save the previous bake first" checkbox (default ON), plus
+  the modifier section if applicable. Confirm text is "Apply & Continue" (modifiers) or
+  "Continue".
+- execute: if save_previous and unsaved-different, runs bpy.ops.rpbake.save() first (saves
+  the previous object's result to its own file + re-points its node); aborts with a clear
+  message if that save is cancelled (e.g. no folder / unsaved .blend). Unchecking = ignore
+  and overwrite.
+- Verified: warn True for different object, False for same object, cleared after save.
