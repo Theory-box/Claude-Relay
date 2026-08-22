@@ -773,24 +773,15 @@ def _apply_device_to_scene(scene):
     return "CPU"
 
 
-def _rpbake_use_custom_update(self, context):
-    # when enabling custom settings, seed them from the current global inputs
-    if getattr(self, "rpbake_use_custom", False):
-        try:
-            self.rpbake_res = context.scene.rpbake_resolution
-            self.rpbake_samples = context.scene.rpbake_samples
-        except Exception:
-            pass
-
-
 def _obj_res(obj, scene):
-    if obj is not None and getattr(obj, "rpbake_use_custom", False):
+    # an object remembers what it was last baked with (rpbake_res > 0); else use the global
+    if obj is not None and getattr(obj, "rpbake_res", 0) > 0:
         return int(obj.rpbake_res)
     return int(scene.rpbake_resolution)
 
 
 def _obj_samples(obj, scene):
-    if obj is not None and getattr(obj, "rpbake_use_custom", False):
+    if obj is not None and getattr(obj, "rpbake_samples", 0) > 0:
         return int(obj.rpbake_samples)
     return int(scene.rpbake_samples)
 
@@ -821,6 +812,12 @@ def _start_native_bake(context, obj):
     nt = mat.node_tree
     res = _obj_res(obj, scene)
     samples = _obj_samples(obj, scene)
+    # remember on the object what it was baked with, so it reads back next time
+    try:
+        obj.rpbake_res = res
+        obj.rpbake_samples = samples
+    except Exception:
+        pass
     res_img = _get_result_image(res, scene.rpbake_float, scene.rpbake_colorspace)
     tex = None
     for n in nt.nodes:
@@ -1281,14 +1278,9 @@ class RPBAKE_PT_panel(bpy.types.Panel):
         sc = context.scene
         col = layout.column(align=True)
         aobj = context.active_object
-        if aobj is not None and aobj.type == "MESH":
-            col.prop(aobj, "rpbake_use_custom")
-            if aobj.rpbake_use_custom:
-                col.prop(aobj, "rpbake_res", text="Resolution")
-                col.prop(aobj, "rpbake_samples", text="Samples")
-            else:
-                col.prop(sc, "rpbake_resolution")
-                col.prop(sc, "rpbake_samples")
+        if aobj is not None and aobj.type == "MESH" and aobj.rpbake_res > 0:
+            col.prop(aobj, "rpbake_res", text="Resolution")
+            col.prop(aobj, "rpbake_samples", text="Samples")
         else:
             col.prop(sc, "rpbake_resolution")
             col.prop(sc, "rpbake_samples")
@@ -1417,14 +1409,12 @@ def register():
             ("Filmic", "Filmic", "Bake the Filmic look into the file"),
             ("Raw", "Raw (linear)", "No colour management - raw linear values (best with EXR / 32-bit)"),
         ])
-    bpy.types.Object.rpbake_use_custom = bpy.props.BoolProperty(
-        name="Custom res / samples for this object", default=False,
-        description=("Give this object its own bake resolution and samples. Objects without "
-                     "this use the global inputs above. Batch baking respects each object's own "
-                     "settings"),
-        update=_rpbake_use_custom_update)
-    bpy.types.Object.rpbake_res = bpy.props.IntProperty(name="Resolution", default=1024, min=64, max=16384)
-    bpy.types.Object.rpbake_samples = bpy.props.IntProperty(name="Samples", default=128, min=1, max=4096)
+    bpy.types.Object.rpbake_res = bpy.props.IntProperty(
+        name="Resolution", default=0, min=0, max=16384,
+        description="This object's bake resolution, remembered from its last bake. 0 = use the global input")
+    bpy.types.Object.rpbake_samples = bpy.props.IntProperty(
+        name="Samples", default=0, min=0, max=4096,
+        description="This object's bake samples, remembered from its last bake. 0 = use the global input")
     for c in _classes:
         bpy.utils.register_class(c)
 
@@ -1447,7 +1437,7 @@ def unregister():
             bpy.app.timers.unregister(t)
     for c in reversed(_classes):
         bpy.utils.unregister_class(c)
-    for p in ("rpbake_use_custom", "rpbake_res", "rpbake_samples"):
+    for p in ("rpbake_res", "rpbake_samples"):
         if hasattr(bpy.types.Object, p):
             delattr(bpy.types.Object, p)
     for p in ("rpbake_method", "rpbake_resolution", "rpbake_samples", "rpbake_device",

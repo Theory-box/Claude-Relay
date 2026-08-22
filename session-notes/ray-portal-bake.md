@@ -519,3 +519,17 @@ At the start of a session on this topic: `git checkout feature/ray-portal-bake &
   under "Apply modifiers". Sub-label now "Each is checked, baked, then auto-saved."
 - Verified per-object: overlap-no-modifier 1.00 -> 0.00 (re-unwrapped); clean UVs unchanged;
   no-UV object auto-unwrapped; modifier objects applied.
+
+## v0.15.2 — per-object res/samples: remembered-on-bake, no toggle
+- Dropped the rpbake_use_custom bool + its update callback. Object.rpbake_res/rpbake_samples
+  now default to 0 (min 0) = "not baked yet, use the global input".
+- _start_native_bake writes the resolved res/samples back onto the object every bake, so an
+  object remembers exactly what it was last baked with. _obj_res/_obj_samples return the
+  object's value when >0, else the scene global.
+- Panel: when the active mesh has rpbake_res > 0 (has been baked) it shows the object's saved
+  Resolution/Samples; otherwise it shows the global scene inputs. Editing a baked object's
+  fields updates its saved values; setting 0 resets it back to "use global".
+- Single + batch both use _obj_res/_obj_samples, so multi-bake uses each object's saved
+  settings where present and the global inputs where not.
+- Verified: unbaked A -> global 512; bake A@128 -> A remembers 128; multi-bake A+B (global 512)
+  -> A@128 (saved), B@512 (global), saved images 128/512, B now remembers 512.
