@@ -2179,7 +2179,15 @@ async function ensureDevice(){
   }catch(e){ status('WebGPU init failed: '+e.message,true); console.error(e); return false; }
 }
 
-function disposeBuffers(){ GP.collReady=false; for(const k of ['bufA','bufB','bufPrev','bufMeta','bufRange','bufNbr','bufRest','bufSeg','bufStyle','bufParams','bufCam','bufNSR','bufNSL','bufSegI','bufSegF','bufSegCell','bufCellBins','bufCellCount','bufOverflow','bufCollP','bufGridP','bufClearP','bufBend','bufBendP','bufAffF','bufVmat','bufSegCellA','bufCellBinsA','bufCellCountA','bufOverflowA','bufAffP','bufGridTP','bufClearAP']){ GP.bendReady=false; GP.affReady=false; if(GP[k]){try{GP[k].destroy();}catch(e){}GP[k]=null;} } }
+function mkR(key,data,usage,hr){ const dev=GP.device, need=Math.max(16,data.byteLength), C=(GP._cap||(GP._cap={}));   // reuse-or-realloc data buffer (writeBuffer if capacity fits)
+  if(GP[key]&&(C[key]||0)>=need){ dev.queue.writeBuffer(GP[key],0,data); return GP[key]; }
+  if(GP[key]){ try{GP[key].destroy();}catch(e){} }
+  const alloc=Math.max(16,Math.ceil(need*(hr||1.4))); const bf=dev.createBuffer({size:alloc,usage}); dev.queue.writeBuffer(bf,0,data); GP[key]=bf; C[key]=alloc; return bf; }
+function bufR(key,size,usage,hr){ const dev=GP.device, need=Math.max(16,size), C=(GP._cap||(GP._cap={}));   // reuse-or-realloc capacity buffer (contents written per-frame)
+  if(GP[key]&&(C[key]||0)>=need){ return GP[key]; }
+  if(GP[key]){ try{GP[key].destroy();}catch(e){} }
+  const alloc=Math.max(16,Math.ceil(need*(hr||1.4))); const bf=dev.createBuffer({size:alloc,usage}); GP[key]=bf; C[key]=alloc; return bf; }
+function disposeBuffers(){ GP._cap={}; GP.collReady=false; for(const k of ['bufA','bufB','bufPrev','bufMeta','bufRange','bufNbr','bufRest','bufSeg','bufStyle','bufParams','bufCam','bufNSR','bufNSL','bufSegI','bufSegF','bufSegCell','bufCellBins','bufCellCount','bufOverflow','bufCollP','bufGridP','bufClearP','bufBend','bufBendP','bufAffF','bufVmat','bufSegCellA','bufCellBinsA','bufCellCountA','bufOverflowA','bufAffP','bufGridTP','bufClearAP']){ GP.bendReady=false; GP.affReady=false; if(GP[k]){try{GP[k].destroy();}catch(e){}GP[k]=null;} } }
 
 function buildScene(){
   const device=GP.device, N=G.nodes.length; GP.N=N;
@@ -2205,13 +2213,13 @@ function buildScene(){
   for(let s=0;s<numSeg;s++){ const sg=segList[s]; seg[s*2]=sg.a; seg[s*2+1]=sg.b;
     const o=G.objs[sg.obj]||{}; const col=parseCol(o.color||'#88eeee'); const rr=(typeof effR==='function'?effR(o):(o.r||4));
     style[s*4]=col[0];style[s*4+1]=col[1];style[s*4+2]=col[2];style[s*4+3]=Math.max(0.6,rr); }
-  disposeBuffers();
+  GP.collReady=false; GP.bendReady=false; GP.affReady=false;   // reset ready flags; buffers reused in place (mkR/bufR) instead of destroyed
   const U=GPUBufferUsage, ST=U.STORAGE,CD=U.COPY_DST,CS=U.COPY_SRC,UN=U.UNIFORM;
   const mk=(data,usage)=>{ const bf=device.createBuffer({size:Math.max(16,data.byteLength),usage}); device.queue.writeBuffer(bf,0,data); return bf; };
-  GP.bufA=mk(pos,ST|CD|CS); GP.bufB=mk(new Float32Array(N*4),ST|CD|CS); GP.bufPrev=mk(prev,ST|CD|CS);
-  GP.bufMeta=mk(meta,ST|CD); GP.bufRange=mk(range,ST|CD); GP.bufNbr=mk(nbr,ST|CD); GP.bufRest=mk(rest,ST|CD);
-  GP.bufSeg=mk(seg,ST|CD); GP.bufStyle=mk(style,ST|CD|CS);
-  GP.bufParams=device.createBuffer({size:48,usage:UN|CD}); GP.bufCam=device.createBuffer({size:16,usage:UN|CD});
+  GP.bufA=mkR('bufA',pos,ST|CD|CS); GP.bufB=mkR('bufB',new Float32Array(N*4),ST|CD|CS); GP.bufPrev=mkR('bufPrev',prev,ST|CD|CS);
+  GP.bufMeta=mkR('bufMeta',meta,ST|CD); GP.bufRange=mkR('bufRange',range,ST|CD); GP.bufNbr=mkR('bufNbr',nbr,ST|CD); GP.bufRest=mkR('bufRest',rest,ST|CD);
+  GP.bufSeg=mkR('bufSeg',seg,ST|CD); GP.bufStyle=mkR('bufStyle',style,ST|CD|CS);
+  GP.bufParams=bufR('bufParams',48,UN|CD); GP.bufCam=bufR('bufCam',16,UN|CD);
   const bg=(pipe,entries)=>device.createBindGroup({layout:pipe.getBindGroupLayout(0),entries});
   const B=(k,b)=>({binding:k,resource:{buffer:b}});
   GP.bgIntAB=bg(GP.intPipe,[B(0,GP.bufA),B(1,GP.bufB),B(2,GP.bufPrev),B(3,GP.bufMeta),B(4,GP.bufParams)]);
@@ -2259,12 +2267,12 @@ function packCollision(segList,N,device,mk,bg,B,ST,CD,CS,UN){
     const gx=Math.max(1,Math.ceil((Wb-ox+reach+cell)/cell)), gy=Math.max(1,Math.ceil((Hb-oy+reach+cell)/cell));
     const numCells=gx*gy, cap=GP_COLL_CAP;
     GP.grid={gx,gy,cell,ox,oy,reach,cap,numCells};
-    GP.bufNSR=mk(nsRange,ST|CD); GP.bufNSL=mk(nsList,ST|CD); GP.bufSegI=mk(segI,ST|CD); GP.bufSegF=mk(segF,ST|CD);
-    GP.bufSegCell=device.createBuffer({size:Math.max(16,numSeg*16),usage:ST|CD});
-    GP.bufCellBins=device.createBuffer({size:Math.max(16,numCells*cap*4),usage:ST|CD});
-    GP.bufCellCount=device.createBuffer({size:Math.max(16,numCells*4),usage:ST|CD});
-    GP.bufOverflow=device.createBuffer({size:16,usage:ST|CD|CS});
-    GP.bufCollP=device.createBuffer({size:48,usage:UN|CD}); GP.bufGridP=device.createBuffer({size:32,usage:UN|CD}); GP.bufClearP=device.createBuffer({size:16,usage:UN|CD});
+    GP.bufNSR=mkR('bufNSR',nsRange,ST|CD); GP.bufNSL=mkR('bufNSL',nsList,ST|CD); GP.bufSegI=mkR('bufSegI',segI,ST|CD); GP.bufSegF=mkR('bufSegF',segF,ST|CD);
+    GP.bufSegCell=bufR('bufSegCell',numSeg*16,ST|CD);
+    GP.bufCellBins=bufR('bufCellBins',numCells*cap*4,ST|CD);
+    GP.bufCellCount=bufR('bufCellCount',numCells*4,ST|CD);
+    GP.bufOverflow=bufR('bufOverflow',16,ST|CD|CS);
+    GP.bufCollP=bufR('bufCollP',48,UN|CD); GP.bufGridP=bufR('bufGridP',32,UN|CD); GP.bufClearP=bufR('bufClearP',16,UN|CD);
     GP.bgClear=bg(GP.clearPipe,[B(0,GP.bufCellBins),B(1,GP.bufCellCount),B(2,GP.bufClearP)]);
     const gE=(pIn)=>[B(0,pIn),B(1,GP.bufSegI),B(2,GP.bufSegCell),B(3,GP.bufCellCount),B(4,GP.bufCellBins),B(5,GP.bufOverflow),B(6,GP.bufGridP)];
     GP.bgGridA=bg(GP.gridPipe,gE(GP.bufA)); GP.bgGridB=bg(GP.gridPipe,gE(GP.bufB));
@@ -2296,7 +2304,7 @@ function packBend(N,device,mk,bg,B,ST,CD,UN){
         const curlOff=(typeof effCurl==='function'?effCurl(o):(o.curl||0))*((o.r||4)*3);
         bendData[i*4]=(n.bT||0); bendData[i*4+1]=(n.bN||0); bendData[i*4+2]=bf; bendData[i*4+3]=curlOff; } }
     if(!anyDeg2)return;
-    GP._bendData=bendData; GP.bufBend=mk(bendData,ST|CD); GP.bufBendP=device.createBuffer({size:16,usage:UN|CD});
+    GP._bendData=bendData; GP.bufBend=mkR('bufBend',bendData,ST|CD); GP.bufBendP=bufR('bufBendP',16,UN|CD);
     { const ab=new ArrayBuffer(16),dv=new DataView(ab); dv.setUint32(0,N,true); device.queue.writeBuffer(GP.bufBendP,0,ab); }
     const bE=(pIn,pOut)=>[B(0,pIn),B(1,pOut),B(2,GP.bufMeta),B(3,GP.bufRange),B(4,GP.bufNbr),B(5,GP.bufBend),B(6,GP.bufBendP)];
     GP.bgBendAB=bg(GP.bendPipe,bE(GP.bufA,GP.bufB)); GP.bgBendBA=bg(GP.bendPipe,bE(GP.bufB,GP.bufA));
@@ -2336,12 +2344,12 @@ function packAffinity(segList,N,device,mk,bg,B,ST,CD,CS,UN){
     const numCells=gx*gy, cap=GP_COLL_CAP;
     GP.affGrid={gx,gy,cell,ox,oy,reach,cap,numCells,nO};
     GP._affF=affF; GP._vmatN=nO;
-    GP.bufAffF=mk(affF,ST|CD|CS); GP.bufVmat=mk(vmat,ST|CD);
-    GP.bufSegCellA=device.createBuffer({size:Math.max(16,numSeg*16),usage:ST|CD});
-    GP.bufCellBinsA=device.createBuffer({size:Math.max(16,numCells*cap*4),usage:ST|CD});
-    GP.bufCellCountA=device.createBuffer({size:Math.max(16,numCells*4),usage:ST|CD});
-    GP.bufOverflowA=device.createBuffer({size:16,usage:ST|CD|CS});
-    GP.bufAffP=device.createBuffer({size:48,usage:UN|CD}); GP.bufGridTP=device.createBuffer({size:32,usage:UN|CD}); GP.bufClearAP=device.createBuffer({size:16,usage:UN|CD});
+    GP.bufAffF=mkR('bufAffF',affF,ST|CD|CS); GP.bufVmat=mkR('bufVmat',vmat,ST|CD);
+    GP.bufSegCellA=bufR('bufSegCellA',numSeg*16,ST|CD);
+    GP.bufCellBinsA=bufR('bufCellBinsA',numCells*cap*4,ST|CD);
+    GP.bufCellCountA=bufR('bufCellCountA',numCells*4,ST|CD);
+    GP.bufOverflowA=bufR('bufOverflowA',16,ST|CD|CS);
+    GP.bufAffP=bufR('bufAffP',48,UN|CD); GP.bufGridTP=bufR('bufGridTP',32,UN|CD); GP.bufClearAP=bufR('bufClearAP',16,UN|CD);
     GP.bgClearA=bg(GP.clearPipe,[B(0,GP.bufCellBinsA),B(1,GP.bufCellCountA),B(2,GP.bufClearAP)]);
     const gtE=(pIn)=>[B(0,pIn),B(1,GP.bufSegI),B(2,GP.bufAffF),B(3,GP.bufSegCellA),B(4,GP.bufCellCountA),B(5,GP.bufCellBinsA),B(6,GP.bufOverflowA),B(7,GP.bufGridTP)];
     GP.bgGridTA=bg(GP.gridTPipe,gtE(GP.bufA)); GP.bgGridTB=bg(GP.gridTPipe,gtE(GP.bufB));
@@ -2501,7 +2509,7 @@ setInterval(function(){ if(GP.active && GP.propsDirty){ GP.propsDirty=false; gpu
 window.gpuPhysicsStep=step; window.gpuRefreshProps=gpuRefreshProps;
 window.gpuPhysicsRender=render;
 window.setGpuPhysicsMode=function(on){ if(on){ activate(); } else { deactivate(true,'toggled off'); } };
-window.gpuPhysicsDiscard=function(reason){ if(GP.active){ GP.active=false; S.gpuPhysics=false; S.gpu=GP.prevGpu; cw.style.display='none'; const cgl=document.getElementById('cgl'); if(cgl)cgl.style.display=(S.gpu||S.micro)?'block':'none'; badge(false,reason||'scene changed'); setToggle(false); status('off \u00B7 '+(reason||'scene changed')); window.RD=true; } };
+window.gpuPhysicsDiscard=function(reason){ try{disposeBuffers();}catch(e){} if(GP.active){ GP.active=false; S.gpuPhysics=false; S.gpu=GP.prevGpu; cw.style.display='none'; const cgl=document.getElementById('cgl'); if(cgl)cgl.style.display=(S.gpu||S.micro)?'block':'none'; badge(false,reason||'scene changed'); setToggle(false); status('off \u00B7 '+(reason||'scene changed')); window.RD=true; } };
 window.gpuPhysicsDropToCPU=function(reason){ if(GP.active) deactivate(true,reason||'editing'); };
 window.gpuPhysicsDiagnostics=()=>({active:GP.active,supported:supported(),nodes:GP.N,segs:GP.numSeg,directedLinks:GP.numDir,frame:GP.frameN,readbacks:GP.readbacks,lastExit:GP.lastExit,passes:GP_PASSES,relax:GP_RELAX,
   refreshN:GP.refreshN,refreshErr:GP.refreshErr,bendReady:GP.bendReady,bonding:{on:!!S.bonding,every:GP.bondEvery,ticks:GP.bondTicks,events:GP.bondEvents,busy:GP._bondBusy},

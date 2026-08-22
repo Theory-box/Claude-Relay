@@ -501,3 +501,19 @@ fewer GPU sync points. Periodic hitches remain from full buildScene rebuild per 
 is FUNDAMENTAL to topology change and persists even in stage B (research keeps rebuild on CPU). The real smoothness
 fix is a cheaper/incremental rebuild (reuse same-size buffers via writeBuffer instead of destroy+recreate) — a
 distinct optimization from stage B's GPU detection. Order TBD with user after they test the readback fix.
+
+## CHEAP REBUILD: buffer reuse + capacity headroom (kills the per-bond-event rebuild hitch)
+Root of the hitch: buildScene called disposeBuffers() at its start (destroy ALL ~20 GPU buffers) then recreated
+them every bond event (~3-4/sec) — GPU buffer allocation is the expensive op. disposeBuffers was ONLY ever called
+from buildScene (deactivate/discard just flip active), so:
+- Added mkR(key,data,usage,hr) / bufR(key,size,usage,hr): reuse-or-realloc with per-buffer capacity tracking
+  (GP._cap) + 1.4x headroom. mkR writeBuffers into the existing buffer when capacity fits; bufR (grids, contents
+  rewritten each frame) just ensures capacity. Realloc (destroy+create at 1.4x) only when the count exceeds capacity.
+- buildScene no longer disposes; it resets ready flags and repacks via mkR/bufR (buffers persist + reused). Bind
+  groups still recreated each rebuild (cheap vs allocation; cache later if needed).
+- Converted ALL size-varying allocations (pos/prev/meta/CSR/seg/style/segI/segF/bend/affF/vmat + collision &
+  affinity grids + uniforms) to mkR/bufR.
+- Real teardown (disposeBuffers, which now also clears GP._cap) moved to gpuPhysicsDiscard (scene replace) so memory
+  is freed when topology is truly abandoned; also on device-level teardown.
+Effect: a bond event = CPU repack + writeBuffer into existing buffers (no GPU allocation) as long as counts stay
+within 1.4x headroom -> the hitch should largely disappear. Memory ~1.4x (fine). Benefits stage A now + stage B later.
