@@ -208,7 +208,7 @@ _state = {"job": None}
 
 def _get_device_mode():
     try:
-        return bpy.context.preferences.addons[__name__].preferences.device
+        return bpy.context.scene.rpbake_device
     except Exception:
         return "AUTO"
 
@@ -398,7 +398,8 @@ class RPBAKE_OT_bake(bpy.types.Operator):
                 "use_clear": scene.render.bake.use_clear}
         scene.render.engine = "CYCLES"
         scene.cycles.samples = samples
-        _apply_device_to_scene(scene)
+        mode = _get_device_mode()
+        dev = _apply_device_to_scene(scene)
         try:
             scene.render.bake.margin = max(0, scene.rpbake_margin)
             scene.render.bake.use_clear = True
@@ -418,8 +419,12 @@ class RPBAKE_OT_bake(bpy.types.Operator):
         # one-shot timer so it starts in a clean context, popup fully closed.
         _state["job"] = {"native": True, "pending": True, "obj": obj.name, "orig": orig,
                          "bake_type": bake_type, "bake_kwargs": bake_kwargs,
-                         "started": time.time()}
-        scene.rpbake_status = "Baking (native, background)..."
+                         "device": dev, "started": time.time()}
+        scene.rpbake_status = "Baking (native, %s)..." % dev
+        if mode != "CPU" and dev == "CPU":
+            self.report({"WARNING"},
+                        "GPU not available - baking on CPU. Enable a GPU in "
+                        "Preferences > System > Cycles Render Devices.")
         if not bpy.app.timers.is_registered(_launch_native):
             bpy.app.timers.register(_launch_native, first_interval=0.02)
         self.report({"INFO"}, "Native bake started in background.")
@@ -644,23 +649,45 @@ def _ensure_uvs(context, obj):
     return _smart_project(context, obj)
 
 
-def _apply_device_to_scene(scene):
-    """Set scene.cycles.device from the addon device preference, but only switch to
-    GPU if the user actually has a GPU device enabled in Cycles prefs. Returns label."""
-    mode = _get_device_mode()
+def _gpu_available():
+    """(has_gpu, backend): True if a usable non-CPU compute device is enabled in Cycles
+    prefs. Refreshes the device list first - reading prefs.devices cold often reads empty."""
     try:
-        if mode == "CPU":
-            scene.cycles.device = "CPU"; return "CPU"
-        prefs = bpy.context.preferences.addons.get("cycles")
-        gpu = False
-        if prefs is not None:
-            for d in prefs.preferences.devices:
-                if getattr(d, "type", "") != "CPU" and getattr(d, "use", False):
-                    gpu = True; break
-        scene.cycles.device = "GPU" if gpu else "CPU"
-        return "GPU" if gpu else "CPU"
+        cprefs = bpy.context.preferences.addons["cycles"].preferences
     except Exception:
+        return False, "NONE"
+    backend = getattr(cprefs, "compute_device_type", "NONE") or "NONE"
+    if backend in ("NONE", ""):
+        return False, "NONE"
+    for fn in ("refresh_devices", "get_devices"):
+        f = getattr(cprefs, fn, None)
+        if f is not None:
+            try:
+                f()
+                break
+            except Exception:
+                continue
+    try:
+        for d in cprefs.devices:
+            if getattr(d, "type", "CPU") != "CPU" and getattr(d, "use", False):
+                return True, backend
+    except Exception:
+        pass
+    return False, backend
+
+
+def _apply_device_to_scene(scene):
+    """Set scene.cycles.device honouring the addon device mode. Returns 'GPU' or 'CPU'."""
+    mode = _get_device_mode()
+    if mode == "CPU":
+        scene.cycles.device = "CPU"
         return "CPU"
+    has_gpu, _backend = _gpu_available()
+    if has_gpu:
+        scene.cycles.device = "GPU"
+        return "GPU"
+    scene.cycles.device = "CPU"
+    return "CPU"
 
 
 def _launch_native():
@@ -709,7 +736,7 @@ def _poll_native():
         if job.get("obj"):
             _state["last_baked"] = job["obj"]
         _restore_scene(job.get("orig"))
-        _set_status("Baked (native)")
+        _set_status("Baked (native, %s)" % (job.get("device") or "?"))
         _state["job"] = None
         try:
             for area in bpy.context.screen.areas:
@@ -1021,6 +1048,7 @@ class RPBAKE_PT_panel(bpy.types.Panel):
         col = layout.column(align=True)
         col.prop(sc, "rpbake_resolution")
         col.prop(sc, "rpbake_samples")
+        col.prop(sc, "rpbake_device")
         busy = _state["job"] is not None
         r = layout.row()
         r.enabled = not busy
@@ -1081,6 +1109,15 @@ def register():
         ])
     bpy.types.Scene.rpbake_resolution = bpy.props.IntProperty(name="Resolution", default=1024, min=64, max=16384)
     bpy.types.Scene.rpbake_samples = bpy.props.IntProperty(name="Samples", default=128, min=1, max=4096)
+    bpy.types.Scene.rpbake_device = bpy.props.EnumProperty(
+        name="Device", default="AUTO",
+        items=[
+            ("AUTO", "Auto (GPU if available)",
+             "Use the GPU if one is enabled in Preferences > System, otherwise CPU"),
+            ("GPU", "GPU",
+             "Force GPU. Falls back to CPU with a warning if no GPU is enabled"),
+            ("CPU", "CPU", "Force CPU"),
+        ])
     bpy.types.Scene.rpbake_epsilon = bpy.props.FloatProperty(name="Surface Offset", default=0.02, min=0.0001, max=1.0, precision=4)
     bpy.types.Scene.rpbake_status = bpy.props.StringProperty(name="Status", default="")
     bpy.types.Scene.rpbake_bake_type = bpy.props.EnumProperty(
@@ -1153,10 +1190,10 @@ def unregister():
             bpy.app.timers.unregister(t)
     for c in reversed(_classes):
         bpy.utils.unregister_class(c)
-    for p in ("rpbake_method", "rpbake_resolution", "rpbake_samples", "rpbake_epsilon",
-              "rpbake_status", "rpbake_bake_type", "rpbake_float", "rpbake_colorspace",
-              "rpbake_margin", "rpbake_save_dir", "rpbake_save_format", "rpbake_save_depth",
-              "rpbake_save_view"):
+    for p in ("rpbake_method", "rpbake_resolution", "rpbake_samples", "rpbake_device",
+              "rpbake_epsilon", "rpbake_status", "rpbake_bake_type", "rpbake_float",
+              "rpbake_colorspace", "rpbake_margin", "rpbake_save_dir", "rpbake_save_format",
+              "rpbake_save_depth", "rpbake_save_view"):
         if hasattr(bpy.types.Scene, p):
             delattr(bpy.types.Scene, p)
 

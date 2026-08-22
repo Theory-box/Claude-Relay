@@ -422,3 +422,19 @@ At the start of a session on this topic: `git checkout feature/ray-portal-bake &
 - NOTE: implemented as a checkbox + "Apply & Continue" button rather than two separate
   buttons (invoke_props_dialog is single-confirm); functionally covers both paths. Can do
   a true two-button custom popup if preferred.
+
+## v0.13.7 — GPU device: robust detection + visible device + CPU-fallback warning
+- Symptom (user): heavy 4096 bake ran with CPU ~90%, GPU idle -> baking on CPU.
+- Cause: _apply_device_to_scene read cprefs.preferences.devices COLD (no refresh), which
+  usually reads empty -> detected no GPU -> set scene.cycles.device='CPU' silently.
+- Fix: new _gpu_available() checks compute_device_type != NONE and calls
+  refresh_devices()/get_devices() BEFORE scanning cprefs.devices for an enabled non-CPU
+  device. _apply_device_to_scene returns 'GPU'/'CPU'.
+- Added a Device control (rpbake_device: AUTO / GPU / CPU, default AUTO) in the main panel;
+  _get_device_mode() now reads it (was reading a non-existent AddonPreferences.device).
+- Status now shows the device: "Baking (native, GPU)..." / "Baked (native, GPU)".
+- If the user asked for GPU/Auto but it fell back to CPU, Render reports a WARNING telling
+  them to enable a GPU in Preferences > System > Cycles Render Devices.
+- Verified headless (no GPU): default AUTO; AUTO/GPU/CPU all resolve to CPU correctly;
+  device prop present; compiles/registers.
+- Portal worker path unaffected (still uses its own setup_device in the subprocess).
