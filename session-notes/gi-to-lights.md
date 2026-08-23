@@ -69,3 +69,24 @@ Better clustering and textured emitters do NOT beat it and can regress it. Closi
 diff vs path-traced target, gradient-descent light params). That is the "algorithm learns the
 lights" step and the true lever. Recommend Tier 2 next; Tier 1 heuristics are a dead end for
 quality on diffuse scenes (still useful for speed).
+
+## v0.3.0 (feature/gi-to-lights, commit 8bf0bc4) - AREA LIGHTS WIN (user was right)
+Missed obvious step in v0.2: never tested plain Blender AREA lights as the emitter (jumped
+points -> textured mesh quads, discarded area lights when TEXTURING them failed). Area lights
+are single-sided (no self-lighting artifact that regressed the quads) and true area sources
+(no point singularity). emit_area(): one RECTANGLE area light per cluster, size = 2*(su,sv)
+footprint, rotation = normal.to_track_quat('-Z','Y') so it emits along the cluster normal,
+energy = strength*luminance(flux), color = chroma(flux), located centre+normal*offset.
+
+### Cornell-box MSE vs Cycles full GI (280px,140spp,denoised,global-calib):
+  direct        0.0872
+  points (48)   0.00593
+  textured (48) 0.01011
+  AREA (48)     0.00289   <- BEST, ~half the points error, ~97% GI error recovery
+Visual: area rig reproduces the soft warm ceiling gradient; no points-hotspot, no quad orange
+over-glow. Area-light calib factor ~1.29 at strength 1 (user tunes Strength; area needs a
+slightly different strength than points). Delivered gi_comparison_area.png.
+
+Emitter enum now AREA(default)/POINTS/TEXTURED. AREA is the recommended emitter. Tier 2
+(differentiable re-fit) still the lever to close the last ~3%; but heuristic ceiling is now
+much lower (0.0029) thanks to the right primitive.
