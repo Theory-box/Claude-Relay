@@ -1,7 +1,7 @@
 bl_info = {
     "name": "GI to Lights (experimental)",
     "author": "Theory-box / Claude Relay",
-    "version": (0, 2, 0),
+    "version": (0, 3, 0),
     "blender": (4, 2, 0),
     "location": "View3D > Sidebar > GI Lights",
     "description": ("Experimental: bake a scene's bounce (indirect) lighting into a small set of "
@@ -306,6 +306,34 @@ def _emitter_material(name, img, strength):
     return mat
 
 
+def emit_area(context, clusters, strength, offset):
+    """Emit one rectangular area light per cluster, sized to the cluster footprint and oriented
+    so it radiates along the cluster normal. Area lights are single-sided (no self-lighting of
+    their own surface) and are true area sources (no point singularity), which makes this the
+    most accurate emitter of the three on diffuse scenes."""
+    coll = _rig_collection(context)
+    made = 0
+    for i, c in enumerate(clusters):
+        fl = c["flux"]
+        lum = float(0.2126 * fl[0] + 0.7152 * fl[1] + 0.0722 * fl[2])
+        su = float(c["su"]); sv = float(c["sv"])
+        n = Vector((float(c["normal"][0]), float(c["normal"][1]), float(c["normal"][2])))
+        L = bpy.data.lights.new("GIRig_%03d" % i, type="AREA")
+        L.shape = "RECTANGLE"
+        L.size = max(2.0 * su, 1e-3)
+        L.size_y = max(2.0 * sv, 1e-3)
+        L.energy = strength * max(lum, 1e-9)
+        L.color = tuple(float(x) for x in np.clip(fl / max(lum, 1e-9), 0.0, None))
+        L["gi_rig"] = 1
+        ob = bpy.data.objects.new("GIRig_%03d" % i, L)
+        ob["gi_rig"] = 1
+        ob.location = tuple(c["centre"] + c["normal"] * offset)
+        ob.rotation_euler = n.to_track_quat("-Z", "Y").to_euler()  # emit -Z along the normal
+        coll.objects.link(ob)
+        made += 1
+    return made
+
+
 def emit_points(context, clusters, strength, size, offset):
     """Emit one soft point light per cluster at its centre, coloured + brightened by its
     harvested flux. In practice this simple emitter beats the textured area quads on a diffuse
@@ -386,7 +414,10 @@ class GITOLIGHTS_OT_bake(bpy.types.Operator):
             return {"CANCELLED"}
         clusters = cluster_vpls(pos, nrm, rad, sc.gi2l_lights, sc.gi2l_iters, sc.gi2l_seed,
                                 sc.gi2l_normal_w, sc.gi2l_color_w, sc.gi2l_tex, diag)
-        if sc.gi2l_emitter == "TEXTURED":
+        if sc.gi2l_emitter == "AREA":
+            made = emit_area(context, clusters, sc.gi2l_strength, sc.gi2l_offset)
+            kind = "area"
+        elif sc.gi2l_emitter == "TEXTURED":
             made = emit_textured(context, clusters, sc.gi2l_strength, sc.gi2l_offset)
             kind = "textured"
         else:
@@ -429,7 +460,7 @@ class GITOLIGHTS_PT_panel(bpy.types.Panel):
         col.prop(sc, "gi2l_offset")
         if sc.gi2l_emitter == "POINTS":
             col.prop(sc, "gi2l_size")
-        else:
+        elif sc.gi2l_emitter == "TEXTURED":
             col.prop(sc, "gi2l_tex")
         adv = layout.column(align=True)
         adv.label(text="Clustering:")
@@ -458,9 +489,12 @@ def register():
         name="Lights (N)", default=48, min=1, max=2000,
         description="Number of textured area lights to reduce the VPLs down to")
     S.gi2l_emitter = bpy.props.EnumProperty(
-        name="Emitter", default="POINTS",
-        items=[("POINTS", "Soft Points", "One soft point light per cluster - robust default"),
-               ("TEXTURED", "Textured Area", "One textured area quad per cluster - experimental")],
+        name="Emitter", default="AREA",
+        items=[("AREA", "Area Lights", "Rectangular area light per cluster, sized to its "
+                "footprint - most accurate (default)"),
+               ("POINTS", "Soft Points", "One soft point light per cluster - simple/robust"),
+               ("TEXTURED", "Textured Area", "Emissive textured quad per cluster - experimental, "
+                "can over-light nearby surfaces")],
         description="How each cluster is turned into a light")
     S.gi2l_size = bpy.props.FloatProperty(
         name="Light Size", default=0.4, min=0.0, max=50.0,
