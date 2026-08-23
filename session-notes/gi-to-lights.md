@@ -43,3 +43,29 @@ small Cycles reference compare. CANNOT: visual quality judgement, real-scene sca
   output path; rig -> low-variance direct bake (pre-denoised GI).
 - Route 3 later: make gobo texels / SH coeffs differentiable, optimise N lights vs PT target.
 - Importance/placement heuristic from the Rich-VPL MAIN paper (only supplemental obtained).
+
+## v0.2.0 (feature/gi-to-lights, commit 075050f) - TIER 1: honest result = regressed
+Added: normal+colour clustering (feat = pos/diag + normal*normal_w + chroma*color_w),
+per-cluster footprint recovery (centre/normal/tangent extents), radiance-splat gobo texture,
+per-cluster physical calibration (flux = pi*A*mean L), two emitter modes.
+Emitter modes: POINTS (soft point/cluster, coloured by flux) = DEFAULT/robust; TEXTURED
+(camera-invisible emissive area quad/cluster, gobo texture, backfacing-culled) = experimental.
+
+### Cornell-box head-to-head (280px, 140spp, denoised, global-calibrated) - MSE vs Cycles full GI:
+  direct only            0.0872
+  v0.1/points (48)       0.00593   <- still the best
+  v0.2 textured (48)     0.01011   <- REGRESSED
+  v0.2 textured "fixed"  0.01231   <- size*0.7 + p95 clamp + offset 0.10 made it WORSE
+Point baseline already recovers ~93% of the GI error. Textured area quads add a near-field
+over-illumination artifact (orange over-glow on ceiling: area emitters sitting ~cm off a
+surface over-light adjacent/coplanar geometry; mesh-emitter backfacing cull unreliable for
+light-sampled emitters). Blender AREA lights are single-sided but texturing them failed
+(needs special texcoords - dark). Heuristic tweaks did not beat the simple point rig.
+
+### CONCLUSION (the real answer to "how far can this go / too simple"):
+The naive harvest+cluster+point rig is already near the HEURISTIC ceiling (~0.005-0.006 MSE).
+Better clustering and textured emitters do NOT beat it and can regress it. Closing the last
+~10% to Cycles is not a heuristic problem - it needs TIER 2: differentiable re-fit (render rig,
+diff vs path-traced target, gradient-descent light params). That is the "algorithm learns the
+lights" step and the true lever. Recommend Tier 2 next; Tier 1 heuristics are a dead end for
+quality on diffuse scenes (still useful for speed).
