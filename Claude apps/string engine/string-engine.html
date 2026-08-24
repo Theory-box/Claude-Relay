@@ -1773,13 +1773,66 @@ void main(){
 const cw=document.getElementById('cwgpu');
 if(!cw){ return; }
 const GP={active:false,initing:false,device:null,ctx:null,format:null,prevGpu:false,
-  intPipe:null,conPipe:null,renPipe:null,clearPipe:null,gridPipe:null,collPipe:null,collReady:false,collSupported:false,grid:null,maxStorageBuf:8,lastOverflow:null,bendPipe:null,bendSupported:false,bendReady:false,propsDirty:false,refreshN:0,refreshErr:null,affPipe:null,gridTPipe:null,affSupported:false,affReady:false,affGrid:null,grabNode:-1,grabX:0,grabY:0,bondEvery:6,_bondBusy:false,bondTicks:0,bondEvents:0,
+  intPipe:null,conPipe:null,renPipe:null,clearPipe:null,gridPipe:null,collPipe:null,collReady:false,collSupported:false,grid:null,maxStorageBuf:8,lastOverflow:null,bendPipe:null,bendSupported:false,bendReady:false,propsDirty:false,refreshN:0,refreshErr:null,affPipe:null,gridTPipe:null,affSupported:false,affReady:false,affGrid:null,endGridPipe:null,bondDetectPipe:null,bondDetectSupported:false,bondDetectReady:false,endGrid:null,_bdBusy:false,bdProbe:null,grabNode:-1,grabX:0,grabY:0,bondEvery:6,_bondBusy:false,bondTicks:0,bondEvents:0,
   bufA:null,bufB:null,bufPrev:null,bufMeta:null,bufRange:null,bufNbr:null,bufRest:null,bufSeg:null,bufStyle:null,bufParams:null,bufCam:null,
   bgIntAB:null,bgIntBA:null,bgConAB:null,bgConBA:null,bgRenA:null,bgRenB:null,
   N:0,numSeg:0,numDir:0,curBuf:0,frameN:0,readbacks:0,lastExit:null,wgslMsgs:[],adapterInfo:null,lastStats:null,lastStatsT:0,telemBusy:false,log:[],diagRunning:false,_pos0:null,_segCache:null,_fixed:null};
 const GP_PASSES=8, GP_RELAX=0.6;
 const GP_COLL_OMEGA=1.0, GP_COLL_PENFRAC=0.25, GP_COLL_MAXDISP=6.0, GP_COLL_MARGIN=1.5, GP_COLL_CAP=64;
 const GP_AFF_BASE=0.18, GP_AFF_MAXDISP=8.0;
+const WGSL_ENDGRID=`
+struct EG { count:u32, gx:u32, gy:u32, cap:u32, cell:f32, ox:f32, oy:f32, pad:f32, };
+@group(0) @binding(0) var<storage, read>       pos       : array<vec4<f32>>;
+@group(0) @binding(1) var<storage, read>       endList   : array<u32>;
+@group(0) @binding(2) var<storage, read_write> cellCount : array<atomic<u32>>;
+@group(0) @binding(3) var<storage, read_write> cellBins  : array<u32>;
+@group(0) @binding(4) var<storage, read_write> overflow  : array<atomic<u32>>;
+@group(0) @binding(5) var<uniform>             U         : EG;
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid:vec3<u32>){
+  let ei=gid.x; if(ei>=U.count){ return; }
+  let n=endList[ei]; let p=pos[n];
+  let gxi=i32(U.gx)-1; let gyi=i32(U.gy)-1;
+  let cx=clamp(i32(floor((p.x-U.ox)/U.cell)),0,gxi);
+  let cy=clamp(i32(floor((p.y-U.oy)/U.cell)),0,gyi);
+  let c=u32(cy)*U.gx+u32(cx);
+  let slot=atomicAdd(&cellCount[c],1u);
+  if(slot<U.cap){ cellBins[c*U.cap+slot]=ei; } else { atomicAdd(&overflow[0],1u); }
+}`;
+const WGSL_BONDDETECT=`
+struct BD { count:u32, gx:u32, gy:u32, cap:u32, cell:f32, ox:f32, oy:f32, er2:f32, candCap:u32, p0:u32, p1:u32, p2:u32, };
+@group(0) @binding(0) var<storage, read>       pos        : array<vec4<f32>>;
+@group(0) @binding(1) var<storage, read>       endList    : array<u32>;
+@group(0) @binding(2) var<storage, read>       cellBins   : array<u32>;
+@group(0) @binding(3) var<storage, read>       cellCount  : array<u32>;
+@group(0) @binding(4) var<storage, read_write> candCount  : array<atomic<u32>>;
+@group(0) @binding(5) var<storage, read_write> cand       : array<vec2<u32>>;   // (n1,n2) node ids, n1<n2
+@group(0) @binding(6) var<storage, read_write> candOver   : array<atomic<u32>>;
+@group(0) @binding(7) var<uniform>             U          : BD;
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid:vec3<u32>){
+  let ei=gid.x; if(ei>=U.count){ return; }
+  let n1=endList[ei]; let p1=pos[n1];
+  let gxi=i32(U.gx)-1; let gyi=i32(U.gy)-1;
+  let cx=clamp(i32(floor((p1.x-U.ox)/U.cell)),0,gxi);
+  let cy=clamp(i32(floor((p1.y-U.oy)/U.cell)),0,gyi);
+  for(var dy:i32=-1; dy<=1; dy=dy+1){
+    let yy=cy+dy; if(yy<0 || yy>gyi){ continue; }
+    for(var dx:i32=-1; dx<=1; dx=dx+1){
+      let xx=cx+dx; if(xx<0 || xx>gxi){ continue; }
+      let c=u32(yy)*U.gx+u32(xx); let cnt=min(cellCount[c],U.cap); let base=c*U.cap;
+      for(var k:u32=0u; k<cnt; k=k+1u){
+        let ej=cellBins[base+k]; let n2=endList[ej];
+        if(n2<=n1){ continue; }                                  // dedup: each unordered pair once
+        let p2=pos[n2]; let ddx=p2.x-p1.x; let ddy=p2.y-p1.y; let d2=ddx*ddx+ddy*ddy;
+        if(d2<U.er2 && d2>1e-6){
+          let slot=atomicAdd(&candCount[0],1u);
+          if(slot<U.candCap){ cand[slot]=vec2<u32>(n1,n2); } else { atomicAdd(&candOver[0],1u); }
+        }
+      }
+    }
+  }
+}`;
 const WGSL_AFFINITY=`
 // per-node long-range affinity (attraction/repulsion) — second coarser grid, vmat interaction matrix
 struct AP { count:u32, gx:u32, gy:u32, cap:u32, cell:f32, ox:f32, oy:f32, nObj:u32, base:f32, maxDisp:f32, pad1:f32, pad2:f32, };
@@ -2162,6 +2215,8 @@ async function ensureDevice(){
         alpha:{srcFactor:'one',dstFactor:'one-minus-src-alpha',operation:'add'}}}]},
       primitive:{topology:'triangle-strip'}});
     try{ const bm=device.createShaderModule({code:WGSL_BEND}); if(await reportShader(bm,'bend')){ GP.bendPipe=await device.createComputePipelineAsync({layout:'auto',compute:{module:bm,entryPoint:'main'}}); GP.bendSupported=true; } }catch(e){ GP.bendSupported=false; console.warn('[gpuBend] pipeline failed:',e.message); }
+    try{ const egm=device.createShaderModule({code:WGSL_ENDGRID}); const bdm=device.createShaderModule({code:WGSL_BONDDETECT});
+      if((await reportShader(egm,'endgrid'))&(await reportShader(bdm,'bonddetect'))){ GP.endGridPipe=await device.createComputePipelineAsync({layout:'auto',compute:{module:egm,entryPoint:'main'}}); GP.bondDetectPipe=await device.createComputePipelineAsync({layout:'auto',compute:{module:bdm,entryPoint:'main'}}); GP.bondDetectSupported=true; } }catch(e){ GP.bondDetectSupported=false; console.warn('[gpuBondDetect] pipeline failed:',e.message); }
     try{ const am=device.createShaderModule({code:WGSL_AFFINITY}); const gtm=device.createShaderModule({code:WGSL_GRIDBUILDT});
       if((await reportShader(am,'affinity'))&(await reportShader(gtm,'gridbuildt'))){ GP.affPipe=await device.createComputePipelineAsync({layout:'auto',compute:{module:am,entryPoint:'main'}}); GP.gridTPipe=await device.createComputePipelineAsync({layout:'auto',compute:{module:gtm,entryPoint:'main'}}); GP.affSupported=true; } }catch(e){ GP.affSupported=false; console.warn('[gpuAffinity] pipeline failed:',e.message); }
     try{
@@ -2232,6 +2287,7 @@ function buildScene(){
   packCollision(segList,N,device,mk,bg,B,ST,CD,CS,UN);
   packBend(N,device,mk,bg,B,ST,CD,UN);
   packAffinity(segList,N,device,mk,bg,B,ST,CD,CS,UN);
+  packBondDetect(bg,B);
   GP._helpers={mk,bg,B,ST,CD,CS,UN,device};
   GP.curBuf=0; GP.frameN=0;
 }
@@ -2318,6 +2374,41 @@ function rebuildAffinityLive(){
   packAffinity(GP._segList, GP.N, h.device, h.mk, h.bg, h.B, h.ST, h.CD, h.CS, h.UN);
 }
 function affinityEnabled(){ for(const o of G.objs){ if(o.interSelf)return true; if(o.inter){ for(const k in o.inter){ if(o.inter[k])return true; } } } return false; }
+function packBondDetect(bg,B){
+  GP.bondDetectReady=false;
+  if(!(GP.bondDetectSupported && S.bonding && GP.clearPipe))return;
+  try{
+    const U=GPUBufferUsage, ST=U.STORAGE, CD=U.COPY_DST, CS=U.COPY_SRC, UN=U.UNIFORM;
+    const ends=G.ends; if(!ends||ends.length<2)return;
+    const objs=G.objs; let any=false; for(const o of objs){ if(o.bondOn && o.endType && Object.keys(o.endType).length){any=true;break;} } if(!any)return;
+    let maxR=30,maxER=0; for(const o of objs){ const er=(typeof effR==='function'?effR(o):(o.r||4)); if(er>maxER)maxER=er; }
+    for(const o of objs) if(o.endType) for(const k in o.endType){ const p=o.endType[k]; if(p.wRange>maxR)maxR=p.wRange; if(p.sRange>maxR)maxR=p.sRange; const snapD=(p.snap||0)*((typeof effR==='function'?effR(o):(o.r||4))+maxER); if(snapD>maxR)maxR=snapD; }
+    const ER=maxR+10, ER2=ER*ER, cell=Math.max(8,ER);
+    const nE=ends.length, endList=new Uint32Array(nE); for(let i=0;i<nE;i++)endList[i]=ends[i];
+    let bx0=1e9,by0=1e9,bx1=-1e9,by1=-1e9; for(let i=0;i<nE;i++){ const n=ends[i], x=NX[n], y=NY[n]; if(x<bx0)bx0=x;if(y<by0)by0=y;if(x>bx1)bx1=x;if(y>by1)by1=y; }
+    const ox=bx0-cell, oy=by0-cell;
+    const gx=Math.max(1,Math.ceil((bx1-ox+cell)/cell)), gy=Math.max(1,Math.ceil((by1-oy+cell)/cell));
+    const numCells=gx*gy, cap=32, candCap=Math.max(64, nE*4);
+    GP.endGrid={nE,ER2,cell,ox,oy,gx,gy,numCells,cap,candCap};
+    GP._endListArr=endList;
+    GP.bufEndList=mkR('bufEndList',endList,ST|CD);
+    GP.bufEndCellCount=bufR('bufEndCellCount',numCells*4,ST|CD);
+    GP.bufEndCellBins=bufR('bufEndCellBins',numCells*cap*4,ST|CD);
+    GP.bufEndOver=bufR('bufEndOver',16,ST|CD|CS);
+    GP.bufCand=bufR('bufCand',candCap*8,ST|CD|CS);
+    GP.bufCandCount=bufR('bufCandCount',16,ST|CD|CS);
+    GP.bufCandOver=bufR('bufCandOver',16,ST|CD|CS);
+    GP.bufEndGridP=bufR('bufEndGridP',32,UN|CD);
+    GP.bufDetectP=bufR('bufDetectP',48,UN|CD);
+    GP.bufEndClearP=bufR('bufEndClearP',16,UN|CD);
+    GP.bgEndClear=bg(GP.clearPipe,[B(0,GP.bufEndCellBins),B(1,GP.bufEndCellCount),B(2,GP.bufEndClearP)]);
+    const eg=(pIn)=>[B(0,pIn),B(1,GP.bufEndList),B(2,GP.bufEndCellCount),B(3,GP.bufEndCellBins),B(4,GP.bufEndOver),B(5,GP.bufEndGridP)];
+    GP.bgEndGridA=bg(GP.endGridPipe,eg(GP.bufA)); GP.bgEndGridB=bg(GP.endGridPipe,eg(GP.bufB));
+    const dt=(pIn)=>[B(0,pIn),B(1,GP.bufEndList),B(2,GP.bufEndCellBins),B(3,GP.bufEndCellCount),B(4,GP.bufCandCount),B(5,GP.bufCand),B(6,GP.bufCandOver),B(7,GP.bufDetectP)];
+    GP.bgDetectA=bg(GP.bondDetectPipe,dt(GP.bufA)); GP.bgDetectB=bg(GP.bondDetectPipe,dt(GP.bufB));
+    GP.bondDetectReady=true;
+  }catch(e){ GP.bondDetectReady=false; console.warn('[gpuBondDetect] pack failed:',e&&e.message); }
+}
 function packAffinity(segList,N,device,mk,bg,B,ST,CD,CS,UN){
   GP.affReady=false;
   if(!(GP.affSupported && GP.collReady && GP.bufNSR && GP.bufSegI))return;
@@ -2391,6 +2482,47 @@ function gpuRefreshProps(){ if(!GP.active||!GP.device)return; const dev=GP.devic
     for(let c=0;c<nd;c++){ const o=G.objs[EO[c]]||{}; const g=(typeof effGrow==='function'?effGrow(o):(o.grow||0)); out[c]=R[c]*Math.max(0,1+g); }
     dev.queue.writeBuffer(GP.bufRest,0,out); }
 }catch(e){ GP.refreshErr=e.message; console.warn('[gpuRefreshProps]',e.message); if(typeof status==='function')status('gpuRefresh error: '+e.message,true); } }
+function cpuCandidateCount(ER2){
+  // CPU broad-phase oracle: count free-endpoint pairs within ER (mirrors endpointForces bucketing) on current NX/NY
+  const ends=G.ends; if(!ends||ends.length<2)return 0; const cell=Math.max(8,Math.sqrt(ER2)); const bkt=new Map();
+  for(const ni of ends){ const key=(Math.floor(NX[ni]/cell)+16384)*32768+(Math.floor(NY[ni]/cell)+16384); let a=bkt.get(key); if(!a){a=[];bkt.set(key,a);} a.push(ni); }
+  let cnt=0; for(let ii=0;ii<ends.length;ii++){ const n1=ends[ii],cx=Math.floor(NX[n1]/cell),cy=Math.floor(NY[n1]/cell);
+    for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++){ const a=bkt.get(((cx+dx)+16384)*32768+((cy+dy)+16384)); if(!a)continue;
+      for(const n2 of a){ if(n2<=n1)continue; const ddx=NX[n2]-NX[n1],ddy=NY[n2]-NY[n1],d2=ddx*ddx+ddy*ddy; if(d2<ER2&&d2>1e-6)cnt++; } } }
+  return cnt;
+}
+async function gpuBondDetectProbe(){
+  // VALIDATION PROBE (B1b): run GPU detection, read back candidates, compare to CPU oracle. Does NOT affect formation.
+  if(!GP.active || !GP.bondDetectReady || GP._bdBusy) return;
+  GP.bdProbeTick=(GP.bdProbeTick||0)+1; if((GP.bdProbeTick%30)!==0) return;
+  GP._bdBusy=true;
+  try{
+    const dev=GP.device, g=GP.endGrid;
+    { const ab=new ArrayBuffer(32),dv=new DataView(ab); dv.setUint32(0,g.nE,true);dv.setUint32(4,g.gx,true);dv.setUint32(8,g.gy,true);dv.setUint32(12,g.cap,true);dv.setFloat32(16,g.cell,true);dv.setFloat32(20,g.ox,true);dv.setFloat32(24,g.oy,true);dv.setFloat32(28,0,true); dev.queue.writeBuffer(GP.bufEndGridP,0,ab); }
+    { const ab=new ArrayBuffer(48),dv=new DataView(ab); dv.setUint32(0,g.nE,true);dv.setUint32(4,g.gx,true);dv.setUint32(8,g.gy,true);dv.setUint32(12,g.cap,true);dv.setFloat32(16,g.cell,true);dv.setFloat32(20,g.ox,true);dv.setFloat32(24,g.oy,true);dv.setFloat32(28,g.ER2,true);dv.setUint32(32,g.candCap,true);dv.setUint32(36,0,true);dv.setUint32(40,0,true);dv.setUint32(44,0,true); dev.queue.writeBuffer(GP.bufDetectP,0,ab); }
+    { const ab=new ArrayBuffer(16),dv=new DataView(ab); dv.setUint32(0,g.numCells,true);dv.setUint32(4,g.cap,true); dev.queue.writeBuffer(GP.bufEndClearP,0,ab); }
+    dev.queue.writeBuffer(GP.bufEndOver,0,new Uint32Array([0,0,0,0])); dev.queue.writeBuffer(GP.bufCandCount,0,new Uint32Array([0,0,0,0])); dev.queue.writeBuffer(GP.bufCandOver,0,new Uint32Array([0,0,0,0]));
+    const enc=dev.createCommandEncoder();
+    { const p=enc.beginComputePass(); p.setPipeline(GP.clearPipe); p.setBindGroup(0,GP.bgEndClear); p.dispatchWorkgroups(Math.max(1,Math.ceil(g.numCells/64))); p.end(); }
+    { const p=enc.beginComputePass(); p.setPipeline(GP.endGridPipe); p.setBindGroup(0,GP.curBuf===0?GP.bgEndGridA:GP.bgEndGridB); p.dispatchWorkgroups(Math.max(1,Math.ceil(g.nE/64))); p.end(); }
+    { const p=enc.beginComputePass(); p.setPipeline(GP.bondDetectPipe); p.setBindGroup(0,GP.curBuf===0?GP.bgDetectA:GP.bgDetectB); p.dispatchWorkgroups(Math.max(1,Math.ceil(g.nE/64))); p.end(); }
+    dev.queue.submit([enc.finish()]);
+    const rbc=dev.createBuffer({size:16,usage:GPUBufferUsage.COPY_DST|GPUBufferUsage.MAP_READ});
+    const e2=dev.createCommandEncoder(); e2.copyBufferToBuffer(GP.bufCandCount,0,rbc,0,4); e2.copyBufferToBuffer(GP.bufCandOver,0,rbc,4,4); e2.copyBufferToBuffer(GP.bufEndOver,0,rbc,8,4); dev.queue.submit([e2.finish()]);
+    await rbc.mapAsync(GPUMapMode.READ); const cc=new Uint32Array(rbc.getMappedRange().slice(0)); rbc.unmap(); rbc.destroy();
+    const candCount=cc[0], candOver=cc[1], endOver=cc[2];
+    let valid=0,invalid=0; const nRead=Math.min(candCount,g.candCap);
+    if(nRead>0){ const bytes=Math.max(16,Math.ceil(nRead*8/16)*16); const rb=dev.createBuffer({size:bytes,usage:GPUBufferUsage.COPY_DST|GPUBufferUsage.MAP_READ});
+      const e3=dev.createCommandEncoder(); e3.copyBufferToBuffer(GP.bufCand,0,rb,0,bytes); dev.queue.submit([e3.finish()]);
+      await rb.mapAsync(GPUMapMode.READ); const arr=new Uint32Array(rb.getMappedRange().slice(0)); rb.unmap(); rb.destroy();
+      const endSet=new Set(G.ends), NN=G.nodes.length;
+      for(let i=0;i<nRead;i++){ const n1=arr[i*2],n2=arr[i*2+1]; let d2=1e18; if(n1<NN&&n2<NN){ const dx=NX[n2]-NX[n1],dy=NY[n2]-NY[n1]; d2=dx*dx+dy*dy; }
+        if(n1<n2 && endSet.has(n1) && endSet.has(n2) && d2<=g.ER2*1.15) valid++; else invalid++; } }
+    const cpuPairs=cpuCandidateCount(g.ER2);
+    GP.bdProbe={ends:g.nE, gpuCand:candCount, valid, invalid, candOver, endOver, cpuPairs, cell:+g.cell.toFixed(1)};
+  }catch(e){ GP.bdProbe={err:(e&&e.message)||'?'}; }
+  GP._bdBusy=false;
+}
 async function gpuBondTick(){
   // Hybrid bonding (stage A): throttled readback -> run the exact CPU bond pipeline -> rebuild GPU buffers on topology change.
   if(!GP.active || !S.bonding || GP._bondBusy) return;
@@ -2417,6 +2549,7 @@ async function gpuBondTick(){
 }
 function step(speed){ if(GP.diagRunning)return; if(!GP.active||!GP.device)return; const dev=GP.device, WG=Math.max(1,Math.ceil(GP.N/64)); const n=speed||1;
   gpuBondTick();
+  gpuBondDetectProbe();
   if(GP.affReady){ const g=GP.affGrid;
     { const ab=new ArrayBuffer(48),dv=new DataView(ab); dv.setUint32(0,GP.N,true);dv.setUint32(4,g.gx,true);dv.setUint32(8,g.gy,true);dv.setUint32(12,g.cap,true);
       dv.setFloat32(16,g.cell,true);dv.setFloat32(20,g.ox,true);dv.setFloat32(24,g.oy,true);dv.setUint32(28,g.nO,true);
@@ -2512,7 +2645,7 @@ window.setGpuPhysicsMode=function(on){ if(on){ activate(); } else { deactivate(t
 window.gpuPhysicsDiscard=function(reason){ try{disposeBuffers();}catch(e){} if(GP.active){ GP.active=false; S.gpuPhysics=false; S.gpu=GP.prevGpu; cw.style.display='none'; const cgl=document.getElementById('cgl'); if(cgl)cgl.style.display=(S.gpu||S.micro)?'block':'none'; badge(false,reason||'scene changed'); setToggle(false); status('off \u00B7 '+(reason||'scene changed')); window.RD=true; } };
 window.gpuPhysicsDropToCPU=function(reason){ if(GP.active) deactivate(true,reason||'editing'); };
 window.gpuPhysicsDiagnostics=()=>({active:GP.active,supported:supported(),nodes:GP.N,segs:GP.numSeg,directedLinks:GP.numDir,frame:GP.frameN,readbacks:GP.readbacks,lastExit:GP.lastExit,passes:GP_PASSES,relax:GP_RELAX,
-  refreshN:GP.refreshN,refreshErr:GP.refreshErr,bendReady:GP.bendReady,bonding:{on:!!S.bonding,every:GP.bondEvery,ticks:GP.bondTicks,events:GP.bondEvents,busy:GP._bondBusy},
+  refreshN:GP.refreshN,refreshErr:GP.refreshErr,bendReady:GP.bendReady,bonding:{on:!!S.bonding,every:GP.bondEvery,ticks:GP.bondTicks,events:GP.bondEvents,busy:GP._bondBusy,detect:(GP.bondDetectReady?(GP.bdProbe||'pending'):(GP.bondDetectSupported?'idle':'unsupported'))},
   collision:{supported:GP.collSupported,ready:GP.collReady,maxStorageBuf:GP.maxStorageBuf,iters:(S.gpuCollIters!=null?(S.gpuCollIters|0):(S.iters||4)),lastOverflow:(GP.lastOverflow!=null?GP.lastOverflow:null),
     grid:(GP.grid?{gx:GP.grid.gx,gy:GP.grid.gy,cell:GP.grid.cell,numCells:GP.grid.numCells,cap:GP.grid.cap,reach:+GP.grid.reach.toFixed(2)}:null),omega:GP_COLL_OMEGA,penFrac:GP_COLL_PENFRAC,maxDisp:GP_COLL_MAXDISP},
   affinity:{supported:GP.affSupported,ready:GP.affReady,lastOverflow:(GP.lastAffOverflow!=null?GP.lastAffOverflow:null),base:GP_AFF_BASE,maxDisp:GP_AFF_MAXDISP,nObj:(GP.affGrid?GP.affGrid.nO:0),grid:(GP.affGrid?{gx:GP.affGrid.gx,gy:GP.affGrid.gy,cell:+GP.affGrid.cell.toFixed(1),numCells:GP.affGrid.numCells,cap:GP.affGrid.cap,reach:+GP.affGrid.reach.toFixed(1)}:null)}});

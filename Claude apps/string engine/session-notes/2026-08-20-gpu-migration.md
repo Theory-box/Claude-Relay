@@ -541,3 +541,18 @@ candidate COUNT + a small candidate list; report vs CPU oracle (endpointForces n
 candidate set == CPU broad-phase pairs on frozen positions. THEN (B1c) switch formation to consume GPU candidates
 (CPU does only fine checks + create bond), dropping the CPU broad-phase scan = the hotspot kill. Overflow fatal ->
 fall back to CPU broad-phase that batch. Buffers via mkR/bufR (cheap-rebuild) so per-event cost stays low.
+
+## Bonding stage B1b: GPU detection VALIDATION PROBE wired (does NOT change formation)
+packBondDetect (buildScene): builds endList from G.ends, endpoint grid (cell=ER=maxR+10, cap 32), cand buffer
+(candCap=max(64,nE*4), vec2u pairs), atomic counters+overflow, uniforms — all via mkR/bufR (16-aligned), guarded
+on bondDetectSupported+S.bonding+eligible objects. Pipelines endGridPipe/bondDetectPipe (guarded). Bind orders
+verified vs shaders (ENDGRID pos/endList/cellCount/cellBins/overflow/U; DETECT pos/endList/cellBins/cellCount/
+candCount/cand/candOver/U; clear reuses CLEARGRID). Fixed: packBondDetect defines its own ST/CD/CS/UN (were
+buildScene-local -> would've silently failed).
+gpuBondDetectProbe() (every 30 frames, in step(), guarded, _bdBusy): clear->endgrid->detect on GPU positions,
+readback candCount/candOver/endOver + sample pairs, validate each (n1<n2, both in G.ends, dist<=ER^2*1.15), and
+compare to cpuCandidateCount() (CPU broad-phase oracle on NX/NY). Reports diag.bonding.detect =
+{ends,gpuCand,valid,invalid,candOver,endOver,cpuPairs,cell}. Formation still stage A. Restore point tag:
+stable-20260824-pre-bondingB (+ outputs/string-engine-STABLE-preBondingB.html).
+VALIDATION TARGET: invalid≈0, candOver=0, endOver=0, gpuCand≈cpuPairs (small margin from ~6-frame position
+staleness). If so -> B1c: switch formation to consume GPU candidates, drop CPU broad-phase = hotspot kill.
