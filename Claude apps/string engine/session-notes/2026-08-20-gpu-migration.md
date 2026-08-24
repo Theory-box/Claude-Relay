@@ -524,3 +524,20 @@ uniforms -> 23 bytes; 32-byte grid uniforms -> 45). WebGPU rejects unaligned sto
 bind group / pipeline validation fails -> render blanks (black). FIX: alloc = ceil(need*1.4/16)*16 (round up to
 16-byte vec4 alignment) in both mkR and bufR. Uniforms grow slightly (48->80 etc., harmless; shader reads struct
 size). All sizes now %16==0.
+
+## BONDING stage B (GPU detection) STARTED — detection shaders validated: protos/bonddetect_shaders.mjs
+Formation rules extracted from endpointForces: free endpoints = G.ends (degree-1 + object bondOn); capture radius
+ER=maxR+10 (maxR from bond profiles' wRange/sRange/snap*bondRest); dedup n2>n1; non-adjacent; then FINE checks
+(endProf compatibility, dist<snapR*bondRest, hysteresis sepFrom/sepUntil) + bond params. The deferred pull drops
+out (was discarded in stage A anyway). Split: GPU broad-phase (grid+scan -> candidate pairs), CPU fine checks +
+formation (reuse exact CPU logic).
+Two shaders naga-valid:
+- WGSL_ENDGRID: insert each free endpoint into its home cell (6 bindings). Reuses CLEARGRID to reset.
+- WGSL_BONDDETECT: per endpoint scan 3x3 cells, emit candidate pairs (n1<n2) within ER^2 to atomic-append buffer
+  (7 storage + 1 uniform). candCount atomic, cand=array<vec2u>(n1,n2), candOver overflow (fatal).
+NEXT (B1b wiring, validation-first): packBondDetect in buildScene (endList from G.ends, endpoint grid params,
+cand buffers, pipelines guarded); run clear->endgrid->detect in gpuBondTick BEFORE the position readback; readback
+candidate COUNT + a small candidate list; report vs CPU oracle (endpointForces newBonds) in dev-export. Confirm GPU
+candidate set == CPU broad-phase pairs on frozen positions. THEN (B1c) switch formation to consume GPU candidates
+(CPU does only fine checks + create bond), dropping the CPU broad-phase scan = the hotspot kill. Overflow fatal ->
+fall back to CPU broad-phase that batch. Buffers via mkR/bufR (cheap-rebuild) so per-event cost stays low.
