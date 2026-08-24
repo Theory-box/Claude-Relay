@@ -517,3 +517,10 @@ from buildScene (deactivate/discard just flip active), so:
   is freed when topology is truly abandoned; also on device-level teardown.
 Effect: a bond event = CPU repack + writeBuffer into existing buffers (no GPU allocation) as long as counts stay
 within 1.4x headroom -> the hitch should largely disappear. Memory ~1.4x (fine). Benefits stage A now + stage B later.
+
+## HOTFIX: black scene on GPU switch after cheap-rebuild — buffer size alignment
+mkR/bufR computed alloc = ceil(need*1.4), which is NOT a multiple of 4/16 for small buffers (16-byte overflow/
+uniforms -> 23 bytes; 32-byte grid uniforms -> 45). WebGPU rejects unaligned storage/uniform buffer sizes ->
+bind group / pipeline validation fails -> render blanks (black). FIX: alloc = ceil(need*1.4/16)*16 (round up to
+16-byte vec4 alignment) in both mkR and bufR. Uniforms grow slightly (48->80 etc., harmless; shader reads struct
+size). All sizes now %16==0.

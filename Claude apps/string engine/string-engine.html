@@ -2182,11 +2182,11 @@ async function ensureDevice(){
 function mkR(key,data,usage,hr){ const dev=GP.device, need=Math.max(16,data.byteLength), C=(GP._cap||(GP._cap={}));   // reuse-or-realloc data buffer (writeBuffer if capacity fits)
   if(GP[key]&&(C[key]||0)>=need){ dev.queue.writeBuffer(GP[key],0,data); return GP[key]; }
   if(GP[key]){ try{GP[key].destroy();}catch(e){} }
-  const alloc=Math.max(16,Math.ceil(need*(hr||1.4))); const bf=dev.createBuffer({size:alloc,usage}); dev.queue.writeBuffer(bf,0,data); GP[key]=bf; C[key]=alloc; return bf; }
+  const alloc=Math.max(16,Math.ceil(need*(hr||1.4)/16)*16); const bf=dev.createBuffer({size:alloc,usage}); dev.queue.writeBuffer(bf,0,data); GP[key]=bf; C[key]=alloc; return bf; }
 function bufR(key,size,usage,hr){ const dev=GP.device, need=Math.max(16,size), C=(GP._cap||(GP._cap={}));   // reuse-or-realloc capacity buffer (contents written per-frame)
   if(GP[key]&&(C[key]||0)>=need){ return GP[key]; }
   if(GP[key]){ try{GP[key].destroy();}catch(e){} }
-  const alloc=Math.max(16,Math.ceil(need*(hr||1.4))); const bf=dev.createBuffer({size:alloc,usage}); GP[key]=bf; C[key]=alloc; return bf; }
+  const alloc=Math.max(16,Math.ceil(need*(hr||1.4)/16)*16); const bf=dev.createBuffer({size:alloc,usage}); GP[key]=bf; C[key]=alloc; return bf; }
 function disposeBuffers(){ GP._cap={}; GP.collReady=false; for(const k of ['bufA','bufB','bufPrev','bufMeta','bufRange','bufNbr','bufRest','bufSeg','bufStyle','bufParams','bufCam','bufNSR','bufNSL','bufSegI','bufSegF','bufSegCell','bufCellBins','bufCellCount','bufOverflow','bufCollP','bufGridP','bufClearP','bufBend','bufBendP','bufAffF','bufVmat','bufSegCellA','bufCellBinsA','bufCellCountA','bufOverflowA','bufAffP','bufGridTP','bufClearAP']){ GP.bendReady=false; GP.affReady=false; if(GP[k]){try{GP[k].destroy();}catch(e){}GP[k]=null;} } }
 
 function buildScene(){
