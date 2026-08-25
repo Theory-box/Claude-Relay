@@ -604,3 +604,17 @@ gpuPhysicsActive up to 6s -> gpuResetProbe() (fresh accumulators) -> 10s GPU chu
 runAndExport() (opens save/download). window.gpuResetProbe exposed from IIFE. Dev button wired to runDevTest.
 NEXT: B1c — swap formation to consume the GPU candidates (drop the CPU broad-phase), with CPU re-validation +
 overflow->CPU fallback. Detection is the validated input.
+
+## ✅ B1c: formation now consumes GPU candidates — CPU broad-phase scan DROPPED (the hotspot kill)
+Refactor: extracted applyNewBonds(newBonds) (arbitration + creation, VERBATIM from endpointForces; endpointForces
+now calls it = one source of truth) and evalBondPair(n1,n2,newBonds) (per-pair fine checks: compatibility,
+hysteresis, snap -> newBonds; mirrors the scan-loop body, no pull). formBondsFromCandidates(pairs) = loop
+evalBondPair + applyNewBonds. Unit-tested evalBondPair (close+compat->1, far->0, bondOn=false->0, adjacent->0 all pass).
+gpuBondTick: after the pre-formation detection, if candOver==0 && endOver==0 it reads back the actual candidate
+PAIRS (bufCand, nR*2 u32 node ids) and calls formBondsFromCandidates(pairs) -> GPU path (CPU broad-phase skipped).
+On overflow / detection error -> falls back to endpointForces() (CPU broad-phase). Telemetry: bonding.path
+('gpu'|'cpu-fallback') + bonding.fallbacks. Pull stays deferred (proximity bonding; ends meet via physics).
+The CPU still does fine checks on the few candidates + arbitration + topology mutation + rebuild (cheap via
+buffer-reuse). This removes the O(ends x 9cells) CPU bucketing+scan = the bonding hotspot the user flagged.
+TEST: real bonding scene, GPU, play, export -> expect bonding.path='gpu', low/zero fallbacks, bonds form/break
+as before, detectPeak still matching.

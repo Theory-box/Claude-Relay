@@ -120,7 +120,7 @@
           <button data-s="box">walled box</button>
           <button data-s="membrane">cell + insides</button>
           <button data-s="star">junction</button>
-          <button data-s="dev">dev test</button>
+          <button data-s="dev" title="scratch test scene (Claude repurposes this)">dev·scratch</button>
         </div>
         <div class="row">
           <button class="btn" id="bImport">Load JSON</button>
@@ -870,6 +870,50 @@ function attract(){
 function rebuildTopology(){for(const o of G.objs)o.segIdx=[];for(let i=0;i<G.segs.length;i++)G.objs[G.segs[i].obj].segIdx.push(i);
   buildNbrs();G.exclDirty=true;}   // light rebuild for frequent bond changes; exclusions recomputed lazily by collide (coalesces many merges/breaks in a frame into one exclusion pass)
 function flushExcl(){if(G.exclDirty){computeExclusions();G.exclDirty=false;refreshStats();}}
+function applyNewBonds(newBonds){
+  if(newBonds.length){
+    const existing=new Set();for(const s of G.segs)existing.add(Math.min(s.a,s.b)+'_'+Math.max(s.a,s.b));
+    let added=false;const done=new Set(),usedNodes=new Set();
+    newBonds.sort((x,y)=>x.d-y.d);                                        // nearest pairs claim their endpoints first
+    let made=0;
+    for(const nb of newBonds){let a=nb.a,b=nb.b;if(a>b){const t=a;a=b;b=t;}const key=a+'_'+b;
+      if(done.has(key)||existing.has(key))continue;done.add(key);
+      if(made>=S.maxBondEvents)break;                                     // safety cap: bound topology churn per frame
+      if(usedNodes.has(a)||usedNodes.has(b))continue;                     // each endpoint bonds to at most ONE partner (no Y-junctions)
+      if((G.nbrs[a]?G.nbrs[a].length:0)>1||(G.nbrs[b]?G.nbrs[b].length:0)>1)continue;   // only genuine free ends bond
+      if(wouldBendBreak(a,b)){usedNodes.add(a);usedNodes.add(b);continue;}   // don't fuse into a joint that would instantly bend-break -> that's the merge/break shatter loop
+      if(nb.merge<=0){if(!(G.nbrs[a]&&G.nbrs[a].indexOf(b)>=0)){mergeEnds(a,b,nb.blend);usedNodes.add(a);usedNodes.add(b);made++;}}   // instant fuse
+      else{const oa=G.objs[G.nodes[a].obj],ob=G.objs[G.nodes[b].obj];
+        const seed=(S.bondTimer==='cumulative'&&G.bondBank.get(a+'_'+b))||0;
+        G.segs.push({a,b,obj:G.nodes[a].obj,rest:(effR(oa)+effR(ob))*(((oa.spaceMult||1)+(ob.spaceMult||1))*0.5),bond:true,bondAge:seed,mergeTime:nb.merge,blend:nb.blend,brk:nb.brk,bStr:nb.bStr,hardenPow:nb.hardenPow,solid:false,ids:[],aff:0,excl:new Set()});added=true;usedNodes.add(a);usedNodes.add(b);made++;}
+      if(S.bondEnergy>0)releaseHeat(a,b,S.bondEnergy*0.5);}   // forming a bond releases energy as heat (weaker than committing)
+    if(added)rebuildTopology();
+  }
+}
+function evalBondPair(n1,n2,newBonds){
+  const objs=G.objs, a=G.nodes[n1], bn=G.nodes[n2]; if(!a||!bn)return;
+  const dxp=bn.x-a.x,dyp=bn.y-a.y,d2=dxp*dxp+dyp*dyp; if(d2<1e-6)return;
+  const o1=objs[a.obj],o2=objs[bn.obj]; if(!o1||!o2||!o1.bondOn||!o2.bondOn)return;
+  const t1=objType(o1),t2=objType(o2), p1=endProf(o1,t2),p2=endProf(o2,t1); if(!p1&&!p2)return;
+  const adjacent=G.nbrs[n1] && G.nbrs[n1].indexOf(n2)>=0;
+  const dist=Math.sqrt(d2);
+  const blocks=(p)=>p&&p.sStr<0;
+  if(S.bonding&&!adjacent&&(p1||p2)&&!blocks(p1)&&!blocks(p2)){
+    let gated=false;
+    if(a.sepFrom===n2||bn.sepFrom===n1){const sd=Math.max(a.sepFrom===n2?(a.sepDist||0):0,bn.sepFrom===n1?(bn.sepDist||0):0);
+      const cool=Math.max(a.sepFrom===n2?(a.sepUntil||0):0,bn.sepFrom===n1?(bn.sepUntil||0):0);
+      if(dist<sd&&S.frame<cool)gated=true;else{a.sepFrom=-1;bn.sepFrom=-1;}}
+    const bondRest=effR(o1)+effR(o2), snapR=Math.max(p1?p1.snap:0,p2?p2.snap:0);
+    if(!gated&&dist<snapR*bondRest){const mgs=[p1?p1.merge:null,p2?p2.merge:null].filter(v=>v!=null),bls=[p1?p1.blend:null,p2?p2.blend:null].filter(v=>v!=null),bks=[p1?p1.brk:null,p2?p2.brk:null].filter(v=>v!=null),bss=[p1?p1.bStr:null,p2?p2.bStr:null].filter(v=>v!=null),hps=[p1?p1.hardenPow:null,p2?p2.hardenPow:null].filter(v=>v!=null);
+      newBonds.push({a:n1,b:n2,d:dist,merge:mgs.length?Math.min(...mgs):0,blend:bls.length?Math.min(...bls):1,brk:bks.length?Math.max(...bks):2.5,bStr:bss.length?Math.min(...bss):0.4,hardenPow:hps.length?Math.max(...hps):1});}
+  }
+}
+function formBondsFromCandidates(pairs){                   // B1c: form bonds from GPU-detected candidate pairs (skips CPU broad-phase)
+  if(!S.bonding || !pairs || !pairs.length)return;
+  const newBonds=[];
+  for(let i=0;i+1<pairs.length;i+=2){ evalBondPair(pairs[i],pairs[i+1],newBonds); }
+  applyNewBonds(newBonds);
+}
 function endpointForces(){
   const ends=G.ends;if(!ends||ends.length<2)return;
   const objs=G.objs;
@@ -913,24 +957,7 @@ function endpointForces(){
             newBonds.push({a:n1,b:n2,d:dist,merge:mgs.length?Math.min(...mgs):0,blend:bls.length?Math.min(...bls):1,brk:bks.length?Math.max(...bks):2.5,
               bStr:bss.length?Math.min(...bss):0.4,hardenPow:hps.length?Math.max(...hps):1});}}}}}   // either side wanting separate (blend 0) keeps them separate; weaker side sets stability
   if(bc)G.bondPhase=(bphase+1)%BC;   // rotate which third of ends is processed next frame
-  if(newBonds.length){
-    const existing=new Set();for(const s of G.segs)existing.add(Math.min(s.a,s.b)+'_'+Math.max(s.a,s.b));
-    let added=false;const done=new Set(),usedNodes=new Set();
-    newBonds.sort((x,y)=>x.d-y.d);                                        // nearest pairs claim their endpoints first
-    let made=0;
-    for(const nb of newBonds){let a=nb.a,b=nb.b;if(a>b){const t=a;a=b;b=t;}const key=a+'_'+b;
-      if(done.has(key)||existing.has(key))continue;done.add(key);
-      if(made>=S.maxBondEvents)break;                                     // safety cap: bound topology churn per frame
-      if(usedNodes.has(a)||usedNodes.has(b))continue;                     // each endpoint bonds to at most ONE partner (no Y-junctions)
-      if((G.nbrs[a]?G.nbrs[a].length:0)>1||(G.nbrs[b]?G.nbrs[b].length:0)>1)continue;   // only genuine free ends bond
-      if(wouldBendBreak(a,b)){usedNodes.add(a);usedNodes.add(b);continue;}   // don't fuse into a joint that would instantly bend-break -> that's the merge/break shatter loop
-      if(nb.merge<=0){if(!(G.nbrs[a]&&G.nbrs[a].indexOf(b)>=0)){mergeEnds(a,b,nb.blend);usedNodes.add(a);usedNodes.add(b);made++;}}   // instant fuse
-      else{const oa=G.objs[G.nodes[a].obj],ob=G.objs[G.nodes[b].obj];
-        const seed=(S.bondTimer==='cumulative'&&G.bondBank.get(a+'_'+b))||0;
-        G.segs.push({a,b,obj:G.nodes[a].obj,rest:(effR(oa)+effR(ob))*(((oa.spaceMult||1)+(ob.spaceMult||1))*0.5),bond:true,bondAge:seed,mergeTime:nb.merge,blend:nb.blend,brk:nb.brk,bStr:nb.bStr,hardenPow:nb.hardenPow,solid:false,ids:[],aff:0,excl:new Set()});added=true;usedNodes.add(a);usedNodes.add(b);made++;}
-      if(S.bondEnergy>0)releaseHeat(a,b,S.bondEnergy*0.5);}   // forming a bond releases energy as heat (weaker than committing)
-    if(added)rebuildTopology();
-  }
+  applyNewBonds(newBonds);
 }
 function flagBondBreaks(){if(!S.bonding)return;   // real strain breaks bonds; young ones give way easily, hardened ones hold to full brk
   for(const s of G.segs){if(!s.bond||s.dead||!s.brk||s.rest<=0)continue;
@@ -2587,6 +2614,7 @@ async function gpuBondTick(){
       await rb.mapAsync(GPUMapMode.READ); const arr=new Float32Array(rb.getMappedRange().slice(0)); rb.unmap(); rb.destroy();
       for(let i=0;i<N;i++){ NX[i]=arr[i*4]; NY[i]=arr[i*4+1]; NH[i]=arr[i*4+2]; NPX[i]=arr[(GP.N+i)*4]; NPY[i]=arr[(GP.N+i)*4+1]; NPH[i]=arr[(GP.N+i)*4+2]; }
       GP.readbacks++; window.RD=true; }
+    let gpuPairs=null, gpuUsable=false;
     if(GP.bondDetectReady){ try{                             // measure candidates on the pre-formation positions (== NX/NY)
       const dev=GP.device, g=GP.endGrid;
       { const ab=new ArrayBuffer(32),dv=new DataView(ab); dv.setUint32(0,g.nE,true);dv.setUint32(4,g.gx,true);dv.setUint32(8,g.gy,true);dv.setUint32(12,g.cap,true);dv.setFloat32(16,g.cell,true);dv.setFloat32(20,g.ox,true);dv.setFloat32(24,g.oy,true);dv.setFloat32(28,0,true); dev.queue.writeBuffer(GP.bufEndGridP,0,ab); }
@@ -2605,9 +2633,17 @@ async function gpuBondTick(){
       GP.bdProbe={ends:g.nE, gpuCand:candCount, candOver, endOver, cpuPairs, absDiff:Math.abs(candCount-cpuPairs), cell:+g.cell.toFixed(1)};
       const A=GP.bdAccum||(GP.bdAccum={runs:0,peakEnds:0,peakGpuCand:0,peakCpuPairs:0,maxCandOver:0,maxEndOver:0,maxAbsDiff:0});
       A.runs++; A.peakEnds=Math.max(A.peakEnds,g.nE); A.peakGpuCand=Math.max(A.peakGpuCand,candCount); A.peakCpuPairs=Math.max(A.peakCpuPairs,cpuPairs); A.maxCandOver=Math.max(A.maxCandOver,candOver); A.maxEndOver=Math.max(A.maxEndOver,endOver); A.maxAbsDiff=Math.max(A.maxAbsDiff,Math.abs(candCount-cpuPairs));
-    }catch(e){ GP.bdProbe={err:(e&&e.message)||'?'}; } }
+      if(candOver===0 && endOver===0){ gpuUsable=true;         // clean batch -> the GPU candidate list is complete; consume it
+        if(candCount>0){ const nR=Math.min(candCount,g.candCap), bytes=Math.max(16,Math.ceil(nR*8/16)*16);
+          const rb2=dev.createBuffer({size:bytes,usage:GPUBufferUsage.COPY_DST|GPUBufferUsage.MAP_READ});
+          const e4=dev.createCommandEncoder(); e4.copyBufferToBuffer(GP.bufCand,0,rb2,0,bytes); dev.queue.submit([e4.finish()]);
+          await rb2.mapAsync(GPUMapMode.READ); gpuPairs=new Uint32Array(rb2.getMappedRange().slice(0)).slice(0,nR*2); rb2.unmap(); rb2.destroy();
+        } else { gpuPairs=new Uint32Array(0); }
+      }
+    }catch(e){ GP.bdProbe={err:(e&&e.message)||'?'}; gpuUsable=false; } }
     const s0=G.segs.length, n0=G.nodes.length;
-    if(typeof endpointForces==='function')endpointForces();     // formation (proximity) + pull
+    if(gpuUsable && typeof formBondsFromCandidates==='function'){ formBondsFromCandidates(gpuPairs); GP.bondPath='gpu'; }   // B1c: form from GPU candidates, CPU broad-phase skipped
+    else { if(typeof endpointForces==='function')endpointForces(); GP.bondPath='cpu-fallback'; GP.bondFallbacks=(GP.bondFallbacks||0)+1; }
     if(typeof flagBondBreaks==='function')flagBondBreaks();
     if(typeof flagStrainBreaks==='function')flagStrainBreaks();
     if(typeof flagBendBreaks==='function')flagBendBreaks();
@@ -2715,7 +2751,7 @@ window.setGpuPhysicsMode=function(on){ if(on){ activate(); } else { deactivate(t
 window.gpuPhysicsDiscard=function(reason){ try{disposeBuffers();}catch(e){} if(GP.active){ GP.active=false; S.gpuPhysics=false; S.gpu=GP.prevGpu; cw.style.display='none'; const cgl=document.getElementById('cgl'); if(cgl)cgl.style.display=(S.gpu||S.micro)?'block':'none'; badge(false,reason||'scene changed'); setToggle(false); status('off \u00B7 '+(reason||'scene changed')); window.RD=true; } };
 window.gpuPhysicsDropToCPU=function(reason){ if(GP.active) deactivate(true,reason||'editing'); };
 window.gpuPhysicsDiagnostics=()=>({active:GP.active,supported:supported(),nodes:GP.N,segs:GP.numSeg,directedLinks:GP.numDir,frame:GP.frameN,readbacks:GP.readbacks,lastExit:GP.lastExit,passes:GP_PASSES,relax:GP_RELAX,
-  refreshN:GP.refreshN,refreshErr:GP.refreshErr,bendReady:GP.bendReady,bonding:{on:!!S.bonding,every:GP.bondEvery,ticks:GP.bondTicks,events:GP.bondEvents,busy:GP._bondBusy,detect:(GP.bondDetectReady?(GP.bdProbe||'pending'):(GP.bondDetectSupported?'idle':'unsupported')),detectWhy:(GP.bondDetectWhy||null),detectPeak:(GP.bdAccum||null)},
+  refreshN:GP.refreshN,refreshErr:GP.refreshErr,bendReady:GP.bendReady,bonding:{on:!!S.bonding,every:GP.bondEvery,ticks:GP.bondTicks,events:GP.bondEvents,busy:GP._bondBusy,detect:(GP.bondDetectReady?(GP.bdProbe||'pending'):(GP.bondDetectSupported?'idle':'unsupported')),detectWhy:(GP.bondDetectWhy||null),path:(GP.bondPath||null),fallbacks:(GP.bondFallbacks||0),detectPeak:(GP.bdAccum||null)},
   collision:{supported:GP.collSupported,ready:GP.collReady,maxStorageBuf:GP.maxStorageBuf,iters:(S.gpuCollIters!=null?(S.gpuCollIters|0):(S.iters||4)),lastOverflow:(GP.lastOverflow!=null?GP.lastOverflow:null),
     grid:(GP.grid?{gx:GP.grid.gx,gy:GP.grid.gy,cell:GP.grid.cell,numCells:GP.grid.numCells,cap:GP.grid.cap,reach:+GP.grid.reach.toFixed(2)}:null),omega:GP_COLL_OMEGA,penFrac:GP_COLL_PENFRAC,maxDisp:GP_COLL_MAXDISP},
   affinity:{supported:GP.affSupported,ready:GP.affReady,lastOverflow:(GP.lastAffOverflow!=null?GP.lastAffOverflow:null),base:GP_AFF_BASE,maxDisp:GP_AFF_MAXDISP,nObj:(GP.affGrid?GP.affGrid.nO:0),grid:(GP.affGrid?{gx:GP.affGrid.gx,gy:GP.affGrid.gy,cell:+GP.affGrid.cell.toFixed(1),numCells:GP.affGrid.numCells,cap:GP.affGrid.cap,reach:+GP.affGrid.reach.toFixed(1)}:null)}});
