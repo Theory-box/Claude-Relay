@@ -660,3 +660,38 @@ as before, detectPeak still matching.
   unifying carries a pre/post-pull dist subtlety; not worth risking freshly-validated bonding for a DRY cleanup.
 - NOTED: GPU bonding is throttled (bondEvery=6, async) vs CPU every-frame; bonds batch every ~6 frames but are not
   missed. Deferred endpoint pull + CPU-only-feature parity -> Round 4.
+
+## AUDIT ROUND 4 — known-gaps decisions (keep / fix / document)
+Each remaining CPU-only feature was traced to decide whether it's a real gap. None is a silent bug.
+
+1. contactDamp / advanceCDRamp -> DOCUMENT (not a real gap). contactDamp is NOT packed into GPU params and is used
+   only by the CPU collide() (line ~801). Its purpose ("on play, ease collision smoothing to 0 over ~3s so the
+   initial expansion can't explode") is served on GPU by a DIFFERENT mechanism: the GP_COLL_MAXDISP=6 per-step
+   clamp already bounds how far collision can push per step. Two mechanisms, same goal; GPU is stable without it
+   (diags show no explosions). No action.
+
+2. Endpoint pull (deferred) -> DOCUMENT / keep (deliberate design). The per-end-type pull profile (wStr/sStr) is
+   CPU-only; on GPU, ends are brought together by general affinity attraction (which IS on GPU) + physics, and the
+   bond-detect snap forms the bond once they're within range. So bonding is NOT crippled - it just lacks the
+   endpoint-specific pull assist. Bonds form (validated: 352 events, path=gpu). Consequence: a scene that relied on
+   strong endpoint pull with NO object affinity may bond more slowly on GPU. User previously accepted this
+   (proximity bonding). Keep.
+
+3. autoSpace / relaxSpacing -> DOCUMENT + offer to implement (genuinely inert on GPU, but opt-in). relaxSpacing eases
+   a per-object spaceScale and rescales rest lengths every CPU frame; that ramp never reaches the GPU (bufRest is
+   built once from GP._baseRest at buildScene and only refreshed on input events, from the frozen base). So an
+   autoSpace object does not inflate/deflate under GPU physics. A live fix is feasible (ease spaceScale in the GPU
+   step + fold spaceScale into the bufRest refresh) BUT carries a double-scaling risk: GP._baseRest is captured from
+   sg.rest at buildScene, which already includes any spaceScale, so naively multiplying again double-applies. A clean
+   fix needs buildScene to capture the authored rest0 as the base and apply grow*spaceScale in the refresh - a change
+   to core packing, i.e. a deliberate feature-completion task with its own testing, not a safe audit-time edit.
+   DECISION: leave CPU-only for now; flagged for the user to choose (implement GPU autoSpace, or add a visible cue
+   that it's CPU-only). autoSpace defaults OFF, so most scenes are unaffected.
+
+4. solid -> bufSegI live refresh -> DOCUMENT (minor, set-once). Per-node solid IS refreshed live via bufMeta
+   (integrate honors it immediately). The per-segment solid bit lives in bufSegI (collision) and is NOT refreshed by
+   gpuRefreshProps; it updates on the next buildScene, which any topology change (bonding/breaking/edit) triggers.
+   Impact low - solid is typically authored once. Could re-pack segI[*].w in gpuRefreshProps if ever needed.
+
+Net: the GPU migration has NO silent correctness bugs among the known gaps. Two items (autoSpace, full endpoint pull)
+are deliberate feature choices; two (contactDamp, solid-seg-bit) are architectural equivalences/rebuild-driven.
