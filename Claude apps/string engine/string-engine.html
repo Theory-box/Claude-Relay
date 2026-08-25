@@ -613,6 +613,23 @@ function configureDevBonding(){
   for(const o of G.objs){ o.bondOn=true; o.ids=['dev']; o.endType={dev:JSON.parse(JSON.stringify(prof))}; }
   try{ const t=document.getElementById('sBond'); if(t)t.classList.add('on'); }catch(e){}
 }
+async function runDevTest(){                                   // one click: load dev scene -> GPU -> run 10s -> export
+  const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+  try{
+    status('dev test: building scene...');
+    build('dev');
+    S.running=true; { const bp=document.getElementById('bPlay'); if(bp)bp.textContent='Pause'; }
+    await sleep(300);                                          // let the scene settle before switching
+    { const cb=document.getElementById('gpuPhysicsToggle'); if(cb)cb.checked=true; }
+    window.setGpuPhysicsMode(true);                            // switch to GPU (async activate + shader compile)
+    let ok=false; for(let i=0;i<120;i++){ if(window.gpuPhysicsActive&&window.gpuPhysicsActive()){ok=true;break;} await sleep(50); }   // wait up to 6s for GPU
+    if(window.gpuResetProbe)window.gpuResetProbe();            // fresh accumulators for THIS run
+    if(!ok){ status('dev test: GPU did not start; exporting anyway',true); }
+    for(let sLeft=10; sLeft>0; sLeft--){ status('dev test: running... '+sLeft+'s'); await sleep(1000); }   // 10s of GPU churn
+    status('dev test: exporting...');
+    if(typeof runAndExport==='function') await runAndExport();
+  }catch(e){ status('dev test failed: '+(e&&e.message),true); console.error(e); }
+}
 // ===================================================================================
 function seedWeavy(count,x0,x1,y0,y1){
   for(let k=0;k<count;k++){const N=Math.round(rnd(8,16)),L=rnd(7,11);
@@ -1338,7 +1355,7 @@ function refreshStats(){window.RD=true;document.getElementById('sObjs').textCont
 // ---------- ui ----------
 document.querySelectorAll('#scene button').forEach(b=>b.addEventListener('click',()=>{
   document.querySelectorAll('#scene button').forEach(x=>x.classList.remove('on'));b.classList.add('on');
-  if(b.dataset.s==='default')loadDefault();else build(b.dataset.s);}));
+  if(b.dataset.s==='default')loadDefault();else if(b.dataset.s==='dev')runDevTest();else build(b.dataset.s);}));
 const VIEWNOTES={default:'Object colours (one per imported object).',
   solid:'Teal = solid walls (block over/under). Grey = weavy strands.',
   fixed:'Orange = fixed/pinned. Grey = movable.',
@@ -2690,6 +2707,7 @@ async function deactivate(readback,reason){ if(!GP.active){ S.gpuPhysics=false; 
 
 window.gpuPhysicsSupported=supported;
 window.gpuPhysicsActive=()=>GP.active;
+window.gpuResetProbe=function(){ GP.bdAccum=null; GP.bdProbe=null; GP.bondEvents=0; };
 setInterval(function(){ if(GP.active && GP.propsDirty){ GP.propsDirty=false; gpuRefreshProps(); } },120);
 window.gpuPhysicsStep=step; window.gpuRefreshProps=gpuRefreshProps;
 window.gpuPhysicsRender=render;

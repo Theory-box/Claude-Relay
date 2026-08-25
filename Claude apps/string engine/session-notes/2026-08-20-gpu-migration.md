@@ -588,3 +588,19 @@ looked. Detection wiring itself was clean (41 runs, 0 errors/overflow). Two fixe
 2. Dev scene: SPACED 11x13 grid (strands start separate) + gentle pull (sStr 0.5) so convergence happens GRADUALLY
    in GPU mode -> sustained candidates over seconds. USAGE: switch to GPU before/right as you play so convergence
    is captured on GPU not CPU. detectPeak accumulator catches the bursts.
+
+## ✅ STAGE B DETECTION VALIDATED (user's real scene, GPU mode, 227 bond events)
+detect: ends 1149, gpuCand 362 vs cpuPairs 364 -> absDiff 2 (near-exact match). candOver 0, endOver 0.
+detectPeak: peakGpuCand 494 vs peakCpuPairs 489, maxCandOver/maxEndOver 0. The snap-filter collapsed the broad
+~23k pairs to ~360-490 near-bond pairs (~50x reduction) = the efficiency that makes Stage B worth it.
+Also unit-tested cpuCandidateCount headlessly (1/2/0 close-pair cases pass). Detection logic confirmed correct.
+(JSDOM full-engine harness hung on the init loop — abandoned; pure-logic test + real-scene diag suffice.)
+Dev scene's detection didn't init earlier (detect idle) — a dev-scene-specific quirk; the new auto-flow captures
+bondDetectWhy so the next dev run will explain it. Not blocking (real scene works).
+
+## DEV TEST AUTO-FLOW: clicking "dev test" now runs the whole test unattended
+runDevTest(): build('dev') -> 300ms settle -> check gpuPhysicsToggle + setGpuPhysicsMode(true) -> poll
+gpuPhysicsActive up to 6s -> gpuResetProbe() (fresh accumulators) -> 10s GPU churn (status counts down) ->
+runAndExport() (opens save/download). window.gpuResetProbe exposed from IIFE. Dev button wired to runDevTest.
+NEXT: B1c — swap formation to consume the GPU candidates (drop the CPU broad-phase), with CPU re-validation +
+overflow->CPU fallback. Detection is the validated input.
