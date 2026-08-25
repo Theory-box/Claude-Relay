@@ -641,3 +641,22 @@ as before, detectPeak still matching.
 - Confirmed clean: div-zero guards on all divides; overflow (coll/aff/bond/endpoint grids) degrades gracefully
   (drops from cell, counts overflow, monitored via lastOverflow/lastAffOverflow/candOver->CPU fallback); buffer-reuse
   recreates bind groups after any mkR/bufR realloc (no stale buffer refs); all readback staging buffers destroyed.
+
+## AUDIT ROUND 3 — correctness / parity (the refactored bonding paths)
+- VERIFIED (textual byte-diff): the GPU-path per-pair check `evalBondPair` and the inline bond decision in
+  `endpointForces` (CPU path) are byte-identical after stripping comments — the only remaining diff is a trivial
+  `const a,b` vs `const a;const b` declaration split (5 chars). The `newBonds.push` (merge/blend/brk/bStr/hardenPow)
+  is byte-identical. So CPU and GPU form bonds with the SAME decision logic.
+- VERIFIED: `applyNewBonds` is the single shared creation/arbitration path (sort-by-dist, one-bond-per-endpoint,
+  free-ends-only, wouldBendBreak guard, mergeEnds/push, rebuildTopology). Both endpointForces and
+  formBondsFromCandidates call it. So bond CREATION is identical across paths too.
+- VERIFIED: transient per-frame GPU-vs-CPU candidate-count differences (worst-frame maxAbsDiff up to ~189) are
+  harmless — evalBondPair re-validates every candidate, so a spurious GPU candidate fails the check (no wrong bond)
+  and a missed candidate simply forms on the next tick (physics keeps the ends close). Diags confirm steady-state
+  parity (gpuCand ~= cpuPairs, absDiff 1-2; 352 events; bonding.path=gpu; fallbacks=0).
+- VERIFIED: formBondsFromCandidates consumes the flat GPU pairs array correctly (stride 2, i+1<length guard).
+- CHANGE: added sync-warning comments at both bond-decision sites (evalBondPair + endpointForces inline) so future
+  edits keep the twins in sync. Did NOT unify them into one call — endpointForces interleaves the deferred pull, so
+  unifying carries a pre/post-pull dist subtlety; not worth risking freshly-validated bonding for a DRY cleanup.
+- NOTED: GPU bonding is throttled (bondEvery=6, async) vs CPU every-frame; bonds batch every ~6 frames but are not
+  missed. Deferred endpoint pull + CPU-only-feature parity -> Round 4.

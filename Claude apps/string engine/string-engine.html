@@ -890,7 +890,7 @@ function applyNewBonds(newBonds){
     if(added)rebuildTopology();
   }
 }
-function evalBondPair(n1,n2,newBonds){
+function evalBondPair(n1,n2,newBonds){   // GPU-path per-pair fine check. VERIFIED byte-identical decision logic to the inline check in endpointForces (CPU path) — keep the two in sync if either changes.
   const objs=G.objs, a=G.nodes[n1], bn=G.nodes[n2]; if(!a||!bn)return;
   const dxp=bn.x-a.x,dyp=bn.y-a.y,d2=dxp*dxp+dyp*dyp; if(d2<1e-6)return;
   const o1=objs[a.obj],o2=objs[bn.obj]; if(!o1||!o2||!o1.bondOn||!o2.bondOn)return;
@@ -945,7 +945,7 @@ function endpointForces(){
           if(p2.wStr&&dist<p2.wRange)f+=p2.wStr*0.12*(1-dist/p2.wRange);
           if(p2.sStr&&dist<p2.sRange)f+=p2.sStr*0.42*(1-dist/p2.sRange);
           if(f){bn.x+=-ux*f*bcMul*bn.inv;bn.y+=-uy*f*bcMul*bn.inv;}}
-        const blocks=(p)=>p&&p.sStr<0;                            // only a STRONG (close-range) repel vetoes bonding — no pull is fine, proximity within snap still bonds
+        const blocks=(p)=>p&&p.sStr<0;                            // only a STRONG (close-range) repel vetoes bonding. NOTE: the bond decision below is byte-identical to evalBondPair (GPU path) — keep in sync.
         if(S.bonding&&!adjacent&&(p1||p2)&&!blocks(p1)&&!blocks(p2)){
           let gated=false;                                        // hysteresis: a pair that just broke can't re-heal until pulled apart past its break distance
           if(a.sepFrom===n2||bn.sepFrom===n1){const sd=Math.max(a.sepFrom===n2?(a.sepDist||0):0,bn.sepFrom===n1?(bn.sepDist||0):0);
