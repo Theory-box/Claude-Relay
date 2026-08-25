@@ -2402,11 +2402,11 @@ function rebuildAffinityLive(){
 function affinityEnabled(){ for(const o of G.objs){ if(o.interSelf)return true; if(o.inter){ for(const k in o.inter){ if(o.inter[k])return true; } } } return false; }
 function packBondDetect(bg,B){
   GP.bondDetectReady=false;
-  if(!(GP.bondDetectSupported && S.bonding && GP.clearPipe))return;
+  if(!(GP.bondDetectSupported && S.bonding && GP.clearPipe)){ GP.bondDetectWhy='guard sup='+GP.bondDetectSupported+' bond='+S.bonding+' clear='+!!GP.clearPipe; return; }
   try{
     const U=GPUBufferUsage, ST=U.STORAGE, CD=U.COPY_DST, CS=U.COPY_SRC, UN=U.UNIFORM;
-    const ends=G.ends; if(!ends||ends.length<2)return;
-    const objs=G.objs; let any=false; for(const o of objs){ if(o.bondOn && o.endType && Object.keys(o.endType).length){any=true;break;} } if(!any)return;
+    const ends=G.ends; if(!ends||ends.length<2){ GP.bondDetectWhy='ends='+(ends?ends.length:'null'); return; }
+    const objs=G.objs; let any=false,nBond=0; for(const o of objs){ if(o.bondOn){nBond++; if(o.endType && Object.keys(o.endType).length)any=true;} } if(!any){ GP.bondDetectWhy='no-eligible bondOn='+nBond+'/'+objs.length; return; }
     let maxR=30,maxER=0; for(const o of objs){ const er=(typeof effR==='function'?effR(o):(o.r||4)); if(er>maxER)maxER=er; }
     for(const o of objs) if(o.endType) for(const k in o.endType){ const p=o.endType[k]; if(p.wRange>maxR)maxR=p.wRange; if(p.sRange>maxR)maxR=p.sRange; const snapD=(p.snap||0)*((typeof effR==='function'?effR(o):(o.r||4))+maxER); if(snapD>maxR)maxR=snapD; }
     const ER=maxR+10, ER2=ER*ER, cell=Math.max(8,ER);
@@ -2434,8 +2434,8 @@ function packBondDetect(bg,B){
     GP.bgEndGridA=bg(GP.endGridPipe,eg(GP.bufA)); GP.bgEndGridB=bg(GP.endGridPipe,eg(GP.bufB));
     const dt=(pIn)=>[B(0,pIn),B(1,GP.bufEndList),B(2,GP.bufEndCellBins),B(3,GP.bufEndCellCount),B(4,GP.bufCandCount),B(5,GP.bufCand),B(6,GP.bufCandOver),B(7,GP.bufEndMeta),B(8,GP.bufDetectP)];
     GP.bgDetectA=bg(GP.bondDetectPipe,dt(GP.bufA)); GP.bgDetectB=bg(GP.bondDetectPipe,dt(GP.bufB));
-    GP.bondDetectReady=true;
-  }catch(e){ GP.bondDetectReady=false; console.warn('[gpuBondDetect] pack failed:',e&&e.message); }
+    GP.bondDetectReady=true; GP.bondDetectWhy='ok nE='+nE+' cells='+numCells;
+  }catch(e){ GP.bondDetectReady=false; GP.bondDetectWhy='threw: '+(e&&e.message); console.warn('[gpuBondDetect] pack failed:',e&&e.message); }
 }
 function packAffinity(segList,N,device,mk,bg,B,ST,CD,CS,UN){
   GP.affReady=false;
@@ -2697,7 +2697,7 @@ window.setGpuPhysicsMode=function(on){ if(on){ activate(); } else { deactivate(t
 window.gpuPhysicsDiscard=function(reason){ try{disposeBuffers();}catch(e){} if(GP.active){ GP.active=false; S.gpuPhysics=false; S.gpu=GP.prevGpu; cw.style.display='none'; const cgl=document.getElementById('cgl'); if(cgl)cgl.style.display=(S.gpu||S.micro)?'block':'none'; badge(false,reason||'scene changed'); setToggle(false); status('off \u00B7 '+(reason||'scene changed')); window.RD=true; } };
 window.gpuPhysicsDropToCPU=function(reason){ if(GP.active) deactivate(true,reason||'editing'); };
 window.gpuPhysicsDiagnostics=()=>({active:GP.active,supported:supported(),nodes:GP.N,segs:GP.numSeg,directedLinks:GP.numDir,frame:GP.frameN,readbacks:GP.readbacks,lastExit:GP.lastExit,passes:GP_PASSES,relax:GP_RELAX,
-  refreshN:GP.refreshN,refreshErr:GP.refreshErr,bendReady:GP.bendReady,bonding:{on:!!S.bonding,every:GP.bondEvery,ticks:GP.bondTicks,events:GP.bondEvents,busy:GP._bondBusy,detect:(GP.bondDetectReady?(GP.bdProbe||'pending'):(GP.bondDetectSupported?'idle':'unsupported')),detectPeak:(GP.bdAccum||null)},
+  refreshN:GP.refreshN,refreshErr:GP.refreshErr,bendReady:GP.bendReady,bonding:{on:!!S.bonding,every:GP.bondEvery,ticks:GP.bondTicks,events:GP.bondEvents,busy:GP._bondBusy,detect:(GP.bondDetectReady?(GP.bdProbe||'pending'):(GP.bondDetectSupported?'idle':'unsupported')),detectWhy:(GP.bondDetectWhy||null),detectPeak:(GP.bdAccum||null)},
   collision:{supported:GP.collSupported,ready:GP.collReady,maxStorageBuf:GP.maxStorageBuf,iters:(S.gpuCollIters!=null?(S.gpuCollIters|0):(S.iters||4)),lastOverflow:(GP.lastOverflow!=null?GP.lastOverflow:null),
     grid:(GP.grid?{gx:GP.grid.gx,gy:GP.grid.gy,cell:GP.grid.cell,numCells:GP.grid.numCells,cap:GP.grid.cap,reach:+GP.grid.reach.toFixed(2)}:null),omega:GP_COLL_OMEGA,penFrac:GP_COLL_PENFRAC,maxDisp:GP_COLL_MAXDISP},
   affinity:{supported:GP.affSupported,ready:GP.affReady,lastOverflow:(GP.lastAffOverflow!=null?GP.lastAffOverflow:null),base:GP_AFF_BASE,maxDisp:GP_AFF_MAXDISP,nObj:(GP.affGrid?GP.affGrid.nO:0),grid:(GP.affGrid?{gx:GP.affGrid.gx,gy:GP.affGrid.gy,cell:+GP.affGrid.cell.toFixed(1),numCells:GP.affGrid.numCells,cap:GP.affGrid.cap,reach:+GP.affGrid.reach.toFixed(1)}:null)}});
