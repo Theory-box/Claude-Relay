@@ -1780,6 +1780,7 @@ const GP={active:false,initing:false,device:null,ctx:null,format:null,prevGpu:fa
 const GP_PASSES=8, GP_RELAX=0.6;
 const GP_COLL_OMEGA=1.0, GP_COLL_PENFRAC=0.25, GP_COLL_MAXDISP=6.0, GP_COLL_MARGIN=1.5, GP_COLL_CAP=64;
 const GP_AFF_BASE=0.18, GP_AFF_MAXDISP=8.0;
+const GP_BOND_MARGIN=1.2;
 const WGSL_ENDGRID=`
 struct EG { count:u32, gx:u32, gy:u32, cap:u32, cell:f32, ox:f32, oy:f32, pad:f32, };
 @group(0) @binding(0) var<storage, read>       pos       : array<vec4<f32>>;
@@ -1800,32 +1801,33 @@ fn main(@builtin(global_invocation_id) gid:vec3<u32>){
   if(slot<U.cap){ cellBins[c*U.cap+slot]=ei; } else { atomicAdd(&overflow[0],1u); }
 }`;
 const WGSL_BONDDETECT=`
-struct BD { count:u32, gx:u32, gy:u32, cap:u32, cell:f32, ox:f32, oy:f32, er2:f32, candCap:u32, p0:u32, p1:u32, p2:u32, };
-@group(0) @binding(0) var<storage, read>       pos        : array<vec4<f32>>;
-@group(0) @binding(1) var<storage, read>       endList    : array<u32>;
-@group(0) @binding(2) var<storage, read>       cellBins   : array<u32>;
-@group(0) @binding(3) var<storage, read>       cellCount  : array<u32>;
-@group(0) @binding(4) var<storage, read_write> candCount  : array<atomic<u32>>;
-@group(0) @binding(5) var<storage, read_write> cand       : array<vec2<u32>>;   // (n1,n2) node ids, n1<n2
-@group(0) @binding(6) var<storage, read_write> candOver   : array<atomic<u32>>;
-@group(0) @binding(7) var<uniform>             U          : BD;
+struct BD { count:u32, gx:u32, gy:u32, cap:u32, cell:f32, ox:f32, oy:f32, margin:f32, candCap:u32, p0:u32, p1:u32, p2:u32, };
+@group(0) @binding(0) var<storage, read>       pos       : array<vec4<f32>>;
+@group(0) @binding(1) var<storage, read>       endList   : array<u32>;
+@group(0) @binding(2) var<storage, read>       cellBins  : array<u32>;
+@group(0) @binding(3) var<storage, read>       cellCount : array<u32>;
+@group(0) @binding(4) var<storage, read_write> candCount : array<atomic<u32>>;
+@group(0) @binding(5) var<storage, read_write> cand      : array<vec2<u32>>;
+@group(0) @binding(6) var<storage, read_write> candOver  : array<atomic<u32>>;
+@group(0) @binding(7) var<storage, read>       endMeta   : array<vec2<f32>>;   // (effR, maxSnap) per endpoint
+@group(0) @binding(8) var<uniform>             U         : BD;
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) gid:vec3<u32>){
   let ei=gid.x; if(ei>=U.count){ return; }
-  let n1=endList[ei]; let p1=pos[n1];
+  let n1=endList[ei]; let p1=pos[n1]; let m1=endMeta[ei];
   let gxi=i32(U.gx)-1; let gyi=i32(U.gy)-1;
   let cx=clamp(i32(floor((p1.x-U.ox)/U.cell)),0,gxi);
   let cy=clamp(i32(floor((p1.y-U.oy)/U.cell)),0,gyi);
-  for(var dy:i32=-1; dy<=1; dy=dy+1){
-    let yy=cy+dy; if(yy<0 || yy>gyi){ continue; }
-    for(var dx:i32=-1; dx<=1; dx=dx+1){
-      let xx=cx+dx; if(xx<0 || xx>gxi){ continue; }
+  for(var dy:i32=-1; dy<=1; dy=dy+1){ let yy=cy+dy; if(yy<0||yy>gyi){continue;}
+    for(var dx:i32=-1; dx<=1; dx=dx+1){ let xx=cx+dx; if(xx<0||xx>gxi){continue;}
       let c=u32(yy)*U.gx+u32(xx); let cnt=min(cellCount[c],U.cap); let base=c*U.cap;
       for(var k:u32=0u; k<cnt; k=k+1u){
         let ej=cellBins[base+k]; let n2=endList[ej];
-        if(n2<=n1){ continue; }                                  // dedup: each unordered pair once
-        let p2=pos[n2]; let ddx=p2.x-p1.x; let ddy=p2.y-p1.y; let d2=ddx*ddx+ddy*ddy;
-        if(d2<U.er2 && d2>1e-6){
+        if(n2<=n1){ continue; }
+        let p2=pos[n2]; let m2=endMeta[ej];
+        let ddx=p2.x-p1.x; let ddy=p2.y-p1.y; let d2=ddx*ddx+ddy*ddy;
+        let bondRest=m1.x+m2.x; let snapR=max(m1.y,m2.y); let thr=snapR*bondRest*U.margin;   // snap-distance pre-filter
+        if(d2 < thr*thr && d2>1e-6){
           let slot=atomicAdd(&candCount[0],1u);
           if(slot<U.candCap){ cand[slot]=vec2<u32>(n1,n2); } else { atomicAdd(&candOver[0],1u); }
         }
@@ -2242,7 +2244,7 @@ function bufR(key,size,usage,hr){ const dev=GP.device, need=Math.max(16,size), C
   if(GP[key]&&(C[key]||0)>=need){ return GP[key]; }
   if(GP[key]){ try{GP[key].destroy();}catch(e){} }
   const alloc=Math.max(16,Math.ceil(need*(hr||1.4)/16)*16); const bf=dev.createBuffer({size:alloc,usage}); GP[key]=bf; C[key]=alloc; return bf; }
-function disposeBuffers(){ GP._cap={}; GP.collReady=false; for(const k of ['bufA','bufB','bufPrev','bufMeta','bufRange','bufNbr','bufRest','bufSeg','bufStyle','bufParams','bufCam','bufNSR','bufNSL','bufSegI','bufSegF','bufSegCell','bufCellBins','bufCellCount','bufOverflow','bufCollP','bufGridP','bufClearP','bufBend','bufBendP','bufAffF','bufVmat','bufSegCellA','bufCellBinsA','bufCellCountA','bufOverflowA','bufAffP','bufGridTP','bufClearAP']){ GP.bendReady=false; GP.affReady=false; if(GP[k]){try{GP[k].destroy();}catch(e){}GP[k]=null;} } }
+function disposeBuffers(){ GP._cap={}; GP.collReady=false; for(const k of ['bufA','bufB','bufPrev','bufMeta','bufRange','bufNbr','bufRest','bufSeg','bufStyle','bufParams','bufCam','bufNSR','bufNSL','bufSegI','bufSegF','bufSegCell','bufCellBins','bufCellCount','bufOverflow','bufCollP','bufGridP','bufClearP','bufBend','bufBendP','bufAffF','bufVmat','bufSegCellA','bufCellBinsA','bufCellCountA','bufOverflowA','bufAffP','bufGridTP','bufClearAP','bufEndList','bufEndMeta','bufEndCellCount','bufEndCellBins','bufEndOver','bufCand','bufCandCount','bufCandOver','bufEndGridP','bufDetectP','bufEndClearP']){ GP.bendReady=false; GP.affReady=false; GP.bondDetectReady=false; if(GP[k]){try{GP[k].destroy();}catch(e){}GP[k]=null;} } }
 
 function buildScene(){
   const device=GP.device, N=G.nodes.length; GP.N=N;
@@ -2388,10 +2390,12 @@ function packBondDetect(bg,B){
     let bx0=1e9,by0=1e9,bx1=-1e9,by1=-1e9; for(let i=0;i<nE;i++){ const n=ends[i], x=NX[n], y=NY[n]; if(x<bx0)bx0=x;if(y<by0)by0=y;if(x>bx1)bx1=x;if(y>by1)by1=y; }
     const ox=bx0-cell, oy=by0-cell;
     const gx=Math.max(1,Math.ceil((bx1-ox+cell)/cell)), gy=Math.max(1,Math.ceil((by1-oy+cell)/cell));
-    const numCells=gx*gy, cap=32, candCap=Math.max(64, nE*4);
-    GP.endGrid={nE,ER2,cell,ox,oy,gx,gy,numCells,cap,candCap};
+    const cap=128, numCells=gx*gy, candCap=Math.max(1024, nE*6);   // cap: endpoints/cell; candCap: near-bond pairs (few after snap filter)
+    const endMeta=new Float32Array(nE*2);
+    for(let i=0;i<nE;i++){ const o=objs[G.nodes[ends[i]].obj]||{}; endMeta[i*2]=(typeof effR==='function'?effR(o):(o.r||4)); let sm=0; if(o.endType)for(const k in o.endType){ const p=o.endType[k]; if(p.snap>sm)sm=p.snap; } endMeta[i*2+1]=sm; }
+    GP.endGrid={nE,ER2,cell,ox,oy,gx,gy,numCells,cap,candCap,margin:GP_BOND_MARGIN};
     GP._endListArr=endList;
-    GP.bufEndList=mkR('bufEndList',endList,ST|CD);
+    GP.bufEndList=mkR('bufEndList',endList,ST|CD); GP.bufEndMeta=mkR('bufEndMeta',endMeta,ST|CD);
     GP.bufEndCellCount=bufR('bufEndCellCount',numCells*4,ST|CD);
     GP.bufEndCellBins=bufR('bufEndCellBins',numCells*cap*4,ST|CD);
     GP.bufEndOver=bufR('bufEndOver',16,ST|CD|CS);
@@ -2404,7 +2408,7 @@ function packBondDetect(bg,B){
     GP.bgEndClear=bg(GP.clearPipe,[B(0,GP.bufEndCellBins),B(1,GP.bufEndCellCount),B(2,GP.bufEndClearP)]);
     const eg=(pIn)=>[B(0,pIn),B(1,GP.bufEndList),B(2,GP.bufEndCellCount),B(3,GP.bufEndCellBins),B(4,GP.bufEndOver),B(5,GP.bufEndGridP)];
     GP.bgEndGridA=bg(GP.endGridPipe,eg(GP.bufA)); GP.bgEndGridB=bg(GP.endGridPipe,eg(GP.bufB));
-    const dt=(pIn)=>[B(0,pIn),B(1,GP.bufEndList),B(2,GP.bufEndCellBins),B(3,GP.bufEndCellCount),B(4,GP.bufCandCount),B(5,GP.bufCand),B(6,GP.bufCandOver),B(7,GP.bufDetectP)];
+    const dt=(pIn)=>[B(0,pIn),B(1,GP.bufEndList),B(2,GP.bufEndCellBins),B(3,GP.bufEndCellCount),B(4,GP.bufCandCount),B(5,GP.bufCand),B(6,GP.bufCandOver),B(7,GP.bufEndMeta),B(8,GP.bufDetectP)];
     GP.bgDetectA=bg(GP.bondDetectPipe,dt(GP.bufA)); GP.bgDetectB=bg(GP.bondDetectPipe,dt(GP.bufB));
     GP.bondDetectReady=true;
   }catch(e){ GP.bondDetectReady=false; console.warn('[gpuBondDetect] pack failed:',e&&e.message); }
@@ -2482,13 +2486,16 @@ function gpuRefreshProps(){ if(!GP.active||!GP.device)return; const dev=GP.devic
     for(let c=0;c<nd;c++){ const o=G.objs[EO[c]]||{}; const g=(typeof effGrow==='function'?effGrow(o):(o.grow||0)); out[c]=R[c]*Math.max(0,1+g); }
     dev.queue.writeBuffer(GP.bufRest,0,out); }
 }catch(e){ GP.refreshErr=e.message; console.warn('[gpuRefreshProps]',e.message); if(typeof status==='function')status('gpuRefresh error: '+e.message,true); } }
-function cpuCandidateCount(ER2){
-  // CPU broad-phase oracle: count free-endpoint pairs within ER (mirrors endpointForces bucketing) on current NX/NY
-  const ends=G.ends; if(!ends||ends.length<2)return 0; const cell=Math.max(8,Math.sqrt(ER2)); const bkt=new Map();
-  for(const ni of ends){ const key=(Math.floor(NX[ni]/cell)+16384)*32768+(Math.floor(NY[ni]/cell)+16384); let a=bkt.get(key); if(!a){a=[];bkt.set(key,a);} a.push(ni); }
-  let cnt=0; for(let ii=0;ii<ends.length;ii++){ const n1=ends[ii],cx=Math.floor(NX[n1]/cell),cy=Math.floor(NY[n1]/cell);
+function cpuCandidateCount(cell, margin){
+  const ends=G.ends; if(!ends||ends.length<2)return 0; const objs=G.objs, nE=ends.length;
+  const eR=new Float32Array(nE), sR=new Float32Array(nE);
+  for(let i=0;i<nE;i++){ const o=objs[G.nodes[ends[i]].obj]||{}; eR[i]=(typeof effR==='function'?effR(o):(o.r||4)); let sm=0; if(o.endType)for(const k in o.endType){ const p=o.endType[k]; if(p.snap>sm)sm=p.snap; } sR[i]=sm; }
+  const bkt=new Map();
+  for(let i=0;i<nE;i++){ const ni=ends[i]; const key=(Math.floor(NX[ni]/cell)+16384)*32768+(Math.floor(NY[ni]/cell)+16384); let a=bkt.get(key); if(!a){a=[];bkt.set(key,a);} a.push(i); }
+  let cnt=0;
+  for(let i=0;i<nE;i++){ const ni=ends[i],cx=Math.floor(NX[ni]/cell),cy=Math.floor(NY[ni]/cell);
     for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++){ const a=bkt.get(((cx+dx)+16384)*32768+((cy+dy)+16384)); if(!a)continue;
-      for(const n2 of a){ if(n2<=n1)continue; const ddx=NX[n2]-NX[n1],ddy=NY[n2]-NY[n1],d2=ddx*ddx+ddy*ddy; if(d2<ER2&&d2>1e-6)cnt++; } } }
+      for(const j of a){ const nj=ends[j]; if(nj<=ni)continue; const ddx=NX[nj]-NX[ni],ddy=NY[nj]-NY[ni],d2=ddx*ddx+ddy*ddy; const bondRest=eR[i]+eR[j],snapR=Math.max(sR[i],sR[j]),thr=snapR*bondRest*margin; if(d2<thr*thr&&d2>1e-6)cnt++; } } }
   return cnt;
 }
 async function gpuBondDetectProbe(){
@@ -2499,7 +2506,7 @@ async function gpuBondDetectProbe(){
   try{
     const dev=GP.device, g=GP.endGrid;
     { const ab=new ArrayBuffer(32),dv=new DataView(ab); dv.setUint32(0,g.nE,true);dv.setUint32(4,g.gx,true);dv.setUint32(8,g.gy,true);dv.setUint32(12,g.cap,true);dv.setFloat32(16,g.cell,true);dv.setFloat32(20,g.ox,true);dv.setFloat32(24,g.oy,true);dv.setFloat32(28,0,true); dev.queue.writeBuffer(GP.bufEndGridP,0,ab); }
-    { const ab=new ArrayBuffer(48),dv=new DataView(ab); dv.setUint32(0,g.nE,true);dv.setUint32(4,g.gx,true);dv.setUint32(8,g.gy,true);dv.setUint32(12,g.cap,true);dv.setFloat32(16,g.cell,true);dv.setFloat32(20,g.ox,true);dv.setFloat32(24,g.oy,true);dv.setFloat32(28,g.ER2,true);dv.setUint32(32,g.candCap,true);dv.setUint32(36,0,true);dv.setUint32(40,0,true);dv.setUint32(44,0,true); dev.queue.writeBuffer(GP.bufDetectP,0,ab); }
+    { const ab=new ArrayBuffer(48),dv=new DataView(ab); dv.setUint32(0,g.nE,true);dv.setUint32(4,g.gx,true);dv.setUint32(8,g.gy,true);dv.setUint32(12,g.cap,true);dv.setFloat32(16,g.cell,true);dv.setFloat32(20,g.ox,true);dv.setFloat32(24,g.oy,true);dv.setFloat32(28,g.margin,true);dv.setUint32(32,g.candCap,true);dv.setUint32(36,0,true);dv.setUint32(40,0,true);dv.setUint32(44,0,true); dev.queue.writeBuffer(GP.bufDetectP,0,ab); }
     { const ab=new ArrayBuffer(16),dv=new DataView(ab); dv.setUint32(0,g.numCells,true);dv.setUint32(4,g.cap,true); dev.queue.writeBuffer(GP.bufEndClearP,0,ab); }
     dev.queue.writeBuffer(GP.bufEndOver,0,new Uint32Array([0,0,0,0])); dev.queue.writeBuffer(GP.bufCandCount,0,new Uint32Array([0,0,0,0])); dev.queue.writeBuffer(GP.bufCandOver,0,new Uint32Array([0,0,0,0]));
     const enc=dev.createCommandEncoder();
@@ -2517,8 +2524,8 @@ async function gpuBondDetectProbe(){
       await rb.mapAsync(GPUMapMode.READ); const arr=new Uint32Array(rb.getMappedRange().slice(0)); rb.unmap(); rb.destroy();
       const endSet=new Set(G.ends), NN=G.nodes.length;
       for(let i=0;i<nRead;i++){ const n1=arr[i*2],n2=arr[i*2+1]; let d2=1e18; if(n1<NN&&n2<NN){ const dx=NX[n2]-NX[n1],dy=NY[n2]-NY[n1]; d2=dx*dx+dy*dy; }
-        if(n1<n2 && endSet.has(n1) && endSet.has(n2) && d2<=g.ER2*1.15) valid++; else invalid++; } }
-    const cpuPairs=cpuCandidateCount(g.ER2);
+        if(n1<n2 && endSet.has(n1) && endSet.has(n2) && d2<=g.ER2) valid++; else invalid++; } }
+    const cpuPairs=cpuCandidateCount(g.cell,g.margin);
     GP.bdProbe={ends:g.nE, gpuCand:candCount, valid, invalid, candOver, endOver, cpuPairs, cell:+g.cell.toFixed(1)};
   }catch(e){ GP.bdProbe={err:(e&&e.message)||'?'}; }
   GP._bdBusy=false;

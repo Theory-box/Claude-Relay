@@ -556,3 +556,13 @@ compare to cpuCandidateCount() (CPU broad-phase oracle on NX/NY). Reports diag.b
 stable-20260824-pre-bondingB (+ outputs/string-engine-STABLE-preBondingB.html).
 VALIDATION TARGET: invalid≈0, candOver=0, endOver=0, gpuCand≈cpuPairs (small margin from ~6-frame position
 staleness). If so -> B1c: switch formation to consume GPU candidates, drop CPU broad-phase = hotspot kill.
+
+## B1b probe result + snap-filter fix
+First probe (1497 ends): gpuCand 23126 vs cpuPairs 23192 (0.3% apart), invalid 2/5986 -> DETECTION LOGIC CORRECT.
+But candOver 17138 (candCap 5988 too small) + endOver 4 (cell cap 32). Key insight: at ER=130 w/ dense ends the
+BROAD phase = ~23k pairs = same as CPU broad-phase -> emitting all wouldn't save CPU work. FIX = snap-distance
+pre-filter ON GPU: upload per-endpoint endMeta (effR, maxSnap); emit only pairs with d < max(snap)*(effR1+effR2)*
+MARGIN(1.2) -> collapses 23k broad pairs to the few near-bond ones. Grid stays cell=ER (covers max), emit filters
+to snap. cell cap 32->128 (endOver), candCap now max(1024,nE*6) for the few near-bond pairs. Detect shader now
+9 bindings (added endMeta @7, U @8) - naga-valid. Oracle cpuCandidateCount(cell,margin) updated to snap-based to
+match. Expect next probe: candOver 0, endOver 0, gpuCand≈cpuPairs (small), invalid 0. Then B1c consume candidates.
