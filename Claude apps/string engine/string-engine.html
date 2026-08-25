@@ -2566,41 +2566,6 @@ function cpuCandidateCount(cell, margin){
       for(const j of a){ const nj=ends[j]; if(nj<=ni)continue; const ddx=NX[nj]-NX[ni],ddy=NY[nj]-NY[ni],d2=ddx*ddx+ddy*ddy; const bondRest=eR[i]+eR[j],snapR=Math.max(sR[i],sR[j]),thr=snapR*bondRest*margin; if(d2<thr*thr&&d2>1e-6)cnt++; } } }
   return cnt;
 }
-async function gpuBondDetectProbe(){
-  // VALIDATION PROBE (B1b): run GPU detection, read back candidates, compare to CPU oracle. Does NOT affect formation.
-  if(!GP.active || !GP.bondDetectReady || GP._bdBusy) return;
-  GP.bdProbeTick=(GP.bdProbeTick||0)+1; if((GP.bdProbeTick%12)!==0) return;
-  GP._bdBusy=true;
-  try{
-    const dev=GP.device, g=GP.endGrid;
-    { const ab=new ArrayBuffer(32),dv=new DataView(ab); dv.setUint32(0,g.nE,true);dv.setUint32(4,g.gx,true);dv.setUint32(8,g.gy,true);dv.setUint32(12,g.cap,true);dv.setFloat32(16,g.cell,true);dv.setFloat32(20,g.ox,true);dv.setFloat32(24,g.oy,true);dv.setFloat32(28,0,true); dev.queue.writeBuffer(GP.bufEndGridP,0,ab); }
-    { const ab=new ArrayBuffer(48),dv=new DataView(ab); dv.setUint32(0,g.nE,true);dv.setUint32(4,g.gx,true);dv.setUint32(8,g.gy,true);dv.setUint32(12,g.cap,true);dv.setFloat32(16,g.cell,true);dv.setFloat32(20,g.ox,true);dv.setFloat32(24,g.oy,true);dv.setFloat32(28,g.margin,true);dv.setUint32(32,g.candCap,true);dv.setUint32(36,0,true);dv.setUint32(40,0,true);dv.setUint32(44,0,true); dev.queue.writeBuffer(GP.bufDetectP,0,ab); }
-    { const ab=new ArrayBuffer(16),dv=new DataView(ab); dv.setUint32(0,g.numCells,true);dv.setUint32(4,g.cap,true); dev.queue.writeBuffer(GP.bufEndClearP,0,ab); }
-    dev.queue.writeBuffer(GP.bufEndOver,0,new Uint32Array([0,0,0,0])); dev.queue.writeBuffer(GP.bufCandCount,0,new Uint32Array([0,0,0,0])); dev.queue.writeBuffer(GP.bufCandOver,0,new Uint32Array([0,0,0,0]));
-    const enc=dev.createCommandEncoder();
-    { const p=enc.beginComputePass(); p.setPipeline(GP.clearPipe); p.setBindGroup(0,GP.bgEndClear); p.dispatchWorkgroups(Math.max(1,Math.ceil(g.numCells/64))); p.end(); }
-    { const p=enc.beginComputePass(); p.setPipeline(GP.endGridPipe); p.setBindGroup(0,GP.curBuf===0?GP.bgEndGridA:GP.bgEndGridB); p.dispatchWorkgroups(Math.max(1,Math.ceil(g.nE/64))); p.end(); }
-    { const p=enc.beginComputePass(); p.setPipeline(GP.bondDetectPipe); p.setBindGroup(0,GP.curBuf===0?GP.bgDetectA:GP.bgDetectB); p.dispatchWorkgroups(Math.max(1,Math.ceil(g.nE/64))); p.end(); }
-    dev.queue.submit([enc.finish()]);
-    const rbc=dev.createBuffer({size:16,usage:GPUBufferUsage.COPY_DST|GPUBufferUsage.MAP_READ});
-    const e2=dev.createCommandEncoder(); e2.copyBufferToBuffer(GP.bufCandCount,0,rbc,0,4); e2.copyBufferToBuffer(GP.bufCandOver,0,rbc,4,4); e2.copyBufferToBuffer(GP.bufEndOver,0,rbc,8,4); dev.queue.submit([e2.finish()]);
-    await rbc.mapAsync(GPUMapMode.READ); const cc=new Uint32Array(rbc.getMappedRange().slice(0)); rbc.unmap(); rbc.destroy();
-    const candCount=cc[0], candOver=cc[1], endOver=cc[2];
-    let valid=0,invalid=0; const nRead=Math.min(candCount,g.candCap);
-    if(nRead>0){ const bytes=Math.max(16,Math.ceil(nRead*8/16)*16); const rb=dev.createBuffer({size:bytes,usage:GPUBufferUsage.COPY_DST|GPUBufferUsage.MAP_READ});
-      const e3=dev.createCommandEncoder(); e3.copyBufferToBuffer(GP.bufCand,0,rb,0,bytes); dev.queue.submit([e3.finish()]);
-      await rb.mapAsync(GPUMapMode.READ); const arr=new Uint32Array(rb.getMappedRange().slice(0)); rb.unmap(); rb.destroy();
-      const endSet=new Set(G.ends), NN=G.nodes.length;
-      for(let i=0;i<nRead;i++){ const n1=arr[i*2],n2=arr[i*2+1]; let d2=1e18; if(n1<NN&&n2<NN){ const dx=NX[n2]-NX[n1],dy=NY[n2]-NY[n1]; d2=dx*dx+dy*dy; }
-        if(n1<n2 && endSet.has(n1) && endSet.has(n2) && d2<=g.ER2) valid++; else invalid++; } }
-    const cpuPairs=cpuCandidateCount(g.cell,g.margin);
-    GP.bdProbe={ends:g.nE, gpuCand:candCount, valid, invalid, candOver, endOver, cpuPairs, cell:+g.cell.toFixed(1)};
-    const A=GP.bdAccum||(GP.bdAccum={runs:0,peakEnds:0,peakGpuCand:0,peakCpuPairs:0,invalidSum:0,maxCandOver:0,maxEndOver:0,maxAbsDiff:0});
-    A.runs++; A.peakEnds=Math.max(A.peakEnds,g.nE); A.peakGpuCand=Math.max(A.peakGpuCand,candCount); A.peakCpuPairs=Math.max(A.peakCpuPairs,cpuPairs);
-    A.invalidSum+=invalid; A.maxCandOver=Math.max(A.maxCandOver,candOver); A.maxEndOver=Math.max(A.maxEndOver,endOver); A.maxAbsDiff=Math.max(A.maxAbsDiff,Math.abs(candCount-cpuPairs));
-  }catch(e){ GP.bdProbe={err:(e&&e.message)||'?'}; }
-  GP._bdBusy=false;
-}
 async function gpuBondTick(){
   // Hybrid bonding (stage A): throttled readback -> run the exact CPU bond pipeline -> rebuild GPU buffers on topology change.
   if(!GP.active || !S.bonding || GP._bondBusy) return;

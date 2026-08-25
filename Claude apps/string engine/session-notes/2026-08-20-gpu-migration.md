@@ -618,3 +618,13 @@ The CPU still does fine checks on the few candidates + arbitration + topology mu
 buffer-reuse). This removes the O(ends x 9cells) CPU bucketing+scan = the bonding hotspot the user flagged.
 TEST: real bonding scene, GPU, play, export -> expect bonding.path='gpu', low/zero fallbacks, bonds form/break
 as before, detectPeak still matching.
+
+## AUDIT ROUND 1 — dead code + resource hygiene
+- REMOVED gpuBondDetectProbe() (36 lines): dead since detection moved into gpuBondTick (pre-formation); no callers.
+- Readback staging buffers: all 9 MAP_READ createBuffer sites have a matching .destroy() within 4 lines — no leaks.
+- All size-varying GPU buffers go through mkR/bufR (16-byte-aligned reuse); only transient readbacks + diag-local
+  mk() allocate directly, and those are freed. No per-frame allocation leaks.
+- NOTED (left for user's call — pre-existing CPU-side, not GPU work, possible unwired API): objInv, pieceNodesOf,
+  refreshAutoSpace, sampleJSON, setObjAffinity are defined-but-never-called; thermalBreaks() is an intentional
+  documented retired no-op stub. buildScene's `const mk` is now unused (all converted to mkR) but harmlessly passed
+  to pack fns that ignore it. None removed (cosmetic, non-zero risk, out of migration scope).
