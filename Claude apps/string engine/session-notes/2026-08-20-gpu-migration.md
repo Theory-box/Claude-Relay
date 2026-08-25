@@ -733,3 +733,16 @@ gGrow (gpuRefreshProps -> bufMeta/bufStyle/bufSegF/bufBend/bufAffF/bufVmat/bufRe
 bend-rel + their angle limits (CPU reads live each tick); maxBondEvents/bondTimer/bondEnergy (read live).
 STILL NOT LIVE (documented, unchanged): autoSpace/spaceMult (Round 4 - opt-in, default off); solid per-SEGMENT
 collision bit (per-node is live; seg bit updates on next rebuild); weld (authoring-time, re-import by design).
+
+## AUDIT ROUND 5 (cont) — remaining settings verified
+- xpbd: read live by CPU collide() (line ~815, velocity correction), but NOT packed to GPU; the GPU collision uses
+  fixed omega/penfrac/maxdisp. So xpbd has NO effect under GPU physics (like contactDamp). CPU-only collision feel.
+- bondChunk (temporal spread): read live in endpointForces (CPU path). On GPU the analogous role is the bondEvery=6
+  throttle, so bondChunk only bites during CPU fallback. Minor.
+- weave: appears only in descriptive UI text; not an active physics setting (persisted key is vestigial). No-op.
+- Visual settings (strandFill/shade/gloss/outline/shadow/showHeat/color/bg): read live each frame by the CPU canvas
+  renderer -> live. The GPU instanced-capsule renderer (toggleable "standard view") styles from bufStyle (color +
+  radius) only, so the finer look settings apply in the CPU renderer, not the GPU one. Expected (perf view).
+NET after round 5: the reported break bug is fixed and bonding settings are now live. The only settings without live
+GPU effect are contactDamp / xpbd (CPU-only collision feel; GPU has its own tuning) and autoSpace (Round 4, opt-in).
+These are feature choices, not bugs - each could be added to the GPU shaders if wanted.
