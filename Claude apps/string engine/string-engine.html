@@ -2525,7 +2525,7 @@ function cpuCandidateCount(cell, margin){
 async function gpuBondDetectProbe(){
   // VALIDATION PROBE (B1b): run GPU detection, read back candidates, compare to CPU oracle. Does NOT affect formation.
   if(!GP.active || !GP.bondDetectReady || GP._bdBusy) return;
-  GP.bdProbeTick=(GP.bdProbeTick||0)+1; if((GP.bdProbeTick%30)!==0) return;
+  GP.bdProbeTick=(GP.bdProbeTick||0)+1; if((GP.bdProbeTick%12)!==0) return;
   GP._bdBusy=true;
   try{
     const dev=GP.device, g=GP.endGrid;
@@ -2551,6 +2551,9 @@ async function gpuBondDetectProbe(){
         if(n1<n2 && endSet.has(n1) && endSet.has(n2) && d2<=g.ER2) valid++; else invalid++; } }
     const cpuPairs=cpuCandidateCount(g.cell,g.margin);
     GP.bdProbe={ends:g.nE, gpuCand:candCount, valid, invalid, candOver, endOver, cpuPairs, cell:+g.cell.toFixed(1)};
+    const A=GP.bdAccum||(GP.bdAccum={runs:0,peakEnds:0,peakGpuCand:0,peakCpuPairs:0,invalidSum:0,maxCandOver:0,maxEndOver:0,maxAbsDiff:0});
+    A.runs++; A.peakEnds=Math.max(A.peakEnds,g.nE); A.peakGpuCand=Math.max(A.peakGpuCand,candCount); A.peakCpuPairs=Math.max(A.peakCpuPairs,cpuPairs);
+    A.invalidSum+=invalid; A.maxCandOver=Math.max(A.maxCandOver,candOver); A.maxEndOver=Math.max(A.maxEndOver,endOver); A.maxAbsDiff=Math.max(A.maxAbsDiff,Math.abs(candCount-cpuPairs));
   }catch(e){ GP.bdProbe={err:(e&&e.message)||'?'}; }
   GP._bdBusy=false;
 }
@@ -2676,7 +2679,7 @@ window.setGpuPhysicsMode=function(on){ if(on){ activate(); } else { deactivate(t
 window.gpuPhysicsDiscard=function(reason){ try{disposeBuffers();}catch(e){} if(GP.active){ GP.active=false; S.gpuPhysics=false; S.gpu=GP.prevGpu; cw.style.display='none'; const cgl=document.getElementById('cgl'); if(cgl)cgl.style.display=(S.gpu||S.micro)?'block':'none'; badge(false,reason||'scene changed'); setToggle(false); status('off \u00B7 '+(reason||'scene changed')); window.RD=true; } };
 window.gpuPhysicsDropToCPU=function(reason){ if(GP.active) deactivate(true,reason||'editing'); };
 window.gpuPhysicsDiagnostics=()=>({active:GP.active,supported:supported(),nodes:GP.N,segs:GP.numSeg,directedLinks:GP.numDir,frame:GP.frameN,readbacks:GP.readbacks,lastExit:GP.lastExit,passes:GP_PASSES,relax:GP_RELAX,
-  refreshN:GP.refreshN,refreshErr:GP.refreshErr,bendReady:GP.bendReady,bonding:{on:!!S.bonding,every:GP.bondEvery,ticks:GP.bondTicks,events:GP.bondEvents,busy:GP._bondBusy,detect:(GP.bondDetectReady?(GP.bdProbe||'pending'):(GP.bondDetectSupported?'idle':'unsupported'))},
+  refreshN:GP.refreshN,refreshErr:GP.refreshErr,bendReady:GP.bendReady,bonding:{on:!!S.bonding,every:GP.bondEvery,ticks:GP.bondTicks,events:GP.bondEvents,busy:GP._bondBusy,detect:(GP.bondDetectReady?(GP.bdProbe||'pending'):(GP.bondDetectSupported?'idle':'unsupported')),detectPeak:(GP.bdAccum||null)},
   collision:{supported:GP.collSupported,ready:GP.collReady,maxStorageBuf:GP.maxStorageBuf,iters:(S.gpuCollIters!=null?(S.gpuCollIters|0):(S.iters||4)),lastOverflow:(GP.lastOverflow!=null?GP.lastOverflow:null),
     grid:(GP.grid?{gx:GP.grid.gx,gy:GP.grid.gy,cell:GP.grid.cell,numCells:GP.grid.numCells,cap:GP.grid.cap,reach:+GP.grid.reach.toFixed(2)}:null),omega:GP_COLL_OMEGA,penFrac:GP_COLL_PENFRAC,maxDisp:GP_COLL_MAXDISP},
   affinity:{supported:GP.affSupported,ready:GP.affReady,lastOverflow:(GP.lastAffOverflow!=null?GP.lastAffOverflow:null),base:GP_AFF_BASE,maxDisp:GP_AFF_MAXDISP,nObj:(GP.affGrid?GP.affGrid.nO:0),grid:(GP.affGrid?{gx:GP.affGrid.gx,gy:GP.affGrid.gy,cell:+GP.affGrid.cell.toFixed(1),numCells:GP.affGrid.numCells,cap:GP.affGrid.cap,reach:+GP.affGrid.reach.toFixed(1)}:null)}});
