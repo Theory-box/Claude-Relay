@@ -746,3 +746,20 @@ collision bit (per-node is live; seg bit updates on next rebuild); weld (authori
 NET after round 5: the reported break bug is fixed and bonding settings are now live. The only settings without live
 GPU effect are contactDamp / xpbd (CPU-only collision feel; GPU has its own tuning) and autoSpace (Round 4, opt-in).
 These are feature choices, not bugs - each could be added to the GPU shaders if wanted.
+
+## AUDIT ROUND 6 — performance + robustness sweep (no new bugs)
+Confirmed robust; two items documented (neither a bug):
+1. Per-frame param packing (OPTIMIZATION, not done): step() re-packs the collision/affinity grid param buffers
+   (bufAffP/bufGridTP/bufClearAP/bufCollP/bufGridP/bufClearP) every step via fresh ArrayBuffer+DataView, but
+   GP.grid/GP.affGrid are CONSTANT between rebuilds (assigned only in packCollision/packAffinity). So ~6 writeBuffers
+   + allocations per step carry unchanged values. Could be packed once per rebuild (only the overflow-counter reset
+   is genuinely per-step). Left as a deliberate follow-up: it's a blind hot-path change (no sandbox WebGPU) with a
+   struct-layout-offset risk, better done when it can be tested on the user GPU.
+2. GPU grid extent frozen between rebuilds (PARITY NUANCE, safe): CPU rebuilds the collision grid from current
+   positions every frame; GPU freezes the grid geometry at buildScene (to avoid per-frame readbacks). A walls-off,
+   no-bonding scene that drifts far could leave the extent. VERIFIED SAFE: WGSL_GRIDBUILD clamps cell indices to
+   [0,gx-1]x[0,gy-1] and counts overflow, so escaped nodes pile into edge cells (degraded collision) without
+   corruption or crash. With walls on OR bonding active (grid refreshes on topology change) this never arises.
+Robustness confirmed: empty scene dispatches a guarded workgroup (shaders guard i>=count); zoom clamped to
+[0.25,6] so 1/view.z render terms never blow up; recomputeBondThresholds guards !G.segs/!G.objs and endProf/objType
+return safe fallbacks. New round-5 code is safe under load.
