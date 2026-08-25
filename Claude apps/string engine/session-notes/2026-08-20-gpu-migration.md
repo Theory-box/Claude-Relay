@@ -709,3 +709,27 @@ are deliberate feature choices; two (contactDamp, solid-seg-bit) are architectur
   `node --check` clean; outputs == repo HEAD. File 2949 -> 2918 lines (net: -36 dead code, +guards/clamps).
 
 ## AUDIT COMPLETE (rounds 1-4 + final sweep). Ready for user testing, then merge feature/gpu -> main (pre-granted).
+
+## AUDIT ROUND 5 — real-time settings updates (user report: bond breaking didn't update until end-snapping re-enabled)
+Root cause (two live-update gaps, both in the BONDING subsystem; everything else already updates live):
+- Bond thresholds (brk/merge/blend/bStr/hardenPow) bake into each segment at FORMATION (s.brk from nb.brk from the
+  end-type profile). Editing the profile or the global Break slider afterward changed S.bondBrk / the profile but
+  NOT existing bonds. Enabling end snapping formed NEW bonds (with the new value) + triggered buildScene, which is
+  why it "fixed" itself. flagBondBreaks reads s.brk, so existing bonds kept breaking at the stale distance.
+- Bond snap (GPU detection) is packed into endMeta + the detection grid geometry at buildScene; gpuRefreshProps did
+  NOT refresh them, so INCREASING snap didn't detect farther bonds until a rebuild. (Decreasing worked, because
+  evalBondPair re-validates live.)
+FIX:
+- recomputeBondThresholds(): existing bonds adopt their current end-type profile thresholds (same max/min reductions
+  as newBonds creation, so idempotent for unchanged profiles; keeps baked values when no profile is found). Hooked
+  into the input/change listener, so it runs on both CPU and GPU. Unit-tested (7 cases: updates, idempotence,
+  profile-change propagation, no-profile guard, dead/non-bond skip - all pass).
+- gpuRefreshProps sets GP.bondDetectDirty; gpuBondTick re-packs detection (packBondDetect) once when dirty, AFTER the
+  position readback (fresh NX/NY for the grid extent), so snap-distance + grid changes take effect without a topology
+  rebuild.
+VERIFIED LIVE ALREADY (no change needed): temp/damp/speed/depth/wallPad/quality (packParams each step);
+thickness/color/solid/fixed/stiffness/curl/grow/pad/affinity/polarity/affRange/interactions and global gStiff/gCurl/
+gGrow (gpuRefreshProps -> bufMeta/bufStyle/bufSegF/bufBend/bufAffF/bufVmat/bufRest); breakable/stretch/bend-abs/
+bend-rel + their angle limits (CPU reads live each tick); maxBondEvents/bondTimer/bondEnergy (read live).
+STILL NOT LIVE (documented, unchanged): autoSpace/spaceMult (Round 4 - opt-in, default off); solid per-SEGMENT
+collision bit (per-node is live; seg bit updates on next rebuild); weld (authoring-time, re-import by design).

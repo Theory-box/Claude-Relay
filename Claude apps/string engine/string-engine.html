@@ -890,6 +890,17 @@ function applyNewBonds(newBonds){
     if(added)rebuildTopology();
   }
 }
+function recomputeBondThresholds(){   // live: existing bonds adopt their current end-type profile thresholds (break distance, merge, blend, strength, harden) so slider/profile edits take effect without reforming the bond
+  if(!G.segs||!G.objs)return;
+  for(const s of G.segs){ if(!s.bond||s.dead)continue;
+    const na=G.nodes[s.a], nb=G.nodes[s.b]; if(!na||!nb)continue;
+    const o1=G.objs[na.obj], o2=G.objs[nb.obj]; if(!o1||!o2)continue;
+    const t1=objType(o1), t2=objType(o2), p1=endProf(o1,t2), p2=endProf(o2,t1);
+    if(!p1&&!p2)continue;   // no profile -> keep baked values (matches the creation guard)
+    const bks=[p1?p1.brk:null,p2?p2.brk:null].filter(v=>v!=null), bls=[p1?p1.blend:null,p2?p2.blend:null].filter(v=>v!=null), mgs=[p1?p1.merge:null,p2?p2.merge:null].filter(v=>v!=null), bss=[p1?p1.bStr:null,p2?p2.bStr:null].filter(v=>v!=null), hps=[p1?p1.hardenPow:null,p2?p2.hardenPow:null].filter(v=>v!=null);
+    if(bks.length)s.brk=Math.max(...bks); if(bls.length)s.blend=Math.min(...bls); if(mgs.length)s.mergeTime=Math.min(...mgs); if(bss.length)s.bStr=Math.min(...bss); if(hps.length)s.hardenPow=Math.max(...hps);   // same reductions as newBonds creation -> idempotent for unchanged profiles
+  }
+}
 function evalBondPair(n1,n2,newBonds){   // GPU-path per-pair fine check. VERIFIED byte-identical decision logic to the inline check in endpointForces (CPU path) — keep the two in sync if either changes.
   const objs=G.objs, a=G.nodes[n1], bn=G.nodes[n2]; if(!a||!bn)return;
   const dxp=bn.x-a.x,dyp=bn.y-a.y,d2=dxp*dxp+dyp*dyp; if(d2<1e-6)return;
@@ -1373,7 +1384,7 @@ function frame(now){const dt=now-lastT;lastT=now;
   if(did||window.RD||panning){ema=ema*0.9+(1000/Math.max(1,dt))*0.1;if(S.gpuPhysics&&typeof window.gpuPhysicsRender==='function')window.gpuPhysicsRender();else if(S.micro&&typeof renderMicro==='function')renderMicro();else if(S.gpu&&typeof renderGPU==='function')renderGPU();else render();window.RD=false;document.getElementById('sFps').textContent=Math.round(ema)+' fps';}
   requestAnimationFrame(frame);}
 ['pointerdown','pointermove','pointerup','wheel','keydown'].forEach(ev=>window.addEventListener(ev,()=>{window.RD=true;},true));
-['input','change'].forEach(ev=>document.addEventListener(ev,()=>{ if(window.gpuRefreshProps)window.gpuRefreshProps(); },false));  // BUBBLE phase: fires AFTER the control's own handler writes the model, so vmat/props read fresh values
+['input','change'].forEach(ev=>document.addEventListener(ev,()=>{ if(typeof recomputeBondThresholds==='function')recomputeBondThresholds(); if(window.gpuRefreshProps)window.gpuRefreshProps(); },false));  // BUBBLE phase: fires AFTER the control's own handler writes the model, so vmat/props read fresh values
 ['input','change'].forEach(ev=>document.addEventListener(ev,()=>{window.RD=true;},true));                                        // any slider/toggle change too
 function refreshStats(){window.RD=true;document.getElementById('sObjs').textContent=G.objs.length;
   document.getElementById('sNS').textContent=G.nodes.length+' · '+G.segs.length;
@@ -2557,6 +2568,7 @@ function gpuRefreshProps(){ if(!GP.active||!GP.device)return; const dev=GP.devic
   if(GP.bufRest && GP._baseRest && GP._edgeObj){ const R=GP._baseRest, EO=GP._edgeObj, nd=R.length, out=new Float32Array(nd);
     for(let c=0;c<nd;c++){ const o=G.objs[EO[c]]||{}; const g=(typeof effGrow==='function'?effGrow(o):(o.grow||0)); out[c]=R[c]*Math.max(0,1+g); }
     dev.queue.writeBuffer(GP.bufRest,0,out); }
+  GP.bondDetectDirty=true;   // a property changed -> detection buffers (snap distance + grid geometry) may be stale; re-pack on next bond tick
 }catch(e){ GP.refreshErr=e.message; console.warn('[gpuRefreshProps]',e.message); if(typeof status==='function')status('gpuRefresh error: '+e.message,true); } }
 function cpuCandidateCount(cell, margin){
   const ends=G.ends; if(!ends||ends.length<2)return 0; const objs=G.objs, nE=ends.length;
@@ -2583,6 +2595,7 @@ async function gpuBondTick(){
       await rb.mapAsync(GPUMapMode.READ); const arr=new Float32Array(rb.getMappedRange().slice(0)); rb.unmap(); rb.destroy();
       for(let i=0;i<N;i++){ NX[i]=arr[i*4]; NY[i]=arr[i*4+1]; NH[i]=arr[i*4+2]; NPX[i]=arr[(GP.N+i)*4]; NPY[i]=arr[(GP.N+i)*4+1]; NPH[i]=arr[(GP.N+i)*4+2]; }
       GP.readbacks++; window.RD=true; }
+    if(GP.bondDetectDirty){ try{ const d=GP.device, bg=(pipe,en)=>d.createBindGroup({layout:pipe.getBindGroupLayout(0),entries:en}), B=(k,b)=>({binding:k,resource:{buffer:b}}); packBondDetect(bg,B); }catch(e){} GP.bondDetectDirty=false; }   // live: re-pack (fresh NX/NY) so snap-distance / grid changes take effect without a topology rebuild
     let gpuPairs=null, gpuUsable=false;
     if(GP.bondDetectReady){ try{                             // measure candidates on the pre-formation positions (== NX/NY)
       const dev=GP.device, g=GP.endGrid;
