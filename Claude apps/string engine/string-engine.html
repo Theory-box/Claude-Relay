@@ -598,18 +598,18 @@ function build(scene){
 // ===== DEV TEST SCENE (Claude keeps this repurposed for whatever is under test) =====
 // Current target: BONDING stage B (GPU detection). Dense short strands, loose ends, snappy same-type bonding.
 function buildDevScene(W,H,cx,cy){
-  const count=140, R=Math.min(W,H)*0.34;                       // dense central cluster -> ends stay near neighbours
-  for(let k=0;k<count;k++){
-    const N=Math.round(rnd(3,5)), L=rnd(8,12);
-    const a0=rnd(0,6.2832), rr=Math.sqrt(rnd(0,1))*R;
-    let x=cx+Math.cos(a0)*rr, y=cy+Math.sin(a0)*rr, ang=rnd(0,6.2832); const pts=[];
+  const cols=11, rows=13, sx=W*0.078, sy=H*0.052;             // SPACED grid: strands start separate, converge in GPU mode
+  const x0=cx-(cols-1)*sx/2, y0=cy-(rows-1)*sy/2;
+  for(let r=0;r<rows;r++)for(let c=0;c<cols;c++){
+    const N=Math.round(rnd(3,4)), L=rnd(6,9);
+    let x=x0+c*sx+rnd(-6,6), y=y0+r*sy+rnd(-6,6), ang=rnd(0,6.2832); const pts=[];
     for(let i=0;i<N;i++){ pts.push({x,y,z:0}); ang+=rnd(-0.4,0.4); x+=Math.cos(ang)*L; y+=Math.sin(ang)*L; }
-    addGraphObject(polyVerts(pts), chainEdges(N,false), {name:'devstrand', r:rnd(2.4,3.2), stiff:0.06, curl:rnd(-0.2,0.2), color:PALETTE[k%PALETTE.length]});
+    addGraphObject(polyVerts(pts), chainEdges(N,false), {name:'devstrand', r:2.6, stiff:0.06, curl:rnd(-0.2,0.2), color:PALETTE[(r*cols+c)%PALETTE.length]});
   }
 }
 function configureDevBonding(){
-  S.bonding=true; S.temp=Math.max(S.temp||0,0.6);              // hot enough to keep ends moving
-  const prof={wStr:0,wRange:120,sStr:0.6,sRange:40,snap:2.2,brk:1.7,merge:0,blend:0,bStr:0.4,hardenPow:2};  // brk low -> bonds break under jitter -> ends re-freed -> ongoing form/break churn
+  S.bonding=true; S.temp=Math.max(S.temp||0,0.6);
+  const prof={wStr:0,wRange:120,sStr:0.5,sRange:40,snap:2.2,brk:1.5,merge:0,blend:0,bStr:0.4,hardenPow:2};  // gentle pull -> gradual convergence -> sustained candidates
   for(const o of G.objs){ o.bondOn=true; o.ids=['dev']; o.endType={dev:JSON.parse(JSON.stringify(prof))}; }
   try{ const t=document.getElementById('sBond'); if(t)t.classList.add('on'); }catch(e){}
 }
@@ -2570,6 +2570,25 @@ async function gpuBondTick(){
       await rb.mapAsync(GPUMapMode.READ); const arr=new Float32Array(rb.getMappedRange().slice(0)); rb.unmap(); rb.destroy();
       for(let i=0;i<N;i++){ NX[i]=arr[i*4]; NY[i]=arr[i*4+1]; NH[i]=arr[i*4+2]; NPX[i]=arr[(GP.N+i)*4]; NPY[i]=arr[(GP.N+i)*4+1]; NPH[i]=arr[(GP.N+i)*4+2]; }
       GP.readbacks++; window.RD=true; }
+    if(GP.bondDetectReady){ try{                             // measure candidates on the pre-formation positions (== NX/NY)
+      const dev=GP.device, g=GP.endGrid;
+      { const ab=new ArrayBuffer(32),dv=new DataView(ab); dv.setUint32(0,g.nE,true);dv.setUint32(4,g.gx,true);dv.setUint32(8,g.gy,true);dv.setUint32(12,g.cap,true);dv.setFloat32(16,g.cell,true);dv.setFloat32(20,g.ox,true);dv.setFloat32(24,g.oy,true);dv.setFloat32(28,0,true); dev.queue.writeBuffer(GP.bufEndGridP,0,ab); }
+      { const ab=new ArrayBuffer(48),dv=new DataView(ab); dv.setUint32(0,g.nE,true);dv.setUint32(4,g.gx,true);dv.setUint32(8,g.gy,true);dv.setUint32(12,g.cap,true);dv.setFloat32(16,g.cell,true);dv.setFloat32(20,g.ox,true);dv.setFloat32(24,g.oy,true);dv.setFloat32(28,g.margin,true);dv.setUint32(32,g.candCap,true);dv.setUint32(36,0,true);dv.setUint32(40,0,true);dv.setUint32(44,0,true); dev.queue.writeBuffer(GP.bufDetectP,0,ab); }
+      { const ab=new ArrayBuffer(16),dv=new DataView(ab); dv.setUint32(0,g.numCells,true);dv.setUint32(4,g.cap,true); dev.queue.writeBuffer(GP.bufEndClearP,0,ab); }
+      dev.queue.writeBuffer(GP.bufEndOver,0,new Uint32Array([0,0,0,0])); dev.queue.writeBuffer(GP.bufCandCount,0,new Uint32Array([0,0,0,0])); dev.queue.writeBuffer(GP.bufCandOver,0,new Uint32Array([0,0,0,0]));
+      const enc=dev.createCommandEncoder();
+      { const p=enc.beginComputePass(); p.setPipeline(GP.clearPipe); p.setBindGroup(0,GP.bgEndClear); p.dispatchWorkgroups(Math.max(1,Math.ceil(g.numCells/64))); p.end(); }
+      { const p=enc.beginComputePass(); p.setPipeline(GP.endGridPipe); p.setBindGroup(0,GP.curBuf===0?GP.bgEndGridA:GP.bgEndGridB); p.dispatchWorkgroups(Math.max(1,Math.ceil(g.nE/64))); p.end(); }
+      { const p=enc.beginComputePass(); p.setPipeline(GP.bondDetectPipe); p.setBindGroup(0,GP.curBuf===0?GP.bgDetectA:GP.bgDetectB); p.dispatchWorkgroups(Math.max(1,Math.ceil(g.nE/64))); p.end(); }
+      dev.queue.submit([enc.finish()]);
+      const rbc=dev.createBuffer({size:16,usage:GPUBufferUsage.COPY_DST|GPUBufferUsage.MAP_READ});
+      const e2=dev.createCommandEncoder(); e2.copyBufferToBuffer(GP.bufCandCount,0,rbc,0,4); e2.copyBufferToBuffer(GP.bufCandOver,0,rbc,4,4); e2.copyBufferToBuffer(GP.bufEndOver,0,rbc,8,4); dev.queue.submit([e2.finish()]);
+      await rbc.mapAsync(GPUMapMode.READ); const cc=new Uint32Array(rbc.getMappedRange().slice(0)); rbc.unmap(); rbc.destroy();
+      const candCount=cc[0], candOver=cc[1], endOver=cc[2], cpuPairs=cpuCandidateCount(g.cell,g.margin);
+      GP.bdProbe={ends:g.nE, gpuCand:candCount, candOver, endOver, cpuPairs, absDiff:Math.abs(candCount-cpuPairs), cell:+g.cell.toFixed(1)};
+      const A=GP.bdAccum||(GP.bdAccum={runs:0,peakEnds:0,peakGpuCand:0,peakCpuPairs:0,maxCandOver:0,maxEndOver:0,maxAbsDiff:0});
+      A.runs++; A.peakEnds=Math.max(A.peakEnds,g.nE); A.peakGpuCand=Math.max(A.peakGpuCand,candCount); A.peakCpuPairs=Math.max(A.peakCpuPairs,cpuPairs); A.maxCandOver=Math.max(A.maxCandOver,candOver); A.maxEndOver=Math.max(A.maxEndOver,endOver); A.maxAbsDiff=Math.max(A.maxAbsDiff,Math.abs(candCount-cpuPairs));
+    }catch(e){ GP.bdProbe={err:(e&&e.message)||'?'}; } }
     const s0=G.segs.length, n0=G.nodes.length;
     if(typeof endpointForces==='function')endpointForces();     // formation (proximity) + pull
     if(typeof flagBondBreaks==='function')flagBondBreaks();
@@ -2583,7 +2602,6 @@ async function gpuBondTick(){
 }
 function step(speed){ if(GP.diagRunning)return; if(!GP.active||!GP.device)return; const dev=GP.device, WG=Math.max(1,Math.ceil(GP.N/64)); const n=speed||1;
   gpuBondTick();
-  gpuBondDetectProbe();
   if(GP.affReady){ const g=GP.affGrid;
     { const ab=new ArrayBuffer(48),dv=new DataView(ab); dv.setUint32(0,GP.N,true);dv.setUint32(4,g.gx,true);dv.setUint32(8,g.gy,true);dv.setUint32(12,g.cap,true);
       dv.setFloat32(16,g.cell,true);dv.setFloat32(20,g.ox,true);dv.setFloat32(24,g.oy,true);dv.setUint32(28,g.nO,true);

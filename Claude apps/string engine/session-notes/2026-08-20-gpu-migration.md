@@ -576,3 +576,15 @@ S.bonding=true, S.temp>=0.35. On play, ends jitter+pull together and bond -> str
 WORKFLOW: Claude rewrites buildDevScene/configureDevBonding for whatever is under test; user clicks "dev test",
 plays, exports diag. (Note: emoji in source truncates the file via Python surrogate-encoding on write — keep dev
 labels plain ASCII.)
+
+## B1b probe #2 result + fixes (dev scene converged on CPU before GPU; probe ran post-formation)
+Diag: peakEnds 2, peakGpuCand 0 — the 140 dense strands bonded into ONE blob (ends 96->2), and it converged
+during the CPU frames (telemetry t1-8 cpu) BEFORE the GPU switch, so GPU detection inherited a settled blob. Also
+the probe ran in step() AFTER gpuBondTick formation each cycle, so formation consumed candidates before the probe
+looked. Detection wiring itself was clean (41 runs, 0 errors/overflow). Two fixes:
+1. Moved detection measurement INTO gpuBondTick, right after the position readback and BEFORE endpointForces, on
+   the SAME cur-buffer positions as the CPU oracle (cpuCandidateCount on NX/NY). This is exactly the B1c data flow
+   (detect -> compare -> form) and catches candidates before formation eats them. Removed the old step() probe.
+2. Dev scene: SPACED 11x13 grid (strands start separate) + gentle pull (sStr 0.5) so convergence happens GRADUALLY
+   in GPU mode -> sustained candidates over seconds. USAGE: switch to GPU before/right as you play so convergence
+   is captured on GPU not CPU. detectPeak accumulator catches the bursts.
