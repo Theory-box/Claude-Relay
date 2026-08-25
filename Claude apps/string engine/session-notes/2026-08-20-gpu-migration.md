@@ -695,3 +695,17 @@ Each remaining CPU-only feature was traced to decide whether it's a real gap. No
 
 Net: the GPU migration has NO silent correctness bugs among the known gaps. Two items (autoSpace, full endpoint pull)
 are deliberate feature choices; two (contactDamp, solid-seg-bit) are architectural equivalences/rebuild-driven.
+
+## AUDIT FINAL SWEEP — async safety + resource teardown + whole-file validation
+- disposeBuffers completeness: 44 buffers allocated, 44 destroyed, ZERO allocated-but-not-freed (no leak on scene
+  replace) and zero stale names. Exact.
+- gpuBondTick async busy-guard: sound. All three early returns (not active / throttled / no bondable objects) happen
+  BEFORE GP._bondBusy=true; there are NO returns inside the try block, and GP._bondBusy=false runs after the
+  try/catch on every path (success and caught-error, incl. async mapAsync rejection). No stuck-flag risk.
+- Fallback path: if GPU detection throws, gpuUsable=false -> endpointForces() (CPU) + GP.bondFallbacks++. Graceful.
+- All fire-and-forget readbacks (stats/coll-overflow/aff-overflow) are try/catch wrapped, so a buffer destroyed
+  mid-flight can't crash the loop.
+- Whole-file validation after all audit rounds: all 11 WGSL shaders naga "Validation successful"; all 3 JS blocks
+  `node --check` clean; outputs == repo HEAD. File 2949 -> 2918 lines (net: -36 dead code, +guards/clamps).
+
+## AUDIT COMPLETE (rounds 1-4 + final sweep). Ready for user testing, then merge feature/gpu -> main (pre-granted).
