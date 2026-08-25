@@ -628,3 +628,16 @@ as before, detectPeak still matching.
   refreshAutoSpace, sampleJSON, setObjAffinity are defined-but-never-called; thermalBreaks() is an intentional
   documented retired no-op stub. buildScene's `const mk` is now unused (all converted to mkR) but harmlessly passed
   to pack fns that ignore it. None removed (cosmetic, non-zero risk, out of migration scope).
+
+## AUDIT ROUND 2 — stability
+- NaN guards: added final `if(any(nd!=nd)){nd=p;}` to WGSL_COLLIDE + WGSL_AFFINITY position writes. NaN guards are
+  now uniform across all 5 position-mutating shaders (INT/CON/BEND already had them). Note: affinity's maxDisp clamp
+  did NOT catch NaN (NaN>maxDisp is false), so a NaN accum could have slipped through — now guarded. naga-valid.
+- Grid memory bound: added a coarsening clamp (GP_MAXCELLS=1<<19) to the collision, affinity, and endpoint grids.
+  numCells was driven purely by the scene bounding box with NO cap -> a walls-off, far-drifting scene could request
+  a multi-GB cellBins buffer and fail (black screen). Now, if numCells exceeds the budget, the cell size is coarsened
+  (sqrt scale) so the grid buffer stays <=~128MB. Verified headlessly: no-op for normal scenes (even 8000x8000
+  untouched), and capped at ~525k cells / 128MB for scenes up to 2,000,000 px across. GP.gridCoarsened counts events.
+- Confirmed clean: div-zero guards on all divides; overflow (coll/aff/bond/endpoint grids) degrades gracefully
+  (drops from cell, counts overflow, monitored via lastOverflow/lastAffOverflow/candOver->CPU fallback); buffer-reuse
+  recreates bind groups after any mkR/bufR realloc (no stale buffer refs); all readback staging buffers destroyed.

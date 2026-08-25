@@ -1847,6 +1847,7 @@ const GP={active:false,initing:false,device:null,ctx:null,format:null,prevGpu:fa
   N:0,numSeg:0,numDir:0,curBuf:0,frameN:0,readbacks:0,lastExit:null,wgslMsgs:[],adapterInfo:null,lastStats:null,lastStatsT:0,telemBusy:false,log:[],diagRunning:false,_pos0:null,_segCache:null,_fixed:null};
 const GP_PASSES=8, GP_RELAX=0.6;
 const GP_COLL_OMEGA=1.0, GP_COLL_PENFRAC=0.25, GP_COLL_MAXDISP=6.0, GP_COLL_MARGIN=1.5, GP_COLL_CAP=64;
+const GP_MAXCELLS=1<<19;   // grid cell budget: numCells*cap*4 bytes stays <=~128MB; a spread-out (walls-off drift) scene coarsens the cell instead of requesting a giant buffer
 const GP_AFF_BASE=0.18, GP_AFF_MAXDISP=8.0;
 const GP_BOND_MARGIN=1.2;
 const WGSL_ENDGRID=`
@@ -1974,7 +1975,7 @@ fn main(@builtin(global_invocation_id) gid:vec3<u32>){
     }
   }
   var delta=accum; let m=length(delta); if(m>U.maxDisp){ delta=delta*(U.maxDisp/m); }  // mandatory per-node clamp (stability)
-  posOut[i]=vec4<f32>(p+delta, 0.0);
+  var nd=p+delta; if(any(nd!=nd)){ nd=p; } posOut[i]=vec4<f32>(nd, 0.0);
 }`;
 const WGSL_GRIDBUILDT=`
 struct GB { count:u32, gx:u32, gy:u32, cap:u32, cell:f32, ox:f32, oy:f32, reach:f32, };
@@ -2148,7 +2149,7 @@ fn main(@builtin(global_invocation_id) gid:vec3<u32>){
   }
   var delta=vec3<f32>(0.0);
   if(contacts>0u){ delta=accum/f32(contacts); delta=delta*U.omega; let m=length(delta); if(m>U.maxDisp){ delta=delta*(U.maxDisp/m); } }
-  posOut[i]=vec4<f32>(p+delta, 0.0);
+  var nd=p+delta; if(any(nd!=nd)){ nd=p; } posOut[i]=vec4<f32>(nd, 0.0);
 }`;
 
 function status(msg,bad){const e=document.getElementById('gpuPhysicsStatus');if(e){e.textContent=msg;e.style.color=bad?'#ff8a9a':'var(--dim)';}}
@@ -2386,12 +2387,13 @@ function packCollision(segList,N,device,mk,bg,B,ST,CD,CS,UN){
       const selfSolid=(o.selfSolid!==false)?1:0;
       segI[s*4]=sg.a; segI[s*4+1]=sg.b; segI[s*4+2]=(piece[sg.a]|0); segI[s*4+3]=(sg.bond?1:0)|((sg.solid?1:0)<<1)|(selfSolid<<2)|((sg.obj||0)<<3);
       segF[s*4]=er; segF[s*4+1]=(o.padSelf||o.padOther||0); segF[s*4+2]=along[s]; segF[s*4+3]=skip; }
-    const reach=maxR+maxPad+GP_COLL_MARGIN, cell=Math.max(10,2*(maxR+maxPad));
+    const reach=maxR+maxPad+GP_COLL_MARGIN; let cell=Math.max(10,2*(maxR+maxPad));
     let bx0=1e9,by0=1e9,bx1=-1e9,by1=-1e9; for(let i=0;i<N;i++){ if(NX[i]<bx0)bx0=NX[i]; if(NY[i]<by0)by0=NY[i]; if(NX[i]>bx1)bx1=NX[i]; if(NY[i]>by1)by1=NY[i]; }
     const Wb=Math.max((S.W||0),bx1)+60, Hb=Math.max((S.H||0),by1)+60;
     const ox=Math.min(0,bx0)-reach-cell, oy=Math.min(0,by0)-reach-cell;
-    const gx=Math.max(1,Math.ceil((Wb-ox+reach+cell)/cell)), gy=Math.max(1,Math.ceil((Hb-oy+reach+cell)/cell));
-    const numCells=gx*gy, cap=GP_COLL_CAP;
+    let gx=Math.max(1,Math.ceil((Wb-ox+reach+cell)/cell)), gy=Math.max(1,Math.ceil((Hb-oy+reach+cell)/cell));
+    let numCells=gx*gy; const cap=GP_COLL_CAP;
+    if(numCells>GP_MAXCELLS){ const scale=Math.sqrt(numCells/GP_MAXCELLS); cell=cell*scale; gx=Math.max(1,Math.ceil((Wb-ox+reach+cell)/cell)); gy=Math.max(1,Math.ceil((Hb-oy+reach+cell)/cell)); numCells=gx*gy; GP.gridCoarsened=(GP.gridCoarsened||0)+1; }   // stability: bound grid memory (coarsen rather than allocate a giant buffer)
     GP.grid={gx,gy,cell,ox,oy,reach,cap,numCells};
     GP.bufNSR=mkR('bufNSR',nsRange,ST|CD); GP.bufNSL=mkR('bufNSL',nsList,ST|CD); GP.bufSegI=mkR('bufSegI',segI,ST|CD); GP.bufSegF=mkR('bufSegF',segF,ST|CD);
     GP.bufSegCell=bufR('bufSegCell',numSeg*16,ST|CD);
@@ -2453,12 +2455,13 @@ function packBondDetect(bg,B){
     const objs=G.objs; let any=false,nBond=0; for(const o of objs){ if(o.bondOn){nBond++; if(o.endType && Object.keys(o.endType).length)any=true;} } if(!any){ GP.bondDetectWhy='no-eligible bondOn='+nBond+'/'+objs.length; return; }
     let maxR=30,maxER=0; for(const o of objs){ const er=(typeof effR==='function'?effR(o):(o.r||4)); if(er>maxER)maxER=er; }
     for(const o of objs) if(o.endType) for(const k in o.endType){ const p=o.endType[k]; if(p.wRange>maxR)maxR=p.wRange; if(p.sRange>maxR)maxR=p.sRange; const snapD=(p.snap||0)*((typeof effR==='function'?effR(o):(o.r||4))+maxER); if(snapD>maxR)maxR=snapD; }
-    const ER=maxR+10, ER2=ER*ER, cell=Math.max(8,ER);
+    const ER=maxR+10, ER2=ER*ER; let cell=Math.max(8,ER);
     const nE=ends.length, endList=new Uint32Array(nE); for(let i=0;i<nE;i++)endList[i]=ends[i];
     let bx0=1e9,by0=1e9,bx1=-1e9,by1=-1e9; for(let i=0;i<nE;i++){ const n=ends[i], x=NX[n], y=NY[n]; if(x<bx0)bx0=x;if(y<by0)by0=y;if(x>bx1)bx1=x;if(y>by1)by1=y; }
     const ox=bx0-cell, oy=by0-cell;
-    const gx=Math.max(1,Math.ceil((bx1-ox+cell)/cell)), gy=Math.max(1,Math.ceil((by1-oy+cell)/cell));
-    const cap=128, numCells=gx*gy, candCap=Math.max(1024, nE*6);   // cap: endpoints/cell; candCap: near-bond pairs (few after snap filter)
+    let gx=Math.max(1,Math.ceil((bx1-ox+cell)/cell)), gy=Math.max(1,Math.ceil((by1-oy+cell)/cell));
+    const cap=128; let numCells=gx*gy; const candCap=Math.max(1024, nE*6);
+    { const budget=GP_MAXCELLS>>1; if(numCells>budget){ const scale=Math.sqrt(numCells/budget); cell=cell*scale; gx=Math.max(1,Math.ceil((bx1-ox+cell)/cell)); gy=Math.max(1,Math.ceil((by1-oy+cell)/cell)); numCells=gx*gy; GP.gridCoarsened=(GP.gridCoarsened||0)+1; } }   // stability: bound endpoint grid memory   // cap: endpoints/cell; candCap: near-bond pairs (few after snap filter)
     const endMeta=new Float32Array(nE*2);
     for(let i=0;i<nE;i++){ const o=objs[G.nodes[ends[i]].obj]||{}; endMeta[i*2]=(typeof effR==='function'?effR(o):(o.r||4)); let sm=0; if(o.endType)for(const k in o.endType){ const p=o.endType[k]; if(p.snap>sm)sm=p.snap; } endMeta[i*2+1]=sm; }
     GP.endGrid={nE,ER2,cell,ox,oy,gx,gy,numCells,cap,candCap,margin:GP_BOND_MARGIN};
@@ -2499,12 +2502,13 @@ function packAffinity(segList,N,device,mk,bg,B,ST,CD,CS,UN){
       if(er>maxER)maxER=er; if(ar>maxAR)maxAR=ar;
       affF[sI*4]=er; affF[sI*4+1]=(o.padSelf||o.padOther||0); affF[sI*4+2]=ar; affF[sI*4+3]=tag; }
     if(!anyTag)return;
-    const reach=maxAR*0.5+maxER, cell=Math.max(20,maxAR);
+    const reach=maxAR*0.5+maxER; let cell=Math.max(20,maxAR);
     let bx0=1e9,by0=1e9,bx1=-1e9,by1=-1e9; for(let i=0;i<N;i++){ if(NX[i]<bx0)bx0=NX[i]; if(NY[i]<by0)by0=NY[i]; if(NX[i]>bx1)bx1=NX[i]; if(NY[i]>by1)by1=NY[i]; }
     const Wb=Math.max((S.W||0),bx1)+cell, Hb=Math.max((S.H||0),by1)+cell;
     const ox=Math.min(0,bx0)-reach-cell, oy=Math.min(0,by0)-reach-cell;
-    const gx=Math.max(1,Math.ceil((Wb-ox+reach+cell)/cell)), gy=Math.max(1,Math.ceil((Hb-oy+reach+cell)/cell));
-    const numCells=gx*gy, cap=GP_COLL_CAP;
+    let gx=Math.max(1,Math.ceil((Wb-ox+reach+cell)/cell)), gy=Math.max(1,Math.ceil((Hb-oy+reach+cell)/cell));
+    let numCells=gx*gy; const cap=GP_COLL_CAP;
+    if(numCells>GP_MAXCELLS){ const scale=Math.sqrt(numCells/GP_MAXCELLS); cell=cell*scale; gx=Math.max(1,Math.ceil((Wb-ox+reach+cell)/cell)); gy=Math.max(1,Math.ceil((Hb-oy+reach+cell)/cell)); numCells=gx*gy; GP.gridCoarsened=(GP.gridCoarsened||0)+1; }   // stability: bound affinity grid memory
     GP.affGrid={gx,gy,cell,ox,oy,reach,cap,numCells,nO};
     GP._affF=affF; GP._vmatN=nO;
     GP.bufAffF=mkR('bufAffF',affF,ST|CD|CS); GP.bufVmat=mkR('bufVmat',vmat,ST|CD);
