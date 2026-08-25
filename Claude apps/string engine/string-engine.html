@@ -120,6 +120,7 @@
           <button data-s="box">walled box</button>
           <button data-s="membrane">cell + insides</button>
           <button data-s="star">junction</button>
+          <button data-s="dev">dev test</button>
         </div>
         <div class="row">
           <button class="btn" id="bImport">Load JSON</button>
@@ -580,6 +581,8 @@ function build(scene){
     const R=Math.min(W,H)*0.32,N=48,pts=[];for(let i=0;i<N;i++){const a=i/N*6.2832;pts.push({x:cx+Math.cos(a)*R,y:cy+Math.sin(a)*R});}
     addGraphObject(polyVerts(pts),chainEdges(N,true),{name:'membrane',r:4.5,stiff:0.3,grow:0,solid:true,fixed:false,color:'#ff5fa2'});
     seedWeavy(20,cx-R*0.6,cx+R*0.6,cy-R*0.6,cy+R*0.6);
+  } else if(scene==='dev'){
+    buildDevScene(W,H,cx,cy);
   } else if(scene==='star'){
     // 12 segments sharing a centre vertex -> must stay joined
     const N=12,R=Math.min(W,H)*0.34,verts=[[cx,cy,0]],edges=[];
@@ -587,9 +590,29 @@ function build(scene){
     addGraphObject(verts,edges,{name:'junction',r:3.5,stiff:0.2,curl:0.0,color:'#37e0d4'});
     seedWeavy(10,cx-R*0.5,cx+R*0.5,cy-R*0.5,cy+R*0.5);
   }
-  buildNbrs();computeRestBend();computeExclusions();assignDefaultIds();initInteractions();snapshotInit();S.selected=-1;refreshStats();
+  buildNbrs();computeRestBend();computeExclusions();assignDefaultIds();initInteractions();
+  if(scene==='dev')configureDevBonding();
+  snapshotInit();S.selected=-1;refreshStats();
   if(typeof renderObjectList==='function'){renderObjectList();document.getElementById('objEditor').style.display='none';}
 }
+// ===== DEV TEST SCENE (Claude keeps this repurposed for whatever is under test) =====
+// Current target: BONDING stage B (GPU detection). Dense short strands, loose ends, snappy same-type bonding.
+function buildDevScene(W,H,cx,cy){
+  const count=48;
+  for(let k=0;k<count;k++){
+    const N=Math.round(rnd(4,7)), L=rnd(9,13);
+    let x=rnd(W*0.22,W*0.78), y=rnd(H*0.22,H*0.78), ang=rnd(0,6.2832); const pts=[];
+    for(let i=0;i<N;i++){ pts.push({x,y,z:0}); ang+=rnd(-0.35,0.35); x+=Math.cos(ang)*L; y+=Math.sin(ang)*L; }
+    addGraphObject(polyVerts(pts), chainEdges(N,false), {name:'devstrand', r:rnd(2.6,3.4), stiff:0.08, curl:rnd(-0.15,0.15), color:PALETTE[k%PALETTE.length]});
+  }
+}
+function configureDevBonding(){
+  S.bonding=true; S.temp=Math.max(S.temp||0,0.35);
+  const prof={wStr:0,wRange:120,sStr:0.8,sRange:45,snap:2.5,brk:3.5,merge:0,blend:0,bStr:0.4,hardenPow:2};
+  for(const o of G.objs){ o.bondOn=true; o.ids=['dev']; o.endType={dev:JSON.parse(JSON.stringify(prof))}; }
+  try{ const t=document.getElementById('sBond'); if(t)t.classList.add('on'); }catch(e){}
+}
+// ===================================================================================
 function seedWeavy(count,x0,x1,y0,y1){
   for(let k=0;k<count;k++){const N=Math.round(rnd(8,16)),L=rnd(7,11);
     let x=rnd(x0,x1),y=rnd(y0,y1),ang=rnd(0,6.28),curl=rnd(-0.3,0.3);const pts=[];

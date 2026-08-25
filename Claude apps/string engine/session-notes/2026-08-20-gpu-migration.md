@@ -566,3 +566,13 @@ MARGIN(1.2) -> collapses 23k broad pairs to the few near-bond ones. Grid stays c
 to snap. cell cap 32->128 (endOver), candCap now max(1024,nE*6) for the few near-bond pairs. Detect shader now
 9 bindings (added endMeta @7, U @8) - naga-valid. Oracle cpuCandidateCount(cell,margin) updated to snap-based to
 match. Expect next probe: candOver 0, endOver 0, gpuCand≈cpuPairs (small), invalid 0. Then B1c consume candidates.
+
+## DEV TEST SCENE added (persistent, repurposable) — scene picker button "dev test" (data-s="dev")
+Two swappable functions before seedWeavy: buildDevScene(W,H,cx,cy) (geometry) + configureDevBonding() (bonding
+setup, called from build() tail after assignDefaultIds). build('dev') branch + tail hook `if(scene==='dev')
+configureDevBonding()`. Current target = BONDING stage B: 48 short strands (4-7 nodes), loose ends, all given
+shared type ids=['dev'] + snappy same-type endType {sStr:0.8,sRange:45,snap:2.5,brk:3.5,...}, bondOn=true,
+S.bonding=true, S.temp>=0.35. On play, ends jitter+pull together and bond -> stresses the detection probe.
+WORKFLOW: Claude rewrites buildDevScene/configureDevBonding for whatever is under test; user clicks "dev test",
+plays, exports diag. (Note: emoji in source truncates the file via Python surrogate-encoding on write — keep dev
+labels plain ASCII.)
