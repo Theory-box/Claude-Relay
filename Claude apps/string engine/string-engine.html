@@ -101,7 +101,7 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="7.2"/><circle cx="12" cy="12" r="2.6"/></svg>
     </button>
   </div>
-  <div class="screen"><canvas id="c"></canvas><canvas id="cgl" style="position:absolute;inset:0;width:100%;height:100%;display:none;pointer-events:none"></canvas><div class="tag">topology engine · <b id="tagScene" style="color:var(--muted)">demo</b> · <b id="tagSel" style="color:var(--accent)">Scene</b></div></div>
+  <div class="screen"><canvas id="c"></canvas><canvas id="cgl" style="position:absolute;inset:0;width:100%;height:100%;display:none;pointer-events:none"></canvas><canvas id="cwgpu" style="position:absolute;inset:0;width:100%;height:100%;display:none;pointer-events:none;background:radial-gradient(900px 600px at 50% 40%,#0e1020 0%,#090a12 100%)"></canvas><div id="gpuPhysicsBadge" style="position:absolute;top:8px;right:10px;font:600 11px monospace;color:#6ee7b7;display:none;pointer-events:none;text-shadow:0 0 4px #000"></div><div class="tag">topology engine · <b id="tagScene" style="color:var(--muted)">demo</b> · <b id="tagSel" style="color:var(--accent)">Scene</b></div></div>
   <div class="rail">
     <div class="rail-scroll">
     <div class="railtop">
@@ -120,6 +120,7 @@
           <button data-s="box">walled box</button>
           <button data-s="membrane">cell + insides</button>
           <button data-s="star">junction</button>
+          <button data-s="dev" title="scratch test scene (Claude repurposes this)">dev·scratch</button>
         </div>
         <div class="row">
           <button class="btn" id="bImport">Load JSON</button>
@@ -180,6 +181,8 @@
     <div class="tabpanel" data-panel="simulation">
       <div class="card">
         <p class="eyebrow">Simulation</p>
+        <label class="ctrl" style="display:flex;align-items:center;gap:8px;cursor:pointer;margin:2px 0 4px"><input type="checkbox" id="gpuPhysicsToggle" style="width:auto"><span>GPU physics <span style="color:var(--dim)">(experimental) — solver runs on the GPU</span></span></label>
+        <div class="stat" id="gpuPhysicsStatus" style="margin:0 0 10px;color:var(--dim)">off · CPU solver</div>
         <div class="ctrl"><label>Motion <span class="val" id="vTemp">0.7</span></label><input id="sTemp" type="range" min="0" max="3" value="0.7" step="0.05"><div class="stat" style="margin-top:3px"><span>calm</span><span>violent</span></div></div>
         <div class="ctrl"><label>Damping <span class="val" id="vDamp">0.02</span></label><input id="sDamp" type="range" min="0" max="0.7" value="0.02" step="0.01"><div class="stat" style="margin-top:3px"><span>lively</span><span>settled</span></div></div>
         <div class="ctrl"><label>Speed <span class="val" id="vSpeed">1×</span></label><input id="sSpeed" type="range" min="1" max="8" value="1" step="1"></div>
@@ -221,6 +224,22 @@
       <div class="card">
         <p class="eyebrow">About</p>
         <p class="sub" style="margin:0">Geometry is a graph: shared vertices stay joined, detached parts float free. Any strand can be a solid wall (nothing weaves past it) and fixed or movable. Built to import from Blender and grow.</p>
+      </div>
+    </div>
+
+    <div class="tabpanel" data-panel="dev">
+      <div class="card">
+        <p class="eyebrow">Dev · Claude debug</p>
+        <div class="stat"><span>build</span><span id="devBuild" style="color:var(--muted)">—</span></div>
+        <div class="stat"><span>solver</span><span id="devActive" style="color:var(--accent)">CPU</span></div>
+        <div class="stat"><span>nodes / segs</span><span><b id="devNodes">0</b> / <b id="devSegs">0</b></span></div>
+        <div class="stat"><span>fps</span><span id="devFps">0</span></div>
+        <div class="stat"><span>pos span (x × y)</span><span id="devSpan">—</span></div>
+        <div class="stat"><span>y range</span><span id="devY">—</span></div>
+        <div class="stat"><span>NaN nodes</span><span id="devNan" style="color:var(--warn)">—</span></div>
+        <div class="seg" style="margin-top:12px"><button id="devExport">⭳ Run diagnostics &amp; export for Claude</button></div>
+        <div class="seg" style="margin-top:6px"><button id="devClear">clear rolling buffer</button></div>
+        <div class="stat" style="margin-top:8px"><span>One press runs a full GPU diagnostic (compile check, adapter caps, 120-step GPU run + CPU comparison, stability trajectory) and downloads it as JSON with the rolling telemetry. Upload the file to Claude.</span></div>
       </div>
     </div>
 
@@ -272,6 +291,7 @@
       <button class="tab" data-tab="objects"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="7" height="7" rx="1"/><rect x="13" y="4" width="7" height="7" rx="1"/><rect x="4" y="13" width="7" height="7" rx="1"/><rect x="13" y="13" width="7" height="7" rx="1"/></svg><span>Objects</span></button>
       <button class="tab" data-tab="simulation"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="2"/><ellipse cx="12" cy="12" rx="9" ry="4"/><ellipse cx="12" cy="12" rx="9" ry="4" transform="rotate(60 12 12)"/><ellipse cx="12" cy="12" rx="9" ry="4" transform="rotate(120 12 12)"/></svg><span>Sim</span></button>
       <button class="tab" data-tab="about"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 8h.01"/></svg><span>About</span></button>
+      <button class="tab" data-tab="dev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M8 9l-4 3 4 3"/><path d="M16 9l4 3-4 3"/><path d="M13 5l-2 14"/></svg><span>Dev</span></button>
     </div>
   </div>
 </div>
@@ -290,6 +310,23 @@ const PALETTE=['#37e0d4','#7b8cff','#ff5fa2','#ffb02e','#b06bff','#4ade80','#ff7
 // G.segs:  {a,b,rest,obj}
 // G.objs:  {name,r,stiff,curl,affinity,polarity,solid,fixed,color, nodeIdx:[], segIdx:[]}
 const G={nodes:[],segs:[],objs:[],nbrs:[]};
+// ---- SoA position store: node x/y/h/px/py/ph live in flat Float32Arrays (GPU-uploadable), indexed the same as G.nodes. Node objects keep metadata + index i; positions are accessors into the arrays. ----
+let NCAP=0,NX,NY,NH,NPX,NPY,NPH;
+function nGrow(cap){cap=Math.max(cap|0,1024);const g=a=>{const n=new Float32Array(cap);if(a)n.set(a);return n;};NX=g(NX);NY=g(NY);NH=g(NH);NPX=g(NPX);NPY=g(NPY);NPH=g(NPH);NCAP=cap;}
+nGrow(4096);
+const NodeProto={
+  get x(){return NX[this.i];},set x(v){NX[this.i]=v;},
+  get y(){return NY[this.i];},set y(v){NY[this.i]=v;},
+  get h(){return NH[this.i];},set h(v){NH[this.i]=v;},
+  get px(){return NPX[this.i];},set px(v){NPX[this.i]=v;},
+  get py(){return NPY[this.i];},set py(v){NPY[this.i]=v;},
+  get ph(){return NPH[this.i];},set ph(v){NPH[this.i]=v;}
+};
+function mkNode(p){const i=G.nodes.length;if(i>=NCAP)nGrow(NCAP*2);
+  NX[i]=p.x||0;NY[i]=p.y||0;NH[i]=p.h||0;NPX[i]=p.px!==undefined?p.px:(p.x||0);NPY[i]=p.py!==undefined?p.py:(p.y||0);NPH[i]=p.ph!==undefined?p.ph:(p.h||0);
+  const n=Object.create(NodeProto);n.i=i;
+  for(const k in p){if(k==='x'||k==='y'||k==='h'||k==='px'||k==='py'||k==='ph')continue;n[k]=p[k];}
+  G.nodes.push(n);return n;}
 const S={temp:0.7,speed:1,running:true,W:0,H:0,dpr:1,pad:26,scene:'box',
   gCurl:0,gStiff:0,gThick:0,gGrow:0,weave:0,depth:25,view:'default',iters:4,wallPad:5,attract:0.4,repel:0,tol:0.4,selected:-1,weld:0.003,damp:0.02,contactDamp:0,chunk:false,bonding:true,bondSnap:1.5,bondBrk:2.5,bondCure:0,bondBlend:0,bondTimer:'continuous',cdRamping:false,cdRamp0:0,bondEnergy:0,maxBondEvents:40,snapViz:null,showHeat:true,strandFill:1,outlineW:0.1,outlineA:0.3,cleanView:false,gloss:0.75,shade:1,bg:null,shadow:0.25,xpbd:0,bondChunk:false,shadeSmooth:true,gpu:false};
 const OBJDEF={r:3,stiff:0.12,curl:0,grow:0,affinity:1,polarity:1,solid:false,fixed:false,color:null,autoSpace:false,spaceMult:1,breakable:false,brkStretch:true,brkAbs:false,bendAbsLim:90,brkRel:false,bendRelLim:60};
@@ -363,7 +400,7 @@ function addGraphObject(verts,edges,attrs,vattrs){
     let nids=[];for(const k of idKeys){const n=Math.round(+vv(vattrs[k],i));if(n>=1){const str=String(n);if(!nids.includes(str))nids.push(str);}}
     if(!nids.length)nids=obj.ids;                                 // fall back to per-object ids
     const naff=vaff?+vv(vaff,i):obj.affinity;
-    G.nodes.push({x,y,h,z0,px:x,py:y,ph:h,obj:oi,fixed:fix,solid:sol,inv,ids:nids,aff:naff});obj.nodeIdx.push(G.nodes.length-1);}
+    mkNode({x,y,h,z0,px:x,py:y,ph:h,obj:oi,fixed:fix,solid:sol,inv,ids:nids,aff:naff});obj.nodeIdx.push(G.nodes.length-1);}
   for(const e of edges){const a=base+e[0],b=base+e[1];
     const rest=hyp3(G.nodes[b].x-G.nodes[a].x,G.nodes[b].y-G.nodes[a].y,G.nodes[b].h-G.nodes[a].h)||1;
     const solid=G.nodes[a].solid&&G.nodes[b].solid;
@@ -384,7 +421,7 @@ function addStrokeToObject(oi,pts){   // append a chain of points as nodes+segme
   const obj=G.objs[oi];if(!obj||pts.length<2)return 0;
   const base=G.nodes.length,ids=(obj.ids&&obj.ids.length)?obj.ids.slice():[obj.name];
   for(const p of pts){let h=(Math.random()-0.5)*obj.r*1.5;
-    G.nodes.push({x:p.x,y:p.y,h,z0:0,px:p.x,py:p.y,ph:h,obj:oi,fixed:!!obj.fixed,solid:!!obj.solid,inv:obj.fixed?0:invFromEffR(effR(obj)),ids:ids,aff:obj.affinity});
+    mkNode({x:p.x,y:p.y,h,z0:0,px:p.x,py:p.y,ph:h,obj:oi,fixed:!!obj.fixed,solid:!!obj.solid,inv:obj.fixed?0:invFromEffR(effR(obj)),ids:ids,aff:obj.affinity});
     obj.nodeIdx.push(G.nodes.length-1);}
   for(let i=0;i<pts.length-1;i++){const a=base+i,b=base+i+1;
     const rest=hyp2(G.nodes[b].x-G.nodes[a].x,G.nodes[b].y-G.nodes[a].y)||1;
@@ -447,7 +484,7 @@ function fitToView(pad){ // scale/center all nodes into the canvas
   for(const n of G.nodes){n.x=n.x*sc+ox;n.y=n.y*sc+oy;n.h*=sc;n.px=n.x;n.py=n.y;n.ph=n.h;}
   for(const s of G.segs){s.rest*=sc;if(s.rest0!==undefined)s.rest0*=sc;}   // scale the authored-length backup too, so expand-to-fit measures against the fitted size (not the raw import size)
 }
-function clearGraph(){G.nodes=[];G.segs=[];G.objs=[];G.nbrs=[];G.ends=[];G.piece=[];G.bondBank=new Map();}
+function clearGraph(){if(window.gpuPhysicsDiscard)window.gpuPhysicsDiscard('scene replaced');G.nodes=[];G.segs=[];G.objs=[];G.nbrs=[];G.ends=[];G.piece=[];G.bondBank=new Map();}
 // live per-object edits: push down to the object's nodes/segments
 function setObjSolid(o,v){o.solid=v;
   for(const i of o.nodeIdx){const n=G.nodes[i];n.solid=v;}   // solid no longer changes mass (mass = thickness)
@@ -522,7 +559,7 @@ function objBrk(o){const p=o&&o.endType&&o.endType[objType(o)];return (p&&p.brk)
 function objType(o){return (o.ids&&o.ids.length?o.ids[0]:o.name);}   // connector-type = object's base id
 function interVal(o,tids,same){if(same)return o.interSelf||0;if(!o.inter)return 0;
   let best=0;for(const id of tids){const v=o.inter[id];if(v!==undefined&&Math.abs(v)>Math.abs(best))best=v;}return best;}
-function resetSim(){
+function resetSim(){if(window.gpuPhysicsDiscard)window.gpuPhysicsDiscard('reset');
   if(G.lastImport){const saved=captureSettings(),sel=S.selected;importJSON(G.lastImport);restoreSettings(saved);
     if(typeof renderObjectList==='function')renderObjectList();
     if(sel>=0&&G.objs[sel])selectObject(sel);
@@ -544,6 +581,8 @@ function build(scene){
     const R=Math.min(W,H)*0.32,N=48,pts=[];for(let i=0;i<N;i++){const a=i/N*6.2832;pts.push({x:cx+Math.cos(a)*R,y:cy+Math.sin(a)*R});}
     addGraphObject(polyVerts(pts),chainEdges(N,true),{name:'membrane',r:4.5,stiff:0.3,grow:0,solid:true,fixed:false,color:'#ff5fa2'});
     seedWeavy(20,cx-R*0.6,cx+R*0.6,cy-R*0.6,cy+R*0.6);
+  } else if(scene==='dev'){
+    buildDevScene(W,H,cx,cy);
   } else if(scene==='star'){
     // 12 segments sharing a centre vertex -> must stay joined
     const N=12,R=Math.min(W,H)*0.34,verts=[[cx,cy,0]],edges=[];
@@ -551,9 +590,47 @@ function build(scene){
     addGraphObject(verts,edges,{name:'junction',r:3.5,stiff:0.2,curl:0.0,color:'#37e0d4'});
     seedWeavy(10,cx-R*0.5,cx+R*0.5,cy-R*0.5,cy+R*0.5);
   }
-  buildNbrs();computeRestBend();computeExclusions();assignDefaultIds();initInteractions();snapshotInit();S.selected=-1;refreshStats();
+  buildNbrs();computeRestBend();computeExclusions();assignDefaultIds();initInteractions();
+  if(scene==='dev')configureDevBonding();
+  snapshotInit();S.selected=-1;refreshStats();
   if(typeof renderObjectList==='function'){renderObjectList();document.getElementById('objEditor').style.display='none';}
 }
+// ===== DEV TEST SCENE (Claude keeps this repurposed for whatever is under test) =====
+// Current target: BONDING stage B (GPU detection). Dense short strands, loose ends, snappy same-type bonding.
+function buildDevScene(W,H,cx,cy){
+  const cols=11, rows=13, sx=W*0.078, sy=H*0.052;             // SPACED grid: strands start separate, converge in GPU mode
+  const x0=cx-(cols-1)*sx/2, y0=cy-(rows-1)*sy/2;
+  for(let r=0;r<rows;r++)for(let c=0;c<cols;c++){
+    const N=Math.round(rnd(3,4)), L=rnd(6,9);
+    let x=x0+c*sx+rnd(-6,6), y=y0+r*sy+rnd(-6,6), ang=rnd(0,6.2832); const pts=[];
+    for(let i=0;i<N;i++){ pts.push({x,y,z:0}); ang+=rnd(-0.4,0.4); x+=Math.cos(ang)*L; y+=Math.sin(ang)*L; }
+    addGraphObject(polyVerts(pts), chainEdges(N,false), {name:'devstrand', r:2.6, stiff:0.06, curl:rnd(-0.2,0.2), color:PALETTE[(r*cols+c)%PALETTE.length]});
+  }
+}
+function configureDevBonding(){
+  S.bonding=true; S.temp=Math.max(S.temp||0,0.6);
+  const prof={wStr:0,wRange:120,sStr:0.5,sRange:40,snap:2.2,brk:1.5,merge:0,blend:0,bStr:0.4,hardenPow:2};  // gentle pull -> gradual convergence -> sustained candidates
+  for(const o of G.objs){ o.bondOn=true; o.ids=['dev']; o.endType={dev:JSON.parse(JSON.stringify(prof))}; }
+  try{ const t=document.getElementById('sBond'); if(t)t.classList.add('on'); }catch(e){}
+}
+async function runDevTest(){                                   // one click: load dev scene -> GPU -> run 10s -> export
+  const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+  try{
+    status('dev test: building scene...');
+    build('dev');
+    S.running=true; { const bp=document.getElementById('bPlay'); if(bp)bp.textContent='Pause'; }
+    await sleep(300);                                          // let the scene settle before switching
+    { const cb=document.getElementById('gpuPhysicsToggle'); if(cb)cb.checked=true; }
+    window.setGpuPhysicsMode(true);                            // switch to GPU (async activate + shader compile)
+    let ok=false; for(let i=0;i<120;i++){ if(window.gpuPhysicsActive&&window.gpuPhysicsActive()){ok=true;break;} await sleep(50); }   // wait up to 6s for GPU
+    if(window.gpuResetProbe)window.gpuResetProbe();            // fresh accumulators for THIS run
+    if(!ok){ status('dev test: GPU did not start; exporting anyway',true); }
+    for(let sLeft=10; sLeft>0; sLeft--){ status('dev test: running... '+sLeft+'s'); await sleep(1000); }   // 10s of GPU churn
+    status('dev test: exporting...');
+    if(typeof runAndExport==='function') await runAndExport();
+  }catch(e){ status('dev test failed: '+(e&&e.message),true); console.error(e); }
+}
+// ===================================================================================
 function seedWeavy(count,x0,x1,y0,y1){
   for(let k=0;k<count;k++){const N=Math.round(rnd(8,16)),L=rnd(7,11);
     let x=rnd(x0,x1),y=rnd(y0,y1),ang=rnd(0,6.28),curl=rnd(-0.3,0.3);const pts=[];
@@ -652,18 +729,19 @@ function sampleJSON(){
 }
 
 // ---------- physics ----------
-function integrate(){const kick=S.temp*0.8;
-  for(const n of G.nodes){if(n.fixed)continue;
-    let fr=Math.min(0.95,0.05+S.damp+(G.objs[n.obj].damp||0));
-    const sp=hyp2(n.x-n.px,n.y-n.py);
-    if(sp>1.5)fr*=Math.max(0.35,1-0.65*Math.min(1,(sp-1.5)/4.5));   // energy-aware: hot bursts (bond release, collisions) shed damping so heat lingers & spreads; ambient jitter damps normally
-    const vx=(n.x-n.px)*(1-fr),vy=(n.y-n.py)*(1-fr);
-    n.px=n.x;n.py=n.y;
-    n.x+=vx+(Math.random()-0.5)*kick;n.y+=vy+(Math.random()-0.5)*kick;
-    if(S.depth>0&&!n.solid){const slab=S.depth,hk=S.temp*(0.3+S.depth*0.005);          // real 3D slab: z drifts (jitter + preserved collision over/under), soft slab walls
-      const vh=(n.h-n.ph)*(1-fr);n.ph=n.h;n.h+=vh+(Math.random()-0.5)*hk-n.h*0.004;
-      if(n.h>slab)n.h=slab;else if(n.h<-slab)n.h=-slab;}
-    else{n.ph=n.h;n.h=0;}}}
+function integrate(){const kick=S.temp*0.8,nodes=G.nodes,L=nodes.length,depth=S.depth,temp=S.temp,damp=S.damp;
+  for(let i=0;i<L;i++){const n=nodes[i];if(n.fixed)continue;   // SoA hot path: positions read/written straight from the flat arrays (getters bypassed), metadata via object
+    let fr=Math.min(0.95,0.05+damp+(G.objs[n.obj].damp||0));
+    const x=NX[i],y=NY[i],px=NPX[i],py=NPY[i];
+    const sp=hyp2(x-px,y-py);
+    if(sp>1.5)fr*=Math.max(0.35,1-0.65*Math.min(1,(sp-1.5)/4.5));   // energy-aware: hot bursts shed damping so heat lingers & spreads
+    const vx=(x-px)*(1-fr),vy=(y-py)*(1-fr);
+    NPX[i]=x;NPY[i]=y;
+    NX[i]=x+vx+(Math.random()-0.5)*kick;NY[i]=y+vy+(Math.random()-0.5)*kick;
+    if(depth>0&&!n.solid){const slab=depth,hk=temp*(0.3+depth*0.005),h=NH[i],ph=NPH[i];   // real 3D slab
+      const vh=(h-ph)*(1-fr);NPH[i]=h;let nh=h+vh+(Math.random()-0.5)*hk-h*0.004;
+      if(nh>slab)nh=slab;else if(nh<-slab)nh=-slab;NH[i]=nh;}
+    else{NPH[i]=NH[i];NH[i]=0;}}}
 function constraints(){const pad=S.pad;
   for(let it=0;it<3;it++){
     // length (with grow: rest scales by 1+grow, 0 = neutral, -1 collapses, +1 doubles)
@@ -792,6 +870,50 @@ function attract(){
 function rebuildTopology(){for(const o of G.objs)o.segIdx=[];for(let i=0;i<G.segs.length;i++)G.objs[G.segs[i].obj].segIdx.push(i);
   buildNbrs();G.exclDirty=true;}   // light rebuild for frequent bond changes; exclusions recomputed lazily by collide (coalesces many merges/breaks in a frame into one exclusion pass)
 function flushExcl(){if(G.exclDirty){computeExclusions();G.exclDirty=false;refreshStats();}}
+function applyNewBonds(newBonds){
+  if(newBonds.length){
+    const existing=new Set();for(const s of G.segs)existing.add(Math.min(s.a,s.b)+'_'+Math.max(s.a,s.b));
+    let added=false;const done=new Set(),usedNodes=new Set();
+    newBonds.sort((x,y)=>x.d-y.d);                                        // nearest pairs claim their endpoints first
+    let made=0;
+    for(const nb of newBonds){let a=nb.a,b=nb.b;if(a>b){const t=a;a=b;b=t;}const key=a+'_'+b;
+      if(done.has(key)||existing.has(key))continue;done.add(key);
+      if(made>=S.maxBondEvents)break;                                     // safety cap: bound topology churn per frame
+      if(usedNodes.has(a)||usedNodes.has(b))continue;                     // each endpoint bonds to at most ONE partner (no Y-junctions)
+      if((G.nbrs[a]?G.nbrs[a].length:0)>1||(G.nbrs[b]?G.nbrs[b].length:0)>1)continue;   // only genuine free ends bond
+      if(wouldBendBreak(a,b)){usedNodes.add(a);usedNodes.add(b);continue;}   // don't fuse into a joint that would instantly bend-break -> that's the merge/break shatter loop
+      if(nb.merge<=0){if(!(G.nbrs[a]&&G.nbrs[a].indexOf(b)>=0)){mergeEnds(a,b,nb.blend);usedNodes.add(a);usedNodes.add(b);made++;}}   // instant fuse
+      else{const oa=G.objs[G.nodes[a].obj],ob=G.objs[G.nodes[b].obj];
+        const seed=(S.bondTimer==='cumulative'&&G.bondBank.get(a+'_'+b))||0;
+        G.segs.push({a,b,obj:G.nodes[a].obj,rest:(effR(oa)+effR(ob))*(((oa.spaceMult||1)+(ob.spaceMult||1))*0.5),bond:true,bondAge:seed,mergeTime:nb.merge,blend:nb.blend,brk:nb.brk,bStr:nb.bStr,hardenPow:nb.hardenPow,solid:false,ids:[],aff:0,excl:new Set()});added=true;usedNodes.add(a);usedNodes.add(b);made++;}
+      if(S.bondEnergy>0)releaseHeat(a,b,S.bondEnergy*0.5);}   // forming a bond releases energy as heat (weaker than committing)
+    if(added)rebuildTopology();
+  }
+}
+function evalBondPair(n1,n2,newBonds){
+  const objs=G.objs, a=G.nodes[n1], bn=G.nodes[n2]; if(!a||!bn)return;
+  const dxp=bn.x-a.x,dyp=bn.y-a.y,d2=dxp*dxp+dyp*dyp; if(d2<1e-6)return;
+  const o1=objs[a.obj],o2=objs[bn.obj]; if(!o1||!o2||!o1.bondOn||!o2.bondOn)return;
+  const t1=objType(o1),t2=objType(o2), p1=endProf(o1,t2),p2=endProf(o2,t1); if(!p1&&!p2)return;
+  const adjacent=G.nbrs[n1] && G.nbrs[n1].indexOf(n2)>=0;
+  const dist=Math.sqrt(d2);
+  const blocks=(p)=>p&&p.sStr<0;
+  if(S.bonding&&!adjacent&&(p1||p2)&&!blocks(p1)&&!blocks(p2)){
+    let gated=false;
+    if(a.sepFrom===n2||bn.sepFrom===n1){const sd=Math.max(a.sepFrom===n2?(a.sepDist||0):0,bn.sepFrom===n1?(bn.sepDist||0):0);
+      const cool=Math.max(a.sepFrom===n2?(a.sepUntil||0):0,bn.sepFrom===n1?(bn.sepUntil||0):0);
+      if(dist<sd&&S.frame<cool)gated=true;else{a.sepFrom=-1;bn.sepFrom=-1;}}
+    const bondRest=effR(o1)+effR(o2), snapR=Math.max(p1?p1.snap:0,p2?p2.snap:0);
+    if(!gated&&dist<snapR*bondRest){const mgs=[p1?p1.merge:null,p2?p2.merge:null].filter(v=>v!=null),bls=[p1?p1.blend:null,p2?p2.blend:null].filter(v=>v!=null),bks=[p1?p1.brk:null,p2?p2.brk:null].filter(v=>v!=null),bss=[p1?p1.bStr:null,p2?p2.bStr:null].filter(v=>v!=null),hps=[p1?p1.hardenPow:null,p2?p2.hardenPow:null].filter(v=>v!=null);
+      newBonds.push({a:n1,b:n2,d:dist,merge:mgs.length?Math.min(...mgs):0,blend:bls.length?Math.min(...bls):1,brk:bks.length?Math.max(...bks):2.5,bStr:bss.length?Math.min(...bss):0.4,hardenPow:hps.length?Math.max(...hps):1});}
+  }
+}
+function formBondsFromCandidates(pairs){                   // B1c: form bonds from GPU-detected candidate pairs (skips CPU broad-phase)
+  if(!S.bonding || !pairs || !pairs.length)return;
+  const newBonds=[];
+  for(let i=0;i+1<pairs.length;i+=2){ evalBondPair(pairs[i],pairs[i+1],newBonds); }
+  applyNewBonds(newBonds);
+}
 function endpointForces(){
   const ends=G.ends;if(!ends||ends.length<2)return;
   const objs=G.objs;
@@ -835,24 +957,7 @@ function endpointForces(){
             newBonds.push({a:n1,b:n2,d:dist,merge:mgs.length?Math.min(...mgs):0,blend:bls.length?Math.min(...bls):1,brk:bks.length?Math.max(...bks):2.5,
               bStr:bss.length?Math.min(...bss):0.4,hardenPow:hps.length?Math.max(...hps):1});}}}}}   // either side wanting separate (blend 0) keeps them separate; weaker side sets stability
   if(bc)G.bondPhase=(bphase+1)%BC;   // rotate which third of ends is processed next frame
-  if(newBonds.length){
-    const existing=new Set();for(const s of G.segs)existing.add(Math.min(s.a,s.b)+'_'+Math.max(s.a,s.b));
-    let added=false;const done=new Set(),usedNodes=new Set();
-    newBonds.sort((x,y)=>x.d-y.d);                                        // nearest pairs claim their endpoints first
-    let made=0;
-    for(const nb of newBonds){let a=nb.a,b=nb.b;if(a>b){const t=a;a=b;b=t;}const key=a+'_'+b;
-      if(done.has(key)||existing.has(key))continue;done.add(key);
-      if(made>=S.maxBondEvents)break;                                     // safety cap: bound topology churn per frame
-      if(usedNodes.has(a)||usedNodes.has(b))continue;                     // each endpoint bonds to at most ONE partner (no Y-junctions)
-      if((G.nbrs[a]?G.nbrs[a].length:0)>1||(G.nbrs[b]?G.nbrs[b].length:0)>1)continue;   // only genuine free ends bond
-      if(wouldBendBreak(a,b)){usedNodes.add(a);usedNodes.add(b);continue;}   // don't fuse into a joint that would instantly bend-break -> that's the merge/break shatter loop
-      if(nb.merge<=0){if(!(G.nbrs[a]&&G.nbrs[a].indexOf(b)>=0)){mergeEnds(a,b,nb.blend);usedNodes.add(a);usedNodes.add(b);made++;}}   // instant fuse
-      else{const oa=G.objs[G.nodes[a].obj],ob=G.objs[G.nodes[b].obj];
-        const seed=(S.bondTimer==='cumulative'&&G.bondBank.get(a+'_'+b))||0;
-        G.segs.push({a,b,obj:G.nodes[a].obj,rest:(effR(oa)+effR(ob))*(((oa.spaceMult||1)+(ob.spaceMult||1))*0.5),bond:true,bondAge:seed,mergeTime:nb.merge,blend:nb.blend,brk:nb.brk,bStr:nb.bStr,hardenPow:nb.hardenPow,solid:false,ids:[],aff:0,excl:new Set()});added=true;usedNodes.add(a);usedNodes.add(b);made++;}
-      if(S.bondEnergy>0)releaseHeat(a,b,S.bondEnergy*0.5);}   // forming a bond releases energy as heat (weaker than committing)
-    if(added)rebuildTopology();
-  }
+  applyNewBonds(newBonds);
 }
 function flagBondBreaks(){if(!S.bonding)return;   // real strain breaks bonds; young ones give way easily, hardened ones hold to full brk
   for(const s of G.segs){if(!s.bond||s.dead||!s.brk||s.rest<=0)continue;
@@ -912,6 +1017,9 @@ function compactNodes(){   // churn (merge orphans a node, sever adds one) grows
   for(let i=0;i<N;i++){if(!live[i])continue;map[i]=ni++;newNodes.push(G.nodes[i]);if(hasInit)newInit.push(G.init[i]);}
   for(const s of G.segs){s.a=map[s.a];s.b=map[s.b];}
   G.nodes=newNodes;if(hasInit)G.init=newInit;
+  {const nx=new Float32Array(NCAP),ny=new Float32Array(NCAP),nh=new Float32Array(NCAP),npx=new Float32Array(NCAP),npy=new Float32Array(NCAP),nph=new Float32Array(NCAP);
+   for(let k=0;k<newNodes.length;k++){const nn=newNodes[k],oi=nn.i;nx[k]=NX[oi];ny[k]=NY[oi];nh[k]=NH[oi];npx[k]=NPX[oi];npy[k]=NPY[oi];nph[k]=NPH[oi];nn.i=k;}
+   NX=nx;NY=ny;NH=nh;NPX=npx;NPY=npy;NPH=nph;}
   for(const o of G.objs)o.nodeIdx=o.nodeIdx.map(i=>map[i]).filter(i=>i>=0);
   if(G.bondBank&&G.bondBank.size){const nb=new Map();for(const[k,v]of G.bondBank){const p=k.split('_'),a=+p[0],b=+p[1];if(map[a]>=0&&map[b]>=0)nb.set(bondKey(map[a],map[b]),v);}G.bondBank=nb;}
   if(typeof grab!=='undefined'&&grab>=0)grab=map[grab];
@@ -1133,7 +1241,7 @@ function doNewScene(){if(!confirm('Clear the scene and start fresh?'))return;
 document.getElementById('bNewScene').addEventListener('click',doNewScene);
 document.getElementById('bNewScene2').addEventListener('click',doNewScene);
 function dupNode(n,obj){const src=G.nodes[n];   // duplicate a node so an edge can detach from others sharing it
-  G.nodes.push({x:src.x,y:src.y,h:src.h,z0:src.z0,px:src.px,py:src.py,ph:src.ph,obj:obj,fixed:false,solid:src.solid,inv:invFromEffR(effR(G.objs[obj])),ids:src.ids?src.ids.slice():[],aff:src.aff});
+  mkNode({x:src.x,y:src.y,h:src.h,z0:src.z0,px:src.px,py:src.py,ph:src.ph,obj:obj,fixed:false,solid:src.solid,inv:invFromEffR(effR(G.objs[obj])),ids:src.ids?src.ids.slice():[],aff:src.aff});
   const idx=G.nodes.length-1;const o=G.objs[obj];if(o&&o.nodeIdx)o.nodeIdx.push(idx);return idx;}
 function severEdgeAt(si,preferA){   // detach edge si from whatever shares its chosen endpoint node; NO new edges, NO subdividing (an edge is the atomic unit)
   const s=G.segs[si];if(s.dead)return false;
@@ -1200,6 +1308,7 @@ function dragApply(){if(grab<0||grab>=G.nodes.length)return;const n=G.nodes[grab
 cvs.style.cursor='grab';
 cvs.addEventListener('pointerdown',e=>{
   if(e.button===1){const r=cvs.getBoundingClientRect();panning=true;panSX=e.clientX-r.left;panSY=e.clientY-r.top;panOX=view.ox;panOY=view.oy;cvs.setPointerCapture(e.pointerId);cvs.style.cursor='move';e.preventDefault();return;}   // middle-mouse pan
+  if(window.gpuPhysicsActive&&window.gpuPhysicsActive()){ if(tool==='move'){ const [gmx,gmy]=canvasXY(e); if(window.gpuPick)window.gpuPick(gmx,gmy); try{cvs.setPointerCapture(e.pointerId);}catch(_){} return; } if(window.gpuPhysicsDropToCPU)window.gpuPhysicsDropToCPU('editing'); return; }  // GPU move = pick+select (readback); middle-mouse pans; other tools change topology -> drop to CPU
   const [mx,my]=canvasXY(e);
   if(tool==='draw'){let oi=S.selected;if(oi<0||!G.objs[oi])oi=G.objs.length?G.objs.length-1:newMaterial('Material 1');
     stroke=[{x:mx,y:my}];stroke.oi=oi;cvs.setPointerCapture(e.pointerId);return;}
@@ -1219,15 +1328,17 @@ cvs.addEventListener('pointermove',e=>{
     if(hyp2(mx-last.x,my-last.y)>=minD)stroke.push({x:mx,y:my});return;}
   if(erasing){eraseAt(mx,my,Math.max(10,14/view.z));return;}
   if(cutting){cx1=mx;cy1=my;return;}
+  if(window.gpuGrabActive&&window.gpuGrabActive()){ if(window.gpuGrabMove)window.gpuGrabMove(mx,my); return; }
   if(grab>=0){gx=mx;gy=my;return;}
   if(tool==='move')pickHover(mx,my);});   // idle hover highlight
 cvs.addEventListener('pointerup',()=>{
+  if(window.gpuGrabClear)window.gpuGrabClear();
   if(stroke){if(stroke.length>=2)addStrokeToObject(stroke.oi,stroke);stroke=null;return;}
   if(erasing){erasing=false;return;}
   if(panning){panning=false;cvs.style.cursor=tool==='cut'?'crosshair':'grab';return;}
   if(cutting){cutting=false;if(hyp2(cx1-cx0,cy1-cy0)>4)cutLine(cx0,cy0,cx1,cy1);return;}
   grab=-1;cvs.style.cursor=(tool==='draw'||tool==='erase')?'crosshair':'grab';});
-cvs.addEventListener('pointercancel',()=>{grab=-1;cutting=false;panning=false;erasing=false;stroke=null;cvs.style.cursor=tool==='cut'?'crosshair':'grab';});
+cvs.addEventListener('pointercancel',()=>{if(window.gpuGrabClear)window.gpuGrabClear();grab=-1;cutting=false;panning=false;erasing=false;stroke=null;cvs.style.cursor=tool==='cut'?'crosshair':'grab';});
 cvs.addEventListener('wheel',e=>{e.preventDefault();const r=cvs.getBoundingClientRect();const sx=e.clientX-r.left,sy=e.clientY-r.top;
   const pinch=e.ctrlKey;                                                          // Mac pinch surfaces as wheel+ctrlKey
   const mouseWheel=!pinch&&e.deltaX===0&&Math.abs(e.deltaY)>=50&&Number.isInteger(e.deltaY);   // classic mouse notch
@@ -1242,7 +1353,7 @@ function startCDRamp(){S.contactDamp=1;S.cdRamping=true;S.cdRamp0=S.frame;const 
 function advanceCDRamp(){if(!S.cdRamping)return;const t=(S.frame-S.cdRamp0)/180;   // 180 frames ~= 3s at 60fps
   if(t>=1){S.contactDamp=0;S.cdRamping=false;}else S.contactDamp=1-t;
   const el=document.getElementById('sCD'),v=document.getElementById('vCD');if(el)el.value=S.contactDamp;if(v)v.textContent=S.contactDamp.toFixed(2);}
-function stepFrame(){S.frame=(S.frame||0)+1;advanceCDRamp();attract();endpointForces();relaxSpacing();for(let k=0;k<S.speed;k++){integrate();flagBondBreaks();constraints();collide();wallCCD();dragApply();flagStrainBreaks();flagBendBreaks();}maintainBonds();removeDead();}
+function stepFrame(){if(S.gpuPhysics&&window.gpuPhysicsStep){window.gpuPhysicsStep(S.speed);return;}S.frame=(S.frame||0)+1;advanceCDRamp();attract();endpointForces();relaxSpacing();for(let k=0;k<S.speed;k++){integrate();flagBondBreaks();constraints();collide();wallCCD();dragApply();flagStrainBreaks();flagBendBreaks();}maintainBonds();removeDead();}
 window.addEventListener('keydown',e=>{const tag=(e.target.tagName||'').toLowerCase();if(tag==='input'||tag==='select'||tag==='textarea')return;
   const k=e.key.toLowerCase();
   if(k==='r'){resetSim();startCDRamp();}
@@ -1257,11 +1368,12 @@ window.addEventListener('keydown',e=>{const tag=(e.target.tagName||'').toLowerCa
 let ema=60,lastT=performance.now();window.RD=true;   // RD = render-dirty; paused & idle -> stop re-rendering. window.* avoids any load-order TDZ so scene mutations can mark it dirty
 function frame(now){const dt=now-lastT;lastT=now;
   let did=false;
-  if(S.running){S.frame=(S.frame||0)+1;advanceCDRamp();attract();endpointForces();relaxSpacing();for(let k=0;k<S.speed;k++){integrate();flagBondBreaks();constraints();collide();wallCCD();dragApply();flagStrainBreaks();flagBendBreaks();}maintainBonds();removeDead();did=true;}
+  if(S.running){if(S.gpuPhysics&&window.gpuPhysicsStep){window.gpuPhysicsStep(S.speed);}else{S.frame=(S.frame||0)+1;advanceCDRamp();attract();endpointForces();relaxSpacing();for(let k=0;k<S.speed;k++){integrate();flagBondBreaks();constraints();collide();wallCCD();dragApply();flagStrainBreaks();flagBendBreaks();}maintainBonds();removeDead();}did=true;}
   else if(grab>=0){dragApply();constraints();collide();did=true;}
-  if(did||window.RD||panning){ema=ema*0.9+(1000/Math.max(1,dt))*0.1;if(S.micro&&typeof renderMicro==='function')renderMicro();else if(S.gpu&&typeof renderGPU==='function')renderGPU();else render();window.RD=false;document.getElementById('sFps').textContent=Math.round(ema)+' fps';}
+  if(did||window.RD||panning){ema=ema*0.9+(1000/Math.max(1,dt))*0.1;if(S.gpuPhysics&&typeof window.gpuPhysicsRender==='function')window.gpuPhysicsRender();else if(S.micro&&typeof renderMicro==='function')renderMicro();else if(S.gpu&&typeof renderGPU==='function')renderGPU();else render();window.RD=false;document.getElementById('sFps').textContent=Math.round(ema)+' fps';}
   requestAnimationFrame(frame);}
-['pointerdown','pointermove','pointerup','wheel','keydown'].forEach(ev=>window.addEventListener(ev,()=>{window.RD=true;},true));   // any interaction marks a redraw
+['pointerdown','pointermove','pointerup','wheel','keydown'].forEach(ev=>window.addEventListener(ev,()=>{window.RD=true;},true));
+['input','change'].forEach(ev=>document.addEventListener(ev,()=>{ if(window.gpuRefreshProps)window.gpuRefreshProps(); },false));  // BUBBLE phase: fires AFTER the control's own handler writes the model, so vmat/props read fresh values
 ['input','change'].forEach(ev=>document.addEventListener(ev,()=>{window.RD=true;},true));                                        // any slider/toggle change too
 function refreshStats(){window.RD=true;document.getElementById('sObjs').textContent=G.objs.length;
   document.getElementById('sNS').textContent=G.nodes.length+' · '+G.segs.length;
@@ -1270,7 +1382,7 @@ function refreshStats(){window.RD=true;document.getElementById('sObjs').textCont
 // ---------- ui ----------
 document.querySelectorAll('#scene button').forEach(b=>b.addEventListener('click',()=>{
   document.querySelectorAll('#scene button').forEach(x=>x.classList.remove('on'));b.classList.add('on');
-  if(b.dataset.s==='default')loadDefault();else build(b.dataset.s);}));
+  if(b.dataset.s==='default')loadDefault();else if(b.dataset.s==='dev')runDevTest();else build(b.dataset.s);}));
 const VIEWNOTES={default:'Object colours (one per imported object).',
   solid:'Teal = solid walls (block over/under). Grey = weavy strands.',
   fixed:'Orange = fixed/pinned. Grey = movable.',
@@ -1425,7 +1537,7 @@ function profRow(label,getV,setV,min,max,step){
   rng.addEventListener('input',()=>apply(rng.value,'r'));num.addEventListener('input',()=>apply(num.value,'n'));
   return row;}
 function bindPair(rid,nid,fn){const r=document.getElementById(rid),n=document.getElementById(nid);
-  const apply=(val,src)=>{const o=selObj();if(!o)return;let v=parseFloat(val);if(isNaN(v))return;if(src!=='r')r.value=v;if(src!=='n')n.value=v;fn(o,v);};
+  const apply=(val,src)=>{const o=selObj();if(!o)return;let v=parseFloat(val);if(isNaN(v))return;if(src!=='r')r.value=v;if(src!=='n')n.value=v;fn(o,v);if(window.gpuRefreshProps)window.gpuRefreshProps();};
   r.addEventListener('input',()=>apply(r.value,'r'));n.addEventListener('input',()=>apply(n.value,'n'));}
 bindPair('eThick','eThickN',(o,v)=>{o.r=v;computeExclusions();refreshObjMass(o);if(curReachUpd)curReachUpd();});
 bindPair('eStiff','eStiffN',(o,v)=>o.stiff=v);
@@ -1720,6 +1832,1116 @@ void main(){
   const fo=document.getElementById('m_focus');if(fo)fo.addEventListener('input',()=>{mp.autofocus=false;const cb=document.getElementById('m_autofocus');if(cb)cb.checked=false;});
   const af=document.getElementById('m_autofocus');if(af)af.addEventListener('change',()=>{mp.autofocus=af.checked;});
   const bg=document.getElementById('m_bg');if(bg)bg.addEventListener('input',()=>{mp.bg=bg.value;window.RD=true;});
+})();
+</script>
+<script>
+/* ===== GPU physics (experimental) — isolated WebGPU subsystem. CPU engine stays default + untouched. ===== */
+(function(){
+"use strict";
+const cw=document.getElementById('cwgpu');
+if(!cw){ return; }
+const GP={active:false,initing:false,device:null,ctx:null,format:null,prevGpu:false,
+  intPipe:null,conPipe:null,renPipe:null,clearPipe:null,gridPipe:null,collPipe:null,collReady:false,collSupported:false,grid:null,maxStorageBuf:8,lastOverflow:null,bendPipe:null,bendSupported:false,bendReady:false,propsDirty:false,refreshN:0,refreshErr:null,affPipe:null,gridTPipe:null,affSupported:false,affReady:false,affGrid:null,endGridPipe:null,bondDetectPipe:null,bondDetectSupported:false,bondDetectReady:false,endGrid:null,_bdBusy:false,bdProbe:null,grabNode:-1,grabX:0,grabY:0,bondEvery:6,_bondBusy:false,bondTicks:0,bondEvents:0,
+  bufA:null,bufB:null,bufPrev:null,bufMeta:null,bufRange:null,bufNbr:null,bufRest:null,bufSeg:null,bufStyle:null,bufParams:null,bufCam:null,
+  bgIntAB:null,bgIntBA:null,bgConAB:null,bgConBA:null,bgRenA:null,bgRenB:null,
+  N:0,numSeg:0,numDir:0,curBuf:0,frameN:0,readbacks:0,lastExit:null,wgslMsgs:[],adapterInfo:null,lastStats:null,lastStatsT:0,telemBusy:false,log:[],diagRunning:false,_pos0:null,_segCache:null,_fixed:null};
+const GP_PASSES=8, GP_RELAX=0.6;
+const GP_COLL_OMEGA=1.0, GP_COLL_PENFRAC=0.25, GP_COLL_MAXDISP=6.0, GP_COLL_MARGIN=1.5, GP_COLL_CAP=64;
+const GP_AFF_BASE=0.18, GP_AFF_MAXDISP=8.0;
+const GP_BOND_MARGIN=1.2;
+const WGSL_ENDGRID=`
+struct EG { count:u32, gx:u32, gy:u32, cap:u32, cell:f32, ox:f32, oy:f32, pad:f32, };
+@group(0) @binding(0) var<storage, read>       pos       : array<vec4<f32>>;
+@group(0) @binding(1) var<storage, read>       endList   : array<u32>;
+@group(0) @binding(2) var<storage, read_write> cellCount : array<atomic<u32>>;
+@group(0) @binding(3) var<storage, read_write> cellBins  : array<u32>;
+@group(0) @binding(4) var<storage, read_write> overflow  : array<atomic<u32>>;
+@group(0) @binding(5) var<uniform>             U         : EG;
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid:vec3<u32>){
+  let ei=gid.x; if(ei>=U.count){ return; }
+  let n=endList[ei]; let p=pos[n];
+  let gxi=i32(U.gx)-1; let gyi=i32(U.gy)-1;
+  let cx=clamp(i32(floor((p.x-U.ox)/U.cell)),0,gxi);
+  let cy=clamp(i32(floor((p.y-U.oy)/U.cell)),0,gyi);
+  let c=u32(cy)*U.gx+u32(cx);
+  let slot=atomicAdd(&cellCount[c],1u);
+  if(slot<U.cap){ cellBins[c*U.cap+slot]=ei; } else { atomicAdd(&overflow[0],1u); }
+}`;
+const WGSL_BONDDETECT=`
+struct BD { count:u32, gx:u32, gy:u32, cap:u32, cell:f32, ox:f32, oy:f32, margin:f32, candCap:u32, p0:u32, p1:u32, p2:u32, };
+@group(0) @binding(0) var<storage, read>       pos       : array<vec4<f32>>;
+@group(0) @binding(1) var<storage, read>       endList   : array<u32>;
+@group(0) @binding(2) var<storage, read>       cellBins  : array<u32>;
+@group(0) @binding(3) var<storage, read>       cellCount : array<u32>;
+@group(0) @binding(4) var<storage, read_write> candCount : array<atomic<u32>>;
+@group(0) @binding(5) var<storage, read_write> cand      : array<vec2<u32>>;
+@group(0) @binding(6) var<storage, read_write> candOver  : array<atomic<u32>>;
+@group(0) @binding(7) var<storage, read>       endMeta   : array<vec2<f32>>;   // (effR, maxSnap) per endpoint
+@group(0) @binding(8) var<uniform>             U         : BD;
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid:vec3<u32>){
+  let ei=gid.x; if(ei>=U.count){ return; }
+  let n1=endList[ei]; let p1=pos[n1]; let m1=endMeta[ei];
+  let gxi=i32(U.gx)-1; let gyi=i32(U.gy)-1;
+  let cx=clamp(i32(floor((p1.x-U.ox)/U.cell)),0,gxi);
+  let cy=clamp(i32(floor((p1.y-U.oy)/U.cell)),0,gyi);
+  for(var dy:i32=-1; dy<=1; dy=dy+1){ let yy=cy+dy; if(yy<0||yy>gyi){continue;}
+    for(var dx:i32=-1; dx<=1; dx=dx+1){ let xx=cx+dx; if(xx<0||xx>gxi){continue;}
+      let c=u32(yy)*U.gx+u32(xx); let cnt=min(cellCount[c],U.cap); let base=c*U.cap;
+      for(var k:u32=0u; k<cnt; k=k+1u){
+        let ej=cellBins[base+k]; let n2=endList[ej];
+        if(n2<=n1){ continue; }
+        let p2=pos[n2]; let m2=endMeta[ej];
+        let ddx=p2.x-p1.x; let ddy=p2.y-p1.y; let d2=ddx*ddx+ddy*ddy;
+        let bondRest=m1.x+m2.x; let snapR=max(m1.y,m2.y); let thr=snapR*bondRest*U.margin;   // snap-distance pre-filter
+        if(d2 < thr*thr && d2>1e-6){
+          let slot=atomicAdd(&candCount[0],1u);
+          if(slot<U.candCap){ cand[slot]=vec2<u32>(n1,n2); } else { atomicAdd(&candOver[0],1u); }
+        }
+      }
+    }
+  }
+}`;
+const WGSL_AFFINITY=`
+// per-node long-range affinity (attraction/repulsion) — second coarser grid, vmat interaction matrix
+struct AP { count:u32, gx:u32, gy:u32, cap:u32, cell:f32, ox:f32, oy:f32, nObj:u32, base:f32, maxDisp:f32, pad1:f32, pad2:f32, };
+@group(0) @binding(0) var<storage, read>       pos       : array<vec4<f32>>;
+@group(0) @binding(1) var<storage, read_write> posOut    : array<vec4<f32>>;
+@group(0) @binding(2) var<storage, read>       nodeRange : array<vec2<u32>>;   // reuse collision node->seg CSR
+@group(0) @binding(3) var<storage, read>       nodeList  : array<u32>;
+@group(0) @binding(4) var<storage, read>       segI      : array<vec4<u32>>;   // a,b,strand,packed (obj in >>3)
+@group(0) @binding(5) var<storage, read>       affF      : array<vec4<f32>>;   // (effR, pad, affRange, tagged 1/0)
+@group(0) @binding(6) var<storage, read>       segCellA  : array<vec4<u32>>;   // affinity-grid cell bounds
+@group(0) @binding(7) var<storage, read>       cellBinsA : array<u32>;         // affinity-grid bins (0xffffffff sentinel)
+@group(0) @binding(8) var<storage, read>       nmeta     : array<vec4<f32>>;   // invMass in .x
+@group(0) @binding(9) var<storage, read>       vmat      : array<f32>;         // nObj*nObj interaction values
+@group(0) @binding(10) var<uniform>            U         : AP;
+struct CP { s:f32, t:f32, nrm:vec3<f32>, dist:f32, };
+fn closestSeg(p1:vec3<f32>, q1:vec3<f32>, p2:vec3<f32>, q2:vec3<f32>) -> CP {
+  let d1=q1-p1; let d2=q2-p2; let r=p1-p2;
+  let a=dot(d1,d1); let e=dot(d2,d2); let ff=dot(d2,r); let lenEps=1e-9;
+  var s=0.0; var t=0.0;
+  if(a<=lenEps && e<=lenEps){ s=0.0; t=0.0; }
+  else if(a<=lenEps){ s=0.0; t=clamp(ff/e,0.0,1.0); }
+  else{ let c=dot(d1,r);
+    if(e<=lenEps){ t=0.0; s=clamp(-c/a,0.0,1.0); }
+    else{ let b=dot(d1,d2); let den=a*e-b*b;
+      if(den > 1e-6*a*e){ s=clamp((b*ff-c*e)/den,0.0,1.0); } else { s=0.0; }
+      t=(b*s+ff)/e;
+      if(t<0.0){ t=0.0; s=clamp(-c/a,0.0,1.0); } else if(t>1.0){ t=1.0; s=clamp((b-c)/a,0.0,1.0); } } }
+  let c1=p1+d1*s; let c2=p2+d2*t; let nn=c1-c2; var o:CP; o.s=s; o.t=t; o.nrm=nn; o.dist=max(length(nn),1e-6); return o;
+}
+fn shareEndpoint(A:vec4<u32>, B:vec4<u32>) -> bool { return A.x==B.x || A.x==B.y || A.y==B.x || A.y==B.y; }
+fn ownerCell(ca:vec4<u32>, cb:vec4<u32>) -> u32 { let xlo=max(ca.x,cb.x); let ylo=max(ca.z,cb.z); return ylo*U.gx + xlo; }
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid:vec3<u32>){
+  let i=gid.x; if(i>=U.count){ return; }
+  let p=pos[i].xyz; let invI=nmeta[i].x;
+  if(invI==0.0){ posOut[i]=vec4<f32>(p,0.0); return; }
+  var accum=vec3<f32>(0.0);
+  let rng=nodeRange[i]; let ns=rng.x; let nc=rng.y;
+  for(var xi:u32=0u; xi<nc; xi=xi+1u){
+    let X=nodeList[ns+xi]; let sxI=segI[X]; let sxC=segCellA[X]; let sxF=affF[X];
+    if(sxF.w<0.5){ continue; }                            // X untagged
+    let objX=sxI.w>>3u; let arX=sxF.z;
+    for(var cy:u32=sxC.z; cy<=sxC.w; cy=cy+1u){
+      for(var cx:u32=sxC.x; cx<=sxC.y; cx=cx+1u){
+        let cellId=cy*U.gx+cx; let base=cellId*U.cap;
+        for(var k:u32=0u; k<U.cap; k=k+1u){
+          let Y=cellBinsA[base+k];
+          if(Y==0xffffffffu){ break; }
+          if(Y==X){ continue; }
+          let syI=segI[Y]; let syC=segCellA[Y]; let syF=affF[Y];
+          if(syF.w<0.5){ continue; }                      // Y untagged
+          if(ownerCell(sxC,syC) != cellId){ continue; }
+          if(shareEndpoint(sxI,syI)){ continue; }
+          let objY=syI.w>>3u;
+          let va=vmat[objX*U.nObj+objY];
+          if(va==0.0){ continue; }                        // no interaction from X's side
+          let cp=closestSeg(pos[sxI.x].xyz, pos[sxI.y].xyz, pos[syI.x].xyz, pos[syI.y].xyz);
+          if(cp.dist>=arX){ continue; }
+          let tgt=sxF.x+syF.x+max(sxF.y,syF.y);            // contact distance
+          let u=cp.nrm/cp.dist;                            // points Y-closest -> X-closest
+          let gate=clamp((cp.dist-tgt)/10.0, 0.0, 1.0);
+          let fallA=1.0 - clamp((cp.dist-tgt)/max(1.0, arX-tgt), 0.0, 1.0);
+          var g=1.0; if(va>0.0){ g=gate; }                // attraction fades inside contact; repulsion doesn't
+          let mA=va*U.base*fallA*g;
+          var w=cp.s; if(i==sxI.x){ w=1.0-cp.s; }          // barycentric slot for node i on X
+          accum=accum - u*mA*w*invI;                       // -u: attraction (va>0) pulls X toward Y
+        }
+      }
+    }
+  }
+  var delta=accum; let m=length(delta); if(m>U.maxDisp){ delta=delta*(U.maxDisp/m); }  // mandatory per-node clamp (stability)
+  posOut[i]=vec4<f32>(p+delta, 0.0);
+}`;
+const WGSL_GRIDBUILDT=`
+struct GB { count:u32, gx:u32, gy:u32, cap:u32, cell:f32, ox:f32, oy:f32, reach:f32, };
+@group(0) @binding(0) var<storage, read>       pos       : array<vec4<f32>>;
+@group(0) @binding(1) var<storage, read>       segI      : array<vec4<u32>>;
+@group(0) @binding(2) var<storage, read>       affF      : array<vec4<f32>>;   // tagged flag in .w
+@group(0) @binding(3) var<storage, read_write> segCell   : array<vec4<u32>>;
+@group(0) @binding(4) var<storage, read_write> cellCount : array<atomic<u32>>;
+@group(0) @binding(5) var<storage, read_write> cellBins  : array<u32>;
+@group(0) @binding(6) var<storage, read_write> overflow  : array<atomic<u32>>;
+@group(0) @binding(7) var<uniform>             U         : GB;
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid:vec3<u32>){
+  let k=gid.x; if(k>=U.count){ return; }
+  let s=segI[k]; let a=pos[s.x].xyz; let b=pos[s.y].xyz;
+  let gxi=i32(U.gx)-1; let gyi=i32(U.gy)-1;
+  var x0=i32(floor((min(a.x,b.x)-U.reach-U.ox)/U.cell)); var x1=i32(floor((max(a.x,b.x)+U.reach-U.ox)/U.cell));
+  var y0=i32(floor((min(a.y,b.y)-U.reach-U.oy)/U.cell)); var y1=i32(floor((max(a.y,b.y)+U.reach-U.oy)/U.cell));
+  x0=clamp(x0,0,gxi); x1=clamp(x1,0,gxi); y0=clamp(y0,0,gyi); y1=clamp(y1,0,gyi);
+  segCell[k]=vec4<u32>(u32(x0),u32(x1),u32(y0),u32(y1));
+  if(affF[k].w<0.5){ return; }                                  // untagged: bounds stored, not inserted
+  for(var cy:i32=y0; cy<=y1; cy=cy+1){
+    for(var cx:i32=x0; cx<=x1; cx=cx+1){
+      let c=u32(cy)*U.gx+u32(cx);
+      let slot=atomicAdd(&cellCount[c],1u);
+      if(slot<U.cap){ cellBins[c*U.cap+slot]=k; } else { atomicAdd(&overflow[0],1u); }
+    }
+  }
+}`;
+const WGSL_BEND=`
+struct BP { count:u32, pad0:u32, pad1:u32, pad2:u32, };
+@group(0) @binding(0) var<storage, read>       pos       : array<vec4<f32>>;
+@group(0) @binding(1) var<storage, read_write> posOut    : array<vec4<f32>>;
+@group(0) @binding(2) var<storage, read>       nmeta     : array<vec4<f32>>;   // invMass in .x
+@group(0) @binding(3) var<storage, read>       nodeRange : array<vec2<u32>>;   // constraint CSR (start,count) - reused
+@group(0) @binding(4) var<storage, read>       edgeNbr   : array<u32>;         // neighbor node ids
+@group(0) @binding(5) var<storage, read>       bendData  : array<vec4<f32>>;   // (bT, bN, bendFactor=stiff*0.5, curlOff=curl*r*3)
+@group(0) @binding(6) var<uniform>             U         : BP;
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid:vec3<u32>){
+  let i=gid.x; if(i>=U.count){ return; }
+  let p=pos[i].xyz;
+  let bd=bendData[i]; let bend=bd.z;
+  let rng=nodeRange[i];
+  if(bend<=0.0 || rng.y!=2u || nmeta[i].x==0.0){ posOut[i]=vec4<f32>(p,0.0); return; }  // only movable degree-2 nodes bow
+  let a=pos[edgeNbr[rng.x]].xyz; let c=pos[edgeNbr[rng.x+1u]].xyz;
+  var tx=c.x-a.x; var ty=c.y-a.y; var tl=sqrt(tx*tx+ty*ty); if(tl<1e-6){ tl=1.0; } tx=tx/tl; ty=ty/tl;
+  let nx=-ty; let ny=tx;
+  let mx=(a.x+c.x)*0.5; let my=(a.y+c.y)*0.5;
+  let nOff=bd.y+bd.w;                                   // rest normal offset + curl
+  let gx=mx+tx*bd.x+nx*nOff; let gy=my+ty*bd.x+ny*nOff; // target bow point (matches CPU)
+  var np=p;
+  np.x=p.x+(gx-p.x)*bend; np.y=p.y+(gy-p.y)*bend;       // pull center toward target (2D, z untouched)
+  if(any(np!=np)){ np=p; }
+  posOut[i]=vec4<f32>(np,0.0);
+}`;
+const WGSL_CLEARGRID=`
+struct CG { numCells:u32, cap:u32, pad0:u32, pad1:u32, };
+@group(0) @binding(0) var<storage, read_write> cellBins  : array<u32>;
+@group(0) @binding(1) var<storage, read_write> cellCount : array<u32>;
+@group(0) @binding(2) var<uniform>             U         : CG;
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid:vec3<u32>){
+  let c=gid.x; if(c>=U.numCells){ return; }
+  cellCount[c]=0u;
+  let base=c*U.cap;
+  for(var k:u32=0u; k<U.cap; k=k+1u){ cellBins[base+k]=0xffffffffu; }
+}`;
+const WGSL_GRIDBUILD=`
+struct GB { count:u32, gx:u32, gy:u32, cap:u32, cell:f32, ox:f32, oy:f32, reach:f32, };
+@group(0) @binding(0) var<storage, read>       pos       : array<vec4<f32>>;   // xyz + invMass
+@group(0) @binding(1) var<storage, read>       segI      : array<vec4<u32>>;   // a,b,strand,packed
+@group(0) @binding(2) var<storage, read_write> segCell   : array<vec4<u32>>;   // write clamped cell bounds
+@group(0) @binding(3) var<storage, read_write> cellCount : array<atomic<u32>>;
+@group(0) @binding(4) var<storage, read_write> cellBins  : array<u32>;
+@group(0) @binding(5) var<storage, read_write> overflow  : array<atomic<u32>>; // [0]
+@group(0) @binding(6) var<uniform>             U         : GB;
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid:vec3<u32>){
+  let k=gid.x; if(k>=U.count){ return; }
+  let s=segI[k]; let a=pos[s.x].xyz; let b=pos[s.y].xyz;
+  let gxi=i32(U.gx)-1; let gyi=i32(U.gy)-1;
+  var x0=i32(floor((min(a.x,b.x)-U.reach-U.ox)/U.cell)); var x1=i32(floor((max(a.x,b.x)+U.reach-U.ox)/U.cell));
+  var y0=i32(floor((min(a.y,b.y)-U.reach-U.oy)/U.cell)); var y1=i32(floor((max(a.y,b.y)+U.reach-U.oy)/U.cell));
+  x0=clamp(x0,0,gxi); x1=clamp(x1,0,gxi); y0=clamp(y0,0,gyi); y1=clamp(y1,0,gyi);
+  segCell[k]=vec4<u32>(u32(x0),u32(x1),u32(y0),u32(y1));
+  for(var cy:i32=y0; cy<=y1; cy=cy+1){
+    for(var cx:i32=x0; cx<=x1; cx=cx+1){
+      let c=u32(cy)*U.gx+u32(cx);
+      let slot=atomicAdd(&cellCount[c],1u);
+      if(slot<U.cap){ cellBins[c*U.cap+slot]=k; } else { atomicAdd(&overflow[0],1u); }
+    }
+  }
+}`;
+const WGSL_COLLIDE=`
+struct GP { count:u32, gx:u32, gy:u32, cap:u32, cell:f32, ox:f32, oy:f32, depth:f32, omega:f32, penClampFrac:f32, maxDisp:f32, pad0:f32, };
+@group(0) @binding(0) var<storage, read>       pos       : array<vec4<f32>>;
+@group(0) @binding(1) var<storage, read_write> posOut    : array<vec4<f32>>;
+@group(0) @binding(2) var<storage, read>       nodeRange : array<vec2<u32>>;
+@group(0) @binding(3) var<storage, read>       nodeList  : array<u32>;
+@group(0) @binding(4) var<storage, read>       segI      : array<vec4<u32>>;
+@group(0) @binding(5) var<storage, read>       segF      : array<vec4<f32>>;
+@group(0) @binding(6) var<storage, read>       segCell   : array<vec4<u32>>;
+@group(0) @binding(7) var<storage, read>       cellBins  : array<u32>;
+@group(0) @binding(8) var<storage, read>       nmeta     : array<vec4<f32>>;
+@group(0) @binding(9) var<uniform>             U         : GP;
+struct CP { s:f32, t:f32, n:vec3<f32>, dist:f32, };
+fn closestSeg(p1:vec3<f32>, q1:vec3<f32>, p2:vec3<f32>, q2:vec3<f32>) -> CP {
+  let d1=q1-p1; let d2=q2-p2; let r=p1-p2;
+  let a=dot(d1,d1); let e=dot(d2,d2); let ff=dot(d2,r); let lenEps=1e-9;
+  var s=0.0; var t=0.0;
+  if(a<=lenEps && e<=lenEps){ s=0.0; t=0.0; }
+  else if(a<=lenEps){ s=0.0; t=clamp(ff/e,0.0,1.0); }
+  else{ let c=dot(d1,r);
+    if(e<=lenEps){ t=0.0; s=clamp(-c/a,0.0,1.0); }
+    else{ let b=dot(d1,d2); let den=a*e-b*b;
+      if(den > 1e-6*a*e){ s=clamp((b*ff-c*e)/den,0.0,1.0); } else { s=0.0; }
+      t=(b*s+ff)/e;
+      if(t<0.0){ t=0.0; s=clamp(-c/a,0.0,1.0); } else if(t>1.0){ t=1.0; s=clamp((b-c)/a,0.0,1.0); } } }
+  let c1=p1+d1*s; let c2=p2+d2*t; var nrm=c1-c2; var dist=length(nrm);
+  if(dist < 0.25){ var dir=d1; if(e>a){ dir=d2; } let dl=length(dir);
+    if(dl>1e-4){ let uu=dir/dl; var perp=vec3<f32>(-uu.y,uu.x,0.0);
+      let mid=((p1+q1)*0.5)-((p2+q2)*0.5); if(dot(perp,mid) < 0.0){ perp=-perp; } nrm=perp; dist=0.0001; } }
+  var o:CP; o.s=s; o.t=t; o.n=nrm; o.dist=max(dist,0.0001); return o;
+}
+fn shareEndpoint(A:vec4<u32>, B:vec4<u32>) -> bool { return A.x==B.x || A.x==B.y || A.y==B.x || A.y==B.y; }
+fn ownerCell(ca:vec4<u32>, cb:vec4<u32>) -> u32 { let xlo=max(ca.x,cb.x); let ylo=max(ca.z,cb.z); return ylo*U.gx + xlo; }
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid:vec3<u32>){
+  let i=gid.x; if(i>=U.count){ return; }
+  let p=pos[i].xyz; let invI=nmeta[i].x;
+  if(invI==0.0){ posOut[i]=vec4<f32>(p,0.0); return; }
+  var accum=vec3<f32>(0.0); var contacts=0u;
+  let rng=nodeRange[i]; let ns=rng.x; let nc=rng.y;
+  for(var xi:u32=0u; xi<nc; xi=xi+1u){
+    let X=nodeList[ns+xi]; let sxI=segI[X]; let sxC=segCell[X];
+    for(var cy:u32=sxC.z; cy<=sxC.w; cy=cy+1u){
+      for(var cx:u32=sxC.x; cx<=sxC.y; cx=cx+1u){
+        let cellId=cy*U.gx+cx; let base=cellId*U.cap;
+        for(var k:u32=0u; k<U.cap; k=k+1u){
+          let Y=cellBins[base+k];
+          if(Y==0xffffffffu){ break; }
+          if(Y==X){ continue; }
+          let syI=segI[Y]; let syC=segCell[Y];
+          if(ownerCell(sxC,syC) != cellId){ continue; }
+          if(shareEndpoint(sxI,syI)){ continue; }
+          if((sxI.w & 1u)!=0u || (syI.w & 1u)!=0u){ continue; }
+          let objX=sxI.w>>3u; let objY=syI.w>>3u;
+          if(objX==objY && ((sxI.w>>2u)&1u)==0u){ continue; }
+          let lo=min(X,Y); let hi=max(X,Y);
+          if(sxI.z==syI.z){ let along=abs(i32(segF[X].z)-i32(segF[Y].z)); if(along < (i32(segF[lo].w)+1)){ continue; } }
+          let la=segI[lo]; let ha=segI[hi];
+          var lp0=pos[la.x].xyz; var lp1=pos[la.y].xyz; var hp0=pos[ha.x].xyz; var hp1=pos[ha.y].xyz;
+          let use3=(U.depth>0.0) && !(((segI[lo].w>>1u)&1u)!=0u || ((segI[hi].w>>1u)&1u)!=0u);
+          if(!use3){ lp0.z=0.0; lp1.z=0.0; hp0.z=0.0; hp1.z=0.0; }
+          let cp=closestSeg(lp0,lp1,hp0,hp1);
+          let tgt=segF[lo].x+segF[hi].x+max(segF[lo].y,segF[hi].y);
+          if(cp.dist>=tgt){ continue; }
+          let ov=min(tgt-cp.dist, U.penClampFrac*tgt);
+          let u=cp.n/cp.dist;
+          let mobLo=(nmeta[la.x].x+nmeta[la.y].x)*0.5; let mobHi=(nmeta[ha.x].x+nmeta[ha.y].x)*0.5; let Wt=mobLo+mobHi;
+          if(Wt<=0.0){ continue; }
+          let cLo=ov*mobLo/Wt; let cHi=ov*mobHi/Wt; let s=cp.s; let t=cp.t;
+          var d=vec3<f32>(0.0);
+          if(i==la.x){ d=u*cLo*(1.0-s); } else if(i==la.y){ d=u*cLo*s; }
+          else if(i==ha.x){ d=-u*cHi*(1.0-t); } else if(i==ha.y){ d=-u*cHi*t; }
+          accum=accum+d; contacts=contacts+1u;
+        }
+      }
+    }
+  }
+  var delta=vec3<f32>(0.0);
+  if(contacts>0u){ delta=accum/f32(contacts); delta=delta*U.omega; let m=length(delta); if(m>U.maxDisp){ delta=delta*(U.maxDisp/m); } }
+  posOut[i]=vec4<f32>(p+delta, 0.0);
+}`;
+
+function status(msg,bad){const e=document.getElementById('gpuPhysicsStatus');if(e){e.textContent=msg;e.style.color=bad?'#ff8a9a':'var(--dim)';}}
+function badge(on,reason){const e=document.getElementById('gpuPhysicsBadge');if(!e)return;
+  if(on){e.textContent='\u25CF GPU PHYSICS';e.style.color='#6ee7b7';e.style.display='';}
+  else if(reason){e.textContent='\u25CF CPU \u00B7 '+reason;e.style.color='#ffb86b';e.style.display='';}
+  else{e.style.display='none';}}
+function setToggle(on){const cb=document.getElementById('gpuPhysicsToggle');if(cb)cb.checked=on;}
+function supported(){return typeof navigator!=='undefined'&&!!navigator.gpu;}
+
+/* CSS colour -> [r,g,b] 0..1 */
+const _cc=document.createElement('canvas');_cc.width=_cc.height=1;const _cx=_cc.getContext('2d');const _colCache=new Map();
+function parseCol(css){ if(_colCache.has(css))return _colCache.get(css);
+  try{_cx.clearRect(0,0,1,1);_cx.fillStyle='#88eeee';_cx.fillStyle=css;_cx.fillRect(0,0,1,1);const d=_cx.getImageData(0,0,1,1).data;const r=[d[0]/255,d[1]/255,d[2]/255];_colCache.set(css,r);return r;}
+  catch(e){return [0.53,0.93,0.93];} }
+
+const WGSL_INT=`
+struct P { count:u32, temp:f32, damp:f32, depth:f32, relax:f32, grab:i32, frameN:u32, grabX:f32, W:f32, H:f32, wpad:f32, grabY:f32, };
+@group(0) @binding(0) var<storage, read>       posIn  : array<vec4<f32>>;
+@group(0) @binding(1) var<storage, read_write> posOut : array<vec4<f32>>;
+@group(0) @binding(2) var<storage, read_write> prv    : array<vec4<f32>>;
+@group(0) @binding(3) var<storage, read>       nmeta  : array<vec4<f32>>;
+@group(0) @binding(4) var<uniform>             U      : P;
+fn rnd(x:u32)->f32{ var h=x; h=h^(h>>16u); h=h*0x7feb352du; h=h^(h>>15u); h=h*0x846ca68bu; h=h^(h>>16u); return f32(h)/4294967296.0; }
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid:vec3<u32>){
+  let i=gid.x; if(i>=U.count){ return; }
+  let mv=nmeta[i]; let invm=mv.x; let odamp=mv.y; let solid=mv.z;
+  let p=posIn[i].xyz; let pr=prv[i].xyz;
+  if(i32(i)==U.grab){ posOut[i]=vec4<f32>(U.grabX,U.grabY,p.z,0.0); prv[i]=vec4<f32>(U.grabX,U.grabY,p.z,0.0); return; }
+  if(invm==0.0){ posOut[i]=vec4<f32>(p,0.0); prv[i]=vec4<f32>(p,0.0); return; }
+  let kick=U.temp*0.8;
+  var fr=min(0.95, 0.05+U.damp+odamp);
+  var vx=p.x-pr.x; var vy=p.y-pr.y;
+  let sp=length(vec2<f32>(vx,vy));
+  if(sp>1.5){ fr=fr*max(0.35, 1.0-0.65*min(1.0,(sp-1.5)/4.5)); }
+  vx=vx*(1.0-fr); vy=vy*(1.0-fr);
+  let seed=i*3u + U.frameN*9781u;
+  var nx=p.x+vx+(rnd(seed)-0.5)*kick;
+  var ny=p.y+vy+(rnd(seed+1u)-0.5)*kick;
+  if(U.W>1.0){ nx=clamp(nx, U.wpad, U.W-U.wpad); ny=clamp(ny, U.wpad, U.H-U.wpad); }
+  var nh=0.0;
+  if(U.depth>0.0 && solid<0.5){
+    let slab=U.depth; let hk=U.temp*(0.3+U.depth*0.005);
+    let vh=(p.z-pr.z)*(1.0-fr);
+    nh=p.z+vh+(rnd(seed+2u)-0.5)*hk - p.z*0.004;
+    nh=clamp(nh,-slab,slab);
+  }
+  var np=vec3<f32>(nx,ny,nh);
+  if(any(np!=np)){ np=p; }
+  posOut[i]=vec4<f32>(np,0.0);
+  prv[i]=vec4<f32>(p,0.0);
+}`;
+const WGSL_CON=`
+struct P { count:u32, temp:f32, damp:f32, depth:f32, relax:f32, grab:i32, frameN:u32, grabX:f32, W:f32, H:f32, wpad:f32, grabY:f32, };
+@group(0) @binding(0) var<storage, read>       posIn     : array<vec4<f32>>;
+@group(0) @binding(1) var<storage, read_write> posOut    : array<vec4<f32>>;
+@group(0) @binding(2) var<storage, read>       nmeta     : array<vec4<f32>>;
+@group(0) @binding(3) var<storage, read>       nodeRange : array<vec2<u32>>;
+@group(0) @binding(4) var<storage, read>       edgeNbr   : array<u32>;
+@group(0) @binding(5) var<storage, read>       edgeRest  : array<f32>;
+@group(0) @binding(6) var<uniform>             U         : P;
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid:vec3<u32>){
+  let i=gid.x; if(i>=U.count){ return; }
+  let mi=nmeta[i].x; let p=posIn[i].xyz;
+  if(mi==0.0){ posOut[i]=vec4<f32>(p,0.0); return; }
+  let rng=nodeRange[i]; let start=rng.x; let cnt=rng.y;
+  var k=vec3<f32>(0.0);
+  for(var e:u32=0u; e<cnt; e=e+1u){
+    let j=edgeNbr[start+e]; let rest=edgeRest[start+e];
+    let mj=nmeta[j].x; let wsum=mi+mj;
+    if(wsum<=0.0){ continue; }
+    let d=posIn[j].xyz-p; let dist=max(length(d),0.0001);
+    let corr=d*((dist-rest)/dist)*(mi/wsum)*U.relax;
+    k=k+clamp(corr, vec3<f32>(-rest), vec3<f32>(rest));
+  }
+  var np=p+k; if(any(np!=np)){ np=p; }
+  posOut[i]=vec4<f32>(np,0.0);
+}`;
+const WGSL_REN=`
+struct Cam { uA:vec2<f32>, uB:vec2<f32>, };
+@group(0) @binding(0) var<storage, read> pos   : array<vec4<f32>>;
+@group(0) @binding(1) var<storage, read> segs  : array<vec2<u32>>;
+@group(0) @binding(2) var<storage, read> style : array<vec4<f32>>;
+@group(0) @binding(3) var<uniform>       cam   : Cam;
+struct VSOut { @builtin(position) clip:vec4<f32>, @location(0) t:f32, @location(1) col:vec3<f32>, };
+@vertex
+fn vs(@builtin(vertex_index) vi:u32, @builtin(instance_index) ii:u32)->VSOut{
+  var corners=array<vec2<f32>,4>(vec2<f32>(0.0,-1.0),vec2<f32>(0.0,1.0),vec2<f32>(1.0,-1.0),vec2<f32>(1.0,1.0));
+  let c=corners[vi]; let ed=segs[ii]; let st=style[ii];
+  let p0=pos[ed.x].xy; let p1=pos[ed.y].xy; let r=max(st.w,0.6);
+  let d=p1-p0; let L=length(d); var dir=vec2<f32>(1.0,0.0); if(L>1e-4){ dir=d/L; }
+  let perp=vec2<f32>(-dir.y,dir.x);
+  let world=mix(p0-dir*r, p1+dir*r, vec2<f32>(c.x)) + perp*(c.y*r);
+  var o:VSOut; o.clip=vec4<f32>(world*cam.uA+cam.uB,0.0,1.0); o.t=c.y; o.col=st.xyz; return o;
+}
+@fragment
+fn fs(in:VSOut)->@location(0) vec4<f32>{
+  let a=1.0-smoothstep(0.55,1.0,abs(in.t));
+  let sh=0.65+0.35*(1.0-abs(in.t));
+  return vec4<f32>(in.col*sh*a, a);
+}`;
+
+async function reportShader(mod,label){ if(!mod||!mod.getCompilationInfo)return true;
+  const info=await mod.getCompilationInfo(); let bad=false;
+  for(const m of info.messages){ try{GP.wgslMsgs.push({label:label,type:m.type,line:m.lineNum,pos:m.linePos,msg:m.message});}catch(e){} if(m.type==='error'){bad=true; status('WGSL '+label+' L'+m.lineNum+':'+m.linePos+' \u2014 '+m.message,true); console.error('[gpuPhysics '+label+']','L'+m.lineNum+':'+m.linePos,m.message);} }
+  return !bad; }
+
+async function ensureDevice(){
+  if(GP.device)return true;
+  if(!supported()){ status('WebGPU not available in this browser',true); return false; }
+  try{
+    const adapter=await navigator.gpu.requestAdapter({powerPreference:'high-performance'});
+    if(!adapter){ status('No WebGPU adapter (GPU unavailable)',true); return false; }
+    try{ GP.adapterInfo = adapter.info || (adapter.requestAdapterInfo? await adapter.requestAdapterInfo():null); }catch(e){}
+    let reqLimits={}; try{ const mx=adapter.limits.maxStorageBuffersPerShaderStage; GP.maxStorageBuf=mx; if(mx>=10){reqLimits.maxStorageBuffersPerShaderStage=10;} else if(mx>=9){reqLimits.maxStorageBuffersPerShaderStage=mx;} }catch(e){}
+    const device=await adapter.requestDevice({requiredLimits:reqLimits});
+    device.lost.then(info=>{ GP.active=false;S.gpuPhysics=false;GP.device=null;cw.style.display='none';badge(false,'device lost');setToggle(false);status('WebGPU device lost \u2014 reload to retry',true); });
+    GP.device=device;
+    GP.ctx=cw.getContext('webgpu'); GP.format=navigator.gpu.getPreferredCanvasFormat();
+    GP.ctx.configure({device,format:GP.format,alphaMode:'premultiplied'});
+    device.pushErrorScope('validation');
+    const im=device.createShaderModule({code:WGSL_INT});
+    const cm=device.createShaderModule({code:WGSL_CON});
+    const rm=device.createShaderModule({code:WGSL_REN});
+    const ok=(await reportShader(im,'integrate'))&(await reportShader(cm,'constrain'))&(await reportShader(rm,'render'));
+    GP.intPipe=await device.createComputePipelineAsync({layout:'auto',compute:{module:im,entryPoint:'main'}});
+    GP.conPipe=await device.createComputePipelineAsync({layout:'auto',compute:{module:cm,entryPoint:'main'}});
+    GP.renPipe=await device.createRenderPipelineAsync({layout:'auto',
+      vertex:{module:rm,entryPoint:'vs'},
+      fragment:{module:rm,entryPoint:'fs',targets:[{format:GP.format,blend:{
+        color:{srcFactor:'src-alpha',dstFactor:'one-minus-src-alpha',operation:'add'},
+        alpha:{srcFactor:'one',dstFactor:'one-minus-src-alpha',operation:'add'}}}]},
+      primitive:{topology:'triangle-strip'}});
+    try{ const bm=device.createShaderModule({code:WGSL_BEND}); if(await reportShader(bm,'bend')){ GP.bendPipe=await device.createComputePipelineAsync({layout:'auto',compute:{module:bm,entryPoint:'main'}}); GP.bendSupported=true; } }catch(e){ GP.bendSupported=false; console.warn('[gpuBend] pipeline failed:',e.message); }
+    try{ const egm=device.createShaderModule({code:WGSL_ENDGRID}); const bdm=device.createShaderModule({code:WGSL_BONDDETECT});
+      if((await reportShader(egm,'endgrid'))&(await reportShader(bdm,'bonddetect'))){ GP.endGridPipe=await device.createComputePipelineAsync({layout:'auto',compute:{module:egm,entryPoint:'main'}}); GP.bondDetectPipe=await device.createComputePipelineAsync({layout:'auto',compute:{module:bdm,entryPoint:'main'}}); GP.bondDetectSupported=true; } }catch(e){ GP.bondDetectSupported=false; console.warn('[gpuBondDetect] pipeline failed:',e.message); }
+    try{ const am=device.createShaderModule({code:WGSL_AFFINITY}); const gtm=device.createShaderModule({code:WGSL_GRIDBUILDT});
+      if((await reportShader(am,'affinity'))&(await reportShader(gtm,'gridbuildt'))){ GP.affPipe=await device.createComputePipelineAsync({layout:'auto',compute:{module:am,entryPoint:'main'}}); GP.gridTPipe=await device.createComputePipelineAsync({layout:'auto',compute:{module:gtm,entryPoint:'main'}}); GP.affSupported=true; } }catch(e){ GP.affSupported=false; console.warn('[gpuAffinity] pipeline failed:',e.message); }
+    try{
+      const clm=device.createShaderModule({code:WGSL_CLEARGRID}); const gbm=device.createShaderModule({code:WGSL_GRIDBUILD}); const com=device.createShaderModule({code:WGSL_COLLIDE});
+      const cok=(await reportShader(clm,'cleargrid'))&(await reportShader(gbm,'gridbuild'))&(await reportShader(com,'collide'));
+      if(cok){
+        GP.clearPipe=await device.createComputePipelineAsync({layout:'auto',compute:{module:clm,entryPoint:'main'}});
+        GP.gridPipe=await device.createComputePipelineAsync({layout:'auto',compute:{module:gbm,entryPoint:'main'}});
+        GP.collPipe=await device.createComputePipelineAsync({layout:'auto',compute:{module:com,entryPoint:'main'}});
+        GP.collSupported=true; status('GPU collision ready ('+GP.maxStorageBuf+' storage bufs)');
+      } else { GP.collSupported=false; }
+    }catch(e){ GP.collSupported=false; console.warn('[gpuCollision] setup failed \u2014 physics runs without it:',e.message); }
+    const err=await device.popErrorScope(); if(err){ status('pipeline error: '+err.message,true); console.error('[gpuPhysics pipeline]',err.message); return false; }
+    return ok;
+  }catch(e){ status('WebGPU init failed: '+e.message,true); console.error(e); return false; }
+}
+
+function mkR(key,data,usage,hr){ const dev=GP.device, need=Math.max(16,data.byteLength), C=(GP._cap||(GP._cap={}));   // reuse-or-realloc data buffer (writeBuffer if capacity fits)
+  if(GP[key]&&(C[key]||0)>=need){ dev.queue.writeBuffer(GP[key],0,data); return GP[key]; }
+  if(GP[key]){ try{GP[key].destroy();}catch(e){} }
+  const alloc=Math.max(16,Math.ceil(need*(hr||1.4)/16)*16); const bf=dev.createBuffer({size:alloc,usage}); dev.queue.writeBuffer(bf,0,data); GP[key]=bf; C[key]=alloc; return bf; }
+function bufR(key,size,usage,hr){ const dev=GP.device, need=Math.max(16,size), C=(GP._cap||(GP._cap={}));   // reuse-or-realloc capacity buffer (contents written per-frame)
+  if(GP[key]&&(C[key]||0)>=need){ return GP[key]; }
+  if(GP[key]){ try{GP[key].destroy();}catch(e){} }
+  const alloc=Math.max(16,Math.ceil(need*(hr||1.4)/16)*16); const bf=dev.createBuffer({size:alloc,usage}); GP[key]=bf; C[key]=alloc; return bf; }
+function disposeBuffers(){ GP._cap={}; GP.collReady=false; for(const k of ['bufA','bufB','bufPrev','bufMeta','bufRange','bufNbr','bufRest','bufSeg','bufStyle','bufParams','bufCam','bufNSR','bufNSL','bufSegI','bufSegF','bufSegCell','bufCellBins','bufCellCount','bufOverflow','bufCollP','bufGridP','bufClearP','bufBend','bufBendP','bufAffF','bufVmat','bufSegCellA','bufCellBinsA','bufCellCountA','bufOverflowA','bufAffP','bufGridTP','bufClearAP','bufEndList','bufEndMeta','bufEndCellCount','bufEndCellBins','bufEndOver','bufCand','bufCandCount','bufCandOver','bufEndGridP','bufDetectP','bufEndClearP']){ GP.bendReady=false; GP.affReady=false; GP.bondDetectReady=false; if(GP[k]){try{GP[k].destroy();}catch(e){}GP[k]=null;} } }
+
+function buildScene(){
+  const device=GP.device, N=G.nodes.length; GP.N=N;
+  const pos=new Float32Array(N*4), prev=new Float32Array(N*4), meta=new Float32Array(N*4);
+  for(let i=0;i<N;i++){ const n=G.nodes[i]; const o=G.objs[n.obj]||{};
+    pos[i*4]=NX[i];pos[i*4+1]=NY[i];pos[i*4+2]=NH[i];
+    prev[i*4]=NPX[i];prev[i*4+1]=NPY[i];prev[i*4+2]=NPH[i];
+    meta[i*4]= n.fixed?0.0:((n.inv!=null&&n.inv>0)?n.inv:1.0);
+    meta[i*4+1]= (o.damp||0);
+    meta[i*4+2]= n.solid?1.0:0.0;
+  }
+  const adj=new Array(N); for(let i=0;i<N;i++)adj[i]=[];
+  const segList=[];
+  for(let s=0;s<G.segs.length;s++){ const sg=G.segs[s]; if(sg.dead)continue;   // bonds INCLUDED: held as length constraints, drawn, and skipped by collision via the segI bond bit
+    const a=sg.a,b=sg.b,rest=sg.rest||1; if(a>=N||b>=N)continue; adj[a].push([b,rest,sg.obj]); adj[b].push([a,rest,sg.obj]); segList.push(sg); }
+  const numSeg=segList.length; GP.numSeg=numSeg;
+  let numDir=0; for(let i=0;i<N;i++)numDir+=adj[i].length; GP.numDir=numDir;
+  const range=new Uint32Array(N*2), nbr=new Uint32Array(Math.max(1,numDir)), rest=new Float32Array(Math.max(1,numDir)), edgeObj=new Uint32Array(Math.max(1,numDir));
+  let c=0; for(let i=0;i<N;i++){ range[i*2]=c; range[i*2+1]=adj[i].length; for(const pr of adj[i]){ nbr[c]=pr[0]; rest[c]=pr[1]; edgeObj[c]=pr[2]||0; c++; } }
+  GP._baseRest=rest.slice(); GP._edgeObj=edgeObj;
+  for(let cc=0;cc<numDir;cc++){ const o=G.objs[edgeObj[cc]]||{}; const g=(typeof effGrow==='function'?effGrow(o):(o.grow||0)); rest[cc]=GP._baseRest[cc]*Math.max(0,1+g); }
+  const seg=new Uint32Array(Math.max(1,numSeg)*2), style=new Float32Array(Math.max(1,numSeg)*4);
+  for(let s=0;s<numSeg;s++){ const sg=segList[s]; seg[s*2]=sg.a; seg[s*2+1]=sg.b;
+    const o=G.objs[sg.obj]||{}; const col=parseCol(o.color||'#88eeee'); const rr=(typeof effR==='function'?effR(o):(o.r||4));
+    style[s*4]=col[0];style[s*4+1]=col[1];style[s*4+2]=col[2];style[s*4+3]=Math.max(0.6,rr); }
+  GP.collReady=false; GP.bendReady=false; GP.affReady=false;   // reset ready flags; buffers reused in place (mkR/bufR) instead of destroyed
+  const U=GPUBufferUsage, ST=U.STORAGE,CD=U.COPY_DST,CS=U.COPY_SRC,UN=U.UNIFORM;
+  const mk=(data,usage)=>{ const bf=device.createBuffer({size:Math.max(16,data.byteLength),usage}); device.queue.writeBuffer(bf,0,data); return bf; };
+  GP.bufA=mkR('bufA',pos,ST|CD|CS); GP.bufB=mkR('bufB',new Float32Array(N*4),ST|CD|CS); GP.bufPrev=mkR('bufPrev',prev,ST|CD|CS);
+  GP.bufMeta=mkR('bufMeta',meta,ST|CD); GP.bufRange=mkR('bufRange',range,ST|CD); GP.bufNbr=mkR('bufNbr',nbr,ST|CD); GP.bufRest=mkR('bufRest',rest,ST|CD);
+  GP.bufSeg=mkR('bufSeg',seg,ST|CD); GP.bufStyle=mkR('bufStyle',style,ST|CD|CS);
+  GP.bufParams=bufR('bufParams',48,UN|CD); GP.bufCam=bufR('bufCam',16,UN|CD);
+  const bg=(pipe,entries)=>device.createBindGroup({layout:pipe.getBindGroupLayout(0),entries});
+  const B=(k,b)=>({binding:k,resource:{buffer:b}});
+  GP.bgIntAB=bg(GP.intPipe,[B(0,GP.bufA),B(1,GP.bufB),B(2,GP.bufPrev),B(3,GP.bufMeta),B(4,GP.bufParams)]);
+  GP.bgIntBA=bg(GP.intPipe,[B(0,GP.bufB),B(1,GP.bufA),B(2,GP.bufPrev),B(3,GP.bufMeta),B(4,GP.bufParams)]);
+  const conE=(inB,outB)=>[B(0,inB),B(1,outB),B(2,GP.bufMeta),B(3,GP.bufRange),B(4,GP.bufNbr),B(5,GP.bufRest),B(6,GP.bufParams)];
+  GP.bgConAB=bg(GP.conPipe,conE(GP.bufA,GP.bufB)); GP.bgConBA=bg(GP.conPipe,conE(GP.bufB,GP.bufA));
+  GP.bgRenA=bg(GP.renPipe,[B(0,GP.bufA),B(1,GP.bufSeg),B(2,GP.bufStyle),B(3,GP.bufCam)]);
+  GP.bgRenB=bg(GP.renPipe,[B(0,GP.bufB),B(1,GP.bufSeg),B(2,GP.bufStyle),B(3,GP.bufCam)]);
+  GP._pos0=pos.slice(); GP._segCache=segList.map(sg=>[sg.a,sg.b,sg.rest||1]); GP._segList=segList; GP._fixed=[]; for(let i=0;i<N;i++){ if(G.nodes[i]&&G.nodes[i].fixed)GP._fixed.push(i); }
+  packCollision(segList,N,device,mk,bg,B,ST,CD,CS,UN);
+  packBend(N,device,mk,bg,B,ST,CD,UN);
+  packAffinity(segList,N,device,mk,bg,B,ST,CD,CS,UN);
+  packBondDetect(bg,B);
+  GP._helpers={mk,bg,B,ST,CD,CS,UN,device};
+  GP.curBuf=0; GP.frameN=0;
+}
+function packCollision(segList,N,device,mk,bg,B,ST,CD,CS,UN){
+  GP.collReady=false;
+  const wantColl=(S.gpuCollIters==null?true:(S.gpuCollIters|0)>0);
+  if(!(GP.collSupported && wantColl))return;
+  try{
+    const numSeg=segList.length; if(numSeg<1)return;
+    const incid=new Array(N); for(let i=0;i<N;i++)incid[i]=[];
+    for(let s=0;s<numSeg;s++){ incid[segList[s].a].push(s); incid[segList[s].b].push(s); }
+    let tot=0; for(let i=0;i<N;i++)tot+=incid[i].length;
+    const nsRange=new Uint32Array(N*2), nsList=new Uint32Array(Math.max(1,tot));
+    { let cc=0; for(let i=0;i<N;i++){ nsRange[i*2]=cc; nsRange[i*2+1]=incid[i].length; for(const sg of incid[i])nsList[cc++]=sg; } }
+    const piece=(G.piece&&G.piece.length>=N)?G.piece:new Array(N).fill(0);
+    const along=new Int32Array(numSeg).fill(-1); const visited=new Uint8Array(numSeg);
+    for(let i=0;i<N;i++){ if(incid[i].length===1){ let cur=i,prevSeg=-1,idx=0;
+      while(true){ let nx=-1; for(const sg of incid[cur]){ if(sg!==prevSeg && !visited[sg]){ nx=sg; break; } } if(nx<0)break;
+        visited[nx]=1; along[nx]=idx++; const so=segList[nx]; cur=(so.a===cur)?so.b:so.a; prevSeg=nx; } } }
+    for(let s=0;s<numSeg;s++)if(along[s]<0)along[s]=0;
+    const segI=new Uint32Array(numSeg*4), segF=new Float32Array(numSeg*4);
+    let maxR=0,maxPad=0;
+    for(let s=0;s<numSeg;s++){ const sg=segList[s], o=G.objs[sg.obj]||{}; const er=(typeof effR==='function'?effR(o):(o.r||4));
+      const pd=Math.max(o.padSelf||0,o.padOther||0,S.wallPad||0); if(er>maxR)maxR=er; if(pd>maxPad)maxPad=pd;
+      const skip=Math.max(1,Math.ceil(2*(o.r||er)/Math.max(1,sg.rest||1))+1);
+      const selfSolid=(o.selfSolid!==false)?1:0;
+      segI[s*4]=sg.a; segI[s*4+1]=sg.b; segI[s*4+2]=(piece[sg.a]|0); segI[s*4+3]=(sg.bond?1:0)|((sg.solid?1:0)<<1)|(selfSolid<<2)|((sg.obj||0)<<3);
+      segF[s*4]=er; segF[s*4+1]=(o.padSelf||o.padOther||0); segF[s*4+2]=along[s]; segF[s*4+3]=skip; }
+    const reach=maxR+maxPad+GP_COLL_MARGIN, cell=Math.max(10,2*(maxR+maxPad));
+    let bx0=1e9,by0=1e9,bx1=-1e9,by1=-1e9; for(let i=0;i<N;i++){ if(NX[i]<bx0)bx0=NX[i]; if(NY[i]<by0)by0=NY[i]; if(NX[i]>bx1)bx1=NX[i]; if(NY[i]>by1)by1=NY[i]; }
+    const Wb=Math.max((S.W||0),bx1)+60, Hb=Math.max((S.H||0),by1)+60;
+    const ox=Math.min(0,bx0)-reach-cell, oy=Math.min(0,by0)-reach-cell;
+    const gx=Math.max(1,Math.ceil((Wb-ox+reach+cell)/cell)), gy=Math.max(1,Math.ceil((Hb-oy+reach+cell)/cell));
+    const numCells=gx*gy, cap=GP_COLL_CAP;
+    GP.grid={gx,gy,cell,ox,oy,reach,cap,numCells};
+    GP.bufNSR=mkR('bufNSR',nsRange,ST|CD); GP.bufNSL=mkR('bufNSL',nsList,ST|CD); GP.bufSegI=mkR('bufSegI',segI,ST|CD); GP.bufSegF=mkR('bufSegF',segF,ST|CD);
+    GP.bufSegCell=bufR('bufSegCell',numSeg*16,ST|CD);
+    GP.bufCellBins=bufR('bufCellBins',numCells*cap*4,ST|CD);
+    GP.bufCellCount=bufR('bufCellCount',numCells*4,ST|CD);
+    GP.bufOverflow=bufR('bufOverflow',16,ST|CD|CS);
+    GP.bufCollP=bufR('bufCollP',48,UN|CD); GP.bufGridP=bufR('bufGridP',32,UN|CD); GP.bufClearP=bufR('bufClearP',16,UN|CD);
+    GP.bgClear=bg(GP.clearPipe,[B(0,GP.bufCellBins),B(1,GP.bufCellCount),B(2,GP.bufClearP)]);
+    const gE=(pIn)=>[B(0,pIn),B(1,GP.bufSegI),B(2,GP.bufSegCell),B(3,GP.bufCellCount),B(4,GP.bufCellBins),B(5,GP.bufOverflow),B(6,GP.bufGridP)];
+    GP.bgGridA=bg(GP.gridPipe,gE(GP.bufA)); GP.bgGridB=bg(GP.gridPipe,gE(GP.bufB));
+    const cE=(pIn,pOut)=>[B(0,pIn),B(1,pOut),B(2,GP.bufNSR),B(3,GP.bufNSL),B(4,GP.bufSegI),B(5,GP.bufSegF),B(6,GP.bufSegCell),B(7,GP.bufCellBins),B(8,GP.bufMeta),B(9,GP.bufCollP)];
+    GP.bgCollAB=bg(GP.collPipe,cE(GP.bufA,GP.bufB)); GP.bgCollBA=bg(GP.collPipe,cE(GP.bufB,GP.bufA));
+    GP._segF=segF; GP.collReady=true;
+  }catch(e){ GP.collReady=false; console.warn('[gpuCollision] buildScene packing failed:',e.message); }
+}
+
+function writeParamsTo(buf,count){ const ab=new ArrayBuffer(48),dv=new DataView(ab);
+  dv.setUint32(0,count>>>0,true); dv.setFloat32(4,S.temp||0,true); dv.setFloat32(8,S.damp||0,true); dv.setFloat32(12,S.depth||0,true);
+  dv.setFloat32(16,GP_RELAX,true); dv.setInt32(20,(GP.grabNode!=null&&GP.grabNode>=0)?GP.grabNode:-1,true); dv.setUint32(24,GP.frameN>>>0,true); dv.setFloat32(28,GP.grabX||0,true);
+  dv.setFloat32(32,S.W||0,true); dv.setFloat32(36,S.H||0,true); dv.setFloat32(40,S.pad||0,true); dv.setFloat32(44,GP.grabY||0,true);
+  GP.device.queue.writeBuffer(buf,0,ab); }
+function packParams(){ writeParamsTo(GP.bufParams,GP.N); }
+function packCam(){ const w=cw.width||1,h=cw.height||1,sc=S.dpr*view.z,ox=S.dpr*view.ox,oy=S.dpr*view.oy;
+  const cam=new Float32Array([ sc*2/w, -sc*2/h, ox*2/w-1, 1-oy*2/h ]); GP.device.queue.writeBuffer(GP.bufCam,0,cam); }
+function syncCanvas(){ const w=Math.max(1,Math.floor(cw.clientWidth*S.dpr)),h=Math.max(1,Math.floor(cw.clientHeight*S.dpr));
+  if(cw.width!==w||cw.height!==h){ cw.width=w; cw.height=h; } }
+
+function packBend(N,device,mk,bg,B,ST,CD,UN){
+  GP.bendReady=false;
+  if(!GP.bendSupported)return;
+  try{
+    let anyDeg2=false; const bendData=new Float32Array(N*4);
+    for(let i=0;i<N;i++){ const nb=G.nbrs[i], n=G.nodes[i]||{}, o=G.objs[n.obj]||{};
+      if(nb && nb.length===2){ anyDeg2=true;
+        const bf=(typeof effStiff==='function'?effStiff(o):(o.stiff||0))*0.5;
+        const curlOff=(typeof effCurl==='function'?effCurl(o):(o.curl||0))*((o.r||4)*3);
+        bendData[i*4]=(n.bT||0); bendData[i*4+1]=(n.bN||0); bendData[i*4+2]=bf; bendData[i*4+3]=curlOff; } }
+    if(!anyDeg2)return;
+    GP._bendData=bendData; GP.bufBend=mkR('bufBend',bendData,ST|CD); GP.bufBendP=bufR('bufBendP',16,UN|CD);
+    { const ab=new ArrayBuffer(16),dv=new DataView(ab); dv.setUint32(0,N,true); device.queue.writeBuffer(GP.bufBendP,0,ab); }
+    const bE=(pIn,pOut)=>[B(0,pIn),B(1,pOut),B(2,GP.bufMeta),B(3,GP.bufRange),B(4,GP.bufNbr),B(5,GP.bufBend),B(6,GP.bufBendP)];
+    GP.bgBendAB=bg(GP.bendPipe,bE(GP.bufA,GP.bufB)); GP.bgBendBA=bg(GP.bendPipe,bE(GP.bufB,GP.bufA));
+    GP.bendReady=true;
+  }catch(e){ GP.bendReady=false; console.warn('[gpuBend] pack failed:',e.message); }
+}
+function rebuildAffinityLive(){
+  if(!GP._helpers || !GP.affSupported)return;
+  try{ for(const k of ['bufAffF','bufVmat','bufSegCellA','bufCellBinsA','bufCellCountA','bufOverflowA','bufAffP','bufGridTP','bufClearAP']){ if(GP[k]&&GP[k].destroy){try{GP[k].destroy();}catch(e){}} GP[k]=null; } }catch(e){}
+  GP.affReady=false; const h=GP._helpers;
+  packAffinity(GP._segList, GP.N, h.device, h.mk, h.bg, h.B, h.ST, h.CD, h.CS, h.UN);
+}
+function affinityEnabled(){ for(const o of G.objs){ if(o.interSelf)return true; if(o.inter){ for(const k in o.inter){ if(o.inter[k])return true; } } } return false; }
+function packBondDetect(bg,B){
+  GP.bondDetectReady=false;
+  if(!(GP.bondDetectSupported && S.bonding && GP.clearPipe)){ GP.bondDetectWhy='guard sup='+GP.bondDetectSupported+' bond='+S.bonding+' clear='+!!GP.clearPipe; return; }
+  try{
+    const U=GPUBufferUsage, ST=U.STORAGE, CD=U.COPY_DST, CS=U.COPY_SRC, UN=U.UNIFORM;
+    const ends=G.ends; if(!ends||ends.length<2){ GP.bondDetectWhy='ends='+(ends?ends.length:'null'); return; }
+    const objs=G.objs; let any=false,nBond=0; for(const o of objs){ if(o.bondOn){nBond++; if(o.endType && Object.keys(o.endType).length)any=true;} } if(!any){ GP.bondDetectWhy='no-eligible bondOn='+nBond+'/'+objs.length; return; }
+    let maxR=30,maxER=0; for(const o of objs){ const er=(typeof effR==='function'?effR(o):(o.r||4)); if(er>maxER)maxER=er; }
+    for(const o of objs) if(o.endType) for(const k in o.endType){ const p=o.endType[k]; if(p.wRange>maxR)maxR=p.wRange; if(p.sRange>maxR)maxR=p.sRange; const snapD=(p.snap||0)*((typeof effR==='function'?effR(o):(o.r||4))+maxER); if(snapD>maxR)maxR=snapD; }
+    const ER=maxR+10, ER2=ER*ER, cell=Math.max(8,ER);
+    const nE=ends.length, endList=new Uint32Array(nE); for(let i=0;i<nE;i++)endList[i]=ends[i];
+    let bx0=1e9,by0=1e9,bx1=-1e9,by1=-1e9; for(let i=0;i<nE;i++){ const n=ends[i], x=NX[n], y=NY[n]; if(x<bx0)bx0=x;if(y<by0)by0=y;if(x>bx1)bx1=x;if(y>by1)by1=y; }
+    const ox=bx0-cell, oy=by0-cell;
+    const gx=Math.max(1,Math.ceil((bx1-ox+cell)/cell)), gy=Math.max(1,Math.ceil((by1-oy+cell)/cell));
+    const cap=128, numCells=gx*gy, candCap=Math.max(1024, nE*6);   // cap: endpoints/cell; candCap: near-bond pairs (few after snap filter)
+    const endMeta=new Float32Array(nE*2);
+    for(let i=0;i<nE;i++){ const o=objs[G.nodes[ends[i]].obj]||{}; endMeta[i*2]=(typeof effR==='function'?effR(o):(o.r||4)); let sm=0; if(o.endType)for(const k in o.endType){ const p=o.endType[k]; if(p.snap>sm)sm=p.snap; } endMeta[i*2+1]=sm; }
+    GP.endGrid={nE,ER2,cell,ox,oy,gx,gy,numCells,cap,candCap,margin:GP_BOND_MARGIN};
+    GP._endListArr=endList;
+    GP.bufEndList=mkR('bufEndList',endList,ST|CD); GP.bufEndMeta=mkR('bufEndMeta',endMeta,ST|CD);
+    GP.bufEndCellCount=bufR('bufEndCellCount',numCells*4,ST|CD);
+    GP.bufEndCellBins=bufR('bufEndCellBins',numCells*cap*4,ST|CD);
+    GP.bufEndOver=bufR('bufEndOver',16,ST|CD|CS);
+    GP.bufCand=bufR('bufCand',candCap*8,ST|CD|CS);
+    GP.bufCandCount=bufR('bufCandCount',16,ST|CD|CS);
+    GP.bufCandOver=bufR('bufCandOver',16,ST|CD|CS);
+    GP.bufEndGridP=bufR('bufEndGridP',32,UN|CD);
+    GP.bufDetectP=bufR('bufDetectP',48,UN|CD);
+    GP.bufEndClearP=bufR('bufEndClearP',16,UN|CD);
+    GP.bgEndClear=bg(GP.clearPipe,[B(0,GP.bufEndCellBins),B(1,GP.bufEndCellCount),B(2,GP.bufEndClearP)]);
+    const eg=(pIn)=>[B(0,pIn),B(1,GP.bufEndList),B(2,GP.bufEndCellCount),B(3,GP.bufEndCellBins),B(4,GP.bufEndOver),B(5,GP.bufEndGridP)];
+    GP.bgEndGridA=bg(GP.endGridPipe,eg(GP.bufA)); GP.bgEndGridB=bg(GP.endGridPipe,eg(GP.bufB));
+    const dt=(pIn)=>[B(0,pIn),B(1,GP.bufEndList),B(2,GP.bufEndCellBins),B(3,GP.bufEndCellCount),B(4,GP.bufCandCount),B(5,GP.bufCand),B(6,GP.bufCandOver),B(7,GP.bufEndMeta),B(8,GP.bufDetectP)];
+    GP.bgDetectA=bg(GP.bondDetectPipe,dt(GP.bufA)); GP.bgDetectB=bg(GP.bondDetectPipe,dt(GP.bufB));
+    GP.bondDetectReady=true; GP.bondDetectWhy='ok nE='+nE+' cells='+numCells;
+  }catch(e){ GP.bondDetectReady=false; GP.bondDetectWhy='threw: '+(e&&e.message); console.warn('[gpuBondDetect] pack failed:',e&&e.message); }
+}
+function packAffinity(segList,N,device,mk,bg,B,ST,CD,CS,UN){
+  GP.affReady=false;
+  if(!(GP.affSupported && GP.collReady && GP.bufNSR && GP.bufSegI))return;
+  try{
+    const objs=G.objs, nO=objs.length; if(nO<1)return;
+    let anyAff=false; for(const o of objs){ if(o.interSelf){anyAff=true;break;} if(o.inter){ for(const k in o.inter){ if(o.inter[k]){anyAff=true;break;} } } if(anyAff)break; }
+    if(!anyAff)return;
+    const numSeg=segList.length;
+    // vmat: a's interaction toward b (interVal precompute, like attract)
+    const vmat=new Float32Array(Math.max(1,nO*nO));
+    for(let a=0;a<nO;a++)for(let b=0;b<nO;b++){ vmat[a*nO+b]=(typeof interVal==='function'?interVal(objs[a],objs[b]&&objs[b].ids,a===b):0)||0; }
+    // affF per seg: (effR, pad, affRange, tagged)
+    const affF=new Float32Array(Math.max(1,numSeg)*4); let maxAR=0,maxER=0,anyTag=false;
+    for(let sI=0;sI<numSeg;sI++){ const sg=segList[sI], o=objs[sg.obj]||{}, er=(typeof effR==='function'?effR(o):(o.r||4));
+      const ar=(o.affRange!=null?o.affRange:140), tag=(sg.ids&&sg.ids.length)?1:0; if(tag)anyTag=true;
+      if(er>maxER)maxER=er; if(ar>maxAR)maxAR=ar;
+      affF[sI*4]=er; affF[sI*4+1]=(o.padSelf||o.padOther||0); affF[sI*4+2]=ar; affF[sI*4+3]=tag; }
+    if(!anyTag)return;
+    const reach=maxAR*0.5+maxER, cell=Math.max(20,maxAR);
+    let bx0=1e9,by0=1e9,bx1=-1e9,by1=-1e9; for(let i=0;i<N;i++){ if(NX[i]<bx0)bx0=NX[i]; if(NY[i]<by0)by0=NY[i]; if(NX[i]>bx1)bx1=NX[i]; if(NY[i]>by1)by1=NY[i]; }
+    const Wb=Math.max((S.W||0),bx1)+cell, Hb=Math.max((S.H||0),by1)+cell;
+    const ox=Math.min(0,bx0)-reach-cell, oy=Math.min(0,by0)-reach-cell;
+    const gx=Math.max(1,Math.ceil((Wb-ox+reach+cell)/cell)), gy=Math.max(1,Math.ceil((Hb-oy+reach+cell)/cell));
+    const numCells=gx*gy, cap=GP_COLL_CAP;
+    GP.affGrid={gx,gy,cell,ox,oy,reach,cap,numCells,nO};
+    GP._affF=affF; GP._vmatN=nO;
+    GP.bufAffF=mkR('bufAffF',affF,ST|CD|CS); GP.bufVmat=mkR('bufVmat',vmat,ST|CD);
+    GP.bufSegCellA=bufR('bufSegCellA',numSeg*16,ST|CD);
+    GP.bufCellBinsA=bufR('bufCellBinsA',numCells*cap*4,ST|CD);
+    GP.bufCellCountA=bufR('bufCellCountA',numCells*4,ST|CD);
+    GP.bufOverflowA=bufR('bufOverflowA',16,ST|CD|CS);
+    GP.bufAffP=bufR('bufAffP',48,UN|CD); GP.bufGridTP=bufR('bufGridTP',32,UN|CD); GP.bufClearAP=bufR('bufClearAP',16,UN|CD);
+    GP.bgClearA=bg(GP.clearPipe,[B(0,GP.bufCellBinsA),B(1,GP.bufCellCountA),B(2,GP.bufClearAP)]);
+    const gtE=(pIn)=>[B(0,pIn),B(1,GP.bufSegI),B(2,GP.bufAffF),B(3,GP.bufSegCellA),B(4,GP.bufCellCountA),B(5,GP.bufCellBinsA),B(6,GP.bufOverflowA),B(7,GP.bufGridTP)];
+    GP.bgGridTA=bg(GP.gridTPipe,gtE(GP.bufA)); GP.bgGridTB=bg(GP.gridTPipe,gtE(GP.bufB));
+    const aE=(pIn,pOut)=>[B(0,pIn),B(1,pOut),B(2,GP.bufNSR),B(3,GP.bufNSL),B(4,GP.bufSegI),B(5,GP.bufAffF),B(6,GP.bufSegCellA),B(7,GP.bufCellBinsA),B(8,GP.bufMeta),B(9,GP.bufVmat),B(10,GP.bufAffP)];
+    GP.bgAffAB=bg(GP.affPipe,aE(GP.bufA,GP.bufB)); GP.bgAffBA=bg(GP.affPipe,aE(GP.bufB,GP.bufA));
+    GP.affReady=true;
+  }catch(e){ GP.affReady=false; console.warn('[gpuAffinity] pack failed:',e.message); }
+}
+function gpuRefreshProps(){ if(!GP.active||!GP.device)return; const dev=GP.device, N=GP.N; GP.refreshN=(GP.refreshN||0)+1; try{
+  // refresh ONLY property-derived buffers (mass, collision radius/pad/skip, render) — positions untouched so the running sim is preserved
+  const meta=new Float32Array(N*4);
+  for(let i=0;i<N;i++){ const n=G.nodes[i]||{}, o=G.objs[n.obj]||{}; meta[i*4]=n.fixed?0.0:((n.inv!=null&&n.inv>0)?n.inv:1.0); meta[i*4+1]=(o.damp||0); meta[i*4+2]=n.solid?1.0:0.0; }
+  if(GP.bufMeta)dev.queue.writeBuffer(GP.bufMeta,0,meta);
+  const segList=GP._segList;
+  if(segList){
+    if(GP.bufStyle){ const ns=segList.length, style=new Float32Array(Math.max(1,ns)*4);
+      for(let sI=0;sI<ns;sI++){ const o=G.objs[segList[sI].obj]||{}, col=(typeof parseCol==='function'?parseCol(o.color||'#88eeee'):[136,238,238]), rr=(typeof effR==='function'?effR(o):(o.r||4));
+        style[sI*4]=col[0];style[sI*4+1]=col[1];style[sI*4+2]=col[2];style[sI*4+3]=Math.max(0.6,rr); }
+      dev.queue.writeBuffer(GP.bufStyle,0,style); }
+    if(GP.bufSegF && GP._segF){ const sf=GP._segF, ns=segList.length;
+      for(let sI=0;sI<ns;sI++){ const sg=segList[sI], o=G.objs[sg.obj]||{}, er=(typeof effR==='function'?effR(o):(o.r||4));
+        const skip=Math.max(1,Math.ceil(2*(o.r||er)/Math.max(1,sg.rest||1))+1);
+        sf[sI*4]=er; sf[sI*4+1]=(o.padSelf||o.padOther||0); sf[sI*4+3]=skip; }
+      dev.queue.writeBuffer(GP.bufSegF,0,sf); }
+  }
+  if(GP.bendReady && GP.bufBend && GP._bendData){ const bd=GP._bendData;
+    for(let i=0;i<N;i++){ const nb=G.nbrs[i], n=G.nodes[i]||{}, o=G.objs[n.obj]||{};
+      if(nb && nb.length===2){ bd[i*4+2]=(typeof effStiff==='function'?effStiff(o):(o.stiff||0))*0.5; bd[i*4+3]=(typeof effCurl==='function'?effCurl(o):(o.curl||0))*((o.r||4)*3); } }
+    dev.queue.writeBuffer(GP.bufBend,0,bd); }
+  if(GP.affSupported && GP._helpers){ const on=affinityEnabled();
+    if(on && !GP.affReady){ rebuildAffinityLive(); }           // enabled from zero -> build affinity buffers live
+    else if(!on && GP.affReady){ GP.affReady=false; }           // disabled -> pass stops running (buffers kept)
+  }
+  if(GP.affReady && GP.bufAffF && GP._affF && GP._segList){ const af=GP._affF, sl=GP._segList, ns=sl.length;
+    for(let sI=0;sI<ns;sI++){ const sg=sl[sI], o=G.objs[sg.obj]||{}; af[sI*4]=(typeof effR==='function'?effR(o):(o.r||4)); af[sI*4+1]=(o.padSelf||o.padOther||0); af[sI*4+2]=(o.affRange!=null?o.affRange:140); af[sI*4+3]=(sg.ids&&sg.ids.length)?1:0; }
+    dev.queue.writeBuffer(GP.bufAffF,0,af);
+    if(GP.bufVmat && GP._vmatN){ const nO=GP._vmatN, vm=new Float32Array(nO*nO); for(let a=0;a<nO;a++)for(let b=0;b<nO;b++){ vm[a*nO+b]=(typeof interVal==='function'?interVal(G.objs[a],G.objs[b]&&G.objs[b].ids,a===b):0)||0; } dev.queue.writeBuffer(GP.bufVmat,0,vm); } }
+  if(GP.bufRest && GP._baseRest && GP._edgeObj){ const R=GP._baseRest, EO=GP._edgeObj, nd=R.length, out=new Float32Array(nd);
+    for(let c=0;c<nd;c++){ const o=G.objs[EO[c]]||{}; const g=(typeof effGrow==='function'?effGrow(o):(o.grow||0)); out[c]=R[c]*Math.max(0,1+g); }
+    dev.queue.writeBuffer(GP.bufRest,0,out); }
+}catch(e){ GP.refreshErr=e.message; console.warn('[gpuRefreshProps]',e.message); if(typeof status==='function')status('gpuRefresh error: '+e.message,true); } }
+function cpuCandidateCount(cell, margin){
+  const ends=G.ends; if(!ends||ends.length<2)return 0; const objs=G.objs, nE=ends.length;
+  const eR=new Float32Array(nE), sR=new Float32Array(nE);
+  for(let i=0;i<nE;i++){ const o=objs[G.nodes[ends[i]].obj]||{}; eR[i]=(typeof effR==='function'?effR(o):(o.r||4)); let sm=0; if(o.endType)for(const k in o.endType){ const p=o.endType[k]; if(p.snap>sm)sm=p.snap; } sR[i]=sm; }
+  const bkt=new Map();
+  for(let i=0;i<nE;i++){ const ni=ends[i]; const key=(Math.floor(NX[ni]/cell)+16384)*32768+(Math.floor(NY[ni]/cell)+16384); let a=bkt.get(key); if(!a){a=[];bkt.set(key,a);} a.push(i); }
+  let cnt=0;
+  for(let i=0;i<nE;i++){ const ni=ends[i],cx=Math.floor(NX[ni]/cell),cy=Math.floor(NY[ni]/cell);
+    for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++){ const a=bkt.get(((cx+dx)+16384)*32768+((cy+dy)+16384)); if(!a)continue;
+      for(const j of a){ const nj=ends[j]; if(nj<=ni)continue; const ddx=NX[nj]-NX[ni],ddy=NY[nj]-NY[ni],d2=ddx*ddx+ddy*ddy; const bondRest=eR[i]+eR[j],snapR=Math.max(sR[i],sR[j]),thr=snapR*bondRest*margin; if(d2<thr*thr&&d2>1e-6)cnt++; } } }
+  return cnt;
+}
+async function gpuBondDetectProbe(){
+  // VALIDATION PROBE (B1b): run GPU detection, read back candidates, compare to CPU oracle. Does NOT affect formation.
+  if(!GP.active || !GP.bondDetectReady || GP._bdBusy) return;
+  GP.bdProbeTick=(GP.bdProbeTick||0)+1; if((GP.bdProbeTick%12)!==0) return;
+  GP._bdBusy=true;
+  try{
+    const dev=GP.device, g=GP.endGrid;
+    { const ab=new ArrayBuffer(32),dv=new DataView(ab); dv.setUint32(0,g.nE,true);dv.setUint32(4,g.gx,true);dv.setUint32(8,g.gy,true);dv.setUint32(12,g.cap,true);dv.setFloat32(16,g.cell,true);dv.setFloat32(20,g.ox,true);dv.setFloat32(24,g.oy,true);dv.setFloat32(28,0,true); dev.queue.writeBuffer(GP.bufEndGridP,0,ab); }
+    { const ab=new ArrayBuffer(48),dv=new DataView(ab); dv.setUint32(0,g.nE,true);dv.setUint32(4,g.gx,true);dv.setUint32(8,g.gy,true);dv.setUint32(12,g.cap,true);dv.setFloat32(16,g.cell,true);dv.setFloat32(20,g.ox,true);dv.setFloat32(24,g.oy,true);dv.setFloat32(28,g.margin,true);dv.setUint32(32,g.candCap,true);dv.setUint32(36,0,true);dv.setUint32(40,0,true);dv.setUint32(44,0,true); dev.queue.writeBuffer(GP.bufDetectP,0,ab); }
+    { const ab=new ArrayBuffer(16),dv=new DataView(ab); dv.setUint32(0,g.numCells,true);dv.setUint32(4,g.cap,true); dev.queue.writeBuffer(GP.bufEndClearP,0,ab); }
+    dev.queue.writeBuffer(GP.bufEndOver,0,new Uint32Array([0,0,0,0])); dev.queue.writeBuffer(GP.bufCandCount,0,new Uint32Array([0,0,0,0])); dev.queue.writeBuffer(GP.bufCandOver,0,new Uint32Array([0,0,0,0]));
+    const enc=dev.createCommandEncoder();
+    { const p=enc.beginComputePass(); p.setPipeline(GP.clearPipe); p.setBindGroup(0,GP.bgEndClear); p.dispatchWorkgroups(Math.max(1,Math.ceil(g.numCells/64))); p.end(); }
+    { const p=enc.beginComputePass(); p.setPipeline(GP.endGridPipe); p.setBindGroup(0,GP.curBuf===0?GP.bgEndGridA:GP.bgEndGridB); p.dispatchWorkgroups(Math.max(1,Math.ceil(g.nE/64))); p.end(); }
+    { const p=enc.beginComputePass(); p.setPipeline(GP.bondDetectPipe); p.setBindGroup(0,GP.curBuf===0?GP.bgDetectA:GP.bgDetectB); p.dispatchWorkgroups(Math.max(1,Math.ceil(g.nE/64))); p.end(); }
+    dev.queue.submit([enc.finish()]);
+    const rbc=dev.createBuffer({size:16,usage:GPUBufferUsage.COPY_DST|GPUBufferUsage.MAP_READ});
+    const e2=dev.createCommandEncoder(); e2.copyBufferToBuffer(GP.bufCandCount,0,rbc,0,4); e2.copyBufferToBuffer(GP.bufCandOver,0,rbc,4,4); e2.copyBufferToBuffer(GP.bufEndOver,0,rbc,8,4); dev.queue.submit([e2.finish()]);
+    await rbc.mapAsync(GPUMapMode.READ); const cc=new Uint32Array(rbc.getMappedRange().slice(0)); rbc.unmap(); rbc.destroy();
+    const candCount=cc[0], candOver=cc[1], endOver=cc[2];
+    let valid=0,invalid=0; const nRead=Math.min(candCount,g.candCap);
+    if(nRead>0){ const bytes=Math.max(16,Math.ceil(nRead*8/16)*16); const rb=dev.createBuffer({size:bytes,usage:GPUBufferUsage.COPY_DST|GPUBufferUsage.MAP_READ});
+      const e3=dev.createCommandEncoder(); e3.copyBufferToBuffer(GP.bufCand,0,rb,0,bytes); dev.queue.submit([e3.finish()]);
+      await rb.mapAsync(GPUMapMode.READ); const arr=new Uint32Array(rb.getMappedRange().slice(0)); rb.unmap(); rb.destroy();
+      const endSet=new Set(G.ends), NN=G.nodes.length;
+      for(let i=0;i<nRead;i++){ const n1=arr[i*2],n2=arr[i*2+1]; let d2=1e18; if(n1<NN&&n2<NN){ const dx=NX[n2]-NX[n1],dy=NY[n2]-NY[n1]; d2=dx*dx+dy*dy; }
+        if(n1<n2 && endSet.has(n1) && endSet.has(n2) && d2<=g.ER2) valid++; else invalid++; } }
+    const cpuPairs=cpuCandidateCount(g.cell,g.margin);
+    GP.bdProbe={ends:g.nE, gpuCand:candCount, valid, invalid, candOver, endOver, cpuPairs, cell:+g.cell.toFixed(1)};
+    const A=GP.bdAccum||(GP.bdAccum={runs:0,peakEnds:0,peakGpuCand:0,peakCpuPairs:0,invalidSum:0,maxCandOver:0,maxEndOver:0,maxAbsDiff:0});
+    A.runs++; A.peakEnds=Math.max(A.peakEnds,g.nE); A.peakGpuCand=Math.max(A.peakGpuCand,candCount); A.peakCpuPairs=Math.max(A.peakCpuPairs,cpuPairs);
+    A.invalidSum+=invalid; A.maxCandOver=Math.max(A.maxCandOver,candOver); A.maxEndOver=Math.max(A.maxEndOver,endOver); A.maxAbsDiff=Math.max(A.maxAbsDiff,Math.abs(candCount-cpuPairs));
+  }catch(e){ GP.bdProbe={err:(e&&e.message)||'?'}; }
+  GP._bdBusy=false;
+}
+async function gpuBondTick(){
+  // Hybrid bonding (stage A): throttled readback -> run the exact CPU bond pipeline -> rebuild GPU buffers on topology change.
+  if(!GP.active || !S.bonding || GP._bondBusy) return;
+  GP.bondTicks=(GP.bondTicks||0)+1; if((GP.bondTicks%(GP.bondEvery||6))!==0) return;
+  let canBond=false; for(const o of G.objs){ if(o.bondOn){ canBond=true; break; } } if(!canBond) return;   // no bondable objects -> skip readback entirely
+  GP._bondBusy=true;
+  try{
+    { const dev=GP.device, N=Math.min(GP.N,G.nodes.length), cur=(GP.curBuf===0?GP.bufA:GP.bufB), bytes=GP.N*16;   // ONE readback for BOTH current + prev (single sync point)
+      const rb=dev.createBuffer({size:bytes*2,usage:GPUBufferUsage.COPY_DST|GPUBufferUsage.MAP_READ});
+      const e=dev.createCommandEncoder(); e.copyBufferToBuffer(cur,0,rb,0,bytes); e.copyBufferToBuffer(GP.bufPrev,0,rb,bytes,bytes); dev.queue.submit([e.finish()]);
+      await rb.mapAsync(GPUMapMode.READ); const arr=new Float32Array(rb.getMappedRange().slice(0)); rb.unmap(); rb.destroy();
+      for(let i=0;i<N;i++){ NX[i]=arr[i*4]; NY[i]=arr[i*4+1]; NH[i]=arr[i*4+2]; NPX[i]=arr[(GP.N+i)*4]; NPY[i]=arr[(GP.N+i)*4+1]; NPH[i]=arr[(GP.N+i)*4+2]; }
+      GP.readbacks++; window.RD=true; }
+    let gpuPairs=null, gpuUsable=false;
+    if(GP.bondDetectReady){ try{                             // measure candidates on the pre-formation positions (== NX/NY)
+      const dev=GP.device, g=GP.endGrid;
+      { const ab=new ArrayBuffer(32),dv=new DataView(ab); dv.setUint32(0,g.nE,true);dv.setUint32(4,g.gx,true);dv.setUint32(8,g.gy,true);dv.setUint32(12,g.cap,true);dv.setFloat32(16,g.cell,true);dv.setFloat32(20,g.ox,true);dv.setFloat32(24,g.oy,true);dv.setFloat32(28,0,true); dev.queue.writeBuffer(GP.bufEndGridP,0,ab); }
+      { const ab=new ArrayBuffer(48),dv=new DataView(ab); dv.setUint32(0,g.nE,true);dv.setUint32(4,g.gx,true);dv.setUint32(8,g.gy,true);dv.setUint32(12,g.cap,true);dv.setFloat32(16,g.cell,true);dv.setFloat32(20,g.ox,true);dv.setFloat32(24,g.oy,true);dv.setFloat32(28,g.margin,true);dv.setUint32(32,g.candCap,true);dv.setUint32(36,0,true);dv.setUint32(40,0,true);dv.setUint32(44,0,true); dev.queue.writeBuffer(GP.bufDetectP,0,ab); }
+      { const ab=new ArrayBuffer(16),dv=new DataView(ab); dv.setUint32(0,g.numCells,true);dv.setUint32(4,g.cap,true); dev.queue.writeBuffer(GP.bufEndClearP,0,ab); }
+      dev.queue.writeBuffer(GP.bufEndOver,0,new Uint32Array([0,0,0,0])); dev.queue.writeBuffer(GP.bufCandCount,0,new Uint32Array([0,0,0,0])); dev.queue.writeBuffer(GP.bufCandOver,0,new Uint32Array([0,0,0,0]));
+      const enc=dev.createCommandEncoder();
+      { const p=enc.beginComputePass(); p.setPipeline(GP.clearPipe); p.setBindGroup(0,GP.bgEndClear); p.dispatchWorkgroups(Math.max(1,Math.ceil(g.numCells/64))); p.end(); }
+      { const p=enc.beginComputePass(); p.setPipeline(GP.endGridPipe); p.setBindGroup(0,GP.curBuf===0?GP.bgEndGridA:GP.bgEndGridB); p.dispatchWorkgroups(Math.max(1,Math.ceil(g.nE/64))); p.end(); }
+      { const p=enc.beginComputePass(); p.setPipeline(GP.bondDetectPipe); p.setBindGroup(0,GP.curBuf===0?GP.bgDetectA:GP.bgDetectB); p.dispatchWorkgroups(Math.max(1,Math.ceil(g.nE/64))); p.end(); }
+      dev.queue.submit([enc.finish()]);
+      const rbc=dev.createBuffer({size:16,usage:GPUBufferUsage.COPY_DST|GPUBufferUsage.MAP_READ});
+      const e2=dev.createCommandEncoder(); e2.copyBufferToBuffer(GP.bufCandCount,0,rbc,0,4); e2.copyBufferToBuffer(GP.bufCandOver,0,rbc,4,4); e2.copyBufferToBuffer(GP.bufEndOver,0,rbc,8,4); dev.queue.submit([e2.finish()]);
+      await rbc.mapAsync(GPUMapMode.READ); const cc=new Uint32Array(rbc.getMappedRange().slice(0)); rbc.unmap(); rbc.destroy();
+      const candCount=cc[0], candOver=cc[1], endOver=cc[2], cpuPairs=cpuCandidateCount(g.cell,g.margin);
+      GP.bdProbe={ends:g.nE, gpuCand:candCount, candOver, endOver, cpuPairs, absDiff:Math.abs(candCount-cpuPairs), cell:+g.cell.toFixed(1)};
+      const A=GP.bdAccum||(GP.bdAccum={runs:0,peakEnds:0,peakGpuCand:0,peakCpuPairs:0,maxCandOver:0,maxEndOver:0,maxAbsDiff:0});
+      A.runs++; A.peakEnds=Math.max(A.peakEnds,g.nE); A.peakGpuCand=Math.max(A.peakGpuCand,candCount); A.peakCpuPairs=Math.max(A.peakCpuPairs,cpuPairs); A.maxCandOver=Math.max(A.maxCandOver,candOver); A.maxEndOver=Math.max(A.maxEndOver,endOver); A.maxAbsDiff=Math.max(A.maxAbsDiff,Math.abs(candCount-cpuPairs));
+      if(candOver===0 && endOver===0){ gpuUsable=true;         // clean batch -> the GPU candidate list is complete; consume it
+        if(candCount>0){ const nR=Math.min(candCount,g.candCap), bytes=Math.max(16,Math.ceil(nR*8/16)*16);
+          const rb2=dev.createBuffer({size:bytes,usage:GPUBufferUsage.COPY_DST|GPUBufferUsage.MAP_READ});
+          const e4=dev.createCommandEncoder(); e4.copyBufferToBuffer(GP.bufCand,0,rb2,0,bytes); dev.queue.submit([e4.finish()]);
+          await rb2.mapAsync(GPUMapMode.READ); gpuPairs=new Uint32Array(rb2.getMappedRange().slice(0)).slice(0,nR*2); rb2.unmap(); rb2.destroy();
+        } else { gpuPairs=new Uint32Array(0); }
+      }
+    }catch(e){ GP.bdProbe={err:(e&&e.message)||'?'}; gpuUsable=false; } }
+    const s0=G.segs.length, n0=G.nodes.length;
+    if(gpuUsable && typeof formBondsFromCandidates==='function'){ formBondsFromCandidates(gpuPairs); GP.bondPath='gpu'; }   // B1c: form from GPU candidates, CPU broad-phase skipped
+    else { if(typeof endpointForces==='function')endpointForces(); GP.bondPath='cpu-fallback'; GP.bondFallbacks=(GP.bondFallbacks||0)+1; }
+    if(typeof flagBondBreaks==='function')flagBondBreaks();
+    if(typeof flagStrainBreaks==='function')flagStrainBreaks();
+    if(typeof flagBendBreaks==='function')flagBendBreaks();
+    if(typeof maintainBonds==='function')maintainBonds();       // harden / merge
+    if(typeof removeDead==='function')removeDead();             // remove dead (self-rebuilds nbrs/ends/piece)
+    if(G.segs.length!==s0 || G.nodes.length!==n0){ GP.bondEvents=(GP.bondEvents||0)+1; buildScene(); }   // topology changed -> rebuild GPU buffers
+  }catch(e){ console.warn('[gpuBond]',e&&e.message); }
+  GP._bondBusy=false;
+}
+function step(speed){ if(GP.diagRunning)return; if(!GP.active||!GP.device)return; const dev=GP.device, WG=Math.max(1,Math.ceil(GP.N/64)); const n=speed||1;
+  gpuBondTick();
+  if(GP.affReady){ const g=GP.affGrid;
+    { const ab=new ArrayBuffer(48),dv=new DataView(ab); dv.setUint32(0,GP.N,true);dv.setUint32(4,g.gx,true);dv.setUint32(8,g.gy,true);dv.setUint32(12,g.cap,true);
+      dv.setFloat32(16,g.cell,true);dv.setFloat32(20,g.ox,true);dv.setFloat32(24,g.oy,true);dv.setUint32(28,g.nO,true);
+      dv.setFloat32(32,GP_AFF_BASE,true);dv.setFloat32(36,GP_AFF_MAXDISP,true);dv.setFloat32(40,0,true);dv.setFloat32(44,0,true); dev.queue.writeBuffer(GP.bufAffP,0,ab); }
+    { const ab=new ArrayBuffer(32),dv=new DataView(ab); dv.setUint32(0,GP.numSeg,true);dv.setUint32(4,g.gx,true);dv.setUint32(8,g.gy,true);dv.setUint32(12,g.cap,true);
+      dv.setFloat32(16,g.cell,true);dv.setFloat32(20,g.ox,true);dv.setFloat32(24,g.oy,true);dv.setFloat32(28,g.reach,true); dev.queue.writeBuffer(GP.bufGridTP,0,ab); }
+    { const ab=new ArrayBuffer(16),dv=new DataView(ab); dv.setUint32(0,g.numCells,true);dv.setUint32(4,g.cap,true); dev.queue.writeBuffer(GP.bufClearAP,0,ab); }
+    dev.queue.writeBuffer(GP.bufOverflowA,0,new Uint32Array([0,0,0,0]));
+    const enc0=dev.createCommandEncoder();
+    { const p=enc0.beginComputePass(); p.setPipeline(GP.clearPipe); p.setBindGroup(0,GP.bgClearA); p.dispatchWorkgroups(Math.max(1,Math.ceil(g.numCells/64))); p.end(); }
+    { const p=enc0.beginComputePass(); p.setPipeline(GP.gridTPipe); p.setBindGroup(0,GP.curBuf===0?GP.bgGridTA:GP.bgGridTB); p.dispatchWorkgroups(Math.max(1,Math.ceil(GP.numSeg/64))); p.end(); }
+    { const p=enc0.beginComputePass(); p.setPipeline(GP.affPipe); p.setBindGroup(0,GP.curBuf===0?GP.bgAffAB:GP.bgAffBA); p.dispatchWorkgroups(WG); p.end(); GP.curBuf=1-GP.curBuf; }
+    dev.queue.submit([enc0.finish()]);
+  }
+  for(let s=0;s<n;s++){ packParams();
+    const enc=dev.createCommandEncoder();
+    { const pass=enc.beginComputePass(); pass.setPipeline(GP.intPipe); pass.setBindGroup(0,GP.curBuf===0?GP.bgIntAB:GP.bgIntBA); pass.dispatchWorkgroups(WG); pass.end(); GP.curBuf=1-GP.curBuf; }
+    for(let k=0;k<GP_PASSES;k++){ { const pass=enc.beginComputePass(); pass.setPipeline(GP.conPipe); pass.setBindGroup(0,GP.curBuf===0?GP.bgConAB:GP.bgConBA); pass.dispatchWorkgroups(WG); pass.end(); GP.curBuf=1-GP.curBuf; }
+      if(GP.bendReady){ const pass=enc.beginComputePass(); pass.setPipeline(GP.bendPipe); pass.setBindGroup(0,GP.curBuf===0?GP.bgBendAB:GP.bgBendBA); pass.dispatchWorkgroups(WG); pass.end(); GP.curBuf=1-GP.curBuf; } }
+    const K=(S.gpuCollIters!=null?(S.gpuCollIters|0):(S.iters||4));  // quality slider drives collision iters unless explicitly overridden
+    if(GP.collReady && K>0){ const g=GP.grid;
+      { const ab=new ArrayBuffer(48),dv=new DataView(ab); dv.setUint32(0,GP.N,true);dv.setUint32(4,g.gx,true);dv.setUint32(8,g.gy,true);dv.setUint32(12,g.cap,true);
+        dv.setFloat32(16,g.cell,true);dv.setFloat32(20,g.ox,true);dv.setFloat32(24,g.oy,true);dv.setFloat32(28,S.depth||0,true);
+        dv.setFloat32(32,GP_COLL_OMEGA,true);dv.setFloat32(36,GP_COLL_PENFRAC,true);dv.setFloat32(40,GP_COLL_MAXDISP,true);dv.setFloat32(44,0,true); dev.queue.writeBuffer(GP.bufCollP,0,ab); }
+      { const ab=new ArrayBuffer(32),dv=new DataView(ab); dv.setUint32(0,GP.numSeg,true);dv.setUint32(4,g.gx,true);dv.setUint32(8,g.gy,true);dv.setUint32(12,g.cap,true);
+        dv.setFloat32(16,g.cell,true);dv.setFloat32(20,g.ox,true);dv.setFloat32(24,g.oy,true);dv.setFloat32(28,g.reach,true); dev.queue.writeBuffer(GP.bufGridP,0,ab); }
+      { const ab=new ArrayBuffer(16),dv=new DataView(ab); dv.setUint32(0,g.numCells,true);dv.setUint32(4,g.cap,true); dev.queue.writeBuffer(GP.bufClearP,0,ab); }
+      dev.queue.writeBuffer(GP.bufOverflow,0,new Uint32Array([0,0,0,0]));
+      const WGc=Math.max(1,Math.ceil(g.numCells/64)), WGs=Math.max(1,Math.ceil(GP.numSeg/64));
+      // build grid ONCE per substep (from post-constraint positions), then K Jacobi iters CONVERGE on the
+      // fixed contact set - matches CPU's per-frame pair list + review's build-time stored bounds. Rebuilding
+      // each iter re-aggressed contacts and injected runaway Verlet velocity -> blowups.
+      { const pass=enc.beginComputePass(); pass.setPipeline(GP.clearPipe); pass.setBindGroup(0,GP.bgClear); pass.dispatchWorkgroups(WGc); pass.end(); }
+      { const pass=enc.beginComputePass(); pass.setPipeline(GP.gridPipe); pass.setBindGroup(0,GP.curBuf===0?GP.bgGridA:GP.bgGridB); pass.dispatchWorkgroups(WGs); pass.end(); }
+      for(let k=0;k<K;k++){
+        const pass=enc.beginComputePass(); pass.setPipeline(GP.collPipe); pass.setBindGroup(0,GP.curBuf===0?GP.bgCollAB:GP.bgCollBA); pass.dispatchWorkgroups(WG); pass.end(); GP.curBuf=1-GP.curBuf;
+      }
+    }
+    dev.queue.submit([enc.finish()]); GP.frameN++;
+  } }
+function render(){ if(GP.diagRunning)return; if(!GP.active||!GP.device)return; if(GP.propsDirty){ GP.propsDirty=false; gpuRefreshProps(); } syncCanvas(); packCam();
+  const dev=GP.device, enc=dev.createCommandEncoder();
+  let tex; try{ tex=GP.ctx.getCurrentTexture(); }catch(e){ return; }
+  const rp=enc.beginRenderPass({colorAttachments:[{view:tex.createView(),clearValue:{r:0,g:0,b:0,a:0},loadOp:'clear',storeOp:'store'}]});
+  rp.setPipeline(GP.renPipe); rp.setBindGroup(0,GP.curBuf===0?GP.bgRenA:GP.bgRenB); rp.draw(4,Math.max(1,GP.numSeg)); rp.end();
+  dev.queue.submit([enc.finish()]); }
+
+async function readbackToCPU(){ if(!GP.device||!GP.N)return false;
+  const dev=GP.device, src=GP.curBuf===0?GP.bufA:GP.bufB, bytes=GP.N*16;
+  const rb=dev.createBuffer({size:bytes,usage:GPUBufferUsage.COPY_DST|GPUBufferUsage.MAP_READ});
+  const enc=dev.createCommandEncoder(); enc.copyBufferToBuffer(src,0,rb,0,bytes); dev.queue.submit([enc.finish()]);
+  await rb.mapAsync(GPUMapMode.READ); const arr=new Float32Array(rb.getMappedRange().slice(0)); rb.unmap(); rb.destroy();
+  const N=Math.min(GP.N,G.nodes.length);
+  for(let i=0;i<N;i++){ NX[i]=arr[i*4]; NY[i]=arr[i*4+1]; NH[i]=arr[i*4+2]; NPX[i]=arr[i*4]; NPY[i]=arr[i*4+1]; NPH[i]=arr[i*4+2]; }
+  GP.readbacks++; window.RD=true; return true; }
+window.gpuGrabMove=function(x,y){ if(GP.grabNode>=0){ GP.grabX=x; GP.grabY=y; } };
+window.gpuGrabClear=function(){ GP.grabNode=-1; };
+window.gpuGrabActive=function(){ return GP.active && GP.grabNode>=0; };
+window.gpuPick=function(mx,my){ if(!GP.active)return;
+  readbackToCPU().then(function(){
+    let best=-1,bd=28*28;
+    for(let i=0;i<G.nodes.length;i++){ const n=G.nodes[i]; const dx=n.x-mx,dy=n.y-my,d=dx*dx+dy*dy; if(d<bd){bd=d;best=i;} }
+    if(best>=0){ GP.grabNode=best; GP.grabX=mx; GP.grabY=my; }   // start dragging the picked node
+    let obj=-1;
+    if(best>=0){ obj=G.nodes[best].obj; }
+    else { const si=(typeof nearestSeg==='function')?nearestSeg(mx,my,Math.max(8,12/(view.z||1))):-1; if(si>=0)obj=G.segs[si].obj; }
+    if(obj>=0){ if(typeof selectObject==='function')selectObject(obj); if(typeof showTab==='function')showTab('objects'); if(typeof status==='function')status('selected \u00b7 edit props live in GPU mode'); }
+    window.RD=true;
+  }).catch(function(e){ console.warn('[gpuPick]',e&&e.message); }); };
+
+async function activate(){ if(GP.active)return true; if(GP.initing)return false; GP.initing=true;
+  status('initializing WebGPU\u2026');
+  if(!supported()){ status('WebGPU not available in this browser',true); GP.initing=false; setToggle(false); return false; }
+  const ok=await ensureDevice(); if(!ok){ GP.initing=false; setToggle(false); return false; }
+  try{ syncCanvas(); buildScene(); }catch(e){ status('scene upload failed: '+e.message,true); console.error(e); GP.initing=false; setToggle(false); return false; }
+  GP.prevGpu=!!S.gpu; GP.active=true; S.gpuPhysics=true; S.gpu=false; S.micro=false;
+  cw.style.display='block'; const cgl=document.getElementById('cgl'); if(cgl)cgl.style.display='none';
+  badge(true); status('on \u00B7 '+GP.N+' nodes / '+GP.numSeg+' segs \u00B7 collision & editing paused (toggle off to edit)');
+  GP.initing=false; setToggle(true); window.RD=true; return true; }
+
+async function deactivate(readback,reason){ if(!GP.active){ S.gpuPhysics=false; return true; }
+  if(readback){ try{ await readbackToCPU(); }catch(e){ console.error('readback failed',e); } }
+  GP.active=false; S.gpuPhysics=false; GP.lastExit=reason||'off'; S.gpu=GP.prevGpu;
+  cw.style.display='none'; const cgl=document.getElementById('cgl'); if(cgl)cgl.style.display=(S.gpu||S.micro)?'block':'none';
+  badge(false, readback?null:reason); setToggle(false); status(reason?('off \u00B7 '+reason):'off \u00B7 CPU solver restored'); window.RD=true; return true; }
+
+window.gpuPhysicsSupported=supported;
+window.gpuPhysicsActive=()=>GP.active;
+window.gpuResetProbe=function(){ GP.bdAccum=null; GP.bdProbe=null; GP.bondEvents=0; };
+setInterval(function(){ if(GP.active && GP.propsDirty){ GP.propsDirty=false; gpuRefreshProps(); } },120);
+window.gpuPhysicsStep=step; window.gpuRefreshProps=gpuRefreshProps;
+window.gpuPhysicsRender=render;
+window.setGpuPhysicsMode=function(on){ if(on){ activate(); } else { deactivate(true,'toggled off'); } };
+window.gpuPhysicsDiscard=function(reason){ try{disposeBuffers();}catch(e){} if(GP.active){ GP.active=false; S.gpuPhysics=false; S.gpu=GP.prevGpu; cw.style.display='none'; const cgl=document.getElementById('cgl'); if(cgl)cgl.style.display=(S.gpu||S.micro)?'block':'none'; badge(false,reason||'scene changed'); setToggle(false); status('off \u00B7 '+(reason||'scene changed')); window.RD=true; } };
+window.gpuPhysicsDropToCPU=function(reason){ if(GP.active) deactivate(true,reason||'editing'); };
+window.gpuPhysicsDiagnostics=()=>({active:GP.active,supported:supported(),nodes:GP.N,segs:GP.numSeg,directedLinks:GP.numDir,frame:GP.frameN,readbacks:GP.readbacks,lastExit:GP.lastExit,passes:GP_PASSES,relax:GP_RELAX,
+  refreshN:GP.refreshN,refreshErr:GP.refreshErr,bendReady:GP.bendReady,bonding:{on:!!S.bonding,every:GP.bondEvery,ticks:GP.bondTicks,events:GP.bondEvents,busy:GP._bondBusy,detect:(GP.bondDetectReady?(GP.bdProbe||'pending'):(GP.bondDetectSupported?'idle':'unsupported')),detectWhy:(GP.bondDetectWhy||null),path:(GP.bondPath||null),fallbacks:(GP.bondFallbacks||0),detectPeak:(GP.bdAccum||null)},
+  collision:{supported:GP.collSupported,ready:GP.collReady,maxStorageBuf:GP.maxStorageBuf,iters:(S.gpuCollIters!=null?(S.gpuCollIters|0):(S.iters||4)),lastOverflow:(GP.lastOverflow!=null?GP.lastOverflow:null),
+    grid:(GP.grid?{gx:GP.grid.gx,gy:GP.grid.gy,cell:GP.grid.cell,numCells:GP.grid.numCells,cap:GP.grid.cap,reach:+GP.grid.reach.toFixed(2)}:null),omega:GP_COLL_OMEGA,penFrac:GP_COLL_PENFRAC,maxDisp:GP_COLL_MAXDISP},
+  affinity:{supported:GP.affSupported,ready:GP.affReady,lastOverflow:(GP.lastAffOverflow!=null?GP.lastAffOverflow:null),base:GP_AFF_BASE,maxDisp:GP_AFF_MAXDISP,nObj:(GP.affGrid?GP.affGrid.nO:0),grid:(GP.affGrid?{gx:GP.affGrid.gx,gy:GP.affGrid.gy,cell:+GP.affGrid.cell.toFixed(1),numCells:GP.affGrid.numCells,cap:GP.affGrid.cap,reach:+GP.affGrid.reach.toFixed(1)}:null)}});
+
+const _cb=document.getElementById('gpuPhysicsToggle'); if(_cb)_cb.addEventListener('change',function(e){ window.setGpuPhysicsMode(!!e.target.checked); });
+
+/* ---- Dev telemetry: 1 Hz rolling buffer + JSON export (Claude debug) ---- */
+const BUILD='gpu-layer1 + bounds-fix + scaling-sweep \u00B7 2026-08-21b';
+const T0=performance.now();
+function statsOf(a,n){ let mnx=1e30,mxx=-1e30,mny=1e30,mxy=-1e30,mnh=1e30,mxh=-1e30,nan=0;
+  for(let i=0;i<n;i++){const x=a[i*4],y=a[i*4+1],h=a[i*4+2];
+    if(!isFinite(x)||!isFinite(y)||!isFinite(h)){nan++;continue;}
+    if(x<mnx)mnx=x;if(x>mxx)mxx=x;if(y<mny)mny=y;if(y>mxy)mxy=y;if(h<mnh)mnh=h;if(h>mxh)mxh=h;}
+  if(n-nan===0)return{n:n,nan:nan,ok:0};
+  return{n:n,nan:nan,ok:n-nan,x:[Math.round(mnx),Math.round(mxx)],y:[Math.round(mny),Math.round(mxy)],h:[+mnh.toFixed(1),+mxh.toFixed(1)],spanX:Math.round(mxx-mnx),spanY:Math.round(mxy-mny)};}
+function cpuStats(){ const n=G.nodes.length; if(!n)return{n:0,nan:0,ok:0};
+  let mnx=1e30,mxx=-1e30,mny=1e30,mxy=-1e30,mnh=1e30,mxh=-1e30,nan=0;
+  for(let i=0;i<n;i++){const x=NX[i],y=NY[i],h=NH[i];
+    if(!isFinite(x)||!isFinite(y)||!isFinite(h)){nan++;continue;}
+    if(x<mnx)mnx=x;if(x>mxx)mxx=x;if(y<mny)mny=y;if(y>mxy)mxy=y;if(h<mnh)mnh=h;if(h>mxh)mxh=h;}
+  if(n-nan===0)return{n:n,nan:nan,ok:0};
+  return{n:n,nan:nan,ok:n-nan,x:[Math.round(mnx),Math.round(mxx)],y:[Math.round(mny),Math.round(mxy)],h:[+mnh.toFixed(1),+mxh.toFixed(1)],spanX:Math.round(mxx-mnx),spanY:Math.round(mxy-mny)};}
+async function gpuStatsReadback(){ if(GP.telemBusy||!GP.device||!GP.active||!GP.N)return; GP.telemBusy=true;
+  try{ const dev=GP.device,src=GP.curBuf===0?GP.bufA:GP.bufB,bytes=GP.N*16;
+    const rb=dev.createBuffer({size:bytes,usage:GPUBufferUsage.COPY_DST|GPUBufferUsage.MAP_READ});
+    const enc=dev.createCommandEncoder(); enc.copyBufferToBuffer(src,0,rb,0,bytes); dev.queue.submit([enc.finish()]);
+    await rb.mapAsync(GPUMapMode.READ); const a=new Float32Array(rb.getMappedRange().slice(0)); rb.unmap(); rb.destroy();
+    GP.lastStats=statsOf(a,GP.N); GP.lastStatsT=performance.now();
+  }catch(e){} GP.telemBusy=false; }
+async function affOverflowReadback(){ if(!GP.device||!GP.active||!GP.affReady||!GP.bufOverflowA)return;
+  try{ const rb=GP.device.createBuffer({size:16,usage:GPUBufferUsage.COPY_DST|GPUBufferUsage.MAP_READ}); const e=GP.device.createCommandEncoder(); e.copyBufferToBuffer(GP.bufOverflowA,0,rb,0,16); GP.device.queue.submit([e.finish()]);
+    await rb.mapAsync(GPUMapMode.READ); const a=new Uint32Array(rb.getMappedRange().slice(0)); rb.unmap(); rb.destroy(); GP.lastAffOverflow=a[0]; }catch(e){} }
+async function collOverflowReadback(){ if(!GP.device||!GP.active||!GP.collReady||!GP.bufOverflow)return;
+  try{ const dev=GP.device; const rb=dev.createBuffer({size:16,usage:GPUBufferUsage.COPY_DST|GPUBufferUsage.MAP_READ});
+    const enc=dev.createCommandEncoder(); enc.copyBufferToBuffer(GP.bufOverflow,0,rb,0,16); dev.queue.submit([enc.finish()]);
+    await rb.mapAsync(GPUMapMode.READ); const a=new Uint32Array(rb.getMappedRange().slice(0)); rb.unmap(); rb.destroy(); GP.lastOverflow=a[0]; }catch(e){} }
+function liveReadout(){ const set=(id,v)=>{const e=document.getElementById(id);if(e)e.textContent=v;};
+  set('devActive',GP.active?'GPU':'CPU'); set('devNodes',G.nodes.length); set('devSegs',G.segs.length); set('devFps',Math.round(ema||0));
+  const st=GP.active?GP.lastStats:cpuStats();
+  if(st&&st.ok){ set('devSpan',st.spanX+' \u00D7 '+st.spanY); set('devNan',st.nan); set('devY',st.y?st.y.join(' \u2026 '):'\u2014'); }
+  else if(st){ set('devSpan','\u2014'); set('devNan',st.nan||0); set('devY','\u2014'); }
+  else { set('devSpan','\u2014'); set('devNan','\u2014'); set('devY','\u2014'); } }
+setInterval(function(){ const mode=GP.active?'gpu':'cpu';
+  const sample={t:+((performance.now()-T0)/1000).toFixed(1),mode:mode,fps:Math.round(ema||0),nodes:G.nodes.length,segs:G.segs.length,running:!!S.running};
+  if(GP.active){ if(GP.lastStats)Object.assign(sample,GP.lastStats); if(GP.lastOverflow!=null)sample.collOverflow=GP.lastOverflow; if(GP.lastAffOverflow!=null)sample.affOverflow=GP.lastAffOverflow; gpuStatsReadback(); collOverflowReadback(); affOverflowReadback(); }
+  else { Object.assign(sample,cpuStats()); }
+  GP.log.push(sample); if(GP.log.length>240)GP.log.shift(); liveReadout();
+},1000);
+function buildLog(){ return {
+  build:BUILD, capturedAt:new Date().toISOString(), uaFragment:(navigator.userAgent||'').slice(0,180),
+  webgpu:{supported:supported(),adapter:GP.adapterInfo,canvas:{w:cw.width,h:cw.height,dpr:S.dpr}},
+  config:{temp:S.temp,damp:S.damp,depth:S.depth,speed:S.speed,quality:(S.iters!=null?S.iters:null),GP_PASSES:GP_PASSES,GP_RELAX:GP_RELAX,gpuCollIters:(S.gpuCollIters!=null?S.gpuCollIters:('quality:'+(S.iters||4))),collLastOverflow:(GP.lastOverflow!=null?GP.lastOverflow:null),contactDamp:S.contactDamp,xpbd:S.xpbd},
+  view:{z:+(view.z||0).toFixed(3),ox:Math.round(view.ox||0),oy:Math.round(view.oy||0)},
+  scene:{nodes:G.nodes.length,segs:G.segs.length,objs:G.objs.length},
+  gpuPhysics:(window.gpuPhysicsDiagnostics?window.gpuPhysicsDiagnostics():null),
+  wgslMessages:GP.wgslMsgs.slice(-20), cpuStatsNow:cpuStats(), gpuStatsLast:GP.lastStats||null,
+  telemetry:GP.log.slice() }; }
+function downloadJSON(obj,name){ try{ const data=JSON.stringify(obj,null,2);
+  const blob=new Blob([data],{type:'application/json'}); const url=URL.createObjectURL(blob);
+  const a=document.createElement('a'); a.href=url; a.download=(name||'string-engine-devlog')+'-'+Date.now()+'.json'; document.body.appendChild(a); a.click();
+  setTimeout(function(){URL.revokeObjectURL(url);a.remove();},150);
+  }catch(e){ status('export failed: '+e.message,true); } }
+
+/* ---- Full GPU diagnostics harness: one press = compile + caps + GPU run + CPU compare ---- */
+function adapterCaps(){ const info=GP.adapterInfo||{}; const lim={}; let feats=[];
+  try{ if(GP.device&&GP.device.limits){ const L=GP.device.limits; for(const k of ['maxBufferSize','maxStorageBufferBindingSize','maxComputeWorkgroupSizeX','maxComputeInvocationsPerWorkgroup','maxComputeWorkgroupsPerDimension','maxStorageBuffersPerShaderStage','maxBindGroups']) lim[k]=L[k]; } }catch(e){}
+  try{ if(GP.device&&GP.device.features) feats=[...GP.device.features]; }catch(e){}
+  return {info:{vendor:info.vendor,architecture:info.architecture,device:info.device,description:info.description},features:feats,limits:lim}; }
+function stepOnceInternal(){ const dev=GP.device,WG=Math.max(1,Math.ceil(GP.N/64)); packParams();
+  const enc=dev.createCommandEncoder();
+  {const pass=enc.beginComputePass();pass.setPipeline(GP.intPipe);pass.setBindGroup(0,GP.curBuf===0?GP.bgIntAB:GP.bgIntBA);pass.dispatchWorkgroups(WG);pass.end();GP.curBuf=1-GP.curBuf;}
+  for(let k=0;k<GP_PASSES;k++){const pass=enc.beginComputePass();pass.setPipeline(GP.conPipe);pass.setBindGroup(0,GP.curBuf===0?GP.bgConAB:GP.bgConBA);pass.dispatchWorkgroups(WG);pass.end();GP.curBuf=1-GP.curBuf;}
+  dev.queue.submit([enc.finish()]); GP.frameN++; }
+async function readbackRaw(){ const dev=GP.device,src=GP.curBuf===0?GP.bufA:GP.bufB,bytes=Math.max(16,GP.N*16);
+  const rb=dev.createBuffer({size:bytes,usage:GPUBufferUsage.COPY_DST|GPUBufferUsage.MAP_READ});
+  const enc=dev.createCommandEncoder();enc.copyBufferToBuffer(src,0,rb,0,bytes);dev.queue.submit([enc.finish()]);
+  await rb.mapAsync(GPUMapMode.READ);const a=new Float32Array(rb.getMappedRange().slice(0));rb.unmap();rb.destroy();return a; }
+function edgeError(pos){ const sc=GP._segCache||[]; if(!sc.length)return null; let sum=0,mx=0,cnt=0; const errs=[];
+  for(const e of sc){ const a=e[0],b=e[1],rest=e[2]; const dx=pos[a*4]-pos[b*4],dy=pos[a*4+1]-pos[b*4+1],dh=pos[a*4+2]-pos[b*4+2];
+    const d=Math.hypot(dx,dy,dh),er=Math.abs(d-rest); if(!isFinite(er))continue; sum+=er; if(er>mx)mx=er; errs.push(er); cnt++; }
+  errs.sort((x,y)=>x-y); const p95=errs.length?errs[Math.min(errs.length-1,Math.floor(errs.length*0.95))]:0;
+  return {mean:+(sum/Math.max(1,cnt)).toFixed(3),max:+mx.toFixed(3),p95:+p95.toFixed(3),segs:cnt}; }
+function pinnedDisp(pos){ const fx=GP._fixed||[],p0=GP._pos0; if(!fx.length||!p0)return {pins:0,maxDisp:0};
+  let mx=0; for(const i of fx){const dx=pos[i*4]-p0[i*4],dy=pos[i*4+1]-p0[i*4+1],dh=pos[i*4+2]-p0[i*4+2];const d=Math.hypot(dx,dy,dh);if(d>mx)mx=d;} return {pins:fx.length,maxDisp:+mx.toFixed(4)}; }
+function packCPUvec4(){ const n=G.nodes.length,a=new Float32Array(Math.max(4,n*4)); for(let i=0;i<n;i++){a[i*4]=NX[i];a[i*4+1]=NY[i];a[i*4+2]=NH[i];} return a; }
+function snapCPU(){ return {NX:NX.slice(),NY:NY.slice(),NH:NH.slice(),NPX:NPX.slice(),NPY:NPY.slice(),NPH:NPH.slice()}; }
+function restoreCPU(sn){ NX.set(sn.NX);NY.set(sn.NY);NH.set(sn.NH);NPX.set(sn.NPX);NPY.set(sn.NPY);NPH.set(sn.NPH); }
+function packBase(){ const N=G.nodes.length; if(!N)return null;
+  const pos=new Float32Array(N*4),prev=new Float32Array(N*4),meta=new Float32Array(N*4); let minX=1e30,maxX=-1e30;
+  for(let i=0;i<N;i++){ const n=G.nodes[i],o=G.objs[n.obj]||{};
+    pos[i*4]=NX[i];pos[i*4+1]=NY[i];pos[i*4+2]=NH[i]; prev[i*4]=NPX[i];prev[i*4+1]=NPY[i];prev[i*4+2]=NPH[i];
+    meta[i*4]=n.fixed?0:((n.inv!=null&&n.inv>0)?n.inv:1); meta[i*4+1]=(o.damp||0); meta[i*4+2]=n.solid?1:0;
+    if(NX[i]<minX)minX=NX[i]; if(NX[i]>maxX)maxX=NX[i]; }
+  const adj=new Array(N); for(let i=0;i<N;i++)adj[i]=[];
+  for(let ss=0;ss<G.segs.length;ss++){ const sg=G.segs[ss]; if(sg.dead||sg.bond)continue; const a=sg.a,b=sg.b; if(a>=N||b>=N)continue; const r=sg.rest||1; adj[a].push([b,r]); adj[b].push([a,r]); }
+  let numDir=0; for(let i=0;i<N;i++)numDir+=adj[i].length;
+  const range=new Uint32Array(N*2),nbr=new Uint32Array(Math.max(1,numDir)),rest=new Float32Array(Math.max(1,numDir));
+  let c=0; for(let i=0;i<N;i++){ range[i*2]=c; range[i*2+1]=adj[i].length; for(const p of adj[i]){ nbr[c]=p[0]; rest[c]=p[1]; c++; } }
+  return {N:N,pos:pos,prev:prev,meta:meta,range:range,nbr:nbr,rest:rest,numDir:numDir,tileDX:(maxX-minX)+50}; }
+function tileVec4(src,N,sc,dx){ const out=new Float32Array(N*sc*4);
+  for(let t=0;t<sc;t++){ const ox=dx*t; for(let i=0;i<N;i++){ const o=(t*N+i)*4,q=i*4; out[o]=src[q]+ox; out[o+1]=src[q+1]; out[o+2]=src[q+2]; out[o+3]=src[q+3]; } } return out; }
+function tileCSR(base,sc){ const N=base.N,numDir=base.numDir;
+  const range=new Uint32Array(N*sc*2),nbr=new Uint32Array(Math.max(1,numDir*sc)),rest=new Float32Array(Math.max(1,numDir*sc));
+  for(let t=0;t<sc;t++){ const nOff=t*N,dOff=t*numDir;
+    for(let i=0;i<N;i++){ range[(nOff+i)*2]=base.range[i*2]+dOff; range[(nOff+i)*2+1]=base.range[i*2+1]; }
+    for(let e=0;e<numDir;e++){ nbr[dOff+e]=base.nbr[e]+nOff; rest[dOff+e]=base.rest[e]; } }
+  return {range:range,nbr:nbr,rest:rest}; }
+function stepTemp(dev,WG,cur,gAB,gBA,cAB,cBA){ const enc=dev.createCommandEncoder();
+  {const p=enc.beginComputePass();p.setPipeline(GP.intPipe);p.setBindGroup(0,cur===0?gAB:gBA);p.dispatchWorkgroups(WG);p.end();cur=1-cur;}
+  for(let k=0;k<GP_PASSES;k++){const p=enc.beginComputePass();p.setPipeline(GP.conPipe);p.setBindGroup(0,cur===0?cAB:cBA);p.dispatchWorkgroups(WG);p.end();cur=1-cur;}
+  dev.queue.submit([enc.finish()]); return cur; }
+async function scalingSweep(scales,K){ K=K||60; const dev=GP.device; const out=[]; const base=packBase(); if(!base)return out;
+  const maxBind=(dev.limits&&dev.limits.maxStorageBufferBindingSize)||134217728;
+  for(const sc of scales){ const N=base.N*sc;
+    if(N*16 > maxBind*0.9){ out.push({scale:sc,nodes:N,skipped:'exceeds storage buffer limit'}); continue; }
+    try{
+      const pos=tileVec4(base.pos,base.N,sc,base.tileDX); const prev=pos.slice(); const meta=tileVec4(base.meta,base.N,sc,0); const csr=tileCSR(base,sc);
+      const U=GPUBufferUsage; const mk=(d,u)=>{const b=dev.createBuffer({size:Math.max(16,d.byteLength),usage:u}); dev.queue.writeBuffer(b,0,d); return b;};
+      const A=mk(pos,U.STORAGE|U.COPY_DST|U.COPY_SRC),Bb=mk(new Float32Array(N*4),U.STORAGE|U.COPY_DST|U.COPY_SRC),PV=mk(prev,U.STORAGE|U.COPY_DST);
+      const MT=mk(meta,U.STORAGE|U.COPY_DST),RG=mk(csr.range,U.STORAGE|U.COPY_DST),NB=mk(csr.nbr,U.STORAGE|U.COPY_DST),RS=mk(csr.rest,U.STORAGE|U.COPY_DST);
+      const PM=dev.createBuffer({size:48,usage:U.UNIFORM|U.COPY_DST}); writeParamsTo(PM,N);
+      const bg=(pipe,en)=>dev.createBindGroup({layout:pipe.getBindGroupLayout(0),entries:en}); const Bn=(k,b)=>({binding:k,resource:{buffer:b}});
+      const gAB=bg(GP.intPipe,[Bn(0,A),Bn(1,Bb),Bn(2,PV),Bn(3,MT),Bn(4,PM)]), gBA=bg(GP.intPipe,[Bn(0,Bb),Bn(1,A),Bn(2,PV),Bn(3,MT),Bn(4,PM)]);
+      const cAB=bg(GP.conPipe,[Bn(0,A),Bn(1,Bb),Bn(2,MT),Bn(3,RG),Bn(4,NB),Bn(5,RS),Bn(6,PM)]), cBA=bg(GP.conPipe,[Bn(0,Bb),Bn(1,A),Bn(2,MT),Bn(3,RG),Bn(4,NB),Bn(5,RS),Bn(6,PM)]);
+      const WG=Math.max(1,Math.ceil(N/64)); let cur=0;
+      for(let w=0;w<3;w++)cur=stepTemp(dev,WG,cur,gAB,gBA,cAB,cBA); await dev.queue.onSubmittedWorkDone();
+      const t0=performance.now(); for(let k=0;k<K;k++)cur=stepTemp(dev,WG,cur,gAB,gBA,cAB,cBA); await dev.queue.onSubmittedWorkDone(); const ms=performance.now()-t0;
+      out.push({scale:sc,nodes:N,gpuMsPerStep:+(ms/K).toFixed(4),gpuTotalMs:+ms.toFixed(1)});
+      for(const b of [A,Bb,PV,MT,RG,NB,RS,PM]) try{b.destroy();}catch(e){}
+    }catch(e){ out.push({scale:sc,nodes:N,error:String(e&&e.message||e)}); }
+  } return out; }
+async function runDiagnostics(K){ K=K||120; const R={build:BUILD,at:new Date().toISOString(),webgpuSupported:supported()};
+  if(!supported()){ R.error='WebGPU not supported in this browser'; return R; }
+  GP.wgslMsgs.length=0;
+  const ok=await ensureDevice(); R.compile={ok:ok,messages:GP.wgslMsgs.slice()}; R.adapter=adapterCaps();
+  if(!ok){ R.error='shader/pipeline compile failed'; return R; }
+  if(!G.nodes.length){ R.error='empty scene'; return R; }
+  const wasActive=GP.active; GP.diagRunning=true;
+  try{
+    buildScene();
+    R.scene={nodes:GP.N,segs:GP.numSeg,directed:GP.numDir,fixed:(GP._fixed||[]).length};
+    const checkpoints=new Set([1,10,30,60,K]); const traj=[]; const gt0=performance.now();
+    for(let k=1;k<=K;k++){ stepOnceInternal(); if(checkpoints.has(k)){ const p=await readbackRaw(); const st=statsOf(p,GP.N); const ee=edgeError(p); traj.push({step:k,spanX:st.spanX,spanY:st.spanY,nan:st.nan,edgeMean:ee?ee.mean:null}); } }
+    const gpuPos=await readbackRaw(); const gms=performance.now()-gt0;
+    R.gpu={steps:K,ms:+gms.toFixed(1),msPerStep:+(gms/K).toFixed(3),stats:statsOf(gpuPos,GP.N),edgeError:edgeError(gpuPos),pinned:pinnedDisp(gpuPos),trajectory:traj};
+    const snap=snapCPU(); const wasGpu=S.gpuPhysics; S.gpuPhysics=false; const ct0=performance.now();
+    for(let k=0;k<K;k++){ integrate(); constraints(); } S.gpuPhysics=wasGpu; const cms=performance.now()-ct0;
+    const cpuPos=packCPUvec4();
+    R.cpu={steps:K,ms:+cms.toFixed(1),msPerStep:+(cms/K).toFixed(3),stats:statsOf(cpuPos,GP.N),edgeError:edgeError(cpuPos),pinned:pinnedDisp(cpuPos)};
+    restoreCPU(snap);
+    const ge=R.gpu.edgeError, ce=R.cpu.edgeError;
+    R.verdict={ gpuNaN:R.gpu.stats.nan, cpuNaN:R.cpu.stats.nan,
+      gpuStable:(R.gpu.stats.nan===0 && ge && ge.mean < Math.max(5,(ce?ce.mean:5)*3)),
+      pinsHeld:(R.gpu.pinned.maxDisp<0.5),
+      spanRatioX:(R.cpu.stats.spanX? +(R.gpu.stats.spanX/Math.max(1,R.cpu.stats.spanX)).toFixed(2):null),
+      edgeErrRatio:(ce&&ce.mean? +(ge.mean/Math.max(1e-6,ce.mean)).toFixed(2):null),
+      speedup:(R.gpu.ms>0? +(R.cpu.ms/R.gpu.ms).toFixed(2):null) };
+    // clean-timed scaling sweep (GPU timed via onSubmittedWorkDone; CPU extrapolated linearly from x1)
+    try{ const samples=await scalingSweep([1,2,4,8,16],60); const cpuBase=R.cpu.msPerStep;
+      for(const sm of samples){ if(sm.gpuMsPerStep!=null){ sm.cpuEstMsPerStep=+(cpuBase*sm.scale).toFixed(4); sm.gpuWins=(sm.gpuMsPerStep<sm.cpuEstMsPerStep); } }
+      const win=samples.find(sm=>sm.gpuWins);
+      R.scaling={note:'GPU timed clean (onSubmittedWorkDone, no per-step stalls); CPU extrapolated linearly from x1 measurement',cpuMsPerStepBase:cpuBase,samples:samples,crossover:(win?{scale:win.scale,nodes:win.nodes}:'GPU did not overtake CPU within tested range (x1..x16)')};
+    }catch(e){ R.scaling={error:String(e&&e.message||e)}; }
+    if(wasActive){ buildScene(); }
+  }catch(e){ R.error='diagnostic run failed: '+e.message; console.error(e); }
+  GP.diagRunning=false; return R; }
+async function readStyleProbe(){ try{ if(!GP.device||!GP.active||!GP.bufStyle||!GP._segList)return {note:'not active'};
+    const dev=GP.device, ns=GP._segList.length, bytes=Math.max(16,ns*16);
+    const rb=dev.createBuffer({size:bytes,usage:GPUBufferUsage.COPY_DST|GPUBufferUsage.MAP_READ});
+    const enc=dev.createCommandEncoder(); enc.copyBufferToBuffer(GP.bufStyle,0,rb,0,bytes); dev.queue.submit([enc.finish()]);
+    await rb.mapAsync(GPUMapMode.READ); const a=new Float32Array(rb.getMappedRange().slice(0)); rb.unmap(); rb.destroy();
+    const sel=S.selected; let selSeg=-1; for(let si=0;si<ns;si++){ if(GP._segList[si].obj===sel){ selSeg=si; break; } }
+    const o=(sel>=0)?G.objs[sel]:null;
+    return { refreshN:GP.refreshN, refreshErr:GP.refreshErr, propsDirty:GP.propsDirty,
+      selectedObj:sel, selObj_r:(o?o.r:null), selObj_effR:(o&&typeof effR==='function'?effR(o):null),
+      selBufStyleRadius:(selSeg>=0?a[selSeg*4+3]:null), selSegIndex:selSeg,
+      firstFewBufRadii:[a[3],a[7],a[11],a[15]], segCount:ns };
+  }catch(e){ return {error:e&&e.message}; } }
+async function runAndExport(){ const btn=document.getElementById('devExport'); const lbl=btn?btn.textContent:'';
+  if(btn){btn.disabled=true;btn.textContent='running diagnostics\u2026';} status('running GPU diagnostics\u2026');
+  let diag=null; try{ diag=await runDiagnostics(120); }catch(e){ diag={error:String(e&&e.message||e)}; }
+  const log=buildLog(); log.diagnostics=diag; try{ log.styleProbe=await readStyleProbe(); }catch(e){ log.styleProbe={error:String(e)}; } downloadJSON(log,'string-engine-diag');
+  const v=diag&&diag.verdict; status(diag&&diag.error?('diag ERROR: '+diag.error):('exported \u00B7 GPU NaN='+(v?v.gpuNaN:'?')+' pinsHeld='+(v?v.pinsHeld:'?')+' speedup='+(v?v.speedup:'?')+'\u00D7'), !!(diag&&diag.error));
+  if(btn){btn.disabled=false;btn.textContent=lbl||'\u2B73 Run diagnostics & export for Claude';} liveReadout(); }
+const _ex=document.getElementById('devExport'); if(_ex)_ex.addEventListener('click',runAndExport);
+const _cl=document.getElementById('devClear'); if(_cl)_cl.addEventListener('click',function(){GP.log.length=0;liveReadout();});
+const _bt=document.getElementById('devBuild'); if(_bt)_bt.textContent=BUILD;
+liveReadout();
+
+if(!supported()){ const cb=document.getElementById('gpuPhysicsToggle'); if(cb){cb.disabled=true;} status('WebGPU not available in this browser',true); }
 })();
 </script>
 

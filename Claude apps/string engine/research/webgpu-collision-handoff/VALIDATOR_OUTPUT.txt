@@ -1,0 +1,7 @@
+Exact commit: 0179580410aff2cbdf2fc062b1e4d0ccf5c8a80e
+Validator package: naga-wasi-cli 0.1.0
+Node: v24.19.0
+
+PASS WGSL_INT (35 lines)
+PASS WGSL_CON (27 lines)
+PASS WGSL_REN (23 lines)
