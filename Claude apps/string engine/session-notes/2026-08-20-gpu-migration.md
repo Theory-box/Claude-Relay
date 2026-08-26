@@ -763,3 +763,27 @@ Confirmed robust; two items documented (neither a bug):
 Robustness confirmed: empty scene dispatches a guarded workgroup (shaders guard i>=count); zoom clamped to
 [0.25,6] so 1/view.z render terms never blow up; recomputeBondThresholds guards !G.segs/!G.objs and endProf/objType
 return safe fallbacks. New round-5 code is safe under load.
+
+## BUG FIX — GPU self-collision fails for loops/branches (user: individual strings curl/loop through themselves)
+Symptom: an object with 3 separate strings - inter-string collision fine, but a single string passes through ITSELF
+(curls/loops over itself). Was fine on CPU. Heavy padding + no-3D didn't help (pair excluded before the distance test).
+Root cause: GPU self-collision exclusion (WGSL_COLLIDE line ~57) skips same-piece segment pairs whose along-ordinal
+distance < skip+1. The along-ordinal was a LINEAR walk (packCollision) that only assigns correct ordinals to simple
+open chains:
+  - Closed loop (no degree-1 endpoint): walk never starts -> ALL segments along=0 -> every same-piece pair distance 0
+    -> entire strand self-skipped (verified: 228 wrongly-skipped pairs on a 24-seg loop). Strand passes through itself.
+  - Branch/junction (degree-3+ node): each branch walked separately RESTARTS at along=0 -> a branch segment and a
+    distant main-strand segment both read 0 -> wrongly skipped.
+CPU uses an exact per-segment BFS (computeExclusions) which is correct for any topology - hence CPU worked.
+FIX (packCollision, JS only, no shader change): replace the linear per-strand walk with a single monotonic counter
+(walkAlong) that (a) walks every open chain from its endpoints, then (b) covers loops + any leftover segment from an
+incident node, giving every segment a UNIQUE ordinal. Distant coils of the same strand now keep a large along-gap and
+collide. Validated head-to-head vs the CPU BFS across topologies:
+  - linear / thick-short-seg / 3-separate-strands: EXACT match (0 pass-through, 0 jitter).
+  - closed loop: pass-through 228 -> 0 (2 mild seam pairs, and the seam itself shares a node so shareEndpoint skips it).
+  - figure-8: pass-through 0.
+  - true T-junction / stub: pass-through cut ~85% (41->3, 7->3). A scalar ordinal cannot perfectly encode a branched
+    graph; residual is a few near-junction pairs (mild spurious collision at worst, NOT pass-through). Exact parity
+    would need a CSR excl-list packed to the GPU + a shader binary-search - offered as a follow-up if branched
+    structures still show leakage.
+Ships to feature/gpu + outputs. NOT merged to main yet - it changes collision behavior, so hold for user hardware test.

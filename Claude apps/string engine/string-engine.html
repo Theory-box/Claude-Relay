@@ -2385,11 +2385,12 @@ function packCollision(segList,N,device,mk,bg,B,ST,CD,CS,UN){
     const nsRange=new Uint32Array(N*2), nsList=new Uint32Array(Math.max(1,tot));
     { let cc=0; for(let i=0;i<N;i++){ nsRange[i*2]=cc; nsRange[i*2+1]=incid[i].length; for(const sg of incid[i])nsList[cc++]=sg; } }
     const piece=(G.piece&&G.piece.length>=N)?G.piece:new Array(N).fill(0);
-    const along=new Int32Array(numSeg).fill(-1); const visited=new Uint8Array(numSeg);
-    for(let i=0;i<N;i++){ if(incid[i].length===1){ let cur=i,prevSeg=-1,idx=0;
-      while(true){ let nx=-1; for(const sg of incid[cur]){ if(sg!==prevSeg && !visited[sg]){ nx=sg; break; } } if(nx<0)break;
-        visited[nx]=1; along[nx]=idx++; const so=segList[nx]; cur=(so.a===cur)?so.b:so.a; prevSeg=nx; } } }
-    for(let s=0;s<numSeg;s++)if(along[s]<0)along[s]=0;
+    const along=new Int32Array(numSeg).fill(-1); let aord=0;   // ordinal along each strand; a UNIQUE monotonic counter per piece so distant coils of the same strand keep a large along-gap and still collide
+    const walkAlong=(startNode)=>{ let cur=startNode,prevSeg=-1;
+      while(true){ let nx=-1; for(const sg of incid[cur]){ if(sg!==prevSeg && along[sg]<0){ nx=sg; break; } } if(nx<0)break;
+        along[nx]=aord++; const so=segList[nx]; cur=(so.a===cur)?so.b:so.a; prevSeg=nx; } };
+    for(let i=0;i<N;i++) if(incid[i].length===1) walkAlong(i);                             // open chains: walk from each degree-1 endpoint
+    for(let s=0;s<numSeg;s++){ if(along[s]<0){ walkAlong(segList[s].a); if(along[s]<0)along[s]=aord++; } }   // loops (no endpoint) + any leftover: cover every segment with a unique ordinal (was: all-zero fallback -> whole strand self-skipped -> passed through itself)
     const segI=new Uint32Array(numSeg*4), segF=new Float32Array(numSeg*4);
     let maxR=0,maxPad=0;
     for(let s=0;s<numSeg;s++){ const sg=segList[s], o=G.objs[sg.obj]||{}; const er=(typeof effR==='function'?effR(o):(o.r||4));
