@@ -101,7 +101,7 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="7.2"/><circle cx="12" cy="12" r="2.6"/></svg>
     </button>
   </div>
-  <div class="screen"><canvas id="c"></canvas><canvas id="cgl" style="position:absolute;inset:0;width:100%;height:100%;display:none;pointer-events:none"></canvas><canvas id="cwgpu" style="position:absolute;inset:0;width:100%;height:100%;display:none;pointer-events:none;background:radial-gradient(900px 600px at 50% 40%,#0e1020 0%,#090a12 100%)"></canvas><div id="gpuPhysicsBadge" style="position:absolute;top:8px;right:10px;font:600 11px monospace;color:#6ee7b7;display:none;pointer-events:none;text-shadow:0 0 4px #000"></div><div class="tag">topology engine · <b id="tagScene" style="color:var(--muted)">demo</b> · <b id="tagSel" style="color:var(--accent)">Scene</b></div></div>
+  <div class="screen"><canvas id="c"></canvas><canvas id="cgl" style="position:absolute;inset:0;width:100%;height:100%;display:none;pointer-events:none"></canvas><canvas id="cwgpu" style="position:absolute;inset:0;width:100%;height:100%;display:none;pointer-events:none;background:radial-gradient(900px 600px at 50% 40%,#0e1020 0%,#090a12 100%)"></canvas><div id="gpuPhysicsBadge" style="position:absolute;top:8px;right:10px;font:600 11px monospace;color:#6ee7b7;display:none;pointer-events:none;text-shadow:0 0 4px #000"></div><div class="tag">topology engine · <b id="tagScene" style="color:var(--muted)">demo</b> · <b id="tagSel" style="color:var(--accent)">Scene</b></div><div id="drawDensity" style="position:absolute;bottom:16px;left:50%;transform:translateX(-50%);display:none;z-index:8;background:rgba(15,16,26,0.96);border:1px solid var(--line);border-radius:11px;padding:9px 13px;box-shadow:0 6px 26px rgba(0,0,0,0.55);font-size:12px;color:var(--text)"><div style="display:flex;align-items:center;gap:10px;white-space:nowrap"><span style="color:var(--dim);font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.14em">SEG / UNIT</span><input id="drawDensRange" type="range" min="0.5" max="20" step="0.5" value="4" style="width:150px"><input id="drawDensNum" type="number" min="0.1" step="0.5" value="4" style="width:54px;background:var(--ink2);border:1px solid var(--line);color:var(--text);border-radius:6px;padding:3px 5px;font-size:12px"><span id="drawDensInfo" style="color:var(--dim);font-size:11px;min-width:96px"></span><button id="drawDensAdd" style="background:var(--accent);border:none;color:#08121a;font-weight:600;border-radius:7px;padding:5px 12px;cursor:pointer;font-size:12px">Add</button><button id="drawDensCancel" style="background:var(--ink2);border:1px solid var(--line);color:var(--muted);border-radius:7px;padding:5px 10px;cursor:pointer;font-size:12px">Cancel</button></div></div></div>
   <div class="rail">
     <div class="rail-scroll">
     <div class="railtop">
@@ -327,7 +327,7 @@ function mkNode(p){const i=G.nodes.length;if(i>=NCAP)nGrow(NCAP*2);
   const n=Object.create(NodeProto);n.i=i;
   for(const k in p){if(k==='x'||k==='y'||k==='h'||k==='px'||k==='py'||k==='ph')continue;n[k]=p[k];}
   G.nodes.push(n);return n;}
-const S={temp:0.7,speed:1,running:true,W:0,H:0,dpr:1,pad:26,scene:'box',
+const S={temp:0.7,speed:1,running:true,W:0,H:0,dpr:1,pad:26,scene:'box',unitPx:100,drawSegsPerUnit:4,
   gCurl:0,gStiff:0,gThick:0,gGrow:0,weave:0,depth:25,view:'default',iters:4,wallPad:5,attract:0.4,repel:0,tol:0.4,selected:-1,weld:0.003,damp:0.02,contactDamp:0,chunk:false,bonding:true,bondSnap:1.5,bondBrk:2.5,bondCure:0,bondBlend:0,bondTimer:'continuous',cdRamping:false,cdRamp0:0,bondEnergy:0,maxBondEvents:40,snapViz:null,showHeat:true,strandFill:1,outlineW:0.1,outlineA:0.3,cleanView:false,gloss:0.75,shade:1,bg:null,shadow:0.25,xpbd:0,bondChunk:false,shadeSmooth:true,gpu:false};
 const OBJDEF={r:3,stiff:0.12,curl:0,grow:0,affinity:1,polarity:1,solid:false,fixed:false,color:null,autoSpace:false,spaceMult:1,breakable:false,brkStretch:true,brkAbs:false,bendAbsLim:90,brkRel:false,bendRelLim:60};
 // per-object attribute + global offset (0 = use imported value untouched)
@@ -429,6 +429,46 @@ function addStrokeToObject(oi,pts){   // append a chain of points as nodes+segme
     obj.segIdx.push(G.segs.length-1);}
   buildNbrs();computeRestBend();computeExclusions();snapshotInit();refreshStats();
   return pts.length;}
+// ---- smooth-curve pencil: centripetal Catmull-Rom smoothing + arc-length density resample ----
+function _smoothPoly(pts,samples){ if(pts.length<3)return pts.slice();
+  const P=[pts[0],...pts,pts[pts.length-1]], out=[], A=0.5, H=(x,y)=>Math.sqrt(x*x+y*y);
+  for(let i=1;i<P.length-2;i++){ const p0=P[i-1],p1=P[i],p2=P[i+1],p3=P[i+2];
+    const t0=0,t1=t0+(Math.pow(H(p1.x-p0.x,p1.y-p0.y),A)||1e-4),t2=t1+(Math.pow(H(p2.x-p1.x,p2.y-p1.y),A)||1e-4),t3=t2+(Math.pow(H(p3.x-p2.x,p3.y-p2.y),A)||1e-4);
+    for(let sm=0;sm<samples;sm++){ const t=t1+(t2-t1)*(sm/samples);
+      const A1x=(t1-t)/(t1-t0)*p0.x+(t-t0)/(t1-t0)*p1.x, A1y=(t1-t)/(t1-t0)*p0.y+(t-t0)/(t1-t0)*p1.y;
+      const A2x=(t2-t)/(t2-t1)*p1.x+(t-t1)/(t2-t1)*p2.x, A2y=(t2-t)/(t2-t1)*p1.y+(t-t1)/(t2-t1)*p2.y;
+      const A3x=(t3-t)/(t3-t2)*p2.x+(t-t2)/(t3-t2)*p3.x, A3y=(t3-t)/(t3-t2)*p2.y+(t-t2)/(t3-t2)*p3.y;
+      const B1x=(t2-t)/(t2-t0)*A1x+(t-t0)/(t2-t0)*A2x, B1y=(t2-t)/(t2-t0)*A1y+(t-t0)/(t2-t0)*A2y;
+      const B2x=(t3-t)/(t3-t1)*A2x+(t-t1)/(t3-t1)*A3x, B2y=(t3-t)/(t3-t1)*A2y+(t-t1)/(t3-t1)*A3y;
+      out.push({x:(t2-t)/(t2-t1)*B1x+(t-t1)/(t2-t1)*B2x, y:(t2-t)/(t2-t1)*B1y+(t-t1)/(t2-t1)*B2y}); } }
+  out.push(pts[pts.length-1]); return out; }
+function _resampleSpacing(poly,spacing){ if(poly.length<2||spacing<=0)return poly.slice();
+  const H=(x,y)=>Math.sqrt(x*x+y*y); let total=0; const cum=[0];
+  for(let i=1;i<poly.length;i++){total+=H(poly[i].x-poly[i-1].x,poly[i].y-poly[i-1].y);cum.push(total);}
+  if(total<=1e-6)return [poly[0]];
+  const n=Math.max(1,Math.round(total/spacing)), step=total/n, out=[]; let j=0;
+  for(let k=0;k<=n;k++){ const d=k*step; while(j<cum.length-2&&cum[j+1]<d)j++;
+    const sl=cum[j+1]-cum[j]||1, fr=(d-cum[j])/sl; out.push({x:poly[j].x+(poly[j+1].x-poly[j].x)*fr, y:poly[j].y+(poly[j+1].y-poly[j].y)*fr}); }
+  return out; }
+function resampleStroke(raw){ return _resampleSpacing(_smoothPoly(raw,10), S.unitPx/Math.max(0.05,S.drawSegsPerUnit)); }
+// ---- density-picker preview state ----
+let drawPending=null;   // {raw:[...world pts], oi} while the picker is open
+function beginDrawPreview(oi,raw){ drawPending={raw:raw,oi:oi};
+  const box=document.getElementById('drawDensity'); if(box)box.style.display='block';
+  const rng=document.getElementById('drawDensRange'),num=document.getElementById('drawDensNum');
+  if(rng)rng.value=S.drawSegsPerUnit; if(num)num.value=S.drawSegsPerUnit; updateDrawInfo(); window.RD=true; }
+function updateDrawInfo(){ if(!drawPending)return; const pts=resampleStroke(drawPending.raw);
+  const info=document.getElementById('drawDensInfo'); if(info)info.textContent=pts.length+' nodes \u00b7 '+(S.unitPx/Math.max(0.05,S.drawSegsPerUnit)).toFixed(0)+'px gap'; }
+function cancelDrawPreview(){ drawPending=null; const box=document.getElementById('drawDensity'); if(box)box.style.display='none'; window.RD=true; }
+function commitDrawPreview(){ if(!drawPending)return; const pts=resampleStroke(drawPending.raw);
+  if(pts.length>=2)addStrokeToObject(drawPending.oi,pts); cancelDrawPreview(); window.RD=true; }
+(function(){ const rng=document.getElementById('drawDensRange'),num=document.getElementById('drawDensNum');
+  const sync=v=>{ v=Math.max(0.1,Math.min(40,parseFloat(v)||S.drawSegsPerUnit)); S.drawSegsPerUnit=v; if(rng)rng.value=v; if(num)num.value=v; updateDrawInfo(); window.RD=true; };
+  if(rng)rng.addEventListener('input',e=>sync(e.target.value));
+  if(num)num.addEventListener('input',e=>sync(e.target.value));
+  const add=document.getElementById('drawDensAdd'),can=document.getElementById('drawDensCancel');
+  if(add)add.addEventListener('click',commitDrawPreview); if(can)can.addEventListener('click',cancelDrawPreview);
+  window.addEventListener('keydown',e=>{ if(!drawPending)return; if(e.key==='Enter'){e.preventDefault();commitDrawPreview();} else if(e.key==='Escape'){e.preventDefault();cancelDrawPreview();} }); })();
 function eraseAt(mx,my,rad){   // remove segments near the cursor; drop nodes left with no edges
   let removed=0;const r2=rad*rad;
   for(const s of G.segs){if(s.dead)continue;const a=G.nodes[s.a],b=G.nodes[s.b];
@@ -1209,6 +1249,12 @@ function render(){
   if(stroke&&stroke.length){ctx.save();const col=(G.objs[stroke.oi]&&G.objs[stroke.oi].color)||'#7dd3fc';
     ctx.strokeStyle=col;ctx.lineWidth=Math.max(2,(G.objs[stroke.oi]?effR(G.objs[stroke.oi]):3)*1.7);ctx.lineCap='round';ctx.lineJoin='round';ctx.globalAlpha=0.85;
     ctx.beginPath();ctx.moveTo(stroke[0].x,stroke[0].y);for(let i=1;i<stroke.length;i++)ctx.lineTo(stroke[i].x,stroke[i].y);ctx.stroke();ctx.restore();}
+  // resampled density preview (picker open): show the smoothed strand + node dots at the chosen density
+  if(typeof drawPending!=='undefined'&&drawPending){ const pv=resampleStroke(drawPending.raw), o=G.objs[drawPending.oi], col=(o&&o.color)||'#7dd3fc'; if(pv.length>=2){ ctx.save();
+    ctx.strokeStyle=col;ctx.globalAlpha=0.45;ctx.lineWidth=Math.max(1.5,(o?effR(o):3)*1.5);ctx.lineCap='round';ctx.lineJoin='round';
+    ctx.beginPath();ctx.moveTo(pv[0].x,pv[0].y);for(let i=1;i<pv.length;i++)ctx.lineTo(pv[i].x,pv[i].y);ctx.stroke();
+    ctx.globalAlpha=0.95;ctx.fillStyle=col;const rr=Math.max(1.6,(o?effR(o):3)*0.9);for(const p of pv){ctx.beginPath();ctx.arc(p.x,p.y,rr,0,6.2832);ctx.fill();}
+    ctx.restore(); } }
   // ---------- heat / energy overlay: warm glow where nodes are moving fast (bond energy, thermal wobble, collisions) ----------
   if(S.showHeat&&!S.cleanView){let totKE=0,liveN=0;ctx.save();ctx.globalCompositeOperation='lighter';
     for(let i=0;i<G.nodes.length;i++){if(!G.nbrs[i]||G.nbrs[i].length===0)continue;const n=G.nodes[i];   // only real (connected) matter carries heat — orphan leftovers don't glow (and won't blink out when compaction clears them)
@@ -1239,8 +1285,12 @@ function setEditMode(on){editMode=on;
   if(on){S.running=false;const bp=document.getElementById('bPlay');if(bp)bp.textContent='Play';
     if(!G.objs.length)newMaterial('Material 1');                 // must have paint to draw
     if(S.selected<0||!G.objs[S.selected])selectObject(G.objs.length-1);
-    setTool('draw');}   // auto-pause so you're not drawing onto whipping strands
-  else{setTool('move');S.running=true;const bp=document.getElementById('bPlay');if(bp)bp.textContent='Pause';startCDRamp();}}   // leaving edit mode resumes the sim
+    setTool('draw');
+    if(window.gpuEditBegin)window.gpuEditBegin();   // GPU-native edit: readback current positions to CPU + show the 2D authoring canvas (GPU stays warm, just paused)
+    window.RD=true;}   // auto-pause so you're not drawing onto whipping strands
+  else{cancelDrawPreview();
+    if(window.gpuEditEnd)window.gpuEditEnd();        // push edited geometry back into the live GPU buffers (fast rebuild, no re-init)
+    setTool('move');S.running=true;const bp=document.getElementById('bPlay');if(bp)bp.textContent='Pause';startCDRamp();}}   // leaving edit mode resumes the sim
 document.getElementById('toolMove').addEventListener('click',()=>setTool('move'));
 document.getElementById('toolCut').addEventListener('click',()=>setTool('cut'));
 document.getElementById('toolDraw').addEventListener('click',()=>setTool('draw'));
@@ -1319,7 +1369,7 @@ function dragApply(){if(grab<0||grab>=G.nodes.length)return;const n=G.nodes[grab
 cvs.style.cursor='grab';
 cvs.addEventListener('pointerdown',e=>{
   if(e.button===1){const r=cvs.getBoundingClientRect();panning=true;panSX=e.clientX-r.left;panSY=e.clientY-r.top;panOX=view.ox;panOY=view.oy;cvs.setPointerCapture(e.pointerId);cvs.style.cursor='move';e.preventDefault();return;}   // middle-mouse pan
-  if(window.gpuPhysicsActive&&window.gpuPhysicsActive()){ if(tool==='move'){ const [gmx,gmy]=canvasXY(e); if(window.gpuPick)window.gpuPick(gmx,gmy); try{cvs.setPointerCapture(e.pointerId);}catch(_){} return; } if(window.gpuPhysicsDropToCPU)window.gpuPhysicsDropToCPU('editing'); return; }  // GPU move = pick+select (readback); middle-mouse pans; other tools change topology -> drop to CPU
+  if(window.gpuPhysicsActive&&window.gpuPhysicsActive()&&!editMode){ if(tool==='move'){ const [gmx,gmy]=canvasXY(e); if(window.gpuPick)window.gpuPick(gmx,gmy); try{cvs.setPointerCapture(e.pointerId);}catch(_){} return; } if(window.gpuPhysicsDropToCPU)window.gpuPhysicsDropToCPU('editing'); return; }  // GPU move = pick+select; in EDIT mode we stay GPU-native (draw on the paused scene, rebuild on exit) instead of dropping to CPU
   const [mx,my]=canvasXY(e);
   if(tool==='draw'){let oi=S.selected;if(oi<0||!G.objs[oi])oi=G.objs.length?G.objs.length-1:newMaterial('Material 1');
     stroke=[{x:mx,y:my}];stroke.oi=oi;cvs.setPointerCapture(e.pointerId);return;}
@@ -1344,7 +1394,7 @@ cvs.addEventListener('pointermove',e=>{
   if(tool==='move')pickHover(mx,my);});   // idle hover highlight
 cvs.addEventListener('pointerup',()=>{
   if(window.gpuGrabClear)window.gpuGrabClear();
-  if(stroke){if(stroke.length>=2)addStrokeToObject(stroke.oi,stroke);stroke=null;return;}
+  if(stroke){if(stroke.length>=2)beginDrawPreview(stroke.oi,stroke.slice());stroke=null;return;}   // open the density picker; commit happens on Add
   if(erasing){erasing=false;return;}
   if(panning){panning=false;cvs.style.cursor=tool==='cut'?'crosshair':'grab';return;}
   if(cutting){cutting=false;if(hyp2(cx1-cx0,cy1-cy0)>4)cutLine(cx0,cy0,cx1,cy1);return;}
@@ -1381,7 +1431,7 @@ function frame(now){const dt=now-lastT;lastT=now;
   let did=false;
   if(S.running){if(S.gpuPhysics&&window.gpuPhysicsStep){window.gpuPhysicsStep(S.speed);}else{S.frame=(S.frame||0)+1;advanceCDRamp();attract();endpointForces();relaxSpacing();for(let k=0;k<S.speed;k++){integrate();flagBondBreaks();constraints();collide();wallCCD();dragApply();flagStrainBreaks();flagBendBreaks();}maintainBonds();removeDead();}did=true;}
   else if(grab>=0){dragApply();constraints();collide();did=true;}
-  if(did||window.RD||panning){ema=ema*0.9+(1000/Math.max(1,dt))*0.1;if(S.gpuPhysics&&typeof window.gpuPhysicsRender==='function')window.gpuPhysicsRender();else if(S.micro&&typeof renderMicro==='function')renderMicro();else if(S.gpu&&typeof renderGPU==='function')renderGPU();else render();window.RD=false;document.getElementById('sFps').textContent=Math.round(ema)+' fps';}
+  if(did||window.RD||panning){ema=ema*0.9+(1000/Math.max(1,dt))*0.1;if(editMode)render();else if(S.gpuPhysics&&typeof window.gpuPhysicsRender==='function')window.gpuPhysicsRender();else if(S.micro&&typeof renderMicro==='function')renderMicro();else if(S.gpu&&typeof renderGPU==='function')renderGPU();else render();window.RD=false;document.getElementById('sFps').textContent=Math.round(ema)+' fps';}
   requestAnimationFrame(frame);}
 ['pointerdown','pointermove','pointerup','wheel','keydown'].forEach(ev=>window.addEventListener(ev,()=>{window.RD=true;},true));
 ['input','change'].forEach(ev=>document.addEventListener(ev,()=>{ if(typeof recomputeBondThresholds==='function')recomputeBondThresholds(); if(window.gpuRefreshProps)window.gpuRefreshProps(); },false));  // BUBBLE phase: fires AFTER the control's own handler writes the model, so vmat/props read fresh values
@@ -2738,6 +2788,9 @@ window.gpuPhysicsRender=render;
 window.setGpuPhysicsMode=function(on){ if(on){ activate(); } else { deactivate(true,'toggled off'); } };
 window.gpuPhysicsDiscard=function(reason){ try{disposeBuffers();}catch(e){} if(GP.active){ GP.active=false; S.gpuPhysics=false; S.gpu=GP.prevGpu; cw.style.display='none'; const cgl=document.getElementById('cgl'); if(cgl)cgl.style.display=(S.gpu||S.micro)?'block':'none'; badge(false,reason||'scene changed'); setToggle(false); status('off \u00B7 '+(reason||'scene changed')); window.RD=true; } };
 window.gpuPhysicsDropToCPU=function(reason){ if(GP.active) deactivate(true,reason||'editing'); };
+window.gpuEditBegin=function(){ if(!GP.active)return; readbackToCPU().then(function(){ cw.style.display='none'; window.RD=true; }).catch(function(){ cw.style.display='none'; window.RD=true; }); };   // sync CPU node positions from the live GPU buffer, then reveal the 2D authoring canvas
+window.gpuEditEnd=function(){ if(!GP.active)return; const M=G.nodes.length; for(let i=0;i<M;i++){ NPX[i]=NX[i]; NPY[i]=NY[i]; NPH[i]=NH[i]; }   // resume from rest: readback only synced positions, not prev, so zero velocity to avoid a stale-prev jump
+  try{ buildScene(); }catch(e){ console.error('gpuEditEnd buildScene',e); } cw.style.display='block'; window.RD=true; };   // rebuild GPU buffers from the edited scene (reuses buffers; no device re-init)
 window.gpuPhysicsDiagnostics=()=>({active:GP.active,supported:supported(),nodes:GP.N,segs:GP.numSeg,directedLinks:GP.numDir,frame:GP.frameN,readbacks:GP.readbacks,lastExit:GP.lastExit,passes:GP_PASSES,relax:GP_RELAX,
   refreshN:GP.refreshN,refreshErr:GP.refreshErr,bendReady:GP.bendReady,bonding:{on:!!S.bonding,every:GP.bondEvery,ticks:GP.bondTicks,events:GP.bondEvents,busy:GP._bondBusy,detect:(GP.bondDetectReady?(GP.bdProbe||'pending'):(GP.bondDetectSupported?'idle':'unsupported')),detectWhy:(GP.bondDetectWhy||null),path:(GP.bondPath||null),fallbacks:(GP.bondFallbacks||0),detectPeak:(GP.bdAccum||null)},
   collision:{supported:GP.collSupported,ready:GP.collReady,maxStorageBuf:GP.maxStorageBuf,iters:(S.gpuCollIters!=null?(S.gpuCollIters|0):(S.iters||4)),lastOverflow:(GP.lastOverflow!=null?GP.lastOverflow:null),

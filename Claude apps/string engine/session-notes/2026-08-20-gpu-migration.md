@@ -810,3 +810,51 @@ which can mildly oscillate on stiff structures where the CPU's sequential Gauss-
 fix; would need solver-side work. Ask the user whether bonding is active when the stutter occurs to disambiguate.
 BLIND: no WebGPU in sandbox - JS-validated + shaders unchanged, but the buffer-preserve path needs user hardware test.
 Ships to feature/gpu + outputs (combined with the self-collision fix). NOT merged to main - both are behavior changes.
+
+---
+
+## 2026-08-26 - Drawing tool, Chunk 1: GPU-native pencil + smooth curves + density resample + live preview
+
+USER CONFIRMED the stutter fix ("perfect! no more stuttering"). Pivoted from physics to UI/tools. Roadmap the user
+named: drawing (now), erase, force tools (vortex, gravity well), separate/isolate strings, draw-from-existing with
+snapping, draw-on-your-own-drawing. Broad UI restructure "later". Started with drawing. Discovered a pencil tool
+already existed (toolDraw, Edit mode) but: (1) it DROPPED GPU->CPU the moment you drew, (2) no smoothing / density /
+preview - one node per raw captured point. Chose (via ask_user_input): 1 unit = 100px world (adjustable via S.unitPx),
+density = segments per unit; and Chunk 1 scope = GPU-native draw + smooth + density resample + live preview. Snapping
+to existing strands is the NEXT chunk (explicitly deferred).
+
+DATA MODEL (key): G.nodes[i] is a proxy - get x(){return NX[i]}, set x(v){NX[i]=v} (lines ~315-326). So
+G.nodes[i].x IS NX[i] (same data). Drawing edits NX/NY directly; buildScene uploads them. Canvas stacking inside
+.screen (position:relative): c (2D, ctx, base, gets pointer events) < cgl (WebGL micro) < cwgpu (=cw, WebGPU, shown
+when GPU active). readbackToCPU() reads ONLY cur (curBuf -> NX/NY), NOT prev (NPX/NPY).
+
+WHAT SHIPPED (feature/gpu, JS+shader validated, BLIND - no GPU test here):
+- State: S.unitPx=100, S.drawSegsPerUnit=4 (line ~330).
+- Math (Node-verified, incl. re-extracted from file): _smoothPoly (centripetal Catmull-Rom, alpha=0.5, pad ends,
+  10 samples/span), _resampleSpacing (arc-length resample, n=round(total/spacing) intervals, endpoints preserved),
+  resampleStroke(raw)=spacing S.unitPx/max(0.05,segsPerUnit). 4 segs/unit -> 25px target -> 24.6px avg gap; endpoints
+  exact; 2-pt line even; tiny stroke -> 2 nodes.
+- Density picker UI: #drawDensity overlay (bottom-center of .screen), slider drawDensRange 0.5-20 + number drawDensNum
+  (clamp 0.1-40) + info (node count / px gap) + Add / Cancel. Enter=commit, Escape=cancel (only when drawPending).
+- Preview state: let drawPending={raw,oi}. pointerup(draw) -> beginDrawPreview (opens picker) instead of committing.
+  render() draws the resampled strand (0.45 alpha) + node dots live; recomputes on every density change. Add ->
+  addStrokeToObject(oi, resampled). Cancel/exit clears.
+- GPU-native flow: pointerdown GPU-drop gated with &&!editMode (edit mode no longer drops to CPU). setEditMode on-enter
+  calls window.gpuEditBegin (readbackToCPU -> sync NX/NY, then hide cw so the 2D canvas shows), on-exit calls
+  window.gpuEditEnd (zero velocity NPX/NPY=NX/NY to avoid stale-prev jump on resume since readback doesn't sync prev,
+  then buildScene = fast buffer-reuse rebuild, then show cw). Both early-return if !GP.active (no-op in pure CPU mode).
+  Frame loop: `if(editMode)render()` first -> edit mode always uses the CPU 2D renderer. buildScene preservePos path
+  (stutter fix) is gated on _bondRebuild=false here, so it does a correct full upload.
+
+FLOW (GPU): Tab -> pause + readback syncs NX/NY + hide cwgpu (CPU render on c) -> draw stroke -> picker opens with live
+preview -> adjust density -> Add (commits, CPU render shows it) or Cancel -> Tab exits -> gpuEditEnd zeroes velocity +
+buildScene + show cwgpu + resume. Pure-CPU: same minus the gpu sync (begin/end are no-ops). Velocity zeroes on
+edit-exit (rest-resume - acceptable since edit mode is paused).
+
+RISKS (blind): canvas show/hide timing (cwgpu vs c), readback-async race (mitigated: cw hidden only after readback
+resolves; stroke uses world coords so drawn nodes are correct regardless), gpuEditEnd buildScene from CPU-edited G.
+
+NEXT: user to TEST on hardware (does drawing stay on GPU / no CPU drop? density preview + resample feel right?). Then
+Chunk 2 = snapping (draw connected strands from existing lines; hairs off a membrane; differing resolutions OK).
+Still on feature/gpu (all GPU-era work stacked here; main clean at d5c7d09). Merge to main deferred until user OKs;
+consider whether GPU fixes should merge separately from the new/untested drawing.
