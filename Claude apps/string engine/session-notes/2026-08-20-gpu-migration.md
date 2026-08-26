@@ -787,3 +787,26 @@ collide. Validated head-to-head vs the CPU BFS across topologies:
     would need a CSR excl-list packed to the GPU + a shader binary-search - offered as a follow-up if branched
     structures still show leakage.
 Ships to feature/gpu + outputs. NOT merged to main yet - it changes collision behavior, so hold for user hardware test.
+
+## STUTTER FIX — occasional forward-forward-back at full framerate
+Symptom: minor, fast, occasional stutter - the sim looks like it steps forward a couple frames then jumps back one,
+repeatedly. Performance is fine (max FPS), so it's a temporal/positional artifact, not a perf problem.
+Investigation: render reads GP.curBuf (always the newest buffer; flip parity handled correctly across all pass counts),
+frame loop is clean sequential step->render, readbackToCPU is on-demand only (pick/diagnostics), no per-frame position
+revert. The ONLY thing that resets GPU positions is buildScene, which uploads NX/NY (the CPU node arrays).
+Root cause (bonding ON): buildScene is called from the ASYNC gpuBondTick on every bond-churn topology change. NX/NY is
+a readback snapshot submitted at the START of the step, and the async tick resolves 1-3 frames later - so by the time
+buildScene runs, it re-uploads a 1-3 frame-old snapshot and REWINDS the GPU sim. With steady bond churn (rebuild ~every
+6 frames) this is a periodic back-step = the stutter. A bond add/remove only changes SEGMENTS, not node positions, so
+re-uploading positions is both unnecessary and the cause.
+Fix (JS only, no shader change): buildScene now preserves the LIVE GPU positions when the rebuild is a bond churn with an
+unchanged node set. gpuBondTick sets GP._bondRebuild around the rebuild; buildScene computes
+  preservePos = _bondRebuild && prevN===N && bufA/bufB/bufPrev exist && capacity fits
+and when true: if the live buffer was bufB (curBuf===1) it copies bufB->bufA (GPU->GPU), keeps bufPrev, and SKIPS the
+NX/NY position/prev upload (buildScene's own curBuf=0 then makes bufA current). Topology buffers + bind groups rebuild
+normally. Any condition failing -> normal full upload (unchanged behavior). Blast radius = bond-churn rebuilds only.
+Second candidate (bonding OFF): the GPU constraint solver is Jacobi (parallel: WGSL_CON reads posIn, writes posOut),
+which can mildly oscillate on stiff structures where the CPU's sequential Gauss-Seidel converges. NOT addressed by this
+fix; would need solver-side work. Ask the user whether bonding is active when the stutter occurs to disambiguate.
+BLIND: no WebGPU in sandbox - JS-validated + shaders unchanged, but the buffer-preserve path needs user hardware test.
+Ships to feature/gpu + outputs (combined with the self-collision fix). NOT merged to main - both are behavior changes.

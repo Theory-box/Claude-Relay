@@ -2327,7 +2327,7 @@ function bufR(key,size,usage,hr){ const dev=GP.device, need=Math.max(16,size), C
 function disposeBuffers(){ GP._cap={}; GP.collReady=false; for(const k of ['bufA','bufB','bufPrev','bufMeta','bufRange','bufNbr','bufRest','bufSeg','bufStyle','bufParams','bufCam','bufNSR','bufNSL','bufSegI','bufSegF','bufSegCell','bufCellBins','bufCellCount','bufOverflow','bufCollP','bufGridP','bufClearP','bufBend','bufBendP','bufAffF','bufVmat','bufSegCellA','bufCellBinsA','bufCellCountA','bufOverflowA','bufAffP','bufGridTP','bufClearAP','bufEndList','bufEndMeta','bufEndCellCount','bufEndCellBins','bufEndOver','bufCand','bufCandCount','bufCandOver','bufEndGridP','bufDetectP','bufEndClearP']){ GP.bendReady=false; GP.affReady=false; GP.bondDetectReady=false; if(GP[k]){try{GP[k].destroy();}catch(e){}GP[k]=null;} } }
 
 function buildScene(){
-  const device=GP.device, N=G.nodes.length; GP.N=N;
+  const device=GP.device, N=G.nodes.length; const prevN=GP.N; GP.N=N;
   const pos=new Float32Array(N*4), prev=new Float32Array(N*4), meta=new Float32Array(N*4);
   for(let i=0;i<N;i++){ const n=G.nodes[i]; const o=G.objs[n.obj]||{};
     pos[i*4]=NX[i];pos[i*4+1]=NY[i];pos[i*4+2]=NH[i];
@@ -2353,7 +2353,12 @@ function buildScene(){
   GP.collReady=false; GP.bendReady=false; GP.affReady=false;   // reset ready flags; buffers reused in place (mkR/bufR) instead of destroyed
   const U=GPUBufferUsage, ST=U.STORAGE,CD=U.COPY_DST,CS=U.COPY_SRC,UN=U.UNIFORM;
   const mk=(data,usage)=>{ const bf=device.createBuffer({size:Math.max(16,data.byteLength),usage}); device.queue.writeBuffer(bf,0,data); return bf; };
-  GP.bufA=mkR('bufA',pos,ST|CD|CS); GP.bufB=mkR('bufB',new Float32Array(N*4),ST|CD|CS); GP.bufPrev=mkR('bufPrev',prev,ST|CD|CS);
+  // bond-churn rebuild only changes SEGMENTS, not node positions. Re-uploading NX/NY (a 1-3 frame-old readback snapshot,
+  // because the bond tick is async) would rewind the sim -> the visible forward-forward-back stutter. When the node set is
+  // unchanged, keep the LIVE GPU positions instead: ensure they're in bufA, keep bufPrev, and skip the position upload.
+  const preservePos = GP._bondRebuild && prevN===N && GP.bufA && GP.bufB && GP.bufPrev && GP._cap && (GP._cap.bufA||0)>=N*16 && (GP._cap.bufPrev||0)>=N*16;
+  if(preservePos && GP.curBuf===1){ const e=device.createCommandEncoder(); e.copyBufferToBuffer(GP.bufB,0,GP.bufA,0,N*16); device.queue.submit([e.finish()]); }   // live positions were in bufB -> move to bufA (buildScene sets curBuf=0 below)
+  GP.bufA=preservePos?GP.bufA:mkR('bufA',pos,ST|CD|CS); GP.bufB=preservePos?GP.bufB:mkR('bufB',new Float32Array(N*4),ST|CD|CS); GP.bufPrev=preservePos?GP.bufPrev:mkR('bufPrev',prev,ST|CD|CS);
   GP.bufMeta=mkR('bufMeta',meta,ST|CD); GP.bufRange=mkR('bufRange',range,ST|CD); GP.bufNbr=mkR('bufNbr',nbr,ST|CD); GP.bufRest=mkR('bufRest',rest,ST|CD);
   GP.bufSeg=mkR('bufSeg',seg,ST|CD); GP.bufStyle=mkR('bufStyle',style,ST|CD|CS);
   GP.bufParams=bufR('bufParams',48,UN|CD); GP.bufCam=bufR('bufCam',16,UN|CD);
@@ -2632,7 +2637,7 @@ async function gpuBondTick(){
     if(typeof flagBendBreaks==='function')flagBendBreaks();
     if(typeof maintainBonds==='function')maintainBonds();       // harden / merge
     if(typeof removeDead==='function')removeDead();             // remove dead (self-rebuilds nbrs/ends/piece)
-    if(G.segs.length!==s0 || G.nodes.length!==n0){ GP.bondEvents=(GP.bondEvents||0)+1; buildScene(); }   // topology changed -> rebuild GPU buffers
+    if(G.segs.length!==s0 || G.nodes.length!==n0){ GP.bondEvents=(GP.bondEvents||0)+1; GP._bondRebuild=true; try{ buildScene(); } finally { GP._bondRebuild=false; } }   // topology changed -> rebuild GPU buffers (preserving live positions when only segments changed)
   }catch(e){ console.warn('[gpuBond]',e&&e.message); }
   GP._bondBusy=false;
 }
