@@ -79,6 +79,9 @@
   .numin{width:66px;background:var(--ink2);border:1px solid var(--line);color:var(--text);border-radius:6px;padding:2px 6px;font-family:"IBM Plex Mono",monospace;font-size:11px;text-align:right}
   .numin:focus{outline:none;border-color:var(--dim)}
 .tag{pointer-events:none}
+  .gpu-na{position:relative;transition:opacity .15s}
+  .gpu-na.is-gpu-disabled{opacity:0.4;pointer-events:none;filter:grayscale(0.55)}
+  .gpu-na.is-gpu-disabled::after{content:'GPU: n/a';position:absolute;top:0;right:0;font-family:'IBM Plex Mono',monospace;font-size:8.5px;letter-spacing:.08em;color:var(--dim);opacity:.9;pointer-events:none}
 </style>
 </head>
 <body>
@@ -109,7 +112,7 @@
         <h1>String engine</h1>
         <span class="fpspill" id="sFps">— fps</span>
       </div>
-      <div class="row"><button class="btn primary" id="bPlay">Pause</button><button class="btn" id="bReset">Reset</button></div>
+      <div class="row"><button class="btn primary" id="bPlay">Pause</button><button class="btn" id="bReset">Reset</button></div><div class="row" style="margin-top:7px;align-items:center;gap:8px"><label for="engineMode" style="font-size:10px;color:var(--dim);font-family:'IBM Plex Mono',monospace;letter-spacing:.14em">ENGINE</label><select id="engineMode" class="btn" style="flex:1;cursor:pointer;padding:7px 8px;background:var(--ink2);color:var(--text);border:1px solid var(--line);border-radius:9px;font-size:12px"><option value="cpu">CPU solver</option><option value="gpu">GPU solver \u00b7 experimental</option></select></div><div class="stat" id="engineModeStat" style="margin:5px 0 0;color:var(--dim);font-size:10.5px">off \u00b7 CPU solver</div>
     </div>
 
     <div class="tabpanel on" data-panel="scene">
@@ -181,16 +184,16 @@
     <div class="tabpanel" data-panel="simulation">
       <div class="card">
         <p class="eyebrow">Simulation</p>
-        <label class="ctrl" style="display:flex;align-items:center;gap:8px;cursor:pointer;margin:2px 0 4px"><input type="checkbox" id="gpuPhysicsToggle" style="width:auto"><span>GPU physics <span style="color:var(--dim)">(experimental) — solver runs on the GPU</span></span></label>
-        <div class="stat" id="gpuPhysicsStatus" style="margin:0 0 10px;color:var(--dim)">off · CPU solver</div>
+        <label class="ctrl" style="display:none;align-items:center;gap:8px;cursor:pointer;margin:2px 0 4px"><input type="checkbox" id="gpuPhysicsToggle" style="width:auto"><span>GPU physics <span style="color:var(--dim)">(experimental) — solver runs on the GPU</span></span></label>
+        <div class="stat" id="gpuPhysicsStatus" style="margin:0 0 10px;color:var(--dim);display:none">off · CPU solver</div>
         <div class="ctrl"><label>Motion <span class="val" id="vTemp">0.7</span></label><input id="sTemp" type="range" min="0" max="3" value="0.7" step="0.05"><div class="stat" style="margin-top:3px"><span>calm</span><span>violent</span></div></div>
         <div class="ctrl"><label>Damping <span class="val" id="vDamp">0.02</span></label><input id="sDamp" type="range" min="0" max="0.7" value="0.02" step="0.01"><div class="stat" style="margin-top:3px"><span>lively</span><span>settled</span></div></div>
         <div class="ctrl"><label>Speed <span class="val" id="vSpeed">1×</span></label><input id="sSpeed" type="range" min="1" max="8" value="1" step="1"></div>
         <div class="ctrl"><label>Depth (3D slab) <span class="val" id="vWeave">25</span></label><input id="sWeave" type="range" min="0" max="80" value="25" step="2"><div class="stat" style="margin-top:3px"><span>flat · 2D</span><span>deep</span></div><div class="stat" style="margin-top:2px"><span>gives everything a thin third dimension — strands pass over/under, and microscope depth-of-field reads the real depth. 0 = flat 2D.</span></div></div>
         <div class="ctrl"><label>Quality <span class="val" id="vIters">4</span></label><input id="sIters" type="range" min="2" max="12" value="4" step="1"><div class="stat" style="margin-top:3px"><span>fast</span><span>firmer walls</span></div></div>
         <div class="ctrl"><label>Wall padding <span class="val" id="vPad">5</span></label><input id="sPad" type="range" min="0" max="20" value="5" step="1"><div class="stat" style="margin-top:3px"><span>none</span><span>thick cushion</span></div></div>
-        <div class="ctrl"><label>Collision smoothing <span class="val" id="vCD">0.00</span></label><input id="sCD" type="range" min="0" max="1" value="0" step="0.05"><div class="stat" style="margin-top:3px"><span>bouncy</span><span>settled</span></div></div>
-        <div class="ctrl" style="margin-top:8px"><label>XPBD contacts <span class="val" id="vXpbd">0.00</span></label><input id="sXpbd" type="range" min="0" max="1" value="0" step="0.05"><div class="stat" style="margin-top:3px"><span>lively</span><span>settled</span></div><div class="stat" style="margin-top:2px"><span>corrects collision-invented energy (self-propulsion) once per step. 0 = off · partway = middle ground · 1 = fully inelastic</span></div></div>
+        <div class="ctrl gpu-na" title="CPU solver only — the GPU collision uses a different scheme"><label>Collision smoothing <span class="val" id="vCD">0.00</span></label><input id="sCD" type="range" min="0" max="1" value="0" step="0.05"><div class="stat" style="margin-top:3px"><span>bouncy</span><span>settled</span></div></div>
+        <div class="ctrl gpu-na" style="margin-top:8px" title="CPU solver only — not used by the GPU collision"><label>XPBD contacts <span class="val" id="vXpbd">0.00</span></label><input id="sXpbd" type="range" min="0" max="1" value="0" step="0.05"><div class="stat" style="margin-top:3px"><span>lively</span><span>settled</span></div><div class="stat" style="margin-top:2px"><span>corrects collision-invented energy (self-propulsion) once per step. 0 = off · partway = middle ground · 1 = fully inelastic</span></div></div>
         <div class="seg" style="margin-top:8px"><button id="sChunk">temporal spread · interactions</button></div>
         <div class="stat" style="margin-top:3px"><span>spreads attraction/repulsion over 3 frames — faster on dense scenes</span></div>
         <div class="seg" style="margin-top:6px"><button id="sBondChunk">temporal spread · bonding</button></div>
@@ -599,14 +602,16 @@ function objBrk(o){const p=o&&o.endType&&o.endType[objType(o)];return (p&&p.brk)
 function objType(o){return (o.ids&&o.ids.length?o.ids[0]:o.name);}   // connector-type = object's base id
 function interVal(o,tids,same){if(same)return o.interSelf||0;if(!o.inter)return 0;
   let best=0;for(const id of tids){const v=o.inter[id];if(v!==undefined&&Math.abs(v)>Math.abs(best))best=v;}return best;}
-function resetSim(){if(window.gpuPhysicsDiscard)window.gpuPhysicsDiscard('reset');
+function resetSim(){const gpuOn=window.gpuPhysicsActive&&window.gpuPhysicsActive();
   if(G.lastImport){const saved=captureSettings(),sel=S.selected;importJSON(G.lastImport);restoreSettings(saved);
+    if(gpuOn&&window.setGpuPhysicsMode)window.setGpuPhysicsMode(true);   // reimport rebuilds the scene (clearGraph drops GPU) -> re-activate on the warm device
     if(typeof renderObjectList==='function')renderObjectList();
     if(sel>=0&&G.objs[sel])selectObject(sel);
     else{S.selected=-1;const ed=document.getElementById('objEditor');if(ed)ed.style.display='none';}   // drawn material is gone after reimport — drop the stale selection + editor panels
     return;}
   if(!G.init||G.init.length!==G.nodes.length)return;
   for(let i=0;i<G.nodes.length;i++){const n=G.nodes[i],p=G.init[i];n.x=n.px=p[0];n.y=n.py=p[1];n.h=n.ph=p[2];}
+  if(gpuOn&&window.gpuResync)window.gpuResync();   // re-upload the reset layout to the live GPU buffers (positions=prev so zero velocity) instead of tearing GPU down
   if(!S.running){S.running=true;const bp=document.getElementById('bPlay');if(bp)bp.textContent='Pause';}}
 
 // ---------- scenes ----------
@@ -1275,6 +1280,12 @@ let editMode=false,stroke=null,erasing=false,ex=0,ey=0;
 function setTool(t){tool=t;
   for(const[id,tt]of [['toolMove','move'],['toolCut','cut'],['toolDraw','draw'],['toolErase','erase']]){const el=document.getElementById(id);if(el)el.classList.toggle('on',t===tt);}
   cvs.style.cursor=(t==='cut')?'crosshair':(t==='draw'||t==='erase')?'crosshair':'grab';}
+function syncViewCanvas(){ const cgl=document.getElementById('cgl'), cw2=document.getElementById('cwgpu'); if(!cgl||!cw2)return;
+  if(editMode){ cw2.style.display='none'; cgl.style.display='none'; return; }                       // edit authoring uses the 2D canvas c
+  if(S.gpuPhysics){ if(S.micro){ cw2.style.display='none'; cgl.style.display='block'; }             // micro view renders GPU-physics positions on cgl
+                    else { cw2.style.display='block'; cgl.style.display='none'; } return; }         // native WebGPU render on cwgpu
+  cw2.style.display='none'; cgl.style.display=(S.micro||S.gpu)?'block':'none'; }                    // CPU physics: micro / gpu-renderer on cgl else plain 2D
+window.syncViewCanvas=syncViewCanvas;
 function setEditMode(on){editMode=on;
   document.getElementById('toolMove').style.display=on?'none':'';
   document.getElementById('toolCut').style.display=on?'none':'';
@@ -1286,10 +1297,12 @@ function setEditMode(on){editMode=on;
     if(!G.objs.length)newMaterial('Material 1');                 // must have paint to draw
     if(S.selected<0||!G.objs[S.selected])selectObject(G.objs.length-1);
     setTool('draw');
-    if(window.gpuEditBegin)window.gpuEditBegin();   // GPU-native edit: readback current positions to CPU + show the 2D authoring canvas (GPU stays warm, just paused)
+    if(window.gpuPhysicsActive&&window.gpuPhysicsActive()){ if(window.gpuEditBegin)window.gpuEditBegin(); }   // GPU: readback positions, then reveal the 2D authoring canvas
+    else if(window.syncViewCanvas)window.syncViewCanvas();   // CPU: hide any micro/gpu-renderer canvas so the 2D authoring canvas c shows
     window.RD=true;}   // auto-pause so you're not drawing onto whipping strands
   else{cancelDrawPreview();
-    if(window.gpuEditEnd)window.gpuEditEnd();        // push edited geometry back into the live GPU buffers (fast rebuild, no re-init)
+    if(window.gpuPhysicsActive&&window.gpuPhysicsActive()){ if(window.gpuEditEnd)window.gpuEditEnd(); }   // GPU: rebuild buffers from the edited scene
+    else if(window.syncViewCanvas)window.syncViewCanvas();   // CPU: restore the micro/gpu-renderer canvas if one was active
     setTool('move');S.running=true;const bp=document.getElementById('bPlay');if(bp)bp.textContent='Pause';startCDRamp();}}   // leaving edit mode resumes the sim
 document.getElementById('toolMove').addEventListener('click',()=>setTool('move'));
 document.getElementById('toolCut').addEventListener('click',()=>setTool('cut'));
@@ -1431,7 +1444,7 @@ function frame(now){const dt=now-lastT;lastT=now;
   let did=false;
   if(S.running){if(S.gpuPhysics&&window.gpuPhysicsStep){window.gpuPhysicsStep(S.speed);}else{S.frame=(S.frame||0)+1;advanceCDRamp();attract();endpointForces();relaxSpacing();for(let k=0;k<S.speed;k++){integrate();flagBondBreaks();constraints();collide();wallCCD();dragApply();flagStrainBreaks();flagBendBreaks();}maintainBonds();removeDead();}did=true;}
   else if(grab>=0){dragApply();constraints();collide();did=true;}
-  if(did||window.RD||panning){ema=ema*0.9+(1000/Math.max(1,dt))*0.1;if(editMode)render();else if(S.gpuPhysics&&typeof window.gpuPhysicsRender==='function')window.gpuPhysicsRender();else if(S.micro&&typeof renderMicro==='function')renderMicro();else if(S.gpu&&typeof renderGPU==='function')renderGPU();else render();window.RD=false;document.getElementById('sFps').textContent=Math.round(ema)+' fps';}
+  if(did||window.RD||panning){ema=ema*0.9+(1000/Math.max(1,dt))*0.1;if(editMode)render();else if(S.gpuPhysics&&typeof window.gpuPhysicsRender==='function'){if(S.micro&&typeof renderMicro==='function'){if(window.gpuReadbackAsync)window.gpuReadbackAsync();renderMicro();}else window.gpuPhysicsRender();}else if(S.micro&&typeof renderMicro==='function')renderMicro();else if(S.gpu&&typeof renderGPU==='function')renderGPU();else render();window.RD=false;document.getElementById('sFps').textContent=Math.round(ema)+' fps';}
   requestAnimationFrame(frame);}
 ['pointerdown','pointermove','pointerup','wheel','keydown'].forEach(ev=>window.addEventListener(ev,()=>{window.RD=true;},true));
 ['input','change'].forEach(ev=>document.addEventListener(ev,()=>{ if(typeof recomputeBondThresholds==='function')recomputeBondThresholds(); if(window.gpuRefreshProps)window.gpuRefreshProps(); },false));  // BUBBLE phase: fires AFTER the control's own handler writes the model, so vmat/props read fresh values
@@ -1870,13 +1883,13 @@ void main(){
     glM.drawArraysInstanced(glM.TRIANGLE_STRIP,0,4,n);
     glM.bindVertexArray(null); glM.disable(glM.DEPTH_TEST);
   };
-  window.setGpuMode=function(on){ S.gpu=on; if(on)S.micro=false; window.RD=true; cgl.style.display=(on||S.micro)?'block':'none';
+  window.setGpuMode=function(on){ S.gpu=on; if(on)S.micro=false; window.RD=true; if(window.syncViewCanvas)window.syncViewCanvas();
     { const gt=document.getElementById('gpuToggle'); if(gt) gt.checked=on; }
     document.getElementById('strandLook').style.display=S.micro?'none':''; document.getElementById('microPanel').style.display=S.micro?'':'none';
     const tm=document.getElementById('toolMicro'); if(tm)tm.classList.toggle('on',S.micro); };
   window.setMicroMode=function(on){
     S.micro=on;if(on)S.gpu=false;window.RD=true;
-    cgl.style.display=(on||S.gpu)?'block':'none';
+    if(window.syncViewCanvas)window.syncViewCanvas();
     { const gt=document.getElementById('gpuToggle'); if(gt) gt.checked=S.gpu; }
     const tm=document.getElementById('toolMicro');if(tm)tm.classList.toggle('on',on);
     document.getElementById('strandLook').style.display=on?'none':'';
@@ -2213,12 +2226,12 @@ fn main(@builtin(global_invocation_id) gid:vec3<u32>){
   var nd=p+delta; if(any(nd!=nd)){ nd=p; } posOut[i]=vec4<f32>(nd, 0.0);
 }`;
 
-function status(msg,bad){const e=document.getElementById('gpuPhysicsStatus');if(e){e.textContent=msg;e.style.color=bad?'#ff8a9a':'var(--dim)';}}
+function status(msg,bad){const ids=['gpuPhysicsStatus','engineModeStat'];for(const id of ids){const e=document.getElementById(id);if(e){e.textContent=msg;e.style.color=bad?'#ff8a9a':'var(--dim)';}}}
 function badge(on,reason){const e=document.getElementById('gpuPhysicsBadge');if(!e)return;
   if(on){e.textContent='\u25CF GPU PHYSICS';e.style.color='#6ee7b7';e.style.display='';}
   else if(reason){e.textContent='\u25CF CPU \u00B7 '+reason;e.style.color='#ffb86b';e.style.display='';}
   else{e.style.display='none';}}
-function setToggle(on){const cb=document.getElementById('gpuPhysicsToggle');if(cb)cb.checked=on;}
+function setToggle(on){const cb=document.getElementById('gpuPhysicsToggle');if(cb)cb.checked=on; const em=document.getElementById('engineMode');if(em&&!em.disabled)em.value=on?'gpu':'cpu'; try{document.querySelectorAll('.gpu-na').forEach(function(el){el.classList.toggle('is-gpu-disabled',on);});}catch(e){} }
 function supported(){return typeof navigator!=='undefined'&&!!navigator.gpu;}
 
 /* CSS colour -> [r,g,b] 0..1 */
@@ -2768,15 +2781,15 @@ async function activate(){ if(GP.active)return true; if(GP.initing)return false;
   if(!supported()){ status('WebGPU not available in this browser',true); GP.initing=false; setToggle(false); return false; }
   const ok=await ensureDevice(); if(!ok){ GP.initing=false; setToggle(false); return false; }
   try{ syncCanvas(); buildScene(); }catch(e){ status('scene upload failed: '+e.message,true); console.error(e); GP.initing=false; setToggle(false); return false; }
-  GP.prevGpu=!!S.gpu; GP.active=true; S.gpuPhysics=true; S.gpu=false; S.micro=false;
-  cw.style.display='block'; const cgl=document.getElementById('cgl'); if(cgl)cgl.style.display='none';
+  GP.prevGpu=!!S.gpu; GP.active=true; S.gpuPhysics=true; S.gpu=false;   // keep S.micro: the micro view can render over GPU-physics positions
+  if(window.syncViewCanvas)window.syncViewCanvas();
   badge(true); status('on \u00B7 '+GP.N+' nodes / '+GP.numSeg+' segs \u00B7 collision & editing paused (toggle off to edit)');
   GP.initing=false; setToggle(true); window.RD=true; return true; }
 
 async function deactivate(readback,reason){ if(!GP.active){ S.gpuPhysics=false; return true; }
   if(readback){ try{ await readbackToCPU(); }catch(e){ console.error('readback failed',e); } }
   GP.active=false; S.gpuPhysics=false; GP.lastExit=reason||'off'; S.gpu=GP.prevGpu;
-  cw.style.display='none'; const cgl=document.getElementById('cgl'); if(cgl)cgl.style.display=(S.gpu||S.micro)?'block':'none';
+  if(window.syncViewCanvas)window.syncViewCanvas();
   badge(false, readback?null:reason); setToggle(false); status(reason?('off \u00B7 '+reason):'off \u00B7 CPU solver restored'); window.RD=true; return true; }
 
 window.gpuPhysicsSupported=supported;
@@ -2786,11 +2799,13 @@ setInterval(function(){ if(GP.active && GP.propsDirty){ GP.propsDirty=false; gpu
 window.gpuPhysicsStep=step; window.gpuRefreshProps=gpuRefreshProps;
 window.gpuPhysicsRender=render;
 window.setGpuPhysicsMode=function(on){ if(on){ activate(); } else { deactivate(true,'toggled off'); } };
-window.gpuPhysicsDiscard=function(reason){ try{disposeBuffers();}catch(e){} if(GP.active){ GP.active=false; S.gpuPhysics=false; S.gpu=GP.prevGpu; cw.style.display='none'; const cgl=document.getElementById('cgl'); if(cgl)cgl.style.display=(S.gpu||S.micro)?'block':'none'; badge(false,reason||'scene changed'); setToggle(false); status('off \u00B7 '+(reason||'scene changed')); window.RD=true; } };
+window.gpuPhysicsDiscard=function(reason){ try{disposeBuffers();}catch(e){} if(GP.active){ GP.active=false; S.gpuPhysics=false; S.gpu=GP.prevGpu; if(window.syncViewCanvas)window.syncViewCanvas(); badge(false,reason||'scene changed'); setToggle(false); status('off \u00B7 '+(reason||'scene changed')); window.RD=true; } };
 window.gpuPhysicsDropToCPU=function(reason){ if(GP.active) deactivate(true,reason||'editing'); };
-window.gpuEditBegin=function(){ if(!GP.active)return; readbackToCPU().then(function(){ cw.style.display='none'; window.RD=true; }).catch(function(){ cw.style.display='none'; window.RD=true; }); };   // sync CPU node positions from the live GPU buffer, then reveal the 2D authoring canvas
+window.gpuEditBegin=function(){ if(!GP.active)return; readbackToCPU().then(function(){ if(window.syncViewCanvas)window.syncViewCanvas(); window.RD=true; }).catch(function(){ if(window.syncViewCanvas)window.syncViewCanvas(); window.RD=true; }); };   // sync CPU node positions from the live GPU buffer, then reveal the 2D authoring canvas
 window.gpuEditEnd=function(){ if(!GP.active)return; const M=G.nodes.length; for(let i=0;i<M;i++){ NPX[i]=NX[i]; NPY[i]=NY[i]; NPH[i]=NH[i]; }   // resume from rest: readback only synced positions, not prev, so zero velocity to avoid a stale-prev jump
-  try{ buildScene(); }catch(e){ console.error('gpuEditEnd buildScene',e); } cw.style.display='block'; window.RD=true; };   // rebuild GPU buffers from the edited scene (reuses buffers; no device re-init)
+  try{ buildScene(); }catch(e){ console.error('gpuEditEnd buildScene',e); } if(window.syncViewCanvas)window.syncViewCanvas(); window.RD=true; };   // rebuild GPU buffers from the edited scene (reuses buffers; no device re-init)
+window.gpuResync=function(){ if(!GP.active)return; try{ buildScene(); }catch(e){ console.error('gpuResync buildScene',e); } window.RD=true; };   // re-upload the current CPU scene (e.g. after Reset) to the live GPU buffers without a device re-init
+window.gpuReadbackAsync=function(){ if(!GP.active||GP._rbInFlight)return; GP._rbInFlight=true; readbackToCPU().then(function(){GP._rbInFlight=false;}).catch(function(){GP._rbInFlight=false;}); };   // one-in-flight position readback so the micro view can render live GPU positions
 window.gpuPhysicsDiagnostics=()=>({active:GP.active,supported:supported(),nodes:GP.N,segs:GP.numSeg,directedLinks:GP.numDir,frame:GP.frameN,readbacks:GP.readbacks,lastExit:GP.lastExit,passes:GP_PASSES,relax:GP_RELAX,
   refreshN:GP.refreshN,refreshErr:GP.refreshErr,bendReady:GP.bendReady,bonding:{on:!!S.bonding,every:GP.bondEvery,ticks:GP.bondTicks,events:GP.bondEvents,busy:GP._bondBusy,detect:(GP.bondDetectReady?(GP.bdProbe||'pending'):(GP.bondDetectSupported?'idle':'unsupported')),detectWhy:(GP.bondDetectWhy||null),path:(GP.bondPath||null),fallbacks:(GP.bondFallbacks||0),detectPeak:(GP.bdAccum||null)},
   collision:{supported:GP.collSupported,ready:GP.collReady,maxStorageBuf:GP.maxStorageBuf,iters:(S.gpuCollIters!=null?(S.gpuCollIters|0):(S.iters||4)),lastOverflow:(GP.lastOverflow!=null?GP.lastOverflow:null),
@@ -2798,6 +2813,7 @@ window.gpuPhysicsDiagnostics=()=>({active:GP.active,supported:supported(),nodes:
   affinity:{supported:GP.affSupported,ready:GP.affReady,lastOverflow:(GP.lastAffOverflow!=null?GP.lastAffOverflow:null),base:GP_AFF_BASE,maxDisp:GP_AFF_MAXDISP,nObj:(GP.affGrid?GP.affGrid.nO:0),grid:(GP.affGrid?{gx:GP.affGrid.gx,gy:GP.affGrid.gy,cell:+GP.affGrid.cell.toFixed(1),numCells:GP.affGrid.numCells,cap:GP.affGrid.cap,reach:+GP.affGrid.reach.toFixed(1)}:null)}});
 
 const _cb=document.getElementById('gpuPhysicsToggle'); if(_cb)_cb.addEventListener('change',function(e){ window.setGpuPhysicsMode(!!e.target.checked); });
+const _em=document.getElementById('engineMode'); if(_em)_em.addEventListener('change',function(e){ window.setGpuPhysicsMode(e.target.value==='gpu'); });
 
 /* ---- Dev telemetry: 1 Hz rolling buffer + JSON export (Claude debug) ---- */
 const BUILD='gpu-layer1 + bounds-fix + scaling-sweep \u00B7 2026-08-21b';
@@ -2982,7 +2998,7 @@ const _cl=document.getElementById('devClear'); if(_cl)_cl.addEventListener('clic
 const _bt=document.getElementById('devBuild'); if(_bt)_bt.textContent=BUILD;
 liveReadout();
 
-if(!supported()){ const cb=document.getElementById('gpuPhysicsToggle'); if(cb){cb.disabled=true;} status('WebGPU not available in this browser',true); }
+if(!supported()){ const cb=document.getElementById('gpuPhysicsToggle'); if(cb){cb.disabled=true;} const em=document.getElementById('engineMode'); if(em){ em.value='cpu'; const go=em.querySelector('option[value="gpu"]'); if(go){go.disabled=true;go.textContent='GPU solver \u00b7 unavailable';} } status('WebGPU not available in this browser',true); }
 })();
 </script>
 

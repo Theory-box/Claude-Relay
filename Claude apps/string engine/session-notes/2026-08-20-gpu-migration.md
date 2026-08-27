@@ -858,3 +858,52 @@ NEXT: user to TEST on hardware (does drawing stay on GPU / no CPU drop? density 
 Chunk 2 = snapping (draw connected strands from existing lines; hairs off a membrane; differing resolutions OK).
 Still on feature/gpu (all GPU-era work stacked here; main clean at d5c7d09). Merge to main deferred until user OKs;
 consider whether GPU fixes should merge separately from the new/untested drawing.
+
+---
+
+## 2026-08-26 - GPU-mode UX pass: reset keeps GPU, CPU/GPU dropdown, micro-over-GPU, grey CPU-only settings
+
+USER CONFIRMED drawing Chunk 1 ("perfect! works great"). Then four UX asks. All shipped to feature/gpu, JS + all 11
+shaders validated, BLIND (no WebGPU here). Key architecture note: THREE distinct "GPU/view" concepts -
+  S.gpu    = WebGL "GPU renderer" (gpuToggle checkbox, setGpuMode, cgl canvas)
+  S.micro  = WebGL microscopic post-processed view (toolMicro, setMicroMode, cgl canvas; reads G.nodes[].x/y/h = NX/NY/NH)
+  S.gpuPhysics = WebGPU PHYSICS solver (gpuPhysicsToggle, setToggle, activate/deactivate, cwgpu=cw canvas)
+Canvas stack in .screen (position:relative): c (2D, pointer events) < cgl (WebGL) < cwgpu (WebGPU, on top).
+
+TASK 1 - Reset preserves GPU + CPU/GPU engine dropdown:
+- resetSim no longer calls gpuPhysicsDiscard. Captures gpuOn; non-import path resets positions then window.gpuResync()
+  (buildScene re-upload, GPU stays warm); import path (clearGraph drops GPU) re-activates via setGpuPhysicsMode(true).
+- New #engineMode <select> (CPU solver / GPU solver) under the Play/Reset row + #engineModeStat status line. Old
+  gpuPhysicsToggle checkbox + its status hidden (display:none). change -> setGpuPhysicsMode(value==='gpu').
+- setToggle(on) now syncs #engineMode.value AND toggles the grey-out (task 3). status() writes both stat lines.
+  !supported() disables the GPU <option> ("unavailable") and locks the dropdown to CPU. window.gpuResync exposed.
+
+TASK 2 - Micro view over GPU physics:
+- Central window.syncViewCanvas() (block1, hoisted): editMode->hide cgl+cwgpu (c shows); gpuPhysics && micro->show cgl
+  hide cwgpu (micro renders GPU positions); gpuPhysics && !micro->show cwgpu; else CPU->cgl=(micro||gpu)?block:none.
+  ALL canvas-visibility paths routed through it (activate/deactivate/discard/setMicroMode/setGpuMode/gpuEditBegin/End,
+  and setEditMode CPU branch). activate() no longer forces S.micro=false (micro persists into GPU mode).
+- Frame loop: gpuPhysics branch -> if(S.micro){ gpuReadbackAsync(); renderMicro(); } else gpuPhysicsRender().
+- window.gpuReadbackAsync = single-in-flight (GP._rbInFlight) readbackToCPU so micro renders ~1-2-frame-fresh GPU
+  positions each frame (sets window.RD=true -> continuous render while micro-over-gpu; perf cost, acceptable for a
+  microscope view). Toggle the micro button while GPU is on to use it.
+
+TASK 3 - Grey out CPU-only settings in GPU mode:
+- CONFIRMED CPU-only (never packed to GPU; the lone block3 reference at line ~960 is a DIAGNOSTICS report only):
+  contactDamp (sCD "Collision smoothing") + xpbd (sXpbd "XPBD contacts"). GPU collision uses a different scheme
+  (GP_COLL_* constants). Tagged those two .ctrl divs with class gpu-na + title; CSS .gpu-na.is-gpu-disabled greys +
+  disables pointer events + "GPU: n/a" badge. setToggle toggles is-gpu-disabled on all .gpu-na.
+- HONESTY NOTE for the report: "0 refs in GPU code" is an UNRELIABLE deadness test - bondSnap/bondBrk show 0 refs yet
+  ARE honored via baked per-seg thresholds (recomputeBondThresholds). The g* group is MIXED: gThick honored via
+  effR (buildScene line 511/561) so it bakes into GPU collision radius on rebuild; gStiff/gCurl/gGrow uncertain
+  (gGrow/growth likely CPU-only topology; others may bake on rebuild = "works only on rebuild" UX gotcha). Only greyed
+  the 2 confident ones; offered to extend after per-param verification.
+
+BONUS FIX (latent since drawing feature): CPU-mode edit didn't hide cgl when micro/gpu-renderer was active -> 2D
+authoring canvas covered. setEditMode now gates gpuEditBegin/End on gpuPhysicsActive() and calls syncViewCanvas() for
+the CPU case on enter+exit. (User only draws in the default 2D view so hadn't hit it.)
+
+RISKS (blind): micro-over-gpu readback timing + the canvas show/hide across activate/deactivate/edit are the riskiest
+(~0.6). reset-resync + dropdown + grey-out lower risk. NEXT: user hardware test - reset keeps GPU? dropdown switches
+engine? micro shows live over GPU physics? greyed controls correct? Then extend grey-out (weld/g*/growth) if wanted,
+and Chunk 2 = drawing snapping. Still on feature/gpu; main clean at d5c7d09.
