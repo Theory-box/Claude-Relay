@@ -1396,9 +1396,10 @@ function pruneSel(){if(Sel.nodes){for(const n of [...Sel.nodes])if(!G.nbrs[n]||G
 function dragApply(){if(grab<0||grab>=G.nodes.length)return;const n=G.nodes[grab];
   n.x+=(gx-n.x)*0.5;n.y+=(gy-n.y)*0.5;n.px=n.x;n.py=n.y;}
 cvs.style.cursor='grab';
+let ngDrag=null;   // {node,ox,oy,sx,sy,moved} while dragging or clicking a graph node
 cvs.addEventListener('pointerdown',e=>{
   if(e.button===1){const r=cvs.getBoundingClientRect();panning=true;panSX=e.clientX-r.left;panSY=e.clientY-r.top;panOX=view.ox;panOY=view.oy;cvs.setPointerCapture(e.pointerId);cvs.style.cursor='move';e.preventDefault();return;}   // middle-mouse pan
-  if(S.nodeView){ const [gx_,gy_]=canvasXY(e); if(typeof ngHitTest==='function'&&ngHitTest(gx_,gy_)){ e.preventDefault(); return; } }   // graph interaction (Phase 1: Output connect/bypass)
+  if(S.nodeView){ const [gx_,gy_]=canvasXY(e); const _nn=(typeof ngPick==='function')?ngPick(gx_,gy_):null; if(_nn){ ngDrag={node:_nn,ox:gx_-_nn.x,oy:gy_-_nn.y,sx:gx_,sy:gy_,moved:false}; try{cvs.setPointerCapture(e.pointerId);}catch(_){} e.preventDefault(); return; } }   // graph: begin node drag/click
   if(window.gpuPhysicsActive&&window.gpuPhysicsActive()&&!editMode){ if(tool==='move'){ const [gmx,gmy]=canvasXY(e); if(window.gpuPick)window.gpuPick(gmx,gmy); try{cvs.setPointerCapture(e.pointerId);}catch(_){} return; } if(window.gpuPhysicsDropToCPU)window.gpuPhysicsDropToCPU('editing'); return; }  // GPU move = pick+select; in EDIT mode we stay GPU-native (draw on the paused scene, rebuild on exit) instead of dropping to CPU
   const [mx,my]=canvasXY(e);
   if(tool==='draw'){let oi=S.selected;if(oi<0||!G.objs[oi])oi=G.objs.length?G.objs.length-1:newMaterial('Material 1');
@@ -1414,6 +1415,7 @@ cvs.addEventListener('pointerdown',e=>{
     else{const r=cvs.getBoundingClientRect();panning=true;panSX=e.clientX-r.left;panSY=e.clientY-r.top;panOX=view.ox;panOY=view.oy;cvs.setPointerCapture(e.pointerId);cvs.style.cursor='move';showTab('scene');}}});   // empty space -> pan + Scene view
 cvs.addEventListener('pointermove',e=>{
   if(panning){const r=cvs.getBoundingClientRect();view.ox=panOX+(e.clientX-r.left-panSX);view.oy=panOY+(e.clientY-r.top-panSY);return;}
+  if(ngDrag){ const [gx_,gy_]=canvasXY(e); if(!ngDrag.moved&&(Math.abs(gx_-ngDrag.sx)+Math.abs(gy_-ngDrag.sy))>4/view.z)ngDrag.moved=true; if(ngDrag.moved){ ngDrag.node.auto=false; ngDrag.node.x=gx_-ngDrag.ox; ngDrag.node.y=gy_-ngDrag.oy; cvs.style.cursor='grabbing'; window.RD=true; } return; }
   const [mx,my]=canvasXY(e);
   if(stroke){const last=stroke[stroke.length-1],minD=Math.max(8,12/view.z);
     if(hyp2(mx-last.x,my-last.y)>=minD)stroke.push({x:mx,y:my});return;}
@@ -1423,6 +1425,7 @@ cvs.addEventListener('pointermove',e=>{
   if(grab>=0){gx=mx;gy=my;return;}
   if(tool==='move')pickHover(mx,my);});   // idle hover highlight
 cvs.addEventListener('pointerup',()=>{
+  if(ngDrag){ const nd=ngDrag; ngDrag=null; cvs.style.cursor=''; if(!nd.moved){ if(nd.node.type==='output'){NG.bypass=!NG.bypass;} else if(nd.node.type==='material'){selectObject(nd.node.oi);} } window.RD=true; return; }
   if(window.gpuGrabClear)window.gpuGrabClear();
   if(stroke){if(stroke.length>=2)beginDrawPreview(stroke.oi,stroke.slice());stroke=null;return;}   // open the density picker; commit happens on Add
   if(erasing){erasing=false;return;}
@@ -1494,21 +1497,22 @@ const NG={ nodes:[], wires:[], bypass:false };
 function ngBypass(){ return !!(NG&&NG.bypass); }
 function ngNode(id){ for(const n of NG.nodes)if(n.id===id)return n; return null; }
 function ngNodeByType(t){ for(const n of NG.nodes)if(n.type===t)return n; return null; }
-function ngSync(){ // reconcile the graph with the scene (auto-derived for now; Phase 2 makes nodes hand-authored)
-  if(!NG.nodes)NG.nodes=[];
+function ngSync(){ // reconcile the graph with the scene; material nodes keyed by a stable per-object id so pinned positions survive add/delete/reorder
+  if(!NG.nodes)NG.nodes=[]; NG._next=NG._next||1;
   let out=ngNodeByType('output'); if(!out){ out={id:'out',type:'output',auto:true}; NG.nodes.push(out); }
-  NG.nodes=NG.nodes.filter(n=> n.type!=='material' || n.oi<G.objs.length);   // drop orphaned materials
-  const have=new Set(); for(const n of NG.nodes)if(n.type==='material')have.add(n.oi);
-  for(let i=0;i<G.objs.length;i++)if(!have.has(i))NG.nodes.push({id:'mat'+i,type:'material',oi:i,auto:true});
-  for(const n of NG.nodes)if(n.type==='material')n.selected=(n.oi===S.selected);
+  const live=new Set(); for(let i=0;i<G.objs.length;i++){ const o=G.objs[i]; if(o._ngid==null)o._ngid=NG._next++; live.add(o._ngid); }
+  NG.nodes=NG.nodes.filter(n=> n.type!=='material' || live.has(n.ngid));   // drop nodes whose material is gone
+  const have=new Map(); for(const n of NG.nodes)if(n.type==='material')have.set(n.ngid,n);
+  for(let i=0;i<G.objs.length;i++){ const o=G.objs[i]; let n=have.get(o._ngid); if(!n){ n={id:'mat'+o._ngid,type:'material',ngid:o._ngid,auto:true}; NG.nodes.push(n); } n.oi=i; n.selected=(i===S.selected); }
   NG.wires=[]; for(const n of NG.nodes)if(n.type==='material')NG.wires.push({from:{node:n.id,socket:'geo'},to:{node:out.id,socket:'geo'}});
 }
 // ---- layout (positions only; Phase 2 will skip nodes the user has moved) ----
 function ngLayout(){ const z=view.z, lod=z>=NGCFG.lodFull?2:z>=NGCFG.lodDot?1:0, x0=S.W+NGCFG.colX; let y=NGCFG.colY;
   for(const n of NG.nodes){ if(n.type==='output')continue; const T=NODE_TYPES[n.type];
-    n.x=x0; n.y=y; n.w=NGCFG.colW; n._lod=lod; n.h=(lod===2?T.fullH:(lod===0?(T.dotH||28):(T.compactH||28))); y+=n.h+NGCFG.cardGap; }
-  const out=ngNodeByType('output'); if(out){ const T=NODE_TYPES.output, colTop=NGCFG.colY, colBot=Math.max(y,colTop+T.fullH+20);
-    out.x=x0+NGCFG.colW+NGCFG.outGapX; out.y=(colTop+colBot)/2-T.fullH/2; out.w=NGCFG.outW; out.h=T.fullH; out._lod=2; }
+    n._lod=lod; n.w=NGCFG.colW; n.h=(lod===2?T.fullH:(lod===0?(T.dotH||28):(T.compactH||28)));
+    if(n.auto!==false){ n.x=x0; n.y=y; y+=n.h+NGCFG.cardGap; } }   // auto nodes flow in the column; pinned nodes keep their dragged position
+  const out=ngNodeByType('output'); if(out){ const T=NODE_TYPES.output; out.w=NGCFG.outW; out.h=T.fullH; out._lod=2;
+    if(out.auto!==false){ const colTop=NGCFG.colY, colBot=Math.max(y,colTop+T.fullH+20); out.x=x0+NGCFG.colW+NGCFG.outGapX; out.y=(colTop+colBot)/2-T.fullH/2; } }
 }
 function ngSocketOut(n){ return {x:n.x+n.w, y:(n._lod===0?n.y+10:n.y+n.h/2)}; }
 // ---- eval (walk Output <- connected materials) ----
@@ -1552,9 +1556,14 @@ function ngPick(gx,gy){ for(let i=NG.nodes.length-1;i>=0;i--){ const n=NG.nodes[
 function ngHitTest(gx,gy){ if(!S.nodeView)return false; const n=ngPick(gx,gy); if(!n)return false;
   if(n.type==='output'){ NG.bypass=!NG.bypass; window.RD=true; return true; } return false; }
 // ---- camera fit (frames sim box + full-size node layout) ----
-function fitNodesView(){ ngSync(); const N=NG.nodes.filter(n=>n.type==='material').length, x0=S.W+NGCFG.colX;
-  const colH=N*(NODE_TYPES.material.fullH+NGCFG.cardGap), maxX=x0+NGCFG.colW+NGCFG.outGapX+NGCFG.outW+40, maxY=Math.max(S.H,NGCFG.colY+colH+24);
-  const m=36, z=Math.min((S.W-2*m)/maxX,(S.H-2*m)/maxY,1); view.z=z; view.ox=m; view.oy=m; window.RD=true; }
+function ngBounds(){ ngSync(); const x0=S.W+NGCFG.colX, autoMats=NG.nodes.filter(n=>n.type==='material'&&n.auto!==false).length;
+  const colBot=NGCFG.colY+autoMats*(NODE_TYPES.material.fullH+NGCFG.cardGap); let minX=0,minY=0,maxX=S.W,maxY=S.H, cy=NGCFG.colY;
+  for(const n of NG.nodes){ const T=NODE_TYPES[n.type], w=(n.type==='output')?NGCFG.outW:NGCFG.colW, h=T.fullH; let nx,ny;
+    if(n.auto===false){ nx=n.x; ny=n.y; } else if(n.type==='output'){ nx=x0+NGCFG.colW+NGCFG.outGapX; ny=(NGCFG.colY+Math.max(colBot,NGCFG.colY+h+20))/2-h/2; } else { nx=x0; ny=cy; cy+=h+NGCFG.cardGap; }
+    minX=Math.min(minX,nx); minY=Math.min(minY,ny); maxX=Math.max(maxX,nx+w); maxY=Math.max(maxY,ny+h); }
+  return {minX,minY,maxX,maxY}; }
+function fitNodesView(){ const b=ngBounds(), m=36, w=b.maxX-b.minX, h=b.maxY-b.minY, z=Math.min((S.W-2*m)/w,(S.H-2*m)/h,1);
+  view.z=z; view.ox=m-b.minX*z; view.oy=m-b.minY*z; window.RD=true; }
 function frame(now){const dt=now-lastT;lastT=now;
   let did=false;
   if(S.running){if(!(typeof ngBypass==='function'&&ngBypass())){if(S.gpuPhysics&&window.gpuPhysicsStep){window.gpuPhysicsStep(S.speed);}else{S.frame=(S.frame||0)+1;advanceCDRamp();attract();endpointForces();relaxSpacing();for(let k=0;k<S.speed;k++){integrate();flagBondBreaks();constraints();collide();wallCCD();dragApply();flagStrainBreaks();flagBendBreaks();flagSpeedBreaks();}maintainBonds();removeDead();}did=true;}}
