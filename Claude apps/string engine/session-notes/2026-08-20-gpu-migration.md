@@ -907,3 +907,35 @@ RISKS (blind): micro-over-gpu readback timing + the canvas show/hide across acti
 (~0.6). reset-resync + dropdown + grey-out lower risk. NEXT: user hardware test - reset keeps GPU? dropdown switches
 engine? micro shows live over GPU physics? greyed controls correct? Then extend grey-out (weld/g*/growth) if wanted,
 and Chunk 2 = drawing snapping. Still on feature/gpu; main clean at d5c7d09.
+
+---
+
+## 2026-08-26 - Break fixes: breaking works without bonding (GPU bug) + new speed-based breaking
+
+Two user reports. (1) BUG: enabling stretch/angle breaking + adjusting break settings did nothing in GPU mode until
+endpoint bonding was activated. (2) FEATURE: adjustable speed-based breaking so glitchy/exploding strings shed energy
+and settle (stretch + angle breaking don't always catch it). Both shipped to feature/gpu, JS + all 11 shaders
+validated, BLIND.
+
+ROOT CAUSE (bug): breaking is CPU-only (no break logic in any WGSL shader). In CPU mode flagStrainBreaks/flagBendBreaks
+run every substep (stepFrame + frame loop). In GPU mode they run ONLY inside gpuBondTick, which early-returned on
+!S.bonding and again on !canBond (no object with o.bondOn). So no bonding -> tick skipped -> no breaking. The tick's
+readback already copies BOTH cur + prev buffers (NX/NY = cur, NPX/NPY = real GPU prev), so per-step velocity NX-NPX is
+available there.
+FIX: relaxed the two gates - compute anyBreak=(S.brkSpeed>0)||objs.some(o=>o.breakable&&(o.brkStretch||o.brkAbs||
+o.brkRel)); run the tick when S.bonding OR anyBreak; canBond gate now `!canBond && !anyBreak`. Forming self-skips when
+!S.bonding (verified: endpointForces line 976 `any` gate, formBondsFromCandidates line 968 guard, evalBondPair line
+957) so running the tick for breaking-only forms nothing.
+
+SPEED BREAK (feature): new global S.brkSpeed (0=off), slider "Speed break" (0-80, step .5) under Break distance.
+function flagSpeedBreaks(): strands only (skip s.bond - bonds have their own break + re-bond cooldown), severs a seg via
+severEdgeAt if EITHER endpoint's per-step speed (x-px) exceeds brkSpeed. Metric is real in CPU (post-substep x-px) AND
+GPU (bond-tick dual readback NX-NPX). Called after flagBendBreaks in both CPU substep loops + the GPU tick. Persisted
+in capture/restore + refreshUI sync. Node-verified selection logic (thresholds 0/3/10/60, bond skipped). SCALE CAVEAT:
+CPU metric is per-substep (S.speed substeps), GPU is per-frame integrate step - slightly different scales, so the same
+brkSpeed value may bite a bit harder in one mode; user tunes live, and glitches are 10-100x normal so the exact scale
+barely matters for the primary use. Applies to strands regardless of per-object breakable (global safety valve).
+
+NEXT: user hardware test - does stretch/angle breaking now work with bonding OFF in GPU mode? does Speed break settle
+glitchy strings? Offered: extend speed-break to bonds (needs re-bond cooldown) or make it per-object if the global
+valve is too blunt. Still feature/gpu; main clean at d5c7d09.
