@@ -1399,6 +1399,7 @@ cvs.style.cursor='grab';
 let ngDrag=null;   // {node,ox,oy,sx,sy,moved} while dragging or clicking a graph node
 cvs.addEventListener('pointerdown',e=>{
   if(e.button===1){const r=cvs.getBoundingClientRect();panning=true;panSX=e.clientX-r.left;panSY=e.clientY-r.top;panOX=view.ox;panOY=view.oy;cvs.setPointerCapture(e.pointerId);cvs.style.cursor='move';e.preventDefault();return;}   // middle-mouse pan
+  if(typeof ngMenuOpen==='function'&&ngMenuOpen()){ ngCloseMenu(); e.preventDefault(); return; }
   if(S.nodeView){ const [gx_,gy_]=canvasXY(e); const _nn=(typeof ngPick==='function')?ngPick(gx_,gy_):null; if(_nn){ let _sk=null; if(_nn.type==='material'){ const so=ngSocketOut(_nn); if(Math.abs(gx_-so.x)+Math.abs(gy_-so.y)<12/view.z)_sk='out'; } ngDrag={node:_nn,ox:gx_-_nn.x,oy:gy_-_nn.y,sx:gx_,sy:gy_,sock:_sk,moved:false}; try{cvs.setPointerCapture(e.pointerId);}catch(_){} e.preventDefault(); return; } }   // graph: begin node drag/click
   if(window.gpuPhysicsActive&&window.gpuPhysicsActive()&&!editMode){ if(tool==='move'){ const [gmx,gmy]=canvasXY(e); if(window.gpuPick)window.gpuPick(gmx,gmy); try{cvs.setPointerCapture(e.pointerId);}catch(_){} return; } if(window.gpuPhysicsDropToCPU)window.gpuPhysicsDropToCPU('editing'); return; }  // GPU move = pick+select; in EDIT mode we stay GPU-native (draw on the paused scene, rebuild on exit) instead of dropping to CPU
   const [mx,my]=canvasXY(e);
@@ -1415,6 +1416,7 @@ cvs.addEventListener('pointerdown',e=>{
     else{const r=cvs.getBoundingClientRect();panning=true;panSX=e.clientX-r.left;panSY=e.clientY-r.top;panOX=view.ox;panOY=view.oy;cvs.setPointerCapture(e.pointerId);cvs.style.cursor='move';showTab('scene');}}});   // empty space -> pan + Scene view
 cvs.addEventListener('pointermove',e=>{
   if(panning){const r=cvs.getBoundingClientRect();view.ox=panOX+(e.clientX-r.left-panSX);view.oy=panOY+(e.clientY-r.top-panSY);return;}
+  { const _r=cvs.getBoundingClientRect(); ngLastSX=e.clientX-_r.left; ngLastSY=e.clientY-_r.top; const _w=canvasXY(e); ngLastWX=_w[0]; ngLastWY=_w[1]; }
   if(ngDrag){ const [gx_,gy_]=canvasXY(e); if(!ngDrag.moved&&(Math.abs(gx_-ngDrag.sx)+Math.abs(gy_-ngDrag.sy))>4/view.z)ngDrag.moved=true; if(ngDrag.moved){ ngDrag.node.auto=false; ngDrag.node.x=gx_-ngDrag.ox; ngDrag.node.y=gy_-ngDrag.oy; cvs.style.cursor='grabbing'; window.RD=true; } return; }
   const [mx,my]=canvasXY(e);
   if(stroke){const last=stroke[stroke.length-1],minD=Math.max(8,12/view.z);
@@ -1425,7 +1427,7 @@ cvs.addEventListener('pointermove',e=>{
   if(grab>=0){gx=mx;gy=my;return;}
   if(tool==='move')pickHover(mx,my);});   // idle hover highlight
 cvs.addEventListener('pointerup',()=>{
-  if(ngDrag){ const nd=ngDrag; ngDrag=null; cvs.style.cursor=''; if(!nd.moved){ if(nd.sock==='out'&&nd.node.type==='material'){ nd.node.connected=(nd.node.connected===false); ngApplyActive(); } else if(nd.node.type==='output'){NG.bypass=!NG.bypass;} else if(nd.node.type==='material'){selectObject(nd.node.oi);} } window.RD=true; return; }
+  if(ngDrag){ const nd=ngDrag; ngDrag=null; cvs.style.cursor=''; if(!nd.moved){ const _T=NODE_TYPES[nd.node.type]; NG.sel=(_T&&_T.addable)?nd.node.id:null; if(nd.sock==='out'&&nd.node.type==='material'){ nd.node.connected=(nd.node.connected===false); ngApplyActive(); } else if(nd.node.type==='output'){NG.bypass=!NG.bypass;} else if(nd.node.type==='material'){selectObject(nd.node.oi);} } window.RD=true; return; }
   if(window.gpuGrabClear)window.gpuGrabClear();
   if(stroke){if(stroke.length>=2)beginDrawPreview(stroke.oi,stroke.slice());stroke=null;return;}   // open the density picker; commit happens on Add
   if(erasing){erasing=false;return;}
@@ -1450,6 +1452,8 @@ function advanceCDRamp(){if(!S.cdRamping)return;const t=(S.frame-S.cdRamp0)/180;
 function stepFrame(){if(typeof ngBypass==='function'&&ngBypass())return;if(S.gpuPhysics&&window.gpuPhysicsStep){window.gpuPhysicsStep(S.speed);return;}S.frame=(S.frame||0)+1;advanceCDRamp();attract();endpointForces();relaxSpacing();for(let k=0;k<S.speed;k++){integrate();flagBondBreaks();constraints();collide();wallCCD();dragApply();flagStrainBreaks();flagBendBreaks();flagSpeedBreaks();}maintainBonds();removeDead();}
 window.addEventListener('keydown',e=>{const tag=(e.target.tagName||'').toLowerCase();if(tag==='input'||tag==='select'||tag==='textarea')return;
   const k=e.key.toLowerCase();
+  if(S.nodeView&&e.shiftKey&&k==='a'){e.preventDefault(); if(typeof ngOpenMenu==='function')ngOpenMenu(); return;}
+  if(S.nodeView&&(e.key==='Delete'||e.key==='Backspace')&&NG&&NG.sel){e.preventDefault(); ngDeleteSelected(); return;}
   if(k==='r'){resetSim();startCDRamp();}
   else if(e.key==='Tab'){e.preventDefault();setEditMode(!editMode);}
   else if(k==='g'){setTool('move');}
@@ -1504,7 +1508,7 @@ function ngSync(){ // reconcile the graph with the scene; material nodes keyed b
   NG.nodes=NG.nodes.filter(n=> n.type!=='material' || live.has(n.ngid));   // drop nodes whose material is gone
   const have=new Map(); for(const n of NG.nodes)if(n.type==='material')have.set(n.ngid,n);
   for(let i=0;i<G.objs.length;i++){ const o=G.objs[i]; let n=have.get(o._ngid); if(!n){ n={id:'mat'+o._ngid,type:'material',ngid:o._ngid,auto:true,connected:true}; NG.nodes.push(n); } n.oi=i; n.selected=(i===S.selected); }
-  NG.wires=[]; for(const n of NG.nodes)if(n.type==='material'&&n.connected!==false)NG.wires.push({from:{node:n.id,socket:'geo'},to:{node:out.id,socket:'geo'}}); ngApplyActive();
+  NG.wires=[]; for(const n of NG.nodes){ if(n.type==='material'){ if(n.connected!==false)NG.wires.push({from:{node:n.id,socket:'geo'},to:{node:out.id,socket:'geo'}}); } else { n.selected=(n.id===NG.sel); } } ngApplyActive();
 }
 // ---- layout (positions only; Phase 2 will skip nodes the user has moved) ----
 function ngLayout(){ const z=view.z, lod=z>=NGCFG.lodFull?2:z>=NGCFG.lodDot?1:0, x0=S.W+NGCFG.colX; let y=NGCFG.colY;
@@ -1514,7 +1518,65 @@ function ngLayout(){ const z=view.z, lod=z>=NGCFG.lodFull?2:z>=NGCFG.lodDot?1:0,
   const out=ngNodeByType('output'); if(out){ const T=NODE_TYPES.output; out.w=NGCFG.outW; out.h=T.fullH; out._lod=2;
     if(out.auto!==false){ const colTop=NGCFG.colY, colBot=Math.max(y,colTop+T.fullH+20); out.x=x0+NGCFG.colW+NGCFG.outGapX; out.y=(colTop+colBot)/2-T.fullH/2; } }
 }
-function ngSocketOut(n){ return {x:n.x+n.w, y:(n._lod===0?n.y+10:n.y+n.h/2)}; }
+const SOCK={ geometry:{dot:'#37b7a6', wire:'rgba(70,190,175,0.6)', shape:'circle'}, value:{dot:'#9aa2be', wire:'rgba(154,162,190,0.62)', shape:'diamond'}, behaviour:{dot:'#5b8dd6', wire:'rgba(91,141,214,0.62)', shape:'circle'} };
+function ngSockets(n){ const T=NODE_TYPES[n.type]||{}, ins=T.inputs||[], outs=T.outputs||[]; const x=n.x,y=n.y,w=n.w,h=n.h, dot=(n._lod===0 && !T.alwaysFull);
+  const mk=(arr,ex)=>arr.map((sd,i)=>({key:sd.key,type:sd.type,multi:!!sd.multi,x:ex,y:(dot?y+10:y+h*(i+1)/(arr.length+1))}));
+  return {in:mk(ins,x), out:mk(outs,x+w)}; }
+function ngSocketPos(n,side,key){ const S=ngSockets(n), arr=(side==='out')?S.out:S.in; for(const q of arr)if(q.key===key)return q; return arr[0]||{x:n.x+(side==='out'?n.w:0),y:n.y+10,multi:false}; }
+function ngSocketOut(n){ return ngSocketPos(n,'out',(((NODE_TYPES[n.type]||{}).outputs||[])[0]||{}).key); }
+function ngDrawSocket(cx,q,z){ const t=SOCK[q.type]||SOCK.geometry; cx.fillStyle=t.dot; cx.lineWidth=1/z; cx.strokeStyle='rgba(0,0,0,0.45)';
+  if(t.shape==='diamond'){ cx.save(); cx.translate(q.x,q.y); cx.rotate(0.7853981634); cx.beginPath(); cx.rect(-3.6,-3.6,7.2,7.2); cx.fill(); cx.stroke(); cx.restore(); }
+  else { cx.beginPath(); cx.arc(q.x,q.y,5,0,6.2832); cx.fill(); cx.stroke(); } }
+
+// ---- addable node types (first real node types; inert until wired in the next step) ----
+const NG_ADD={
+  value:{ category:'Input', addable:true, header:'#5a5f7a', bg:'rgba(20,21,30,0.96)', border:'rgba(140,146,180,0.5)', borderW:1.4, round:9, headH:24, fullH:60, compactH:26, dotH:26, tag:'VALUE',
+    inputs:[], outputs:[{key:'val',type:'value'}], params:{v:1},
+    title:n=>'Value', accent:n=>'#9aa2be',
+    drawBody(cx,n,x,y,w){ cx.fillStyle='#cfd4e6'; cx.font='600 20px system-ui,sans-serif'; cx.fillText(String((n.params&&n.params.v!=null)?n.params.v:1),x+14,y+42); } },
+  damping:{ category:'Attributes', addable:true, header:'#2f7d5f', bg:'rgba(17,19,30,0.95)', border:'rgba(122,134,178,0.45)', borderW:1.4, round:11, headH:24, fullH:60, compactH:26, dotH:26, tag:'ATTRIBUTE',
+    inputs:[{key:'geo',type:'geometry'}], outputs:[{key:'geo',type:'geometry'}], params:{amount:0.1},
+    title:n=>'Damping', accent:n=>'#37b7a6',
+    drawBody(cx,n,x,y,w){ cx.fillStyle='#c7cfe0'; cx.font='12px system-ui,sans-serif'; cx.fillText('amount '+(((n.params&&n.params.amount!=null)?n.params.amount:0.1)).toFixed(2),x+14,y+42); } },
+  motion:{ category:'Simulation', addable:true, header:'#3a5a8a', bg:'rgba(16,20,30,0.96)', border:'rgba(110,140,200,0.5)', borderW:1.4, round:11, headH:24, fullH:60, compactH:26, dotH:26, tag:'FORCE',
+    inputs:[], outputs:[{key:'beh',type:'behaviour'}], params:{amount:0.5},
+    title:n=>'Motion (Temp)', accent:n=>'#5b8dd6',
+    drawBody(cx,n,x,y,w){ cx.fillStyle='#c3cfe6'; cx.font='12px system-ui,sans-serif'; cx.fillText('temp '+(((n.params&&n.params.amount!=null)?n.params.amount:0.5)).toFixed(2),x+14,y+42); } }
+};
+for(const k in NG_ADD)NODE_TYPES[k]=NG_ADD[k];
+
+// ---- node instantiation / deletion ----
+function ngAddNode(type,wx,wy){ const T=NODE_TYPES[type]; if(!T||!T.addable)return null; NG._nid=(NG._nid||0)+1;
+  const n={id:'n'+NG._nid,type,auto:false,x:wx-NGCFG.colW/2,y:wy-16,params:Object.assign({},T.params||{})}; NG.nodes.push(n); NG.sel=n.id; window.RD=true; return n; }
+function ngDeleteSelected(){ if(!NG.sel)return false; const n=ngNode(NG.sel); if(!n)return false; const T=NODE_TYPES[n.type]; if(!T||!T.addable)return false;
+  NG.nodes=NG.nodes.filter(q=>q.id!==n.id); NG.wires=NG.wires.filter(w=>w.from.node!==n.id&&w.to.node!==n.id); NG.sel=null; window.RD=true; return true; }
+
+// ---- Shift+A add menu (DOM overlay in the screen container) ----
+let ngLastSX=0,ngLastSY=0,ngLastWX=0,ngLastWY=0,ngMenuWX=0,ngMenuWY=0,ngMenuEl=null;
+function ngMenuOpen(){ return !!(ngMenuEl&&ngMenuEl.root.style.display==='block'); }
+function ngBuildMenu(){ if(ngMenuEl)return ngMenuEl; const scr=cvs.parentElement;
+  const m=document.createElement('div'); m.id='ngAddMenu'; m.style.cssText='position:absolute;z-index:12;display:none;width:200px;max-height:320px;overflow:auto;background:rgba(15,16,26,0.98);border:1px solid var(--line);border-radius:10px;box-shadow:0 8px 30px rgba(0,0,0,0.6);font-size:12px;color:var(--text);padding:6px';
+  const inp=document.createElement('input'); inp.type='text'; inp.placeholder='Add node\u2026'; inp.style.cssText='width:100%;box-sizing:border-box;background:var(--ink2);border:1px solid var(--line);color:var(--text);border-radius:6px;padding:5px 7px;font-size:12px;margin-bottom:5px';
+  const list=document.createElement('div');
+  m.appendChild(inp); m.appendChild(list); scr.appendChild(m);
+  inp.addEventListener('input',()=>ngMenuPopulate(inp.value));
+  inp.addEventListener('keydown',e=>{ e.stopPropagation(); if(e.key==='Escape'){ngCloseMenu();} else if(e.key==='Enter'){ const first=list.querySelector('[data-type]'); if(first)ngPickMenu(first.getAttribute('data-type')); } });
+  m.addEventListener('pointerdown',e=>e.stopPropagation());
+  ngMenuEl={root:m,input:inp,list:list}; return ngMenuEl; }
+function ngMenuPopulate(filter){ const el=ngBuildMenu(), list=el.list; filter=(filter||'').toLowerCase().trim(); list.innerHTML='';
+  const cats={}; for(const tk in NODE_TYPES){ const T=NODE_TYPES[tk]; if(!T.addable)continue; const nm=(typeof T.title==='function'?T.title({}):tk);
+    if(filter && !(nm.toLowerCase().indexOf(filter)>=0 || (T.category||'').toLowerCase().indexOf(filter)>=0))continue; (cats[T.category||'Other']=cats[T.category||'Other']||[]).push({tk,nm}); }
+  const order=['Generators','Modifiers','Attributes','Simulation','Utility','Input'];
+  const ck=Object.keys(cats).sort((a,b)=>{const ia=order.indexOf(a),ib=order.indexOf(b);return (ia<0?9:ia)-(ib<0?9:ib);});
+  for(const c of ck){ const h=document.createElement('div'); h.textContent=c; h.style.cssText='color:var(--dim);font:10px/1.6 monospace;letter-spacing:.12em;margin:6px 4px 2px;text-transform:uppercase'; list.appendChild(h);
+    for(const it of cats[c]){ const row=document.createElement('div'); row.setAttribute('data-type',it.tk); row.textContent=it.nm; row.style.cssText='padding:5px 8px;border-radius:6px;cursor:pointer';
+      row.addEventListener('mouseenter',()=>row.style.background='#232848'); row.addEventListener('mouseleave',()=>row.style.background=''); row.addEventListener('click',()=>ngPickMenu(it.tk)); list.appendChild(row); } }
+  if(!list.children.length){ const e2=document.createElement('div'); e2.textContent='no match'; e2.style.cssText='color:var(--dim);padding:6px 8px'; list.appendChild(e2); } }
+function ngOpenMenu(){ const el=ngBuildMenu(), scr=cvs.parentElement, rw=scr.clientWidth, rh=scr.clientHeight;
+  let sx=Math.max(6,Math.min(ngLastSX,rw-210)), sy=Math.max(6,Math.min(ngLastSY,rh-210));
+  el.root.style.left=sx+'px'; el.root.style.top=sy+'px'; el.root.style.display='block'; el.input.value=''; ngMenuPopulate(''); ngMenuWX=ngLastWX; ngMenuWY=ngLastWY; setTimeout(()=>el.input.focus(),0); }
+function ngCloseMenu(){ if(ngMenuEl)ngMenuEl.root.style.display='none'; }
+function ngPickMenu(type){ ngAddNode(type,ngMenuWX,ngMenuWY); ngCloseMenu(); }
 function ngApplyActive(){ // mark disconnected materials off; every physics/render loop skips o._ngOff (no-op when nothing is off)
   let changed=false; for(const n of NG.nodes){ if(n.type!=='material')continue; const o=G.objs[n.oi]; if(!o)continue; const off=(n.connected===false); if(!!o._ngOff!==off){ o._ngOff=off; changed=true; } }
   if(changed){ if(window.gpuPhysicsActive&&window.gpuPhysicsActive()&&window.gpuResync)window.gpuResync(); window.RD=true; } }
@@ -1531,17 +1593,19 @@ function ngDrawNode(cx,n){ const T=NODE_TYPES[n.type]; if(!T)return; const z=vie
   const hh=T.headH||26; cx.save(); _rr(cx,x,y,w,hh,T.round||11); cx.clip(); cx.fillStyle=T.header; cx.fillRect(x,y,w,hh); cx.restore();
   cx.fillStyle=T.titleColor||'#eaf2ee'; cx.font='600 14px system-ui,sans-serif'; cx.textAlign='left'; cx.fillText(T.title(n),x+12,y+hh/2);
   const tag=typeof T.tag==='function'?T.tag(n):T.tag; if(tag){ cx.fillStyle=T.tagColor||'rgba(230,240,255,0.5)'; cx.font='9px ui-monospace,monospace'; cx.textAlign='right'; cx.fillText(tag,x+w-10,y+hh/2); cx.textAlign='left'; }
-  if(T.outputs)for(let oi2=0;oi2<T.outputs.length;oi2++){ const p=ngSocketOut(n); cx.fillStyle=NGCFG.geo; cx.beginPath(); cx.arc(p.x,p.y,5,0,6.2832); cx.fill(); cx.lineWidth=1/z; cx.strokeStyle='rgba(0,0,0,0.45)'; cx.stroke(); }
+  { const SK=ngSockets(n); for(const q of SK.out)ngDrawSocket(cx,q,z); for(const q of SK.in)if(!q.multi)ngDrawSocket(cx,q,z); }
   if(lod===2 && T.drawBody)T.drawBody(cx,n,x,y,w); if(_dim)cx.globalAlpha=1;
 }
-function ngDrawWires(cx){ const z=view.z, byp=ngBypass(); const byT={};
-  for(const w of NG.wires){ (byT[w.to.node]=byT[w.to.node]||[]).push(w); }
-  for(const tid in byT){ const tw=byT[tid], tn=ngNode(tid); if(!tn||!tn.w)continue; const N=tw.length;
-    for(let k=0;k<N;k++){ const sn=ngNode(tw[k].from.node); if(!sn||!sn.w)continue;
-      const s=ngSocketOut(sn), inX=tn.x, inY=tn.y+tn.h*(k+1)/(N+1), dx=(inX-s.x)*0.5;
+function ngDrawWires(cx){ const z=view.z, byp=ngBypass(); const byKey={};
+  for(const w of NG.wires){ const kk=w.to.node+'|'+w.to.socket; (byKey[kk]=byKey[kk]||[]).push(w); }
+  for(const kk in byKey){ const ws=byKey[kk], N=ws.length, tn=ngNode(ws[0].to.node); if(!tn||!tn.w)continue;
+    for(let k=0;k<N;k++){ const w=ws[k], sn=ngNode(w.from.node); if(!sn||!sn.w)continue;
+      const s=ngSocketPos(sn,'out',w.from.socket), t0=ngSocketPos(tn,'in',w.to.socket);
+      const inX=t0.x, inY=(t0.multi? tn.y+tn.h*(k+1)/(N+1) : t0.y), dx=(inX-s.x)*0.5;
+      const col=(SOCK[s.type]||SOCK.geometry).wire, dotc=(SOCK[s.type]||SOCK.geometry).dot;
       cx.beginPath(); cx.moveTo(s.x,s.y); cx.bezierCurveTo(s.x+dx,s.y,inX-dx,inY,inX,inY);
-      cx.lineWidth=(byp?1.4:2.2)/z; cx.strokeStyle=byp?'rgba(150,120,110,0.4)':'rgba(70,190,175,0.6)'; if(byp)cx.setLineDash([6/z,6/z]); cx.stroke(); cx.setLineDash([]);
-      cx.fillStyle=byp?'rgba(150,120,110,0.6)':NGCFG.geo; cx.beginPath(); cx.arc(inX,inY,4,0,6.2832); cx.fill(); }
+      cx.lineWidth=(byp?1.4:2.2)/z; cx.strokeStyle=byp?'rgba(150,120,110,0.4)':col; if(byp)cx.setLineDash([6/z,6/z]); cx.stroke(); cx.setLineDash([]);
+      cx.fillStyle=byp?'rgba(150,120,110,0.6)':dotc; cx.beginPath(); cx.arc(inX,inY,4,0,6.2832); cx.fill(); }
   }
 }
 function drawNodeGraph(){ if(!ncx)return; ncx.setTransform(1,0,0,1,0,0); ncx.clearRect(0,0,cnode.width,cnode.height);

@@ -106,3 +106,29 @@ sockets waits for the add-menu phase (meaningful once there are intermediate nod
   idempotence). BLIND on feel/GPU-repack timing.
 
 ## Next: full noodle-drag wiring + Shift+A add menu (needs intermediate node types first).
+
+## Phase 3a — typed sockets + first node types + Shift+A add menu  [SHIPPED, blind]
+The add menu you asked for, plus the first real node TYPES (one per wire) as the surface it
+adds. Nodes are inert for now - they render, add, move, delete with correct typed sockets,
+but do nothing until wiring + eval land next. This was the safe half to ship first.
+- Socket system generalized from output-only to typed input+output sockets:
+  geometry (teal circle), value (grey diamond), behaviour (blue circle). ngSockets/
+  ngSocketPos compute positions on both edges; ngDrawWires colours each wire by its source
+  type and keeps the Output multi-input's full-height wire spread. Behaviour-preserving for
+  material (geo-out mid-height) + Output (multi geo-in) - unit-tested socket positions.
+- First node types (NODE_TYPES registry entries, addable:true):
+  - Value       [Input]       out:(val)          - the number workhorse
+  - Damping     [Attributes]  in:(geo) out:(geo) - attribute passthrough
+  - Motion(Temp)[Simulation]  out:(beh)          - thermal force
+- Shift+A add menu: DOM overlay in the screen container, opens at the cursor, search box +
+  category-grouped list (Generators/Modifiers/Attributes/Simulation/Utility/Input order),
+  Enter picks the first match, click places at the cursor. Esc / canvas-click closes.
+- Node lifecycle: ngAddNode instantiates with copied default params + a unique id and
+  selects it; click selects an addable node (NG.sel); Delete/Backspace removes it and prunes
+  its wires. Dragging (Phase 2a) already positions them; fit includes them.
+- SAFETY: the new nodes are inert - no wires to Output by default, ngApplyActive stays
+  material-only, all 8 physics guards unchanged. Adding/deleting them cannot touch the sim.
+  JS + 11 shaders valid; registry + add/delete + socket positions unit-tested. BLIND on feel.
+
+## Next: free-form wiring (drag a noodle socket->socket) + first real EFFECT (Damping/Motion
+## via the eff* choke point + Output behaviour input). That turns these inert nodes real.
