@@ -83,3 +83,26 @@ every node after) is a data edit, not surgery. Verified: ships identical behavio
 
 ## Next: Phase 2 — interaction (Shift+A add menu, node drag with auto-pin, real wiring)
 ## now slots onto NODE_TYPES + the separated model/layout/render/hit-test.
+
+## Phase 2b — per-material wiring (click socket to connect/disconnect)  [SHIPPED, blind]
+Right-sized for a 2-type graph: with only material->Output wires, wiring = click a
+material's output socket to connect/disconnect it. Full noodle-drag between arbitrary
+sockets waits for the add-menu phase (meaningful once there are intermediate nodes).
+- Model: material node carries `connected` (default true). ngSync derives wires only from
+  connected materials and calls ngApplyActive().
+- ngApplyActive(): sets `o._ngOff` on each object from its node's connected state; on change,
+  repacks the GPU (gpuResync) so the exclusion takes effect there too. Change-detected so
+  idle frames never repack.
+- Effect (real, both modes): a disconnected material is skipped by every physics + render
+  loop via `o._ngOff` guards - integrate, constraints (length + bend), collide, 2D render
+  (both passes), and GPU buildScene (both pack sites). It freezes and vanishes from the sim;
+  Output's material count drops; its node dims to 0.42 and its wire disappears. Click the
+  socket again to reconnect (CPU resumes instantly; GPU repacks).
+- SAFETY PROPERTY (why this was safe to ship blind): `_ngOff` defaults falsy, so every guard
+  is a no-op until a material is explicitly disconnected. Normal use (nothing disconnected)
+  runs byte-identical to before - the feature cannot regress the baseline sim.
+- Verified: JS + 11 shaders valid; guard audit (8 guards, all _ngOff-gated); unit test of
+  connect/disconnect/reconnect (flags, eval count, wire count, GPU-repack-on-change-only,
+  idempotence). BLIND on feel/GPU-repack timing.
+
+## Next: full noodle-drag wiring + Shift+A add menu (needs intermediate node types first).
