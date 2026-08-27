@@ -1398,6 +1398,7 @@ function dragApply(){if(grab<0||grab>=G.nodes.length)return;const n=G.nodes[grab
 cvs.style.cursor='grab';
 cvs.addEventListener('pointerdown',e=>{
   if(e.button===1){const r=cvs.getBoundingClientRect();panning=true;panSX=e.clientX-r.left;panSY=e.clientY-r.top;panOX=view.ox;panOY=view.oy;cvs.setPointerCapture(e.pointerId);cvs.style.cursor='move';e.preventDefault();return;}   // middle-mouse pan
+  if(S.nodeView){ const [gx_,gy_]=canvasXY(e); if(typeof ngHitTest==='function'&&ngHitTest(gx_,gy_)){ e.preventDefault(); return; } }   // graph interaction (Phase 1: Output connect/bypass)
   if(window.gpuPhysicsActive&&window.gpuPhysicsActive()&&!editMode){ if(tool==='move'){ const [gmx,gmy]=canvasXY(e); if(window.gpuPick)window.gpuPick(gmx,gmy); try{cvs.setPointerCapture(e.pointerId);}catch(_){} return; } if(window.gpuPhysicsDropToCPU)window.gpuPhysicsDropToCPU('editing'); return; }  // GPU move = pick+select; in EDIT mode we stay GPU-native (draw on the paused scene, rebuild on exit) instead of dropping to CPU
   const [mx,my]=canvasXY(e);
   if(tool==='draw'){let oi=S.selected;if(oi<0||!G.objs[oi])oi=G.objs.length?G.objs.length-1:newMaterial('Material 1');
@@ -1443,7 +1444,7 @@ function startCDRamp(){S.contactDamp=1;S.cdRamping=true;S.cdRamp0=S.frame;const 
 function advanceCDRamp(){if(!S.cdRamping)return;const t=(S.frame-S.cdRamp0)/180;   // 180 frames ~= 3s at 60fps
   if(t>=1){S.contactDamp=0;S.cdRamping=false;}else S.contactDamp=1-t;
   const el=document.getElementById('sCD'),v=document.getElementById('vCD');if(el)el.value=S.contactDamp;if(v)v.textContent=S.contactDamp.toFixed(2);}
-function stepFrame(){if(S.gpuPhysics&&window.gpuPhysicsStep){window.gpuPhysicsStep(S.speed);return;}S.frame=(S.frame||0)+1;advanceCDRamp();attract();endpointForces();relaxSpacing();for(let k=0;k<S.speed;k++){integrate();flagBondBreaks();constraints();collide();wallCCD();dragApply();flagStrainBreaks();flagBendBreaks();flagSpeedBreaks();}maintainBonds();removeDead();}
+function stepFrame(){if(typeof ngBypass==='function'&&ngBypass())return;if(S.gpuPhysics&&window.gpuPhysicsStep){window.gpuPhysicsStep(S.speed);return;}S.frame=(S.frame||0)+1;advanceCDRamp();attract();endpointForces();relaxSpacing();for(let k=0;k<S.speed;k++){integrate();flagBondBreaks();constraints();collide();wallCCD();dragApply();flagStrainBreaks();flagBendBreaks();flagSpeedBreaks();}maintainBonds();removeDead();}
 window.addEventListener('keydown',e=>{const tag=(e.target.tagName||'').toLowerCase();if(tag==='input'||tag==='select'||tag==='textarea')return;
   const k=e.key.toLowerCase();
   if(k==='r'){resetSim();startCDRamp();}
@@ -1456,35 +1457,62 @@ window.addEventListener('keydown',e=>{const tag=(e.target.tagName||'').toLowerCa
   else if((k==='arrowright'||k==='arrowleft')&&!S.running){e.preventDefault();stepFrame();}});
 
 let ema=60,lastT=performance.now();window.RD=true;   // RD = render-dirty; paused & idle -> stop re-rendering. window.* avoids any load-order TDZ so scene mutations can mark it dirty
-// ---- Phase-0 read-only node view: draw each material as a node card beside the sim box, in shared world space ----
+// ---- Phase-1 node graph: material nodes wire into a live Output node; the Output connection gates the sim ----
+const NG={ bypass:false, _rects:null };   // graph state (Phase 2 grows this into real nodes+wires+positions)
+function ngBypass(){ return !!(NG&&NG.bypass); }
+function evalGraph(){ if(ngBypass())return {materials:0,strands:0,nodes:0,live:false};   // walk Output <- materials
+  let strands=0; for(const sg of G.segs)if(sg&&!sg.dead)strands++;
+  return {materials:G.objs.length, strands, nodes:G.nodes.length, live:true}; }
+function ngHitTest(gx,gy){ if(!NG||!NG._rects||!NG._rects.out)return false; const o=NG._rects.out;
+  if(gx>=o.x-18&&gx<=o.x+o.w&&gy>=o.y&&gy<=o.y+o.h){ NG.bypass=!NG.bypass; window.RD=true; return true; } return false; }
+// ---- read-only node view: draw each material as a node card beside the sim box, in shared world space ----
 function _rr(cx,x,y,w,h,r){ r=Math.min(r,w/2,h/2); cx.beginPath(); cx.moveTo(x+r,y); cx.arcTo(x+w,y,x+w,y+h,r); cx.arcTo(x+w,y+h,x,y+h,r); cx.arcTo(x,y+h,x,y,r); cx.arcTo(x,y,x+w,y,r); cx.closePath(); }
 function fitNodesView(){ const N=G.objs.length; if(!N){window.RD=true;return;} const CW=200,CH=120,GAP=22,x0=S.W+64, colBottom=44+N*(CH+GAP);
-  const m=36, minX=0,minY=0, maxX=x0+CW+24, maxY=Math.max(S.H,colBottom+24), w=maxX-minX, h=maxY-minY;
+  const m=36, minX=0,minY=0, maxX=x0+CW+110+196+40, maxY=Math.max(S.H,colBottom+24), w=maxX-minX, h=maxY-minY;
   const z=Math.min((S.W-2*m)/w,(S.H-2*m)/h,1); view.z=z; view.ox=m-minX*z; view.oy=m-minY*z; window.RD=true; }
 function drawNodeGraph(){ if(!ncx)return; ncx.setTransform(1,0,0,1,0,0); ncx.clearRect(0,0,cnode.width,cnode.height);
-  if(!S.nodeView||!G.objs.length)return;
-  const z=view.z; ncx.setTransform(S.dpr*z,0,0,S.dpr*z,S.dpr*view.ox,S.dpr*view.oy);   // shared camera (world -> device)
-  const CW=200,x0=S.W+64,GAP=22,CAT='#2f7d5f',TEAL='#37b7a6'; const lod=z>=0.45?2:z>=0.2?1:0; let y=44;
+  if(!S.nodeView){ if(NG)NG._rects=null; return; }
+  const z=view.z; ncx.setTransform(S.dpr*z,0,0,S.dpr*z,S.dpr*view.ox,S.dpr*view.oy);   // shared camera
+  const CW=200,x0=S.W+64,GAP=22,CAT='#2f7d5f',TEAL='#37b7a6',OUT='#c2703a'; const lod=z>=0.45?2:z>=0.2?1:0;
   ncx.lineJoin='round'; ncx.textBaseline='middle'; ncx.textAlign='left';
-  ncx.fillStyle='rgba(150,162,190,0.55)'; ncx.font='10px ui-monospace,monospace'; ncx.fillText('MATERIAL NODES \u00b7 read-only preview',x0,24);
-  for(let i=0;i<G.objs.length;i++){ const o=G.objs[i], name=o.name||('Material '+(i+1));
-    if(lod===0){ ncx.fillStyle=o.color||'#7dd3fc'; ncx.beginPath(); ncx.arc(x0+CW/2,y+10,10,0,6.2832); ncx.fill(); ncx.strokeStyle='rgba(120,130,170,0.55)'; ncx.lineWidth=1.2/z; ncx.stroke(); y+=28+GAP; continue; }
+  ncx.fillStyle='rgba(150,162,190,0.55)'; ncx.font='10px ui-monospace,monospace'; ncx.fillText('MATERIAL NODES \u00b7 wired to Output',x0,24);
+  const outs=[]; let y=44;
+  for(let i=0;i<G.objs.length;i++){ const o=G.objs[i], name=o.name||('Material '+(i+1)), sel=(i===S.selected);
+    if(lod===0){ ncx.fillStyle=o.color||'#7dd3fc'; ncx.beginPath(); ncx.arc(x0+CW/2,y+10,10,0,6.2832); ncx.fill(); ncx.lineWidth=(sel?2.4:1.2)/z; ncx.strokeStyle=sel?'#ffd479':'rgba(120,130,170,0.55)'; ncx.stroke(); outs.push({x:x0+CW,y:y+10}); y+=28+GAP; continue; }
     const CH=lod===2?120:28;
-    _rr(ncx,x0,y,CW,CH,11); ncx.fillStyle='rgba(17,19,30,0.95)'; ncx.fill(); ncx.strokeStyle='rgba(122,134,178,0.45)'; ncx.lineWidth=1.4/z; ncx.stroke();
+    _rr(ncx,x0,y,CW,CH,11); ncx.fillStyle='rgba(17,19,30,0.95)'; ncx.fill(); ncx.lineWidth=(sel?2.6:1.4)/z; ncx.strokeStyle=sel?'#ffd479':'rgba(122,134,178,0.45)'; ncx.stroke();
     ncx.save(); _rr(ncx,x0,y,CW,26,11); ncx.clip(); ncx.fillStyle=CAT; ncx.fillRect(x0,y,CW,26); ncx.restore();
     ncx.fillStyle='#eaf2ee'; ncx.font='600 14px system-ui,sans-serif'; ncx.fillText(name,x0+12,y+13);
     ncx.fillStyle='rgba(230,240,255,0.5)'; ncx.font='9px ui-monospace,monospace'; ncx.textAlign='right'; ncx.fillText('ATTRIBUTE',x0+CW-10,y+13); ncx.textAlign='left';
-    ncx.fillStyle=TEAL; ncx.beginPath(); ncx.arc(x0+CW,y+CH/2,5,0,6.2832); ncx.fill(); ncx.strokeStyle='rgba(0,0,0,0.45)'; ncx.lineWidth=1/z; ncx.stroke();   // geometry out socket
-    if(lod===2){ ncx.fillStyle=o.color||'#7dd3fc'; _rr(ncx,x0+12,y+38,18,18,4); ncx.fill(); ncx.strokeStyle='rgba(255,255,255,0.28)'; ncx.lineWidth=1/z; ncx.stroke();
+    const socY=y+CH/2; ncx.fillStyle=TEAL; ncx.beginPath(); ncx.arc(x0+CW,socY,5,0,6.2832); ncx.fill(); ncx.lineWidth=1/z; ncx.strokeStyle='rgba(0,0,0,0.45)'; ncx.stroke(); outs.push({x:x0+CW,y:socY});
+    if(lod===2){ ncx.fillStyle=o.color||'#7dd3fc'; _rr(ncx,x0+12,y+38,18,18,4); ncx.fill(); ncx.lineWidth=1/z; ncx.strokeStyle='rgba(255,255,255,0.28)'; ncx.stroke();
       ncx.fillStyle='#c7cfe0'; ncx.font='12px system-ui,sans-serif';
       ncx.fillText('radius '+(o.r!=null?o.r:'-'),x0+40,y+43); ncx.fillText('stiffness '+(o.stiff!=null?(+o.stiff).toFixed(2):'-'),x0+40,y+58);
       const fl=[]; if(o.breakable)fl.push('break'); if(o.bondOn)fl.push('bond'); if(o.autoSpace)fl.push('space'); if(o.solid)fl.push('solid'); if(o.fixed)fl.push('pinned');
       ncx.fillStyle='rgba(158,170,198,0.92)'; ncx.font='10px ui-monospace,monospace'; ncx.fillText(fl.length?fl.join(' \u00b7 '):'(base only)',x0+12,y+82);
       ncx.fillStyle='rgba(150,162,190,0.7)'; ncx.fillText('affinity '+(o.affinity!=null?o.affinity:'-')+'   curl '+(o.curl!=null?o.curl:'-'),x0+12,y+100); }
-    y+=CH+GAP; } }
+    y+=CH+GAP;
+  }
+  // ---- Output node (the scene sink) ----
+  const ev=evalGraph(), OW=196,OH=104, xOut=x0+CW+110, colTop=44, colBot=Math.max(y,colTop+OH+20), yOut=(colTop+colBot)/2-OH/2, byp=ngBypass();
+  const N=outs.length;
+  for(let k=0;k<N;k++){ const sc=outs[k], inY=yOut+OH*(k+1)/(N+1), dx=(xOut-sc.x)*0.5;
+    ncx.beginPath(); ncx.moveTo(sc.x,sc.y); ncx.bezierCurveTo(sc.x+dx,sc.y,xOut-dx,inY,xOut,inY);
+    ncx.lineWidth=(byp?1.4:2.2)/z; ncx.strokeStyle=byp?'rgba(150,120,110,0.4)':'rgba(70,190,175,0.6)'; if(byp)ncx.setLineDash([6/z,6/z]); ncx.stroke(); ncx.setLineDash([]);
+    ncx.fillStyle=byp?'rgba(150,120,110,0.6)':TEAL; ncx.beginPath(); ncx.arc(xOut,inY,4,0,6.2832); ncx.fill(); }
+  _rr(ncx,xOut,yOut,OW,OH,12); ncx.fillStyle='rgba(24,18,14,0.96)'; ncx.fill(); ncx.lineWidth=2.2/z; ncx.strokeStyle=byp?'rgba(180,110,70,0.65)':'rgba(194,112,58,0.75)'; ncx.stroke();
+  ncx.save(); _rr(ncx,xOut,yOut,OW,28,12); ncx.clip(); ncx.fillStyle=OUT; ncx.fillRect(xOut,yOut,OW,28); ncx.restore();
+  ncx.fillStyle='#fff'; ncx.font='600 14px system-ui,sans-serif'; ncx.textAlign='left'; ncx.fillText('Output \u00b7 scene',xOut+12,yOut+14);
+  ncx.fillStyle='rgba(255,255,255,0.6)'; ncx.font='9px ui-monospace,monospace'; ncx.textAlign='right'; ncx.fillText(byp?'BYPASSED':'LIVE',xOut+OW-10,yOut+14); ncx.textAlign='left';
+  ncx.font='12px system-ui,sans-serif'; ncx.fillStyle='#d8ccc0';
+  ncx.fillText(ev.materials+' materials',xOut+14,yOut+46); ncx.fillText(ev.strands+' strands \u00b7 '+ev.nodes+' nodes',xOut+14,yOut+64);
+  ncx.fillStyle=byp?'#e08a5a':'#7bd0a0'; ncx.font='10px ui-monospace,monospace';
+  ncx.fillText(byp?'click \u2192 reconnect (resume)':'click \u2192 disconnect (freeze)',xOut+14,yOut+86);
+  if(NG)NG._rects={out:{x:xOut,y:yOut,w:OW,h:OH}};
+}
 function frame(now){const dt=now-lastT;lastT=now;
   let did=false;
-  if(S.running){if(S.gpuPhysics&&window.gpuPhysicsStep){window.gpuPhysicsStep(S.speed);}else{S.frame=(S.frame||0)+1;advanceCDRamp();attract();endpointForces();relaxSpacing();for(let k=0;k<S.speed;k++){integrate();flagBondBreaks();constraints();collide();wallCCD();dragApply();flagStrainBreaks();flagBendBreaks();flagSpeedBreaks();}maintainBonds();removeDead();}did=true;}
+  if(S.running){if(!(typeof ngBypass==='function'&&ngBypass())){if(S.gpuPhysics&&window.gpuPhysicsStep){window.gpuPhysicsStep(S.speed);}else{S.frame=(S.frame||0)+1;advanceCDRamp();attract();endpointForces();relaxSpacing();for(let k=0;k<S.speed;k++){integrate();flagBondBreaks();constraints();collide();wallCCD();dragApply();flagStrainBreaks();flagBendBreaks();flagSpeedBreaks();}maintainBonds();removeDead();}did=true;}}
   else if(grab>=0){dragApply();constraints();collide();did=true;}
   if(did||window.RD||panning){ema=ema*0.9+(1000/Math.max(1,dt))*0.1;if(editMode)render();else if(S.gpuPhysics&&typeof window.gpuPhysicsRender==='function'){if(S.micro&&typeof renderMicro==='function'){if(window.gpuReadbackAsync)window.gpuReadbackAsync();renderMicro();}else window.gpuPhysicsRender();}else if(S.micro&&typeof renderMicro==='function')renderMicro();else if(S.gpu&&typeof renderGPU==='function')renderGPU();else render();if(typeof drawNodeGraph==='function')drawNodeGraph();window.RD=false;document.getElementById('sFps').textContent=Math.round(ema)+' fps';}
   requestAnimationFrame(frame);}
