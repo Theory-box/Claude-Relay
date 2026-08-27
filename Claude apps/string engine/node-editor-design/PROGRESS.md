@@ -55,3 +55,31 @@ bypass interacts cleanly with GPU mode (step skipped, last frame held).
 
 ## Next: Phase 2 — interaction (Shift+A add menu, node drag, real wiring, per-material
 ## connect/disconnect) - the phase where the graph becomes hand-authored.
+
+## Refactor — data-driven node core  [SHIPPED, behaviour-preserving, awaiting eyes-on]
+No new feature. Rebuilds Phase-0/1's tangled drawNodeGraph on a registry so Phase 2 (and
+every node after) is a data edit, not surgery. Verified: ships identical behaviour.
+- `NGCFG` — every layout/style/LOD constant in one object (single-edit restyle/retune).
+- `NODE_TYPES` — node types are DATA. Each entry: category, header/bg/border colours,
+  round/headH, socket defs (inputs/outputs, with multi flag), title(n), accent(n), tag,
+  and a per-type drawBody(cx,n,x,y,w). Adding a node = one entry. Currently: material,
+  output. The catalog (02-node-catalog.md) maps directly onto new entries.
+- Separated concerns, each independently editable:
+  - model: `NG={nodes,wires,bypass}` + `ngSync()` (reconciles nodes/wires with the scene;
+    keeps the output node, adds/removes material nodes, rebuilds wires; nodes carry
+    `auto:true` so Phase 2 can pin user-moved ones and skip them in layout).
+  - layout: `ngLayout()` (positions + per-LOD heights + socket anchors) — positions only,
+    Phase-2-ready to skip non-auto nodes.
+  - render: `ngDrawNode()` (generic frame: rect/header/title/tag/sockets + per-type
+    drawBody) + `ngDrawWires()` (generic, groups by target for multi-input stacking).
+  - hit-test: `ngPick(gx,gy)` (generic node pick) + `ngHitTest` (action: output->bypass).
+  - eval: `evalGraph()` walks Output<-wires.
+- Behaviour parity checks (blind, no browser): JS + 11 shaders valid; step gates +
+  pointerdown still bind ngBypass/ngHitTest; all card/stat/flag/hint strings + LOD
+  thresholds + colours reproduced; model logic unit-tested (mock G/S -> 1 output + N
+  material nodes, N wires all->output, selection flag, eval stats, bypass zeroing, orphan
+  removal). One deliberate, near-invisible change: wires now draw behind nodes (was: over
+  material cards, under output) - cleaner z-order, emanate from the same socket points.
+
+## Next: Phase 2 — interaction (Shift+A add menu, node drag with auto-pin, real wiring)
+## now slots onto NODE_TYPES + the separated model/layout/render/hit-test.

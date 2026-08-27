@@ -1457,59 +1457,104 @@ window.addEventListener('keydown',e=>{const tag=(e.target.tagName||'').toLowerCa
   else if((k==='arrowright'||k==='arrowleft')&&!S.running){e.preventDefault();stepFrame();}});
 
 let ema=60,lastT=performance.now();window.RD=true;   // RD = render-dirty; paused & idle -> stop re-rendering. window.* avoids any load-order TDZ so scene mutations can mark it dirty
-// ---- Phase-1 node graph: material nodes wire into a live Output node; the Output connection gates the sim ----
-const NG={ bypass:false, _rects:null };   // graph state (Phase 2 grows this into real nodes+wires+positions)
-function ngBypass(){ return !!(NG&&NG.bypass); }
-function evalGraph(){ if(ngBypass())return {materials:0,strands:0,nodes:0,live:false};   // walk Output <- materials
-  let strands=0; for(const sg of G.segs)if(sg&&!sg.dead)strands++;
-  return {materials:G.objs.length, strands, nodes:G.nodes.length, live:true}; }
-function ngHitTest(gx,gy){ if(!NG||!NG._rects||!NG._rects.out)return false; const o=NG._rects.out;
-  if(gx>=o.x-18&&gx<=o.x+o.w&&gy>=o.y&&gy<=o.y+o.h){ NG.bypass=!NG.bypass; window.RD=true; return true; } return false; }
-// ---- read-only node view: draw each material as a node card beside the sim box, in shared world space ----
+// ===== Node graph: data-driven core (config / type registry / model / layout / render / hit-test / eval) =====
+// All layout + style constants live here so restyling/retuning is a single edit.
+const NGCFG={ colX:64, colY:44, colW:200, cardGap:22, outW:196, outGapX:110, lodFull:0.45, lodDot:0.2, geo:'#37b7a6', selBorder:'#ffd479' };
 function _rr(cx,x,y,w,h,r){ r=Math.min(r,w/2,h/2); cx.beginPath(); cx.moveTo(x+r,y); cx.arcTo(x+w,y,x+w,y+h,r); cx.arcTo(x+w,y+h,x,y+h,r); cx.arcTo(x,y+h,x,y,r); cx.arcTo(x,y,x+w,y,r); cx.closePath(); }
-function fitNodesView(){ const N=G.objs.length; if(!N){window.RD=true;return;} const CW=200,CH=120,GAP=22,x0=S.W+64, colBottom=44+N*(CH+GAP);
-  const m=36, minX=0,minY=0, maxX=x0+CW+110+196+40, maxY=Math.max(S.H,colBottom+24), w=maxX-minX, h=maxY-minY;
-  const z=Math.min((S.W-2*m)/w,(S.H-2*m)/h,1); view.z=z; view.ox=m-minX*z; view.oy=m-minY*z; window.RD=true; }
-function drawNodeGraph(){ if(!ncx)return; ncx.setTransform(1,0,0,1,0,0); ncx.clearRect(0,0,cnode.width,cnode.height);
-  if(!S.nodeView){ if(NG)NG._rects=null; return; }
-  const z=view.z; ncx.setTransform(S.dpr*z,0,0,S.dpr*z,S.dpr*view.ox,S.dpr*view.oy);   // shared camera
-  const CW=200,x0=S.W+64,GAP=22,CAT='#2f7d5f',TEAL='#37b7a6',OUT='#c2703a'; const lod=z>=0.45?2:z>=0.2?1:0;
-  ncx.lineJoin='round'; ncx.textBaseline='middle'; ncx.textAlign='left';
-  ncx.fillStyle='rgba(150,162,190,0.55)'; ncx.font='10px ui-monospace,monospace'; ncx.fillText('MATERIAL NODES \u00b7 wired to Output',x0,24);
-  const outs=[]; let y=44;
-  for(let i=0;i<G.objs.length;i++){ const o=G.objs[i], name=o.name||('Material '+(i+1)), sel=(i===S.selected);
-    if(lod===0){ ncx.fillStyle=o.color||'#7dd3fc'; ncx.beginPath(); ncx.arc(x0+CW/2,y+10,10,0,6.2832); ncx.fill(); ncx.lineWidth=(sel?2.4:1.2)/z; ncx.strokeStyle=sel?'#ffd479':'rgba(120,130,170,0.55)'; ncx.stroke(); outs.push({x:x0+CW,y:y+10}); y+=28+GAP; continue; }
-    const CH=lod===2?120:28;
-    _rr(ncx,x0,y,CW,CH,11); ncx.fillStyle='rgba(17,19,30,0.95)'; ncx.fill(); ncx.lineWidth=(sel?2.6:1.4)/z; ncx.strokeStyle=sel?'#ffd479':'rgba(122,134,178,0.45)'; ncx.stroke();
-    ncx.save(); _rr(ncx,x0,y,CW,26,11); ncx.clip(); ncx.fillStyle=CAT; ncx.fillRect(x0,y,CW,26); ncx.restore();
-    ncx.fillStyle='#eaf2ee'; ncx.font='600 14px system-ui,sans-serif'; ncx.fillText(name,x0+12,y+13);
-    ncx.fillStyle='rgba(230,240,255,0.5)'; ncx.font='9px ui-monospace,monospace'; ncx.textAlign='right'; ncx.fillText('ATTRIBUTE',x0+CW-10,y+13); ncx.textAlign='left';
-    const socY=y+CH/2; ncx.fillStyle=TEAL; ncx.beginPath(); ncx.arc(x0+CW,socY,5,0,6.2832); ncx.fill(); ncx.lineWidth=1/z; ncx.strokeStyle='rgba(0,0,0,0.45)'; ncx.stroke(); outs.push({x:x0+CW,y:socY});
-    if(lod===2){ ncx.fillStyle=o.color||'#7dd3fc'; _rr(ncx,x0+12,y+38,18,18,4); ncx.fill(); ncx.lineWidth=1/z; ncx.strokeStyle='rgba(255,255,255,0.28)'; ncx.stroke();
-      ncx.fillStyle='#c7cfe0'; ncx.font='12px system-ui,sans-serif';
-      ncx.fillText('radius '+(o.r!=null?o.r:'-'),x0+40,y+43); ncx.fillText('stiffness '+(o.stiff!=null?(+o.stiff).toFixed(2):'-'),x0+40,y+58);
+
+// Node types are DATA. Adding a node = one entry here (category/colours/sockets/body); the
+// render loop, hit-test, layout and evaluator all walk these generically.
+const NODE_TYPES={
+  material:{ category:'Attributes', header:'#2f7d5f', bg:'rgba(17,19,30,0.95)', border:'rgba(122,134,178,0.45)', borderW:1.4, round:11, headH:26,
+    fullH:120, compactH:28, dotH:28, tag:'ATTRIBUTE',
+    inputs:[], outputs:[{key:'geo',type:'geometry'}],
+    title:n=>{ const o=G.objs[n.oi]; return (o&&o.name)||('Material '+((n.oi|0)+1)); },
+    accent:n=>{ const o=G.objs[n.oi]; return (o&&o.color)||'#7dd3fc'; },
+    drawBody(cx,n,x,y,w){ const o=G.objs[n.oi]; if(!o)return; const z=view.z;
+      cx.fillStyle=o.color||'#7dd3fc'; _rr(cx,x+12,y+38,18,18,4); cx.fill(); cx.lineWidth=1/z; cx.strokeStyle='rgba(255,255,255,0.28)'; cx.stroke();
+      cx.fillStyle='#c7cfe0'; cx.font='12px system-ui,sans-serif';
+      cx.fillText('radius '+(o.r!=null?o.r:'-'),x+40,y+43); cx.fillText('stiffness '+(o.stiff!=null?(+o.stiff).toFixed(2):'-'),x+40,y+58);
       const fl=[]; if(o.breakable)fl.push('break'); if(o.bondOn)fl.push('bond'); if(o.autoSpace)fl.push('space'); if(o.solid)fl.push('solid'); if(o.fixed)fl.push('pinned');
-      ncx.fillStyle='rgba(158,170,198,0.92)'; ncx.font='10px ui-monospace,monospace'; ncx.fillText(fl.length?fl.join(' \u00b7 '):'(base only)',x0+12,y+82);
-      ncx.fillStyle='rgba(150,162,190,0.7)'; ncx.fillText('affinity '+(o.affinity!=null?o.affinity:'-')+'   curl '+(o.curl!=null?o.curl:'-'),x0+12,y+100); }
-    y+=CH+GAP;
-  }
-  // ---- Output node (the scene sink) ----
-  const ev=evalGraph(), OW=196,OH=104, xOut=x0+CW+110, colTop=44, colBot=Math.max(y,colTop+OH+20), yOut=(colTop+colBot)/2-OH/2, byp=ngBypass();
-  const N=outs.length;
-  for(let k=0;k<N;k++){ const sc=outs[k], inY=yOut+OH*(k+1)/(N+1), dx=(xOut-sc.x)*0.5;
-    ncx.beginPath(); ncx.moveTo(sc.x,sc.y); ncx.bezierCurveTo(sc.x+dx,sc.y,xOut-dx,inY,xOut,inY);
-    ncx.lineWidth=(byp?1.4:2.2)/z; ncx.strokeStyle=byp?'rgba(150,120,110,0.4)':'rgba(70,190,175,0.6)'; if(byp)ncx.setLineDash([6/z,6/z]); ncx.stroke(); ncx.setLineDash([]);
-    ncx.fillStyle=byp?'rgba(150,120,110,0.6)':TEAL; ncx.beginPath(); ncx.arc(xOut,inY,4,0,6.2832); ncx.fill(); }
-  _rr(ncx,xOut,yOut,OW,OH,12); ncx.fillStyle='rgba(24,18,14,0.96)'; ncx.fill(); ncx.lineWidth=2.2/z; ncx.strokeStyle=byp?'rgba(180,110,70,0.65)':'rgba(194,112,58,0.75)'; ncx.stroke();
-  ncx.save(); _rr(ncx,xOut,yOut,OW,28,12); ncx.clip(); ncx.fillStyle=OUT; ncx.fillRect(xOut,yOut,OW,28); ncx.restore();
-  ncx.fillStyle='#fff'; ncx.font='600 14px system-ui,sans-serif'; ncx.textAlign='left'; ncx.fillText('Output \u00b7 scene',xOut+12,yOut+14);
-  ncx.fillStyle='rgba(255,255,255,0.6)'; ncx.font='9px ui-monospace,monospace'; ncx.textAlign='right'; ncx.fillText(byp?'BYPASSED':'LIVE',xOut+OW-10,yOut+14); ncx.textAlign='left';
-  ncx.font='12px system-ui,sans-serif'; ncx.fillStyle='#d8ccc0';
-  ncx.fillText(ev.materials+' materials',xOut+14,yOut+46); ncx.fillText(ev.strands+' strands \u00b7 '+ev.nodes+' nodes',xOut+14,yOut+64);
-  ncx.fillStyle=byp?'#e08a5a':'#7bd0a0'; ncx.font='10px ui-monospace,monospace';
-  ncx.fillText(byp?'click \u2192 reconnect (resume)':'click \u2192 disconnect (freeze)',xOut+14,yOut+86);
-  if(NG)NG._rects={out:{x:xOut,y:yOut,w:OW,h:OH}};
+      cx.fillStyle='rgba(158,170,198,0.92)'; cx.font='10px ui-monospace,monospace'; cx.fillText(fl.length?fl.join(' \u00b7 '):'(base only)',x+12,y+82);
+      cx.fillStyle='rgba(150,162,190,0.7)'; cx.fillText('affinity '+(o.affinity!=null?o.affinity:'-')+'   curl '+(o.curl!=null?o.curl:'-'),x+12,y+100); } },
+  output:{ category:'Output', header:'#c2703a', bg:'rgba(24,18,14,0.96)', border:'rgba(194,112,58,0.75)', borderW:2.2, round:12, headH:28,
+    fullH:104, alwaysFull:true, titleColor:'#fff',
+    inputs:[{key:'geo',type:'geometry',multi:true}], outputs:[],
+    title:()=>'Output \u00b7 scene',
+    tag:()=>ngBypass()?'BYPASSED':'LIVE', tagColor:'rgba(255,255,255,0.6)',
+    drawBody(cx,n,x,y,w){ const ev=evalGraph(), byp=ngBypass();
+      cx.font='12px system-ui,sans-serif'; cx.fillStyle='#d8ccc0';
+      cx.fillText(ev.materials+' materials',x+14,y+46); cx.fillText(ev.strands+' strands \u00b7 '+ev.nodes+' nodes',x+14,y+64);
+      cx.fillStyle=byp?'#e08a5a':'#7bd0a0'; cx.font='10px ui-monospace,monospace';
+      cx.fillText(byp?'click \u2192 reconnect (resume)':'click \u2192 disconnect (freeze)',x+14,y+86); } }
+};
+
+// ---- model ----
+const NG={ nodes:[], wires:[], bypass:false };
+function ngBypass(){ return !!(NG&&NG.bypass); }
+function ngNode(id){ for(const n of NG.nodes)if(n.id===id)return n; return null; }
+function ngNodeByType(t){ for(const n of NG.nodes)if(n.type===t)return n; return null; }
+function ngSync(){ // reconcile the graph with the scene (auto-derived for now; Phase 2 makes nodes hand-authored)
+  if(!NG.nodes)NG.nodes=[];
+  let out=ngNodeByType('output'); if(!out){ out={id:'out',type:'output',auto:true}; NG.nodes.push(out); }
+  NG.nodes=NG.nodes.filter(n=> n.type!=='material' || n.oi<G.objs.length);   // drop orphaned materials
+  const have=new Set(); for(const n of NG.nodes)if(n.type==='material')have.add(n.oi);
+  for(let i=0;i<G.objs.length;i++)if(!have.has(i))NG.nodes.push({id:'mat'+i,type:'material',oi:i,auto:true});
+  for(const n of NG.nodes)if(n.type==='material')n.selected=(n.oi===S.selected);
+  NG.wires=[]; for(const n of NG.nodes)if(n.type==='material')NG.wires.push({from:{node:n.id,socket:'geo'},to:{node:out.id,socket:'geo'}});
 }
+// ---- layout (positions only; Phase 2 will skip nodes the user has moved) ----
+function ngLayout(){ const z=view.z, lod=z>=NGCFG.lodFull?2:z>=NGCFG.lodDot?1:0, x0=S.W+NGCFG.colX; let y=NGCFG.colY;
+  for(const n of NG.nodes){ if(n.type==='output')continue; const T=NODE_TYPES[n.type];
+    n.x=x0; n.y=y; n.w=NGCFG.colW; n._lod=lod; n.h=(lod===2?T.fullH:(lod===0?(T.dotH||28):(T.compactH||28))); y+=n.h+NGCFG.cardGap; }
+  const out=ngNodeByType('output'); if(out){ const T=NODE_TYPES.output, colTop=NGCFG.colY, colBot=Math.max(y,colTop+T.fullH+20);
+    out.x=x0+NGCFG.colW+NGCFG.outGapX; out.y=(colTop+colBot)/2-T.fullH/2; out.w=NGCFG.outW; out.h=T.fullH; out._lod=2; }
+}
+function ngSocketOut(n){ return {x:n.x+n.w, y:(n._lod===0?n.y+10:n.y+n.h/2)}; }
+// ---- eval (walk Output <- connected materials) ----
+function evalGraph(){ if(ngBypass())return {materials:0,strands:0,nodes:0,live:false};
+  const out=ngNodeByType('output'); const conn=out?NG.wires.filter(w=>w.to.node===out.id).length:G.objs.length;
+  let strands=0; for(const sg of G.segs)if(sg&&!sg.dead)strands++;
+  return {materials:conn, strands, nodes:G.nodes.length, live:true}; }
+// ---- render (generic frame + per-type drawBody) ----
+function ngDrawNode(cx,n){ const T=NODE_TYPES[n.type]; if(!T)return; const z=view.z, x=n.x,y=n.y,w=n.w,h=n.h, lod=n._lod, sel=n.selected;
+  if(lod===0 && !T.alwaysFull){ cx.fillStyle=T.accent?T.accent(n):T.header; cx.beginPath(); cx.arc(x+w/2,y+10,10,0,6.2832); cx.fill();
+    cx.lineWidth=(sel?2.4:1.2)/z; cx.strokeStyle=sel?NGCFG.selBorder:'rgba(120,130,170,0.55)'; cx.stroke(); return; }
+  _rr(cx,x,y,w,h,T.round||11); cx.fillStyle=T.bg; cx.fill(); cx.lineWidth=(sel?2.6:(T.borderW||1.4))/z; cx.strokeStyle=sel?NGCFG.selBorder:T.border; cx.stroke();
+  const hh=T.headH||26; cx.save(); _rr(cx,x,y,w,hh,T.round||11); cx.clip(); cx.fillStyle=T.header; cx.fillRect(x,y,w,hh); cx.restore();
+  cx.fillStyle=T.titleColor||'#eaf2ee'; cx.font='600 14px system-ui,sans-serif'; cx.textAlign='left'; cx.fillText(T.title(n),x+12,y+hh/2);
+  const tag=typeof T.tag==='function'?T.tag(n):T.tag; if(tag){ cx.fillStyle=T.tagColor||'rgba(230,240,255,0.5)'; cx.font='9px ui-monospace,monospace'; cx.textAlign='right'; cx.fillText(tag,x+w-10,y+hh/2); cx.textAlign='left'; }
+  if(T.outputs)for(let oi2=0;oi2<T.outputs.length;oi2++){ const p=ngSocketOut(n); cx.fillStyle=NGCFG.geo; cx.beginPath(); cx.arc(p.x,p.y,5,0,6.2832); cx.fill(); cx.lineWidth=1/z; cx.strokeStyle='rgba(0,0,0,0.45)'; cx.stroke(); }
+  if(lod===2 && T.drawBody)T.drawBody(cx,n,x,y,w);
+}
+function ngDrawWires(cx){ const z=view.z, byp=ngBypass(); const byT={};
+  for(const w of NG.wires){ (byT[w.to.node]=byT[w.to.node]||[]).push(w); }
+  for(const tid in byT){ const tw=byT[tid], tn=ngNode(tid); if(!tn||!tn.w)continue; const N=tw.length;
+    for(let k=0;k<N;k++){ const sn=ngNode(tw[k].from.node); if(!sn||!sn.w)continue;
+      const s=ngSocketOut(sn), inX=tn.x, inY=tn.y+tn.h*(k+1)/(N+1), dx=(inX-s.x)*0.5;
+      cx.beginPath(); cx.moveTo(s.x,s.y); cx.bezierCurveTo(s.x+dx,s.y,inX-dx,inY,inX,inY);
+      cx.lineWidth=(byp?1.4:2.2)/z; cx.strokeStyle=byp?'rgba(150,120,110,0.4)':'rgba(70,190,175,0.6)'; if(byp)cx.setLineDash([6/z,6/z]); cx.stroke(); cx.setLineDash([]);
+      cx.fillStyle=byp?'rgba(150,120,110,0.6)':NGCFG.geo; cx.beginPath(); cx.arc(inX,inY,4,0,6.2832); cx.fill(); }
+  }
+}
+function drawNodeGraph(){ if(!ncx)return; ncx.setTransform(1,0,0,1,0,0); ncx.clearRect(0,0,cnode.width,cnode.height);
+  if(!S.nodeView)return;
+  ncx.setTransform(S.dpr*view.z,0,0,S.dpr*view.z,S.dpr*view.ox,S.dpr*view.oy);   // shared camera
+  ngSync(); ngLayout();
+  ncx.lineJoin='round'; ncx.textBaseline='middle'; ncx.textAlign='left';
+  ncx.fillStyle='rgba(150,162,190,0.55)'; ncx.font='10px ui-monospace,monospace'; ncx.fillText('MATERIAL NODES \u00b7 wired to Output',S.W+NGCFG.colX,24);
+  ngDrawWires(ncx);
+  for(const n of NG.nodes)ngDrawNode(ncx,n);
+}
+// ---- hit-test / interaction ----
+function ngPick(gx,gy){ for(let i=NG.nodes.length-1;i>=0;i--){ const n=NG.nodes[i]; if(!n.w)continue; const pad=(n.type==='output')?18:0;
+  if(gx>=n.x-pad&&gx<=n.x+n.w&&gy>=n.y&&gy<=n.y+n.h)return n; } return null; }
+function ngHitTest(gx,gy){ if(!S.nodeView)return false; const n=ngPick(gx,gy); if(!n)return false;
+  if(n.type==='output'){ NG.bypass=!NG.bypass; window.RD=true; return true; } return false; }
+// ---- camera fit (frames sim box + full-size node layout) ----
+function fitNodesView(){ ngSync(); const N=NG.nodes.filter(n=>n.type==='material').length, x0=S.W+NGCFG.colX;
+  const colH=N*(NODE_TYPES.material.fullH+NGCFG.cardGap), maxX=x0+NGCFG.colW+NGCFG.outGapX+NGCFG.outW+40, maxY=Math.max(S.H,NGCFG.colY+colH+24);
+  const m=36, z=Math.min((S.W-2*m)/maxX,(S.H-2*m)/maxY,1); view.z=z; view.ox=m; view.oy=m; window.RD=true; }
 function frame(now){const dt=now-lastT;lastT=now;
   let did=false;
   if(S.running){if(!(typeof ngBypass==='function'&&ngBypass())){if(S.gpuPhysics&&window.gpuPhysicsStep){window.gpuPhysicsStep(S.speed);}else{S.frame=(S.frame||0)+1;advanceCDRamp();attract();endpointForces();relaxSpacing();for(let k=0;k<S.speed;k++){integrate();flagBondBreaks();constraints();collide();wallCCD();dragApply();flagStrainBreaks();flagBendBreaks();flagSpeedBreaks();}maintainBonds();removeDead();}did=true;}}
