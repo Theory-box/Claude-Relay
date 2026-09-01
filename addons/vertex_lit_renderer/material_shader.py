@@ -59,14 +59,25 @@ def _compile(mat, mode):
            "notes": [], "sig": _nt.topo_signature(mat), "error": "", "mode": mode}
     try:
         vert, frag, res = build_material_frag(mat, mode)
+        ent["notes"] = res.notes
+        # Never render magenta: if the base-colour path hit a node we don't
+        # transpile yet, don't use the live shader for this material — let the
+        # engine fall back to the (working) base-texture path. Enabling live
+        # nodes can only improve materials we fully understand, never break others.
+        if any(str(n).startswith("unsupported node") for n in res.notes):
+            ent["failed"] = True
+            ent["error"] = "unsupported node(s) -> base-texture fallback"
+            return ent
         ent["shader"] = gpu.types.GPUShader(vert, frag)
         ent["samplers"] = [(s.uniform, s.image) for s in res.samplers]
         ent["params"] = res.params
-        ent["notes"] = res.notes
         ent["frag"] = frag
     except Exception as e:                      # pragma: no cover (GPU-side)
         ent["failed"] = True
         ent["error"] = str(e)
+    if ent["failed"]:
+        # Surfaced in the system console so a fallback/compile issue is diagnosable.
+        print("[VertexLit] material '{}' ({}): {}".format(mat.name, mode, ent["error"]))
     return ent
 
 

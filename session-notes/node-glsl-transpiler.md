@@ -184,3 +184,40 @@ EXPANDED COVERAGE (all emit expected GLSL, tested in tests/test_coverage.py):
    cleaner shadow edges. Works with Live Material Nodes on and off.
 2. Confirm re-entering rendered mode repeatedly stays smooth (v0.3.1 leak fix).
 3. Confirm the Material Properties tab shows the material again (v0.3.1 panels fix).
+
+## v0.4.1 — fixes from 2nd GPU session (perf leak + material tab + live-node safety)
+PERF (the "gets slow, persists after leaving, worse on re-enter, had to quit"):
+- Root cause: _gi_redraw_timer forces every VIEW_3D to redraw @20fps while
+  _gi_active is True, and _gi_active is only reset inside view_draw. Leaving
+  rendered mode while GI runs left it stuck True -> timer hammered redraws forever
+  (persisted after leaving; a 2nd engine on re-enter made it worse).
+  Also: v0.3.1's free() cleared ALL shader/program caches -> full recompile on
+  every re-entry = the brutal re-enter slowdown.
+- Fixes: (a) view_draw stamps _last_draw_time; timer only tags redraws if a draw
+  was seen in the last 0.5s -> self-heals even if free() isn't called (VALIDATED:
+  stale timestamp => timer does not tag). (b) free() sets _gi_active=False + stops
+  GI + drops instance refs, and NO LONGER clears the shared shader caches (the
+  viewport GPU context persists across enter/leave, so they stay valid).
+
+MATERIAL TAB MISSING (add/remove material slots gone):
+- Code was correct (EEVEE_MATERIAL_PT_context_material.poll = (ob or mat) and
+  engine in COMPAT_ENGINES; we add VERTEX_LIT to it — verified). The user's tab
+  stayed empty almost certainly because installing a zip over a running addon
+  keeps the OLD module loaded. Resolution is a clean reinstall + restart, not a
+  code change. (No code change needed; confirmed via poll introspection.)
+
+LIVE NODES "breaks materials":
+- Graceful degradation: material_shader._compile now marks a material failed
+  (engine uses the working base-texture path) if the transpiler hit ANY
+  unsupported node in the base-colour path — so live nodes never renders magenta;
+  it only enhances fully-supported graphs. (VALIDATED headless: Noise->BaseColor
+  => failed + reason.)
+- Added console diagnostic: "[VertexLit] material 'X' (MODE): <reason/compile
+  error>" so a GPU-side compile failure is visible. NEED FROM USER: that console
+  line when the toggle is on, to fix any compile-but-renders-wrong case.
+
+OPEN / NEED USER INPUT:
+- Which Render-panel settings "do nothing" (likely GI/shadow settings that need a
+  Sun light / GI enabled to show effect). Ask user to specify.
+- Live-node visual bug on user GPU if materials are fully-supported yet still wrong
+  -> need the console line + a description (black? wrong colour?).

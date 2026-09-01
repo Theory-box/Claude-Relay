@@ -19,9 +19,13 @@ MAX_LIGHTS = 8
 # Uses bpy.data (always valid in timers) not bpy.context (may be None).
 
 _gi_active = False
+_last_draw_time = 0.0   # updated every view_draw; timer stops when this goes stale
 
 def _gi_redraw_timer():
-    if _gi_active:
+    # Only force viewport redraws while GI is active AND a rendered viewport is
+    # actually drawing (view_draw seen in the last 0.5s). This prevents the timer
+    # from hammering redraws forever after the user leaves rendered mode.
+    if _gi_active and (time.time() - _last_draw_time) < 0.5:
         try:
             for wm in bpy.data.window_managers:
                 for window in wm.windows:
@@ -359,11 +363,18 @@ class VertexLitEngine(bpy.types.RenderEngine):
 
     def free(self):
         # Called when the engine instance is destroyed (leaving rendered mode).
-        # Stop GI and release GPU resources so re-entering starts clean instead
-        # of piling up stale-context shaders/textures/batches.
+        # CRITICAL: clear the module-level redraw flag, else _gi_redraw_timer keeps
+        # forcing every 3D viewport to redraw at 20fps forever (view_draw — the only
+        # place that resets it — stops being called once we leave rendered mode).
+        global _gi_active
+        _gi_active = False
         if hasattr(self, '_gi'):
-            try: self._gi.stop()
+            try: self._gi.stop()   # signal + join the GI worker thread
             except Exception: pass
+        # Drop per-instance references (batches/textures) so they can be GC'd.
+        # Do NOT clear the shared shader/program caches here: the viewport GPU
+        # context persists across enter/leave, so those stay valid — clearing them
+        # only forces an expensive full recompile on every re-entry.
         self._dummy_depth = None
         self._white_tex = None
         self._shadow_tex_cache = None
@@ -371,7 +382,6 @@ class VertexLitEngine(bpy.types.RenderEngine):
         self._shadow_dict = {}
         self._mesh_cache = {}
         self._state_ready = False
-        _release_gpu_caches()
 
     # ── view_update ───────────────────────────────────────────────────────
 
@@ -582,7 +592,8 @@ class VertexLitEngine(bpy.types.RenderEngine):
         # self.tag_redraw() is the RenderEngine API; context.region.tag_redraw()
         # is more direct and reliable in Blender 4.x.
         # The module-level timer is a third-layer fallback.
-        global _gi_active
+        global _gi_active, _last_draw_time
+        _last_draw_time = time.time()
         _gi_active=self._gi.is_running or self._shadow_dirty
         if _gi_active:
             self.tag_redraw()

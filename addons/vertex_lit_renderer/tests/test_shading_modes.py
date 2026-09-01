@@ -60,5 +60,17 @@ print("=== mode is part of the cache key ===")
 # build_material_frag differs by mode -> distinct programs
 check(fragV != fragP, "VERTEX and PIXEL produce different fragments")
 
-print("SUMMARY: " + ("FAILED " + ", ".join(F) if F else "ALL CHECKS PASSED"))
+
+# --- graceful fallback: unsupported node -> material marked failed (engine uses legacy)
+print("=== graceful fallback on unsupported node ===")
+mm = bpy.data.materials.new("noisey"); mm.use_nodes=True; tt=mm.node_tree; tt.nodes.clear()
+o=tt.nodes.new("ShaderNodeOutputMaterial"); bb=tt.nodes.new("ShaderNodeBsdfPrincipled")
+noise=tt.nodes.new("ShaderNodeTexNoise")
+tt.links.new(bb.outputs["BSDF"], o.inputs["Surface"])
+tt.links.new(noise.outputs["Fac"], bb.inputs["Base Color"])
+ent = ms._compile(mm, "VERTEX")   # returns before GPU compile for unsupported nodes
+check(ent["failed"] is True, "unsupported-node material marked failed (falls back)")
+check("unsupported" in ent["error"], "fallback reason recorded")
+
+print("SUMMARY2: " + ("FAILED " + ", ".join(F) if F else "ALL CHECKS PASSED"))
 sys.exit(1 if F else 0)
