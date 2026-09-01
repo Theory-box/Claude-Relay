@@ -3,13 +3,14 @@
 bl_info = {
     "name":        "Vertex Lit Renderer",
     "author":      "Theory-box / Claude",
-    "version":     (0, 1, 7),
+    "version":     (0, 3, 0),
     "blender":     (4, 4, 0),
     "location":    "Properties > Render > Render Engine → Vertex Lit",
     "description": "Gouraud per-vertex shading renderer for retro game look-dev. "
                    "Lighting (diffuse + shadow + ambient) is computed per vertex "
-                   "and interpolated – matching the shading model of PS1/N64-era engines.",
-    "warning":     "Experimental v0.1 – viewport only, no F12 render",
+                   "and interpolated – matching the shading model of PS1/N64-era engines. "
+                   "Optional live material-node preview (transpiles the shader graph to GLSL).",
+    "warning":     "Experimental – viewport only, no F12 render",
     "category":    "Render",
 }
 

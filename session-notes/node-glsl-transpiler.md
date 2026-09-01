@@ -80,9 +80,54 @@ of Workbench-style single-texture display or the old bake-to-PNG approach
    material shows its base texture instead of the graph, its shader failed to
    compile (fallback) — grab the console error.
 
+## v0.3 — kill recompile-on-edit + expand node coverage (headless-validated 4.4.3)
+Rewrote node_transpiler.py; updated material_shader.py + engine.py.
+
+RECOMPILE KILL:
+- Every unlinked input default (Mapping Scale/Loc/Rot, Mix factor, colours) and
+  RGB/Value nodes are now emitted as `uP_N` UNIFORMS (node_transpiler.Param),
+  not baked literals. Engine reads live values from the node tree each draw and
+  sets the uniforms → dragging a slider updates a uniform, NO recompile.
+- `topo_signature(mat)` = structure only (node types/names + operation enums +
+  links + image assignments + ColorRamp stops), excludes tweakable values.
+  material_shader.get_program reuses the compiled program while the signature is
+  unchanged; recompiles only on structural change. engine.view_update now calls
+  material_shader.mark_dirty (a structure re-check flag), not invalidate.
+- Verified: value edit → identical GLSL + identical signature (no recompile);
+  structural edit (vector_type / operation) → signature changes.
+
+GLSL TYPE TRACKING: added _var_type/_param_type + type-aware _coerce so a
+float/vec-producing node (Math, Value, SeparateXYZ) feeding a colour input is
+up-cast to vec4 correctly (was a latent type-mismatch risk).
+
+EXPANDED COVERAGE (all emit expected GLSL, tested in tests/test_coverage.py):
+  MATH (add/sub/mul/div/pow/min/max/trig/…, use_clamp), VECT_MATH (add/sub/mul/
+  cross/dot/distance/length/normalize/reflect/project/scale/…), MAP_RANGE
+  (linear+clamp), CLAMP (minmax/range), HUE_SAT, GAMMA, BRIGHTCONTRAST, INVERT,
+  SEPARATE/COMBINE (Color/RGB/XYZ), VALTORGB/ColorRamp (linear/constant/ease),
+  RGB, VALUE, MIX_RGB blend types (mix/add/mul/sub/screen/divide/darken/lighten/
+  difference), MIX(RGBA). Unsupported still → magenta + note.
+- IMPORTANT 4.4 gotcha: handler dispatch is `_n_<node.type.lower()>` and some
+  type strings differ from the idname — HUE_SAT (not hue_saturation), SEPXYZ,
+  COMBXYZ, SEPRGB, COMBRGB, VALTORGB, BRIGHTCONTRAST, UVMAP. Handlers named to match.
+
+### Tests (all pass on 4.4.3)
+- test_transpiler_spike.py: mapping uniformized; scale 2→4 leaves GLSL + signature
+  identical (recompile killed); structural edit changes signature; mix; no-nodes.
+- test_coverage.py: ~18 node types emit expected tokens, all balanced, none
+  unsupported; Math operation change alters signature.
+- test_wiring_headless.py: addon register/unregister clean; frag structurally
+  valid; samplers match; unsupported degrades safely.
+
 ## Remaining limitations / next actions
-1. Mapping params baked as literals → recompiles on edit. Promote scale/loc/rot
-   to uniforms (avoids recompile-on-slider). TOP follow-up.
+1. ColorRamp stops + Math/Mix OPERATION enums are structural (change → recompile).
+   Mapping/Mix/colour VALUES are uniforms (no recompile). Could uniformize ramp
+   stops too (fiddly; arity varies) — deferred.
+2. Mapping rotation is Z-only (UV plane). Noise/Voronoi/Musgrave not yet ported
+   (need Blender's exact GLSL for matching output). Bump/Normal need derivatives.
+3. Per-material shader compile still happens on first use / structural edit; a
+   warm shader precompile pass could hide the first-frame hitch.
+4. Verbose coerced GLSL (correct; compiler folds it).
 2. **Mapping params are baked as literals** → shader recompiles on every slider
    edit. Follow-up: promote scale/loc/rotation to uniforms so edits don't recompile.
 3. Coerce helper round-trips scalars/vectors through vec4 → verbose (but correct)

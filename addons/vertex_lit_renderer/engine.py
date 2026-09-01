@@ -388,8 +388,9 @@ class VertexLitEngine(bpy.types.RenderEngine):
                     self._dirty=True; self._shadow_dirty=True
                     _gi_active=True; return
             if isinstance(id_data,bpy.types.Material):
-                # Graph edit → recompile this material's live-node shader next draw.
-                material_shader.invalidate(id_data.name)
+                # Flag for a structure re-check next draw; value-only edits will
+                # reuse the compiled shader (they're uniforms), structure edits recompile.
+                material_shader.mark_dirty(id_data.name)
                 self._dirty=True; self._shadow_dirty=True
                 _gi_active=True; return
             if update.is_updated_transform:
@@ -636,6 +637,13 @@ class VertexLitEngine(bpy.types.RenderEngine):
             if prog is not None:
                 sh=prog['shader']
                 _ensure_frame(sh)
+                # Live constants (Mapping scale/loc/rot, mix factors, colours…):
+                # read current values from the node tree and push as uniforms —
+                # no recompile on edit.
+                nt=mat.node_tree if mat else None
+                for p in prog['params']:
+                    try: sh.uniform_float(p.uniform, p.value(nt))
+                    except Exception: pass
                 sh.uniform_float('uModel',inst.matrix_world)
                 sh.uniform_float('uNormalMat',normal_mat)
                 for uni,image in prog['samplers']:
