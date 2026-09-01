@@ -142,3 +142,21 @@ EXPANDED COVERAGE (all emit expected GLSL, tested in tests/test_coverage.py):
 - Per-object shading overrides.
 - Geometry-Nodes attributes → engine inputs (read mesh.attributes, bind as vertex
   attrs to drive colour/lighting).
+
+## v0.3.1 — fixes from first GPU session (headless-validated 4.4.3)
+- MATERIALS NOT SHOWING: custom engine wasn't in the material panels' COMPAT_ENGINES.
+  Added engine._register_panels(): adds 'VERTEX_LIT' to every panel Workbench uses
+  (incl. EEVEE_MATERIAL_PT_context_material = the material selector) + the node
+  'surface' panel. Removed on unregister. (test_panels_and_leak.py)
+- "CHUGGIER EACH RE-ENTER" leak: free() only stopped GI, leaving module-level GPU
+  objects (main/shadow shaders, shadow map, tex cache, per-material programs) to
+  accumulate stale-context objects across rendered-mode re-enters. Now free()
+  releases instance resources + _release_gpu_caches() clears the shared GPU caches
+  (lazily rebuilt next draw); unregister() also releases. Best-effort — needs GPU
+  confirmation that re-enter no longer degrades.
+
+## REQUESTED NEXT (not started): shading modes + SSAO
+- Shading mode enum: Per-Vertex (Gouraud, current) vs Per-Pixel (rasterized/Phong:
+  vert passes world normal+pos, lighting loop moves to fragment). Shader restructure.
+- SSAO: offscreen pass (color+depth[+normal]) → AO shader → composite. Multi-pass.
+  Both are visual-only (untestable headless) → build + user GPU-confirms.

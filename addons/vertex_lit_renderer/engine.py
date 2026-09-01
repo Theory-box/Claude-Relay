@@ -354,7 +354,20 @@ class VertexLitEngine(bpy.types.RenderEngine):
         if hasattr(self,'_gi'): self._gi.stop()
 
     def free(self):
-        if hasattr(self,'_gi'): self._gi.stop()
+        # Called when the engine instance is destroyed (leaving rendered mode).
+        # Stop GI and release GPU resources so re-entering starts clean instead
+        # of piling up stale-context shaders/textures/batches.
+        if hasattr(self, '_gi'):
+            try: self._gi.stop()
+            except Exception: pass
+        self._dummy_depth = None
+        self._white_tex = None
+        self._shadow_tex_cache = None
+        self._batch_dict = {}
+        self._shadow_dict = {}
+        self._mesh_cache = {}
+        self._state_ready = False
+        _release_gpu_caches()
 
     # ── view_update ───────────────────────────────────────────────────────
 
@@ -665,12 +678,62 @@ class VertexLitEngine(bpy.types.RenderEngine):
         gpu.state.depth_mask_set(False)
 
 
+_ENGINE_ID = 'VERTEX_LIT'
+_patched_panels = []
+
+def _compat_panels():
+    """Panels a simple non-PBR engine should show: the set Workbench uses
+    (incl. the material selector EEVEE_MATERIAL_PT_context_material) plus the
+    node 'surface' panel so node materials are visible/editable in Properties."""
+    extra = {'EEVEE_MATERIAL_PT_surface'}
+    out = []
+    for p in bpy.types.Panel.__subclasses__():
+        ce = getattr(p, 'COMPAT_ENGINES', None)
+        if not ce:
+            continue
+        if 'BLENDER_WORKBENCH' in ce or p.__name__ in extra:
+            out.append(p)
+    return out
+
+def _register_panels():
+    _patched_panels.clear()
+    for p in _compat_panels():
+        try:
+            p.COMPAT_ENGINES.add(_ENGINE_ID)
+            _patched_panels.append(p)
+        except Exception:
+            pass
+
+def _unregister_panels():
+    for p in _patched_panels:
+        try: p.COMPAT_ENGINES.discard(_ENGINE_ID)
+        except Exception: pass
+    _patched_panels.clear()
+
+def _release_gpu_caches():
+    """Drop module-level GPU objects so leaving/re-entering rendered mode never
+    accumulates stale-context shaders/textures (the 'chuggier each re-enter' leak).
+    Everything is lazily rebuilt on the next draw."""
+    global _main_shader, _shadow_shader, _shadow_map
+    _main_shader = None
+    _shadow_shader = None
+    _shadow_map = None
+    _tex_cache.clear()
+    try:
+        material_shader.invalidate()   # release compiled per-material programs
+    except Exception:
+        pass
+
+
 def register():
     bpy.utils.register_class(VertexLitEngine)
+    _register_panels()
     if not bpy.app.timers.is_registered(_gi_redraw_timer):
         bpy.app.timers.register(_gi_redraw_timer, persistent=True)
 
 def unregister():
     if bpy.app.timers.is_registered(_gi_redraw_timer):
         bpy.app.timers.unregister(_gi_redraw_timer)
+    _unregister_panels()
+    _release_gpu_caches()
     bpy.utils.unregister_class(VertexLitEngine)
