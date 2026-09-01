@@ -13,6 +13,7 @@ from .gi import ProgressiveGI
 from . import material_shader
 
 MAX_LIGHTS = 8
+_DEBUG = True   # prints "[VertexLit] rebuild <- ..." naming what triggers a rebuild
 
 # ── GI redraw timer ───────────────────────────────────────────────────────────
 # Backup for self.tag_redraw() — forces redraws at 20 fps while GI runs.
@@ -347,6 +348,7 @@ class VertexLitEngine(bpy.types.RenderEngine):
         # queue deferred depsgraph events that arrive after _rebuild returns.
         # The drain absorbs them so they don't re-trigger a rebuild.
         self._drain_cycles     = 0
+        self._rebuild_time     = 0.0
         self._state_ready      = True
 
     def _ensure_resources(self):
@@ -392,46 +394,55 @@ class VertexLitEngine(bpy.types.RenderEngine):
         if self._drain_cycles > 0:
             self._drain_cycles -= 1
             return
+        # Time-based absorb: for a short window after a rebuild, ignore ALL
+        # depsgraph updates. new_from_object/remove during extraction emit deferred
+        # geometry/material events; without this they can re-trigger _dirty AFTER
+        # the fixed cycle-drain expires -> the 0.9s rebuild loop seen in the console.
+        if time.time() - getattr(self, '_rebuild_time', 0.0) < 0.4:
+            return
+
+        vls_lb = getattr(depsgraph.scene, 'vertex_lit', None)
+        live = bool(getattr(vls_lb, 'use_live_nodes', False)) if vls_lb else False
 
         for update in depsgraph.updates:
             id_data=update.id
             if update.is_updated_geometry:
                 if isinstance(id_data,bpy.types.Mesh):
-                    # users==0 → orphaned temp mesh from new_from_object, skip it.
-                    # Real scene meshes always have ≥1 user (their linked object).
-                    # DO NOT check bpy.types.Object here unconditionally — that fires
-                    # on every render evaluation cycle and causes a rebuild loop.
                     if getattr(id_data,'users',0)>0:
+                        if _DEBUG: print("[VertexLit] rebuild <- mesh geom:", id_data.name)
                         self._dirty=True; self._shadow_dirty=True
                         _gi_active=True; return
                 if isinstance(id_data,bpy.types.Object) and id_data.type=='MESH':
-                    # Safe Object check: only dirty if this object isn't already
-                    # in our cache. New/duplicated objects aren't cached yet.
-                    # Existing objects re-evaluating every frame ARE cached → skip.
                     if id_data.name not in self._mesh_cache:
+                        if _DEBUG: print("[VertexLit] rebuild <- new object:", id_data.name)
                         self._dirty=True; self._shadow_dirty=True
                         _gi_active=True; return
                 if isinstance(id_data,bpy.types.Object) and id_data.type=='LIGHT':
+                    if _DEBUG: print("[VertexLit] rebuild <- light geom:", id_data.name)
                     self._dirty=True; self._shadow_dirty=True
                     _gi_active=True; return
             if isinstance(id_data,bpy.types.Material):
-                # Flag for a structure re-check next draw; value-only edits will
-                # reuse the compiled shader (they're uniforms), structure edits recompile.
                 material_shader.mark_dirty(id_data.name)
+                if live:
+                    # Live path reads the node graph at DRAW time -> only the tiny
+                    # per-material shader recompiles. NO full geometry rebuild (that
+                    # re-extract + GI restart on every material edit is the chug).
+                    _gi_active=True
+                    try: context.region.tag_redraw()
+                    except Exception: pass
+                    return
+                if _DEBUG: print("[VertexLit] rebuild <- material:", id_data.name)
                 self._dirty=True; self._shadow_dirty=True
                 _gi_active=True; return
             if update.is_updated_transform:
                 if isinstance(id_data, bpy.types.Object):
                     if id_data.type == 'LIGHT':
-                        # Light moved — GI positions are stale, full rebuild needed
                         self._dirty = True
                         self._shadow_dirty = True
                         _gi_active = True; return
                     elif id_data.type == 'MESH':
-                        # Mesh moved — only shadow needs re-render, geometry batch is fine
-                        # (shader reads obj.matrix_world at draw time)
                         self._shadow_dirty = True
-                        _gi_active = True  # wake timer so shadow redraws immediately
+                        _gi_active = True
             if isinstance(id_data,bpy.types.Image):
                 _invalidate_tex(id_data.name)
 
@@ -439,7 +450,8 @@ class VertexLitEngine(bpy.types.RenderEngine):
 
     def _rebuild(self, depsgraph, vls):
         self._rebuild_inner(depsgraph, vls)
-        self._drain_cycles=4  # absorb deferred events from new_from_object calls
+        self._drain_cycles=4      # absorb immediate deferred events
+        self._rebuild_time=time.time()  # + time-based absorb window (see view_update)
 
     def _rebuild_inner(self, depsgraph, vls):
         t0=time.time()

@@ -3,7 +3,7 @@
 bl_info = {
     "name":        "Vertex Lit Renderer",
     "author":      "Theory-box / Claude",
-    "version":     (0, 4, 1),
+    "version":     (0, 4, 2),
     "blender":     (4, 4, 0),
     "location":    "Properties > Render > Render Engine → Vertex Lit",
     "description": "Gouraud per-vertex shading renderer for retro game look-dev. "

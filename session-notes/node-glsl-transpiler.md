@@ -221,3 +221,28 @@ OPEN / NEED USER INPUT:
   Sun light / GI enabled to show effect). Ask user to specify.
 - Live-node visual bug on user GPU if materials are fully-supported yet still wrong
   -> need the console line + a description (black? wrong colour?).
+
+## v0.4.2 — rebuild-loop chug + solid-color diagnosis (from 3rd GPU session log)
+CONSOLE showed a REBUILD LOOP: "rebuilt 7 objs (0.9s) / GI started / GI sample 4 /
+rebuilt 7 objs / GI started ..." repeating -> GI never converges -> perpetual
+forced-redraw storm (also flooded 'SpaceNodeEditor tree_type 2' warnings) =
+persistent chug. Root: something re-sets _dirty every ~1s; prime suspect is
+Material update events (from live-preview editing and/or new_from_object churn
+with preserve_all_data_layers) forcing a full geometry re-extract.
+Fixes:
+- TIME-BASED ABSORB: view_update ignores all depsgraph updates for 0.4s after a
+  rebuild (self._rebuild_time), robustly soaking post-extract churn regardless of
+  event count (the fixed 4-cycle drain could expire mid-churn).
+- LIVE MATERIAL EDIT != REBUILD: when use_live_nodes is on, a Material update only
+  marks the per-material shader dirty (recompiles the small shader) + tags redraw;
+  NO full geometry rebuild / GI restart.
+- _DEBUG prints "[VertexLit] rebuild <- <reason>" at each _dirty site so the next
+  console log names the loop trigger definitively if anything still loops.
+
+SOLID-COLOR-INSTEAD-OF-TEXTURE (live nodes on): added per-compile diagnostic
+"[VertexLit] live 'Mat' (MODE): N sampler(s), M param(s) notes=[...]". 0 samplers
+on a textured-looking material => the image is NOT in the Base Color path the
+transpiler follows (base colour is flat, or the texture is wired to another input;
+note non-live _find_base_texture grabs ANY image node, hence the mismatch).
+NEED FROM USER: new console log + one material's node graph (is the image plugged
+into Principled Base Color, and through what nodes?).

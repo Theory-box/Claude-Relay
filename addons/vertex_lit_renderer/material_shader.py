@@ -60,6 +60,12 @@ def _compile(mat, mode):
     try:
         vert, frag, res = build_material_frag(mat, mode)
         ent["notes"] = res.notes
+        # Diagnostic: how much of the graph the transpiler resolved. 0 samplers on
+        # a material you expect to be textured => the image isn't in the Base Color
+        # path the transpiler follows (it may be flat, or wired through other inputs).
+        print("[VertexLit] live '{}' ({}): {} sampler(s), {} param(s){}".format(
+            mat.name, mode, len(res.samplers), len(res.params),
+            "  notes=" + str(res.notes) if res.notes else ""))
         # Never render magenta: if the base-colour path hit a node we don't
         # transpile yet, don't use the live shader for this material — let the
         # engine fall back to the (working) base-texture path. Enabling live
