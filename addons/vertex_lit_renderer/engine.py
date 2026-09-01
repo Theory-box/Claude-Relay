@@ -8,7 +8,7 @@ from gpu_extras.batch import batch_for_shader
 from mathutils import Matrix, Vector
 from mathutils.bvhtree import BVHTree
 
-from .shaders import SHADOW_VERT, SHADOW_FRAG, MAIN_VERT, MAIN_FRAG
+from .shaders import SHADOW_VERT, SHADOW_FRAG, MAIN_VERT, MAIN_FRAG, PHONG_VERT, PHONG_FRAG
 from .gi import ProgressiveGI
 from . import material_shader
 
@@ -35,7 +35,7 @@ def _gi_redraw_timer():
 # ── Shader singletons ─────────────────────────────────────────────────────────
 
 _shadow_shader = None
-_main_shader   = None
+_main_shader   = {}   # shading mode -> GPUShader
 
 def _get_shadow_shader():
     global _shadow_shader
@@ -43,11 +43,15 @@ def _get_shadow_shader():
         _shadow_shader = gpu.types.GPUShader(SHADOW_VERT, SHADOW_FRAG)
     return _shadow_shader
 
-def _get_main_shader():
-    global _main_shader
-    if _main_shader is None:
-        _main_shader = gpu.types.GPUShader(MAIN_VERT, MAIN_FRAG)
-    return _main_shader
+def _get_main_shader(mode='VERTEX'):
+    sh = _main_shader.get(mode)
+    if sh is None:
+        if mode == 'PIXEL':
+            sh = gpu.types.GPUShader(PHONG_VERT, PHONG_FRAG)
+        else:
+            sh = gpu.types.GPUShader(MAIN_VERT, MAIN_FRAG)
+        _main_shader[mode] = sh
+    return sh
 
 # ── GPU texture cache ─────────────────────────────────────────────────────────
 
@@ -615,7 +619,8 @@ class VertexLitEngine(bpy.types.RenderEngine):
         gpu.state.face_culling_set('BACK')
 
         view_proj=rv3d.window_matrix@rv3d.view_matrix
-        legacy=_get_main_shader()
+        mode=getattr(vls,'shading_mode','VERTEX')
+        legacy=_get_main_shader(mode)
         use_live=bool(getattr(vls,'use_live_nodes',False))
         frame_done=set()   # id(shader) that already received per-frame uniforms
 
@@ -641,7 +646,7 @@ class VertexLitEngine(bpy.types.RenderEngine):
             if use_live:
                 mat=getattr(obj,'active_material',None)
                 if mat is not None and getattr(mat,'use_nodes',False):
-                    p=material_shader.get_program(mat)
+                    p=material_shader.get_program(mat, mode)
                     # failed==True means the GLSL didn't compile on THIS GPU →
                     # silently use the legacy texture path for that material.
                     if p and not p['failed'] and p['shader'] is not None:
@@ -714,8 +719,8 @@ def _release_gpu_caches():
     """Drop module-level GPU objects so leaving/re-entering rendered mode never
     accumulates stale-context shaders/textures (the 'chuggier each re-enter' leak).
     Everything is lazily rebuilt on the next draw."""
-    global _main_shader, _shadow_shader, _shadow_map
-    _main_shader = None
+    global _shadow_shader, _shadow_map
+    _main_shader.clear()
     _shadow_shader = None
     _shadow_map = None
     _tex_cache.clear()

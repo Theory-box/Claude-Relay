@@ -82,7 +82,7 @@ def spike_mat():
     return m
 
 mat = spike_mat()
-frag, res = ms.build_material_frag(mat)
+_, frag, res = ms.build_material_frag(mat, "VERTEX")
 print(frag)
 check("void main()" in frag, "frag has main()")
 check("computeBaseColor" in frag, "frag defines computeBaseColor")
@@ -105,7 +105,7 @@ bsdf2 = nt2.nodes.new("ShaderNodeBsdfPrincipled")
 noise = nt2.nodes.new("ShaderNodeTexNoise")  # unsupported in spike
 nt2.links.new(bsdf2.outputs["BSDF"], out2.inputs["Surface"])
 nt2.links.new(noise.outputs["Fac"], bsdf2.inputs["Base Color"])
-frag2, res2 = ms.build_material_frag(mat2)
+_, frag2, res2 = ms.build_material_frag(mat2, "VERTEX")
 check("void main()" in frag2 and balanced(frag2, "{", "}"),
       "unsupported node degrades to a structurally-valid frag")
 check(any("unsupported" in n for n in res2.notes), "unsupported node is reported in notes")

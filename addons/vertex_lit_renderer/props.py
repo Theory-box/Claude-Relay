@@ -2,6 +2,17 @@ import bpy
 
 class VertexLitSettings(bpy.types.PropertyGroup):
 
+    # Shading model
+    shading_mode: bpy.props.EnumProperty(
+        name="Shading",
+        items=[
+            ('VERTEX', "Per-Vertex (Gouraud)",
+             "Lighting computed per vertex and interpolated (retro / fast)"),
+            ('PIXEL', "Per-Pixel (Phong)",
+             "Lighting computed per fragment (sharper highlights, smoother shadows)"),
+        ],
+        default='VERTEX')
+
     # Hemisphere fill (ambient fallback / low-frequency fill light)
     sky_color: bpy.props.FloatVectorProperty(
         name="Sky", subtype='COLOR', default=(0.05, 0.07, 0.10),

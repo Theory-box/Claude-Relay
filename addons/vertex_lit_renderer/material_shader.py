@@ -1,54 +1,44 @@
 # vertex_lit_renderer/material_shader.py
 """
-Per-material shader builder + cache (structure-aware).
+Per-material shader builder + cache (structure- and mode-aware).
 
 Wraps node_transpiler: turns a material's node graph into a fragment that
-computes base colour live, pairs it with the engine's MAIN_VERT (lighting/
-shadow/GI unchanged), compiles, and caches per material.
+computes base colour live, pairs it with the mode-appropriate vertex shader
+(Gouraud passes vLight; Phong passes world pos/normal and lights per-fragment),
+compiles, and caches per (material, shading_mode).
 
-Recompile policy
-----------------
-The program is keyed by node_transpiler.topo_signature(mat), which ignores
-tweakable values (they're uniforms). While the signature is unchanged the
-compiled program is REUSED — dragging Mapping Scale, a Mix factor, colours,
-Value/RGB, etc. only updates uniforms (engine reads them live each draw), never
-recompiles. Structure changes (add/remove/relink a node, change an operation/
-blend mode, swap an image, edit a ColorRamp) change the signature and recompile.
-
-Compilation happens at DRAW time (GPU context live in view_draw). On failure —
-only truly judgeable on a real GPU — the entry is `failed` and the engine falls
-back to the legacy single-texture path for that material, so a bad transpile can
-never black out the viewport.
+Recompile policy: keyed by node_transpiler.topo_signature(mat) AND shading mode.
+Value edits (Mapping scale, mix factor, colours…) are uniforms -> no recompile.
+Structure edits or a mode switch -> recompile. Compile happens at draw time; on
+failure the engine falls back to the legacy texture path for that material.
 """
 
 from __future__ import annotations
 import gpu
 
-from .shaders import MAIN_VERT
+from . import shaders as _sh
 from . import node_transpiler as _nt
 
-_FRAG_HEAD = "in vec4 vLight;\nin vec2 vUV;\nout vec4 outColor;\n"
-_FRAG_MAIN = (
-    "void main() {\n"
-    "    vec4 base = computeBaseColor(vUV);\n"
-    "    outColor = vec4(vLight.rgb * base.rgb, vLight.a * base.a);\n"
-    "}\n"
-)
-
-# mat.name -> {shader, samplers[(uniform,image)], params[Param], failed, notes, sig, frag, error}
+# (mat.name, mode) -> {shader, samplers, params, failed, notes, sig, frag, error}
 _prog_cache = {}
-# materials whose graph MIGHT have changed since last compile (set by engine.view_update)
 _dirty_mats = set()
 
 
-def build_material_frag(mat):
-    """Return (frag_source, transpile_result). No GPU needed."""
+def _heads(mode):
+    if mode == "PIXEL":
+        return _sh.PHONG_VERT, _sh.MAT_FRAG_HEAD_PIXEL, _sh.MAT_FRAG_MAIN_PIXEL, _sh.LIGHT_CHUNK
+    return _sh.MAIN_VERT, _sh.MAT_FRAG_HEAD_VERTEX, _sh.MAT_FRAG_MAIN_VERTEX, ""
+
+
+def build_material_frag(mat, mode="VERTEX"):
+    """Return (vertex_src, frag_src, transpile_result). No GPU needed."""
     res = _nt.transpile_material(mat)
+    vert, head, main, light = _heads(mode)
     sampler_decls = "".join("uniform sampler2D {};\n".format(s.uniform) for s in res.samplers)
     param_decls = "".join(d + "\n" for d in res.param_decls)
-    frag = (_FRAG_HEAD + sampler_decls + param_decls + _nt.HELPERS + "\n"
-            + res.glsl + "\n" + _FRAG_MAIN)
-    return frag, res
+    frag = (head + sampler_decls + param_decls + light + _nt.HELPERS + "\n"
+            + res.glsl + "\n" + main)
+    return vert, frag, res
 
 
 def mark_dirty(name):
@@ -59,15 +49,17 @@ def invalidate(name=None):
     if name is None:
         _prog_cache.clear(); _dirty_mats.clear()
     else:
-        _prog_cache.pop(name, None); _dirty_mats.discard(name)
+        for k in [k for k in _prog_cache if k[0] == name]:
+            _prog_cache.pop(k, None)
+        _dirty_mats.discard(name)
 
 
-def _compile(mat):
+def _compile(mat, mode):
     ent = {"shader": None, "samplers": [], "params": [], "failed": False,
-           "notes": [], "sig": _nt.topo_signature(mat), "error": ""}
+           "notes": [], "sig": _nt.topo_signature(mat), "error": "", "mode": mode}
     try:
-        frag, res = build_material_frag(mat)
-        ent["shader"] = gpu.types.GPUShader(MAIN_VERT, frag)
+        vert, frag, res = build_material_frag(mat, mode)
+        ent["shader"] = gpu.types.GPUShader(vert, frag)
         ent["samplers"] = [(s.uniform, s.image) for s in res.samplers]
         ent["params"] = res.params
         ent["notes"] = res.notes
@@ -78,26 +70,25 @@ def _compile(mat):
     return ent
 
 
-def get_program(mat):
-    """
-    Cached program for `mat`. Recompiles only when the structural signature
-    changes; otherwise reuses the compiled shader (value edits are uniforms).
-    """
+def get_program(mat, mode="VERTEX"):
     if mat is None:
         return None
-    name = mat.name
-    ent = _prog_cache.get(name)
-    dirty = name in _dirty_mats
+    key = (mat.name, mode)
+    ent = _prog_cache.get(key)
+    dirty = mat.name in _dirty_mats
 
     if ent is not None and not dirty:
-        return ent  # fast path: nothing flagged this material
+        return ent
 
-    # Flagged (or first time): check whether STRUCTURE actually changed.
-    _dirty_mats.discard(name)
     if ent is not None and not ent["failed"] and ent["shader"] is not None:
         if ent["sig"] == _nt.topo_signature(mat):
-            return ent  # only values changed -> reuse compiled program
+            # value-only change: reuse this mode's program; clear dirty only when
+            # every cached mode for this material has been revalidated is overkill,
+            # so just clear here — other modes recompile lazily on next use.
+            _dirty_mats.discard(mat.name)
+            return ent
 
-    ent = _compile(mat)
-    _prog_cache[name] = ent
+    ent = _compile(mat, mode)
+    _prog_cache[key] = ent
+    _dirty_mats.discard(mat.name)
     return ent

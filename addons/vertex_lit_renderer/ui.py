@@ -13,6 +13,10 @@ class VERTEX_LIT_PT_settings(bpy.types.Panel):
         s = context.scene.vertex_lit
 
         box = layout.box()
+        box.label(text="Shading", icon='SHADING_RENDERED')
+        box.prop(s, 'shading_mode', text="")
+
+        box = layout.box()
         row = box.row()
         row.label(text="GI Bounce (BVH ray cast)", icon='SHADERFX')
         row.prop(s, 'use_gi', text="")

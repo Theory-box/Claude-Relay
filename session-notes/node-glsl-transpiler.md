@@ -160,3 +160,27 @@ EXPANDED COVERAGE (all emit expected GLSL, tested in tests/test_coverage.py):
   vert passes world normal+pos, lighting loop moves to fragment). Shader restructure.
 - SSAO: offscreen pass (color+depth[+normal]) → AO shader → composite. Multi-pass.
   Both are visual-only (untestable headless) → build + user GPU-confirms.
+
+## v0.4.0 — per-pixel (Phong) shading mode (headless-validated 4.4.3)
+- shaders.py refactored: lighting extracted into LIGHT_CHUNK (LIGHT_UNIFORMS +
+  vlr_light() + vlr_shadow()), used from the vertex stage (Gouraud) or fragment
+  stage (Phong) so each program declares the light uniforms exactly once.
+  - MAIN_VERT (Gouraud) now calls vlr_light/vlr_shadow -> vLight (unchanged look).
+  - PHONG_VERT passes vWpos/vNrm/vColor/vBounce/vUV; PHONG_FRAG lights per-fragment
+    (per-fragment shadow lookup too -> smoother shadow edges).
+  - MAT_FRAG_HEAD/MAIN_{VERTEX,PIXEL}: material (live-node) frags for each mode.
+- props.shading_mode enum VERTEX|PIXEL (default VERTEX). ui: Shading box.
+- engine: _get_main_shader(mode) caches one program per mode; draw loop reads
+  vls.shading_mode, selects base + material program by mode; material_shader
+  cache keyed by (mat.name, mode) so switching mode compiles once and reuses.
+- _release_gpu_caches clears the per-mode shader dict.
+- Tests: test_shading_modes.py (base + material frags per mode, no duplicate
+  light uniforms across stages, mode changes the fragment). Full suite (5) green.
+- NOT GPU-tested here: the actual per-pixel look. User confirms on GPU.
+
+## USER GPU TEST (v0.4.0):
+1. Render ▸ Shading ▸ switch Per-Vertex <-> Per-Pixel. Per-Pixel should show
+   sharper specular-free diffuse falloff on large faces (no Gouraud banding) and
+   cleaner shadow edges. Works with Live Material Nodes on and off.
+2. Confirm re-entering rendered mode repeatedly stays smooth (v0.3.1 leak fix).
+3. Confirm the Material Properties tab shows the material again (v0.3.1 panels fix).

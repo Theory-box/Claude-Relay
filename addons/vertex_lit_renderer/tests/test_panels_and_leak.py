@@ -21,10 +21,10 @@ check('VERTEX_LIT' in ce('EEVEE_MATERIAL_PT_surface'), "material surface panel s
 check('VERTEX_LIT' in ce('MATERIAL_PT_custom_props'), "generic material panel shows VERTEX_LIT")
 
 print("=== gpu cache release (leak fix) ===")
-eng._main_shader = "sentinel"
+eng._main_shader["VERTEX"] = "sentinel"
 eng._tex_cache['x'] = "sentinel"
 eng._release_gpu_caches()
-check(eng._main_shader is None, "main shader released")
+check(len(eng._main_shader) == 0, "main shader cache cleared")
 check(len(eng._tex_cache) == 0, "texture cache cleared")
 
 print("=== unregister cleans panels ===")
