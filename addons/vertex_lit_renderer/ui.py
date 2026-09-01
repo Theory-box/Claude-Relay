@@ -36,6 +36,14 @@ class VERTEX_LIT_PT_settings(bpy.types.Panel):
 
         box = layout.box()
         row = box.row()
+        row.label(text="Materials", icon='NODE_MATERIAL')
+        row.prop(s, 'use_live_nodes', text="")
+        if s.use_live_nodes:
+            box.label(text="Live node graph → GLSL (experimental)", icon='INFO')
+            box.label(text="Falls back to base texture if a material can't compile")
+
+        box = layout.box()
+        row = box.row()
         row.label(text="Shadows", icon='SHADING_RENDERED')
         row.prop(s, 'use_shadows', text="")
         if s.use_shadows:

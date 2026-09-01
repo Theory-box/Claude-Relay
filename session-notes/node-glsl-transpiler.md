@@ -43,11 +43,46 @@ of Workbench-style single-texture display or the old bake-to-PNG approach
   ("GPU functions for drawing are not available in background mode") — shader
   COMPILE + visual output must be confirmed on the user's GPU.
 
-## Known limitations / next actions
-1. **Wire into the engine** (not done yet): replace MAIN_FRAG's
-   `texture(uAlbedo,vUV)` with the generated `computeBaseColor(vUV)`; bind
-   `.samplers`; recompile per-material shader on material change. THIS is where
-   the user visually confirms UV distortion / mix live in the viewport.
+## v0.2 — wired into the engine (opt-in, headless-validated)
+`material_shader.py` + edits to `engine.py`, `props.py`, `ui.py`.
+- NEW `material_shader.py`: build_material_frag(mat) assembles a full fragment
+  (MAIN_VERT shared + declared uTx_ samplers + computeBaseColor + main that does
+  `outColor = vLight * base`). get_program(mat) compiles + caches per material;
+  compile is wrapped in try/except → on failure the entry is `failed` and the
+  engine falls back to the legacy single-texture path for that material.
+  invalidate(name) drops a material's program (called on Material update).
+- engine.py: extracted `_apply_frame_uniforms()` (shared by legacy + per-material
+  shaders, since all frame/light/shadow uniforms live in MAIN_VERT). Draw loop
+  now: if `use_live_nodes` and the object's material compiles, bind that
+  material's program (frame uniforms set once per shader per frame via an
+  id()-set), bind its samplers (image resolved per-draw via _get_gpu_tex so image
+  edits refresh without recompiling), draw; else legacy path unchanged.
+- props.py: `use_live_nodes` BoolProperty, **default OFF** (zero regression when
+  off). ui.py: "Materials" box with the toggle.
+- Material-update invalidates that material's program → graph edits recompile.
+
+### Validated headless on 4.4.3 (`tests/test_wiring_headless.py`, ALL PASS)
+- Addon register()/unregister() clean with all edits; VertexLitEngine registered;
+  toggle present and defaults OFF.
+- build_material_frag: main()+computeBaseColor+outColor present, braces/parens
+  balanced, declared samplers == used samplers, unsupported node (Noise) degrades
+  to a structurally-valid magenta frag and is reported in notes.
+- NOT testable headless (no GPU context): the actual GLSL COMPILE
+  (`gpu.types.GPUShader`) and the visual result. Fallback-on-compile-fail exists
+  precisely because compile can only be judged on the user's GPU.
+
+## USER GPU TEST (next):
+1. Load branch `feature/node-glsl-transpiler`, enable the addon, set engine to
+   Vertex Lit, tick Render ▸ Materials ▸ "Live Material Nodes".
+2. On a UV-mapped object: add Mapping between Tex Coord and Image, change Scale →
+   texture should tile/shift live. Add a Mix (image ↔ colour) → should blend live.
+3. Watch the console for "[VertexLit]" and any GPUShader compile errors. If a
+   material shows its base texture instead of the graph, its shader failed to
+   compile (fallback) — grab the console error.
+
+## Remaining limitations / next actions
+1. Mapping params baked as literals → recompiles on edit. Promote scale/loc/rot
+   to uniforms (avoids recompile-on-slider). TOP follow-up.
 2. **Mapping params are baked as literals** → shader recompiles on every slider
    edit. Follow-up: promote scale/loc/rotation to uniforms so edits don't recompile.
 3. Coerce helper round-trips scalars/vectors through vec4 → verbose (but correct)

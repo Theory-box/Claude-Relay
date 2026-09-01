@@ -10,6 +10,7 @@ from mathutils.bvhtree import BVHTree
 
 from .shaders import SHADOW_VERT, SHADOW_FRAG, MAIN_VERT, MAIN_FRAG
 from .gi import ProgressiveGI
+from . import material_shader
 
 MAX_LIGHTS = 8
 
@@ -387,6 +388,8 @@ class VertexLitEngine(bpy.types.RenderEngine):
                     self._dirty=True; self._shadow_dirty=True
                     _gi_active=True; return
             if isinstance(id_data,bpy.types.Material):
+                # Graph edit → recompile this material's live-node shader next draw.
+                material_shader.invalidate(id_data.name)
                 self._dirty=True; self._shadow_dirty=True
                 _gi_active=True; return
             if update.is_updated_transform:
@@ -513,6 +516,33 @@ class VertexLitEngine(bpy.types.RenderEngine):
         self._shadow_dirty=False
         return smap.tex
 
+    # ── Per-frame uniforms (shared by legacy + per-material shaders) ──────
+
+    def _apply_frame_uniforms(self, shader, view_proj, ls_mat, sky, ground, bstr,
+                              do_shad, s_bias, s_dark, shad_tex, lights):
+        # All of these live in MAIN_VERT, which every program shares, so the
+        # same call works for the legacy shader and every transpiled material.
+        shader.uniform_float('uViewProj',       view_proj)
+        shader.uniform_float('uLightSpace',     ls_mat)
+        shader.uniform_float('uSkyColor',       sky)
+        shader.uniform_float('uGroundColor',    ground)
+        shader.uniform_float('uBounceStrength', bstr)
+        shader.uniform_int  ('uUseShadow',      1 if do_shad else 0)
+        shader.uniform_float('uShadowBias',     s_bias)
+        shader.uniform_float('uShadowDark',     s_dark)
+        shader.uniform_sampler('uShadowMap',    shad_tex)
+        shader.uniform_int('uNumLights',        len(lights))
+        for i in range(8):
+            l=lights[i] if i<len(lights) else None
+            try:
+                shader.uniform_float(f'uLPos[{i}]',    tuple(l['pos'])  if l else (0,0,0))
+                shader.uniform_float(f'uLDir[{i}]',    tuple(l['dir'])  if l else (0,0,-1))
+                shader.uniform_float(f'uLCol[{i}]',    l['color']       if l else (0,0,0))
+                shader.uniform_float(f'uLEnergy[{i}]', l['energy']      if l else 0.0)
+                shader.uniform_int  (f'uLType[{i}]',   l['type']        if l else 0)
+                shader.uniform_float(f'uLRadius[{i}]', l['radius']      if l else 1.0)
+            except ValueError: pass
+
     # ── Main draw ─────────────────────────────────────────────────────────
 
     def view_draw(self, context, depsgraph):
@@ -570,29 +600,18 @@ class VertexLitEngine(bpy.types.RenderEngine):
         gpu.state.depth_mask_set(True)
         gpu.state.face_culling_set('BACK')
 
-        shader=_get_main_shader()
         view_proj=rv3d.window_matrix@rv3d.view_matrix
-        shader.bind()
-        shader.uniform_float('uViewProj',       view_proj)
-        shader.uniform_float('uLightSpace',     ls_mat)
-        shader.uniform_float('uSkyColor',       sky)
-        shader.uniform_float('uGroundColor',    ground)
-        shader.uniform_float('uBounceStrength', bstr)
-        shader.uniform_int  ('uUseShadow',      1 if do_shad else 0)
-        shader.uniform_float('uShadowBias',     s_bias)
-        shader.uniform_float('uShadowDark',     s_dark)
-        shader.uniform_sampler('uShadowMap',    shad_tex)
-        shader.uniform_int('uNumLights',        len(lights))
-        for i in range(8):
-            l=lights[i] if i<len(lights) else None
-            try:
-                shader.uniform_float(f'uLPos[{i}]',    tuple(l['pos'])  if l else (0,0,0))
-                shader.uniform_float(f'uLDir[{i}]',    tuple(l['dir'])  if l else (0,0,-1))
-                shader.uniform_float(f'uLCol[{i}]',    l['color']       if l else (0,0,0))
-                shader.uniform_float(f'uLEnergy[{i}]', l['energy']      if l else 0.0)
-                shader.uniform_int  (f'uLType[{i}]',   l['type']        if l else 0)
-                shader.uniform_float(f'uLRadius[{i}]', l['radius']      if l else 1.0)
-            except ValueError: pass
+        legacy=_get_main_shader()
+        use_live=bool(getattr(vls,'use_live_nodes',False))
+        frame_done=set()   # id(shader) that already received per-frame uniforms
+
+        def _ensure_frame(sh):
+            # bind every time (we may interleave shaders); set frame uniforms once.
+            sh.bind()
+            if id(sh) not in frame_done:
+                self._apply_frame_uniforms(sh, view_proj, ls_mat, sky, ground, bstr,
+                                           do_shad, s_bias, s_dark, shad_tex, lights)
+                frame_done.add(id(sh))
 
         for inst in depsgraph.object_instances:
             obj=inst.object
@@ -600,13 +619,38 @@ class VertexLitEngine(bpy.types.RenderEngine):
             entry=self._batch_dict.get(obj.name)
             if entry is None: continue
             batch,tex=entry
-            shader.uniform_float('uModel',inst.matrix_world)
+
             try:   normal_mat=inst.matrix_world.to_3x3().inverted().transposed()
             except Exception: normal_mat=inst.matrix_world.to_3x3()
-            shader.uniform_float('uNormalMat',normal_mat)
-            shader.uniform_sampler('uAlbedo',  tex if tex is not None else self._white_tex)
-            shader.uniform_int('uHasTexture',  1 if tex is not None else 0)
-            batch.draw(shader)
+
+            prog=None
+            if use_live:
+                mat=getattr(obj,'active_material',None)
+                if mat is not None and getattr(mat,'use_nodes',False):
+                    p=material_shader.get_program(mat)
+                    # failed==True means the GLSL didn't compile on THIS GPU →
+                    # silently use the legacy texture path for that material.
+                    if p and not p['failed'] and p['shader'] is not None:
+                        prog=p
+
+            if prog is not None:
+                sh=prog['shader']
+                _ensure_frame(sh)
+                sh.uniform_float('uModel',inst.matrix_world)
+                sh.uniform_float('uNormalMat',normal_mat)
+                for uni,image in prog['samplers']:
+                    gtex=_get_gpu_tex(image)
+                    if gtex is not None:
+                        try: sh.uniform_sampler(uni,gtex)
+                        except Exception: pass
+                batch.draw(sh)
+            else:
+                _ensure_frame(legacy)
+                legacy.uniform_float('uModel',inst.matrix_world)
+                legacy.uniform_float('uNormalMat',normal_mat)
+                legacy.uniform_sampler('uAlbedo',  tex if tex is not None else self._white_tex)
+                legacy.uniform_int('uHasTexture',  1 if tex is not None else 0)
+                batch.draw(legacy)
 
         gpu.state.depth_test_set('NONE')
         gpu.state.face_culling_set('NONE')
