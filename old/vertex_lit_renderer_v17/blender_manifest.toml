@@ -1,0 +1,14 @@
+schema_version = "1.0.0"
+
+id = "vertex_lit_renderer"
+version = "0.1.7"
+name = "Vertex Lit Renderer"
+tagline = "PS1/N64-style per-vertex Gouraud shading renderer"
+maintainer = "Theory-box"
+type = "add-on"
+
+blender_version_min = "4.2.0"
+
+tags = ["Render"]
+
+license = ["SPDX:GPL-2.0-or-later"]

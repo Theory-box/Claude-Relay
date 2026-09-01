@@ -1,0 +1,1387 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Node Preview Live  —  Milestone 1 (background-process build)
+# -------------------------------------------------------------------------
+# Renders the output of the ACTIVE shader node (Brick, Noise, ColorRamp,
+# Hue/Sat, ...) to a persistent image datablock and shows it in the Image
+# Editor.
+#
+# WHY A BACKGROUND PROCESS:
+#   Rendering on Blender's main thread FREEZES the whole UI for the entire
+#   render (plus first-time kernel/shader compile). So instead we build a
+#   tiny temp scene (a copy of your material on a 1x1 plane under an ortho
+#   camera), write JUST that scene to a temp .blend, and render it in a
+#   separate headless Blender process. The UI stays responsive; a lightweight
+#   timer polls for the finished PNG and loads it in.
+#
+# Your real material is NEVER modified — we always work on a copy.
+#
+# CONTROLS  (Shader Editor > Sidebar (N) > "Node Preview" tab):
+#   * "Refresh Preview" -> render the active node once.
+#   * "Start / Stop Live" -> debounced auto-refresh while you edit.
+#   * Resolution / Tiling / Debounce sliders.
+#
+# TILING: the 0..1 swatch is repeated NxN in the final image (numpy), so it
+# works regardless of the procedural's coordinate source, and is seamless
+# exactly when your swatch is.
+#
+# MILESTONE 1 SCOPE (intentional): Image-Editor display only (viewport is M2);
+# top-level Material nodes only (not node groups, not World/Light); materials
+# built purely from procedural nodes are the happy path (image-texture-based
+# materials render too, but packed/relative image paths may not resolve in the
+# worker).
+# -------------------------------------------------------------------------
+
+bl_info = {
+    "name": "Node Preview Live",
+    "author": "Claude Relay",
+    "version": (0, 2, 0),
+    "blender": (4, 4, 0),
+    "location": "Shader Editor > Sidebar (N) > Node Preview",
+    "description": "Live-render the active shader node to an image (background process, non-blocking)",
+    "category": "Node",
+}
+
+import os
+import time
+import tempfile
+import subprocess
+
+import bpy
+import numpy as np
+
+RESULT_IMAGE_NAME = "NodePreview_Result"
+JOB_SCENE_NAME = "NP_JOB"
+_WORKER_NAME = "np_worker.py"
+
+# The worker runs inside a headless "blender -b job.blend --python np_worker.py -- SCENE OUT".
+# It targets the scene by name and renders it to the given path.
+_WORKER_SRC = '''import bpy, sys, os
+try:
+    import addon_utils
+    addon_utils.enable("cycles")   # needed because we run with --factory-startup
+except Exception:
+    pass
+
+def _setup_and_render(scene_name, out_path, samples, mode, engine):
+    scene = bpy.data.scenes[scene_name]
+    dev = "?"
+    try:
+        engs = [i.identifier for i in bpy.types.RenderSettings.bl_rna.properties["engine"].enum_items]
+        if engine == "EEVEE":
+            eid = "BLENDER_EEVEE_NEXT" if "BLENDER_EEVEE_NEXT" in engs else "BLENDER_EEVEE"
+            scene.render.engine = eid
+            try:
+                scene.eevee.taa_render_samples = max(1, samples)
+            except Exception:
+                pass
+            dev = "EEVEE"
+        else:
+            scene.render.engine = "CYCLES"
+            scene.cycles.samples = samples
+            scene.cycles.use_denoising = False
+            dev = "CPU"; backend = ""
+            if mode != "CPU":
+                try:
+                    prefs = bpy.context.preferences.addons["cycles"].preferences
+                    pref_type = getattr(prefs, "compute_device_type", "NONE")
+                    if pref_type and pref_type != "NONE":
+                        candidates = [pref_type]
+                    else:
+                        candidates = ["OPTIX", "CUDA", "HIP", "METAL", "ONEAPI"]
+                    for dtype in candidates:
+                        try:
+                            prefs.compute_device_type = dtype
+                        except TypeError:
+                            continue
+                        try:
+                            prefs.refresh_devices()
+                        except Exception:
+                            pass
+                        gpus = [d for d in prefs.devices if getattr(d, "type", "") == dtype]
+                        if gpus:
+                            for d in prefs.devices:
+                                if getattr(d, "type", "") == dtype:
+                                    d.use = True
+                            dev = "GPU"; backend = dtype
+                            break
+                except Exception:
+                    dev = "CPU"
+            scene.cycles.device = dev
+            dev = dev + ((":" + backend) if backend else "")
+    except Exception:
+        pass
+    scene.render.filepath = out_path
+    scene.render.use_file_extension = False
+    scene.render.image_settings.file_format = "PNG"
+    scene.render.image_settings.color_mode = "RGBA"
+    with bpy.context.temp_override(scene=scene):
+        bpy.ops.render.render(write_still=True)
+    return dev
+
+argv = sys.argv[sys.argv.index("--") + 1:]
+
+if argv and argv[0] == "--serve":
+    # Persistent WARM worker for live mode. Reads one job per line from stdin.
+    # SAFETY - it exits on any of:
+    #   * stdin EOF  -> the parent Blender died/closed the pipe (dead-man switch)
+    #   * idle timeout elapses with no job
+    #   * an explicit QUIT line
+    import threading
+    try:
+        import queue
+    except ImportError:
+        import Queue as queue
+    NL = chr(10); TAB = chr(9)
+    idle = float(argv[1]) if len(argv) > 1 else 60.0
+    jobs = queue.Queue()
+    ended = threading.Event()
+
+    def _reader():
+        try:
+            while True:
+                line = sys.stdin.readline()
+                if not line:
+                    break            # EOF -> parent gone
+                jobs.put(line.rstrip(NL))
+        except Exception:
+            pass
+        ended.set()
+        try:
+            jobs.put_nowait(None)    # wake the main loop so it exits at once
+        except Exception:
+            pass
+
+    threading.Thread(target=_reader, daemon=True).start()
+    try:
+        sys.stdout.write("READY" + NL); sys.stdout.flush()
+    except Exception:
+        pass
+
+    while not ended.is_set():
+        try:
+            line = jobs.get(timeout=idle)
+        except Exception:
+            break                    # idle timeout -> exit
+        if not line or line == "QUIT":
+            break
+        parts = line.split(TAB)
+        if len(parts) < 7 or parts[0] != "RENDER":
+            continue
+        _, blend, scene_name, out_path, samples, mode, engine = parts[:7]
+        done = out_path + ".done"
+        try:
+            bpy.ops.wm.open_mainfile(filepath=blend)
+            dev = _setup_and_render(scene_name, out_path, int(samples), mode, engine)
+            with open(done, "w") as f:
+                f.write(dev)
+        except Exception as e:
+            import traceback
+            try:
+                with open(done, "w") as f:
+                    f.write("ERR:" + traceback.format_exc()[-500:])
+            except Exception:
+                pass
+    # falling out of the loop ends the script; blender -b then quits.
+else:
+    # One-shot (manual refresh): the job .blend is already loaded via the
+    # command line, so render directly and write a status sidecar.
+    scene_name, out_path, samples, mode, engine, status_path = (
+        argv[0], argv[1], int(argv[2]), argv[3], argv[4], argv[5])
+    try:
+        dev = _setup_and_render(scene_name, out_path, samples, mode, engine)
+        with open(status_path, "w") as f:
+            f.write(dev)
+    except Exception:
+        import traceback
+        try:
+            with open(status_path, "w") as f:
+                f.write("ERR:" + traceback.format_exc()[-500:])
+        except Exception:
+            pass
+'''
+
+# Live-loop / job state (kept off bpy props so timer + handler can mutate it).
+_state = {
+    "live_on": False,
+    "dirty": False,
+    "last_change": 0.0,
+    "busy": False,          # True while we build/complete (suppresses self-triggered dirty)
+    "cooldown_until": 0.0,
+    "job": None,            # dict(proc, blend, png, tiling) or None
+    "last_error": "",
+    "timer_registered": False,
+    "locked": False,        # when True, keep previewing the locked node
+    "locked_mat": "",
+    "locked_node": "",
+    "last_target_key": None,  # (material_name, node_name) we last rendered
+    "seen_target_key": None,  # (material_name, node_name) last noticed as active
+    "last_device": "",        # what the last render actually ran on
+    "worker": None,           # persistent warm worker Popen (live mode only)
+    "notice": "",             # persistent info note (e.g. EEVEE fell back)
+    "pin_on": False,          # keep a preview image-texture node active for the viewport
+    "pin_mat": "",
+    "pin_node": "",
+}
+
+
+# ---------------------------------------------------------------------------
+# Small helpers
+# ---------------------------------------------------------------------------
+
+def _worker_path():
+    """Write the worker script to the temp dir and return its path.
+
+    Always rewritten so an add-on update never runs a stale cached worker.
+    """
+    path = os.path.join(tempfile.gettempdir(), _WORKER_NAME)
+    try:
+        with open(path, "w") as f:
+            f.write(_WORKER_SRC)
+    except Exception:
+        fd, path = tempfile.mkstemp(suffix=".py", prefix="np_worker_")
+        with os.fdopen(fd, "w") as f:
+            f.write(_WORKER_SRC)
+    return path
+
+
+def _get_device_mode():
+    """AUTO / GPU / CPU from add-on preferences (AUTO if unavailable)."""
+    try:
+        return bpy.context.preferences.addons[__name__].preferences.device
+    except Exception:
+        return "AUTO"
+
+
+# --- Warm worker (live mode only) -----------------------------------------
+# A single persistent `blender -b --python worker --serve` process that stays
+# up between renders to skip startup/GPU-init cost. It CANNOT outlive us:
+#   * its stdin is our pipe; if we die, it hits EOF and exits (dead-man switch)
+#   * it self-exits after WARM_IDLE_SECS with no job
+#   * we send QUIT and kill+reap it on stop/disable/unregister
+
+WARM_IDLE_SECS = 60
+
+def _warm_alive():
+    p = _state["worker"]
+    return p is not None and p.poll() is None
+
+def _ensure_warm_worker():
+    if _warm_alive():
+        return _state["worker"]
+    _state["worker"] = None
+    try:
+        exe = bpy.app.binary_path
+        worker = _worker_path()
+        kwargs = dict(stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
+                      stderr=subprocess.DEVNULL, text=True)
+        if os.name == "nt":
+            kwargs["creationflags"] = 0x08000000  # CREATE_NO_WINDOW
+        p = subprocess.Popen(
+            [exe, "-b", "--factory-startup", "--python", worker, "--", "--serve", str(WARM_IDLE_SECS)],
+            **kwargs)
+        _state["worker"] = p
+        return p
+    except Exception:
+        _state["worker"] = None
+        return None
+
+def _send_warm_job(blend, scene, out, samples, mode, engine):
+    p = _ensure_warm_worker()
+    if p is None or p.poll() is not None:
+        return False
+    try:
+        p.stdin.write("RENDER\t%s\t%s\t%s\t%s\t%s\t%s\n" % (blend, scene, out, samples, mode, engine))
+        p.stdin.flush()
+        return True
+    except Exception:
+        # Pipe broke (worker died) — drop the handle so the next call respawns.
+        _state["worker"] = None
+        return False
+
+def _stop_warm_worker():
+    p = _state["worker"]
+    _state["worker"] = None
+    if p is None:
+        return
+    try:
+        if p.poll() is None:
+            try:
+                p.stdin.write("QUIT\n"); p.stdin.flush()
+            except Exception:
+                pass
+            try:
+                p.stdin.close()   # also triggers the dead-man switch
+            except Exception:
+                pass
+    except Exception:
+        pass
+    try:
+        p.wait(timeout=3)
+    except Exception:
+        try:
+            p.kill(); p.wait(timeout=3)
+        except Exception:
+            pass
+
+
+def _find_target():
+    """Return (material, node) for the active shader node, or (None, reason).
+
+    Primary: a Shader node editor's own datablock (respects pinning, detects
+    groups). Fallback: the active object's active material — the same node-tree
+    datablock the editor edits — so it still works when the editor hasn't
+    populated space.id/edit_tree yet.
+    """
+    ctx = bpy.context
+    editor_space = None
+    for window in ctx.window_manager.windows:
+        for area in window.screen.areas:
+            if area.type != "NODE_EDITOR":
+                continue
+            sp = area.spaces.active
+            if sp is not None and getattr(sp, "tree_type", "") == "ShaderNodeTree":
+                editor_space = sp
+                break
+        if editor_space is not None:
+            break
+
+    mat = None
+    if editor_space is not None and isinstance(getattr(editor_space, "id", None), bpy.types.Material):
+        mat = editor_space.id
+    if mat is None:
+        obj = getattr(ctx, "object", None)
+        if obj is not None:
+            mat = obj.active_material
+    if mat is None:
+        return None, "No active material — select an object with a material."
+    if mat.node_tree is None:
+        return None, "Material has no node tree."
+
+    # If the editor exposes its edited tree and it's a nested group, bail out.
+    edit_tree = getattr(editor_space, "edit_tree", None) if editor_space is not None else None
+    if edit_tree is not None and edit_tree != mat.node_tree:
+        return None, "Node is inside a group; group previews aren't supported yet."
+
+    node = mat.node_tree.nodes.active
+    if node is None:
+        return None, "No active node — click a node to select it."
+    return mat, node
+
+
+def _resolve_target():
+    """The node the preview should render: the locked one if locked, else active."""
+    if _state["locked"]:
+        mat = bpy.data.materials.get(_state["locked_mat"])
+        if mat is None or mat.node_tree is None:
+            return None, "Locked material no longer exists."
+        node = mat.node_tree.nodes.get(_state["locked_node"])
+        if node is None:
+            return None, "Locked node was renamed or deleted — unlock to continue."
+        return mat, node
+    return _find_target()
+
+
+def _choose_output_socket(node):
+    for sock in node.outputs:
+        if sock.enabled and not sock.hide:
+            return sock
+    return None
+
+
+def _build_job_scene(src_mat, node_name, resolution):
+    """Create the temp render scene (copied material on a plane + ortho cam).
+
+    Returns (scene, created_datablocks, ok, reason). `created_datablocks` is a
+    list to remove from the main file after the .blend is written.
+    """
+    created = []
+
+    mat = src_mat.copy()
+    created.append(("materials", mat))
+    nt = mat.node_tree
+    node = nt.nodes.get(node_name)
+    if node is None:
+        return None, created, False, "Could not locate node in material copy."
+    sock = _choose_output_socket(node)
+    if sock is None:
+        return None, created, False, "Selected node has no usable output."
+
+    out = nt.nodes.new("ShaderNodeOutputMaterial")
+    if sock.type == "SHADER":
+        # A raw shader (e.g. a BSDF) renders black with no lights, so instead
+        # show what feeds its base colour, flat.
+        color_input = None
+        for cname in ("Base Color", "Color"):
+            if cname in node.inputs:
+                color_input = node.inputs[cname]
+                break
+        if color_input is None:
+            for inp in node.inputs:
+                if inp.type == "RGBA":
+                    color_input = inp
+                    break
+        if color_input is not None:
+            emis = nt.nodes.new("ShaderNodeEmission")
+            if color_input.is_linked:
+                nt.links.new(color_input.links[0].from_socket, emis.inputs["Color"])
+            else:
+                try:
+                    emis.inputs["Color"].default_value = color_input.default_value
+                except Exception:
+                    pass
+            nt.links.new(emis.outputs["Emission"], out.inputs["Surface"])
+        else:
+            # no colour input to show — fall back to the raw shader
+            nt.links.new(sock, out.inputs["Surface"])
+    else:
+        emis = nt.nodes.new("ShaderNodeEmission")
+        nt.links.new(sock, emis.inputs["Color"])
+        nt.links.new(emis.outputs["Emission"], out.inputs["Surface"])
+    for n in nt.nodes:
+        if n.type == "OUTPUT_MATERIAL":
+            n.is_active_output = (n == out)
+
+    mesh = bpy.data.meshes.new("NP_plane_mesh")
+    created.append(("meshes", mesh))
+    mesh.from_pydata([(0, 0, 0), (1, 0, 0), (1, 1, 0), (0, 1, 0)], [], [(0, 1, 2, 3)])
+    mesh.update()
+    uv = mesh.uv_layers.new(name="UVMap")
+    for i, c in enumerate([(0, 0), (1, 0), (1, 1), (0, 1)]):
+        uv.data[i].uv = c
+    mesh.materials.append(mat)
+    plane = bpy.data.objects.new("NP_plane", mesh)
+    created.append(("objects", plane))
+
+    cam_data = bpy.data.cameras.new("NP_cam_data")
+    created.append(("cameras", cam_data))
+    cam_data.type = "ORTHO"
+    cam_data.ortho_scale = 1.0
+    cam_data.clip_start = 0.1
+    cam_data.clip_end = 10.0
+    cam = bpy.data.objects.new("NP_cam", cam_data)
+    created.append(("objects", cam))
+    cam.location = (0.5, 0.5, 2.0)
+
+    scene = bpy.data.scenes.new(JOB_SCENE_NAME)
+    created.append(("scenes", scene))
+    scene.collection.objects.link(plane)
+    scene.collection.objects.link(cam)
+    scene.camera = cam
+
+    # Engine/samples/device are set by the worker (which always has Cycles),
+    # so the main Blender needs no render-engine add-on just to build the job.
+    scene.render.resolution_x = resolution
+    scene.render.resolution_y = resolution
+    scene.render.resolution_percentage = 100
+    scene.render.film_transparent = False
+
+    # Neutralise colour management so the preview shows raw texture/node colours,
+    # not the scene's grading (the default on a new scene is AgX in 4.x).
+    try:
+        scene.view_settings.view_transform = "Standard"
+        scene.view_settings.look = "None"
+        scene.view_settings.exposure = 0.0
+        scene.view_settings.gamma = 1.0
+    except Exception:
+        pass
+
+    return scene, created, True, ""
+
+
+def _remove_created(created):
+    """Remove temp datablocks from the main file (reverse order)."""
+    removers = {
+        "objects": bpy.data.objects,
+        "meshes": bpy.data.meshes,
+        "cameras": bpy.data.cameras,
+        "materials": bpy.data.materials,
+        "scenes": bpy.data.scenes,
+    }
+    # Objects first so mesh/cam/material user-counts drop to zero.
+    order = ["objects", "meshes", "cameras", "materials", "scenes"]
+    by_kind = {k: [] for k in order}
+    for kind, db in created:
+        by_kind.setdefault(kind, []).append(db)
+    for kind in order:
+        for db in by_kind.get(kind, []):
+            try:
+                removers[kind].remove(db, do_unlink=True)
+            except Exception:
+                pass
+
+
+def start_job(context, warm=False, engine_override=None, mode_override=None):
+    """Build the temp scene, write it to a .blend, and render it.
+
+    warm=True routes to the persistent live worker; otherwise a one-shot
+    Blender is spawned. Returns (ok, message). Non-blocking either way.
+    """
+    if _state["job"] is not None:
+        return False, "A preview render is already in progress."
+
+    mat, node = _resolve_target()
+    if mat is None:
+        return False, node  # reason string
+
+    resolution = int(context.scene.np_resolution)
+    tiling = int(context.scene.np_tiling)
+    samples = int(context.scene.np_samples)
+    mode = mode_override or _get_device_mode()
+    engine = engine_override or getattr(context.scene, "np_engine", "CYCLES")
+    if engine_override is None and mode_override is None:
+        _state["notice"] = ""   # a fresh user-initiated render clears the note
+    _state["last_target_key"] = (mat.name, node.name)
+
+    _state["busy"] = True
+    created = []
+    try:
+        scene, created, ok, reason = _build_job_scene(mat, node.name, resolution)
+        if not ok:
+            _remove_created(created)
+            return False, reason
+
+        tmpdir = tempfile.gettempdir()
+        stamp = str(int(time.time() * 1000))
+        blend = os.path.join(tmpdir, "np_job_%s.blend" % stamp)
+        png = os.path.join(tmpdir, "np_out_%s.png" % stamp)
+        status = png + ".status"
+
+        # ABSOLUTE so image textures with relative paths (Blender's default)
+        # still resolve from the temp job .blend's location in the worker.
+        bpy.data.libraries.write(blend, {scene}, path_remap="ABSOLUTE", fake_user=True)
+    except Exception as exc:
+        _remove_created(created)
+        _state["busy"] = False
+        return False, "Failed to prepare preview: %s" % exc
+    finally:
+        _remove_created(created)
+
+    # --- Warm path (live mode): hand the job to the persistent worker ---
+    if warm:
+        done = png + ".done"
+        try:
+            if os.path.exists(done):
+                os.remove(done)
+        except Exception:
+            pass
+        if _send_warm_job(blend, JOB_SCENE_NAME, png, samples, mode, engine):
+            _state["job"] = {"warm": True, "blend": blend, "png": png, "done": done,
+                             "tiling": tiling, "engine": engine, "mode": mode,
+                             "started": time.time()}
+            _state["busy"] = False
+            _state["cooldown_until"] = time.time() + 0.05
+            _ensure_timer()
+            return True, "Rendering preview (live)..."
+        # Warm worker unavailable — fall through to a one-shot render.
+
+    # --- One-shot path (manual, or warm fallback) ---
+    log_path = os.path.join(tempfile.gettempdir(), "np_last_render.log")
+    try:
+        exe = bpy.app.binary_path
+        worker = _worker_path()
+        try:
+            logf = open(log_path, "w")
+        except Exception:
+            logf = subprocess.DEVNULL
+        kwargs = dict(stdout=logf, stderr=subprocess.STDOUT)
+        if os.name == "nt":
+            kwargs["creationflags"] = 0x08000000  # CREATE_NO_WINDOW
+        proc = subprocess.Popen(
+            [exe, "-b", "--factory-startup", blend, "--python", worker, "--",
+             JOB_SCENE_NAME, png, str(samples), mode, engine, status],
+            **kwargs
+        )
+        try:
+            if logf is not subprocess.DEVNULL:
+                logf.close()   # child keeps its own handle; we don't need ours
+        except Exception:
+            pass
+    except Exception as exc:
+        _state["busy"] = False
+        try:
+            os.remove(blend)
+        except Exception:
+            pass
+        return False, "Could not launch background Blender: %s" % exc
+
+    _state["job"] = {"warm": False, "proc": proc, "blend": blend, "png": png,
+                     "status": status, "tiling": tiling, "engine": engine,
+                     "mode": mode, "log": log_path, "started": time.time()}
+    _state["busy"] = False
+    _state["cooldown_until"] = time.time() + 0.05
+    _ensure_timer()
+    return True, "Rendering preview..."
+
+
+def _store_result(png_path, tiling):
+    """Load the rendered PNG, tile it, and write into the persistent image."""
+    tmp = bpy.data.images.load(png_path)
+    try:
+        w, h = tmp.size
+        if w == 0 or h == 0:
+            raise RuntimeError("rendered image is empty")
+        buf = np.empty(w * h * 4, dtype=np.float32)
+        tmp.pixels.foreach_get(buf)
+        img2d = buf.reshape(h, w, 4)
+        n = max(1, int(tiling))
+        while n > 1 and (w * n > 8192 or h * n > 8192):
+            n -= 1
+        if n > 1:
+            img2d = np.tile(img2d, (n, n, 1))
+        out_h, out_w = img2d.shape[0], img2d.shape[1]
+        flat = np.ascontiguousarray(img2d, dtype=np.float32).ravel()
+    finally:
+        bpy.data.images.remove(tmp)
+
+    res_img = bpy.data.images.get(RESULT_IMAGE_NAME)
+    # If the user has SAVED this preview (Save As gives the datablock a file path
+    # and flips its source to FILE), Blender will later reuse it when that file is
+    # opened — so their object's node ends up pointing at our preview. To prevent
+    # ever overwriting a texture the user has claimed, we "release" such a
+    # datablock (rename it aside) and render into a fresh, clean preview instead.
+    if res_img is not None and (res_img.filepath or res_img.source != "GENERATED"):
+        try:
+            base = os.path.basename(res_img.filepath) if res_img.filepath else ""
+            res_img.name = base if base else (RESULT_IMAGE_NAME + "_saved")
+        except Exception:
+            pass
+        res_img = None
+
+    if res_img is None:
+        res_img = bpy.data.images.new(RESULT_IMAGE_NAME, out_w, out_h, alpha=True)
+        res_img.use_fake_user = True
+    elif res_img.size[0] != out_w or res_img.size[1] != out_h:
+        res_img.scale(out_w, out_h)
+    res_img.pixels.foreach_set(flat)
+    res_img.update()
+
+    # Show it in any open Image Editor.
+    try:
+        for window in bpy.context.window_manager.windows:
+            for area in window.screen.areas:
+                if area.type == "IMAGE_EDITOR":
+                    area.spaces.active.image = res_img
+                    area.tag_redraw()
+    except Exception:
+        pass
+    return res_img
+
+
+def _degrade_and_retry(job):
+    """A render failed. Step down to a safer config and retry immediately:
+    EEVEE -> Cycles, then Cycles-on-GPU -> Cycles-on-CPU. Returns True if it
+    kicked off a retry, False if there's nothing safer left to try."""
+    engine = job.get("engine")
+    mode = job.get("mode", "")
+    if engine == "EEVEE":
+        notice = "EEVEE couldn't render in background — using Cycles."
+        eng_next, mode_next = "CYCLES", None
+    elif engine == "CYCLES" and mode != "CPU":
+        notice = "GPU render failed — using CPU (slower but reliable)."
+        eng_next, mode_next = "CYCLES", "CPU"
+    else:
+        return False
+    _cleanup_job_files(job)
+    _state["job"] = None
+    _state["busy"] = False
+    _state["notice"] = notice
+    _state["last_error"] = ""
+    start_job(bpy.context, warm=job.get("warm", False),
+              engine_override=eng_next, mode_override=mode_next)
+    _redraw_node_editors()
+    return True
+
+
+def _complete_job():
+    """If the in-flight job finished, load its result. Returns True if done."""
+    job = _state["job"]
+    if job is None:
+        return True
+
+    if job.get("warm"):
+        # Warm worker signals completion by writing the .done sidecar.
+        if not os.path.exists(job["done"]):
+            worker_dead = not _warm_alive()
+            timed_out = time.time() - job["started"] > 120.0
+            if worker_dead or timed_out:
+                # A crash (e.g. EEVEE in background) kills the worker with no
+                # .done. Try Cycles before giving up.
+                if _degrade_and_retry(job):
+                    return True
+                _state["last_error"] = ("Background worker crashed."
+                                        if worker_dead else "Preview render timed out.")
+                _stop_warm_worker()
+                _cleanup_job_files(job)
+                _state["job"] = None
+                return True
+            return False
+        _state["busy"] = True
+        try:
+            try:
+                with open(job["done"], "r") as f:
+                    payload = f.read().strip()
+            except Exception:
+                payload = ""
+            if payload.startswith("ERR:") or not os.path.exists(job["png"]):
+                if _degrade_and_retry(job):
+                    _state["busy"] = False
+                    return True
+                _state["last_error"] = ("Background render failed: " + payload[4:]
+                                        if payload.startswith("ERR:")
+                                        else "Background render produced no image.")
+            else:
+                _state["last_device"] = payload
+                _store_result(job["png"], job["tiling"])
+                _state["last_error"] = ""
+        except Exception as exc:
+            _state["last_error"] = "Loading preview failed: %s" % exc
+        finally:
+            if _state["job"] is job:      # not already replaced by a fallback
+                _cleanup_job_files(job)
+                _state["job"] = None
+                _state["busy"] = False
+                _state["cooldown_until"] = time.time() + 0.05
+        _redraw_node_editors()
+        return True
+
+    # --- One-shot job ---
+    proc = job["proc"]
+    if proc.poll() is None:
+        if time.time() - job["started"] > 120.0:
+            try:
+                proc.kill()
+                proc.wait(timeout=5)
+            except Exception:
+                pass
+            if _degrade_and_retry(job):
+                return True
+            _state["last_error"] = "Preview render timed out."
+            _cleanup_job_files(job)
+            _state["job"] = None
+            return True
+        return False
+
+    _state["busy"] = True
+    try:
+        status_txt = ""
+        try:
+            with open(job["status"], "r") as f:
+                status_txt = f.read().strip()
+        except Exception:
+            status_txt = ""
+        # The render is a success if the PNG exists and the worker didn't report
+        # an error — even if the process then exited non-zero. (Blender can crash
+        # on shutdown inside unrelated third-party add-ons AFTER saving our image.)
+        if os.path.exists(job["png"]) and not status_txt.startswith("ERR:"):
+            _state["last_device"] = status_txt
+            _store_result(job["png"], job["tiling"])
+            _state["last_error"] = ""
+        else:
+            if _degrade_and_retry(job):
+                _state["busy"] = False
+                return True
+            if status_txt.startswith("ERR:"):
+                _state["last_error"] = "Render error: " + status_txt[4:]
+            else:
+                _state["last_error"] = ("Background render failed (code %s). Log: %s"
+                                        % (proc.returncode, job.get("log", "?")))
+    except Exception as exc:
+        _state["last_error"] = "Loading preview failed: %s" % exc
+    finally:
+        if _state["job"] is job:          # not already replaced by a fallback
+            _cleanup_job_files(job)
+            _state["job"] = None
+            _state["busy"] = False
+            _state["cooldown_until"] = time.time() + 0.05
+    _redraw_node_editors()
+    return True
+
+
+def _cleanup_job_files(job):
+    for key in ("blend", "png", "status", "done"):
+        try:
+            p = job.get(key)
+            if p and os.path.exists(p):
+                os.remove(p)
+        except Exception:
+            pass
+
+
+def _redraw_node_editors():
+    try:
+        for window in bpy.context.window_manager.windows:
+            for area in window.screen.areas:
+                if area.type == "NODE_EDITOR":
+                    area.tag_redraw()
+    except Exception:
+        pass
+
+
+# ---------------------------------------------------------------------------
+# Timer loop + depsgraph dirty flag
+# ---------------------------------------------------------------------------
+
+def _timer():
+    """Polled on the main thread; never blocks. Returns seconds to next call."""
+    # 1) finish an in-flight job if it's ready.
+    if _state["job"] is not None:
+        _complete_job()
+
+    # 2) in live mode, react to the user switching to a different node.
+    #    (Selecting a node does NOT fire a depsgraph update, so we poll for it.)
+    #    Skipped while pinned to the viewport (Lock chooses the target instead).
+    if (_state["live_on"] and not _state["locked"] and not _state["pin_on"]
+            and _state["job"] is None):
+        mat, node = _find_target()
+        if mat is not None:
+            key = (mat.name, node.name)
+            if key != _state["seen_target_key"]:
+                _state["seen_target_key"] = key
+                _state["dirty"] = True
+                _state["last_change"] = time.time()
+
+    # 2b) keep the pinned image-texture node active so the viewport shows it.
+    if _state["pin_on"]:
+        _assert_pinned_active()
+
+    # 3) in live mode, start a new job after a quiet period.
+    if _state["live_on"] and _state["job"] is None:
+        now = time.time()
+        if _state["dirty"] and (now - _state["last_change"]) >= float(_debounce()):
+            _state["dirty"] = False
+            ok, msg = start_job(bpy.context, warm=True)
+            if not ok:
+                _state["last_error"] = msg
+                _redraw_node_editors()
+
+    # 4) decide whether to keep the timer alive.
+    if _state["live_on"] or _state["job"] is not None or _state["pin_on"]:
+        return 0.1
+    # Live is off and nothing is in flight — release the warm worker.
+    _stop_warm_worker()
+    _state["timer_registered"] = False
+    return None
+
+
+def _assert_pinned_active():
+    """Keep the pinned preview image-texture node active (only re-set when it
+    changed, to avoid fighting the user or spamming redraws)."""
+    try:
+        mat = bpy.data.materials.get(_state["pin_mat"])
+        if mat is None or mat.node_tree is None:
+            return
+        node = mat.node_tree.nodes.get(_state["pin_node"])
+        if node is None:
+            return
+        if mat.node_tree.nodes.active != node:
+            mat.node_tree.nodes.active = node
+    except Exception:
+        pass
+
+
+def _debounce():
+    try:
+        return bpy.context.scene.np_debounce
+    except Exception:
+        return 0.3
+
+
+def _ensure_timer():
+    if not _state["timer_registered"]:
+        bpy.app.timers.register(_timer, first_interval=0.05)
+        _state["timer_registered"] = True
+
+
+def _on_depsgraph_update(scene, depsgraph):
+    if _state["busy"] or _state["job"] is not None:
+        return
+    now = time.time()
+    if now < _state["cooldown_until"]:
+        return
+    _state["dirty"] = True
+    _state["last_change"] = now
+
+
+def _install_handler():
+    h = bpy.app.handlers.depsgraph_update_post
+    if _on_depsgraph_update not in h:
+        h.append(_on_depsgraph_update)
+
+
+def _remove_handler():
+    h = bpy.app.handlers.depsgraph_update_post
+    if _on_depsgraph_update in h:
+        h.remove(_on_depsgraph_update)
+
+
+@bpy.app.handlers.persistent
+def _on_load_post(*args):
+    """A new .blend was loaded: non-persistent timers were dropped and any job
+    state refers to the old file. Reset cleanly to Live-off so the panel is
+    accurate and no stale worker/job lingers."""
+    try:
+        job = _state["job"]
+        if job is not None:
+            proc = job.get("proc")
+            if proc is not None:
+                try:
+                    proc.kill(); proc.wait(timeout=3)
+                except Exception:
+                    pass
+            _cleanup_job_files(job)
+    except Exception:
+        pass
+    _state["job"] = None
+    _state["live_on"] = False
+    _state["locked"] = False
+    _state["pin_on"] = False
+    _state["dirty"] = False
+    _state["busy"] = False
+    _state["timer_registered"] = False
+    _remove_handler()
+    _stop_warm_worker()
+
+
+def _install_load_handler():
+    if _on_load_post not in bpy.app.handlers.load_post:
+        bpy.app.handlers.load_post.append(_on_load_post)
+
+
+def _remove_load_handler():
+    if _on_load_post in bpy.app.handlers.load_post:
+        bpy.app.handlers.load_post.remove(_on_load_post)
+
+
+# ---------------------------------------------------------------------------
+# Operators
+# ---------------------------------------------------------------------------
+
+class NodePreviewPrefs(bpy.types.AddonPreferences):
+    bl_idname = __name__
+
+    device: bpy.props.EnumProperty(
+        name="Render Device",
+        description="Which device the background preview render uses",
+        items=[
+            ("AUTO", "Auto (GPU, fall back to CPU)", "Use the GPU if available, otherwise CPU"),
+            ("GPU", "GPU", "Force GPU (falls back to CPU only if none is found)"),
+            ("CPU", "CPU", "Always render on CPU"),
+        ],
+        default="AUTO",
+    )
+
+    def draw(self, context):
+        col = self.layout.column()
+        col.prop(self, "device")
+        col.label(text="GPU uses the backend set in Preferences > System (OptiX, Metal, etc.).",
+                  icon="INFO")
+
+
+class NODEPREVIEW_OT_refresh(bpy.types.Operator):
+    bl_idname = "nodepreview.refresh"
+    bl_label = "Refresh Preview"
+    bl_description = "Render the active shader node to the preview image (runs in the background)"
+    bl_options = {"REGISTER"}
+
+    def execute(self, context):
+        ok, msg = start_job(context)
+        if ok:
+            _ensure_timer()
+            self.report({"INFO"}, msg)
+            return {"FINISHED"}
+        self.report({"WARNING"}, msg)
+        return {"CANCELLED"}
+
+
+class NODEPREVIEW_OT_toggle_live(bpy.types.Operator):
+    bl_idname = "nodepreview.toggle_live"
+    bl_label = "Toggle Live Preview"
+    bl_description = "Start/stop debounced auto-refresh while you edit nodes"
+    bl_options = {"REGISTER"}
+
+    def execute(self, context):
+        if _state["live_on"]:
+            _state["live_on"] = False
+            _remove_handler()
+            if _state["job"] is None:
+                _stop_warm_worker()
+            self.report({"INFO"}, "Live preview stopped.")
+        else:
+            _state["live_on"] = True
+            _state["dirty"] = True
+            _state["last_change"] = 0.0   # render once right away
+            _state["seen_target_key"] = None
+            _install_handler()
+            _ensure_timer()
+            self.report({"INFO"}, "Live preview started.")
+        _redraw_node_editors()
+        return {"FINISHED"}
+
+
+# ---------------------------------------------------------------------------
+# Panel
+# ---------------------------------------------------------------------------
+
+class NODEPREVIEW_OT_toggle_lock(bpy.types.Operator):
+    bl_idname = "nodepreview.toggle_lock"
+    bl_label = "Lock Preview to Node"
+    bl_description = "Lock the preview to the current node so you can click other nodes without changing it"
+    bl_options = {"REGISTER"}
+
+    def execute(self, context):
+        if _state["locked"]:
+            _state["locked"] = False
+            _state["locked_mat"] = ""
+            _state["locked_node"] = ""
+            self.report({"INFO"}, "Preview unlocked — following the active node.")
+        else:
+            mat, node = _find_target()
+            if mat is None:
+                self.report({"WARNING"}, node)  # reason string
+                return {"CANCELLED"}
+            _state["locked"] = True
+            _state["locked_mat"] = mat.name
+            _state["locked_node"] = node.name
+            self.report({"INFO"}, "Preview locked to '%s'." % node.name)
+        _redraw_node_editors()
+        return {"FINISHED"}
+
+
+class NODEPREVIEW_OT_toggle_pin(bpy.types.Operator):
+    bl_idname = "nodepreview.toggle_pin"
+    bl_label = "Show on Mesh"
+    bl_description = ("Add (or reuse) an image-texture node pointing at the preview and keep it the "
+                     "active node, so the Solid/Workbench viewport shows the preview on the mesh. "
+                     "Pairs with Lock: locks the node you're previewing so you can edit others freely")
+    bl_options = {"REGISTER"}
+
+    def execute(self, context):
+        if _state["pin_on"]:
+            _state["pin_on"] = False
+            self.report({"INFO"}, "Stopped showing preview on mesh.")
+            _redraw_node_editors()
+            return {"FINISHED"}
+
+        obj = getattr(context, "object", None)
+        mat = obj.active_material if obj is not None else None
+        if mat is None or mat.node_tree is None:
+            self.report({"WARNING"}, "Select an object with a material first.")
+            return {"CANCELLED"}
+        nt = mat.node_tree
+
+        target = nt.nodes.active  # the node the user wants to preview (capture first)
+
+        res = bpy.data.images.get(RESULT_IMAGE_NAME)
+        if res is None:
+            res = bpy.data.images.new(RESULT_IMAGE_NAME, 256, 256, alpha=True)
+            res.use_fake_user = True
+
+        tex = None
+        for n in nt.nodes:
+            if n.type == "TEX_IMAGE" and n.image == res:
+                tex = n
+                break
+        if tex is None:
+            tex = nt.nodes.new("ShaderNodeTexImage")
+            tex.image = res
+            if target is not None:
+                tex.location = (target.location.x - 400, target.location.y)
+
+        _state["pin_mat"] = mat.name
+        _state["pin_node"] = tex.name
+        _state["pin_on"] = True
+        nt.nodes.active = tex
+
+        # Lock the preview to the target node so live keeps rendering it while the
+        # pinned image node stays active for the viewport.
+        if not _state["locked"] and target is not None and target != tex:
+            _state["locked"] = True
+            _state["locked_mat"] = mat.name
+            _state["locked_node"] = target.name
+
+        # Make sure live rendering is running so the mesh updates.
+        if not _state["live_on"]:
+            _state["live_on"] = True
+            _install_handler()
+        _state["dirty"] = True
+        _state["last_change"] = 0.0
+        _ensure_timer()
+
+        msg = "Showing preview on mesh."
+        if _state["locked"]:
+            msg += " Locked to '%s'." % _state["locked_node"]
+        self.report({"INFO"}, msg)
+        _redraw_node_editors()
+        return {"FINISHED"}
+
+
+class NODEPREVIEW_OT_save_image(bpy.types.Operator):
+    bl_idname = "nodepreview.save_image"
+    bl_label = "Save Preview to File"
+    bl_description = ("Save the current preview to an image file (you pick name/location) as an "
+                      "independent, packable texture, and optionally add it as an image-texture node")
+    bl_options = {"REGISTER", "UNDO"}
+
+    filepath: bpy.props.StringProperty(subtype="FILE_PATH")
+    filename: bpy.props.StringProperty(default="preview.png")
+    filter_glob: bpy.props.StringProperty(
+        default="*.png;*.jpg;*.jpeg;*.exr;*.tga;*.tif;*.tiff;*.bmp",
+        options={"HIDDEN"})
+    add_to_graph: bpy.props.BoolProperty(
+        name="Add as Image Texture node",
+        description="After saving, add the saved image as a new node in the active material",
+        default=True)
+
+    _FORMATS = {".png": "PNG", ".jpg": "JPEG", ".jpeg": "JPEG", ".exr": "OPEN_EXR",
+                ".tga": "TARGA", ".tif": "TIFF", ".tiff": "TIFF", ".bmp": "BMP"}
+
+    def invoke(self, context, event):
+        if bpy.data.images.get(RESULT_IMAGE_NAME) is None:
+            self.report({"WARNING"}, "No preview to save yet — render one first.")
+            return {"CANCELLED"}
+        if not self.filepath:
+            self.filepath = "//preview.png"
+        context.window_manager.fileselect_add(self)
+        return {"RUNNING_MODAL"}
+
+    def execute(self, context):
+        res = bpy.data.images.get(RESULT_IMAGE_NAME)
+        if res is None or res.size[0] == 0:
+            self.report({"WARNING"}, "No preview to save.")
+            return {"CANCELLED"}
+
+        path = bpy.path.abspath(self.filepath)
+        ext = os.path.splitext(path)[1].lower()
+        if ext not in self._FORMATS:
+            path += ".png"
+            ext = ".png"
+        fmt = self._FORMATS[ext]
+
+        # Write the preview's pixels to the file via a throwaway datablock, so we
+        # never stamp a file path onto the live preview (that's what caused the
+        # loaded file to collapse back onto the preview). Then load it fresh as a
+        # normal FILE-backed, packable image.
+        w, h = res.size
+        tmp = bpy.data.images.new("__np_export_tmp", w, h, alpha=True)
+        try:
+            buf = np.empty(w * h * 4, dtype=np.float32)
+            res.pixels.foreach_get(buf)
+            tmp.pixels.foreach_set(buf)
+            tmp.update()
+            tmp.filepath_raw = path
+            tmp.file_format = fmt
+            tmp.save()
+        except Exception as exc:
+            try:
+                bpy.data.images.remove(tmp)
+            except Exception:
+                pass
+            self.report({"ERROR"}, "Could not save: %s" % exc)
+            return {"CANCELLED"}
+        try:
+            bpy.data.images.remove(tmp)
+        except Exception:
+            pass
+
+        try:
+            saved = bpy.data.images.load(path, check_existing=True)
+        except Exception as exc:
+            self.report({"ERROR"}, "Saved, but could not reload: %s" % exc)
+            return {"CANCELLED"}
+        try:
+            saved.reload()   # ensure fresh pixels if this path was already loaded
+        except Exception:
+            pass
+
+        added = 0
+        if self.add_to_graph:
+            obj = getattr(context, "object", None)
+            mat = obj.active_material if obj is not None else None
+            if mat is not None and mat.node_tree is not None:
+                nt = mat.node_tree
+                anchor = nt.nodes.active          # capture BEFORE adding the new node
+                node = nt.nodes.new("ShaderNodeTexImage")
+                node.image = saved
+                if anchor is not None and anchor != node:
+                    node.location = (anchor.location.x, anchor.location.y - 320)
+                added = 1
+
+        self.report({"INFO"}, "Saved '%s'%s." %
+                    (os.path.basename(path), " and added to node graph" if added else ""))
+        return {"FINISHED"}
+
+
+class NODEPREVIEW_PT_panel(bpy.types.Panel):
+    bl_idname = "NODEPREVIEW_PT_panel"
+    bl_label = "Node Preview"
+    bl_space_type = "NODE_EDITOR"
+    bl_region_type = "UI"
+    bl_category = "Node Preview"
+
+    @classmethod
+    def poll(cls, context):
+        space = context.space_data
+        return space is not None and getattr(space, "tree_type", "") == "ShaderNodeTree"
+
+    def draw(self, context):
+        layout = self.layout
+        scene = context.scene
+
+        col = layout.column(align=True)
+        col.prop(scene, "np_engine")
+        col.prop(scene, "np_resolution")
+        col.prop(scene, "np_samples")
+        col.prop(scene, "np_tiling")
+        col.prop(scene, "np_debounce")
+
+        layout.separator()
+        rendering = _state["job"] is not None
+        row = layout.row()
+        row.enabled = not rendering
+        row.operator("nodepreview.refresh", icon="FILE_REFRESH")
+
+        row = layout.row()
+        if _state["live_on"]:
+            row.alert = True
+            row.operator("nodepreview.toggle_live", text="Stop Live", icon="PAUSE")
+        else:
+            row.operator("nodepreview.toggle_live", text="Start Live", icon="PLAY")
+
+        row = layout.row()
+        if _state["locked"]:
+            row.alert = True
+            row.operator("nodepreview.toggle_lock", text="Unlock Node", icon="LOCKED")
+        else:
+            row.operator("nodepreview.toggle_lock", text="Lock to Node", icon="UNLOCKED")
+
+        row = layout.row()
+        if _state["pin_on"]:
+            row.alert = True
+            row.operator("nodepreview.toggle_pin", text="Stop Showing on Mesh", icon="MESH_DATA")
+        else:
+            row.operator("nodepreview.toggle_pin", text="Show on Mesh", icon="MESH_DATA")
+
+        layout.separator()
+        layout.operator("nodepreview.save_image", icon="FILE_TICK")
+
+        box = layout.box()
+        if rendering:
+            box.label(text="Rendering preview...", icon="SORTTIME")
+        if _state["locked"]:
+            box.label(text="LOCKED: " + _state["locked_node"], icon="LOCKED")
+        else:
+            mat, node = _find_target()
+            if mat is None:
+                box.label(text=node, icon="INFO")
+            else:
+                box.label(text="Material: " + mat.name, icon="MATERIAL")
+                box.label(text="Node: " + node.name, icon="NODE")
+        if _state["last_error"]:
+            box.label(text=_state["last_error"], icon="ERROR")
+        if _state["notice"]:
+            box.label(text=_state["notice"], icon="INFO")
+
+        res_img = bpy.data.images.get(RESULT_IMAGE_NAME)
+        if res_img is not None:
+            layout.label(text="Result: %d x %d" % (res_img.size[0], res_img.size[1]))
+
+        dev = _state["last_device"]
+        if dev:
+            if dev == "EEVEE":
+                layout.label(text="Rendered on: EEVEE (GPU)", icon="CHECKMARK")
+            elif dev.startswith("GPU"):
+                pretty = "GPU" + (" (%s)" % dev.split(":", 1)[1] if ":" in dev else "")
+                layout.label(text="Rendered on: " + pretty, icon="CHECKMARK")
+            else:
+                icon = "ERROR" if _get_device_mode() in ("GPU", "AUTO") else "NONE"
+                layout.label(text="Rendered on: CPU", icon=icon)
+
+
+# ---------------------------------------------------------------------------
+# Registration
+# ---------------------------------------------------------------------------
+
+_classes = (
+    NodePreviewPrefs,
+    NODEPREVIEW_OT_refresh,
+    NODEPREVIEW_OT_toggle_live,
+    NODEPREVIEW_OT_toggle_lock,
+    NODEPREVIEW_OT_toggle_pin,
+    NODEPREVIEW_OT_save_image,
+    NODEPREVIEW_PT_panel,
+)
+
+
+def register():
+    bpy.types.Scene.np_engine = bpy.props.EnumProperty(
+        name="Engine",
+        description="Render engine for the preview. EEVEE is usually much faster on a GPU; "
+                    "Cycles is the safe fallback and works on CPU too",
+        items=[
+            ("CYCLES", "Cycles", "Path tracer — reliable on CPU or GPU"),
+            ("EEVEE", "EEVEE (experimental)",
+             "Rasteriser — faster on a GPU, but can't always render in Blender's "
+             "background worker; falls back to Cycles automatically if it fails"),
+        ],
+        default="CYCLES",
+    )
+    bpy.types.Scene.np_resolution = bpy.props.IntProperty(
+        name="Resolution", description="Pixel size of the 0..1 swatch (per tile)",
+        default=256, min=32, max=4096,
+    )
+    bpy.types.Scene.np_samples = bpy.props.IntProperty(
+        name="Samples", description="Cycles samples — raise for smoother (anti-aliased) edges",
+        default=1, min=1, max=256,
+    )
+    bpy.types.Scene.np_tiling = bpy.props.IntProperty(
+        name="Tiling", description="Repeat the swatch NxN in the final image",
+        default=1, min=1, max=8,
+    )
+    bpy.types.Scene.np_debounce = bpy.props.FloatProperty(
+        name="Debounce (s)", description="Quiet time after your last edit before re-rendering (live mode)",
+        default=0.3, min=0.05, max=2.0,
+    )
+    for cls in _classes:
+        bpy.utils.register_class(cls)
+
+    _install_load_handler()
+
+
+def unregister():
+    _state["live_on"] = False
+    _state["pin_on"] = False
+    _remove_load_handler()
+    _remove_handler()
+    job = _state["job"]
+    if job is not None:
+        # One-shot jobs own a process; warm jobs run in the shared worker.
+        proc = job.get("proc")
+        if proc is not None:
+            try:
+                proc.kill()
+                proc.wait(timeout=5)
+            except Exception:
+                pass
+        _cleanup_job_files(job)
+        _state["job"] = None
+    _stop_warm_worker()
+    try:
+        if _state["timer_registered"] and bpy.app.timers.is_registered(_timer):
+            bpy.app.timers.unregister(_timer)
+    except Exception:
+        pass
+    _state["timer_registered"] = False
+
+    for cls in reversed(_classes):
+        try:
+            bpy.utils.unregister_class(cls)
+        except Exception:
+            pass
+    for prop in ("np_engine", "np_resolution", "np_samples", "np_tiling", "np_debounce"):
+        if hasattr(bpy.types.Scene, prop):
+            delattr(bpy.types.Scene, prop)
+
+
+if __name__ == "__main__":
+    register()
