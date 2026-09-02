@@ -66,13 +66,13 @@ def _compile(mat, mode):
         print("[VertexLit] live '{}' ({}): {} sampler(s), {} param(s){}".format(
             mat.name, mode, len(res.samplers), len(res.params),
             "  notes=" + str(res.notes) if res.notes else ""))
-        # Never render magenta: if the base-colour path hit a node we don't
-        # transpile yet, don't use the live shader for this material — let the
-        # engine fall back to the (working) base-texture path. Enabling live
-        # nodes can only improve materials we fully understand, never break others.
-        if any(str(n).startswith("unsupported node") for n in res.notes):
+        # Never render magenta/grey: if the base-colour path hit a node we don't
+        # transpile yet, OR the surface can't be traced to a base colour (Mix
+        # Shader, node group, ...), fall back to the working base-texture path.
+        if res.needs_fallback or any(str(n).startswith("unsupported node") for n in res.notes):
             ent["failed"] = True
-            ent["error"] = "unsupported node(s) -> base-texture fallback"
+            ent["error"] = ("no traceable base colour" if res.needs_fallback
+                            else "unsupported node(s)") + " -> base-texture fallback"
             return ent
         ent["shader"] = gpu.types.GPUShader(vert, frag)
         ent["samplers"] = [(s.uniform, s.image) for s in res.samplers]

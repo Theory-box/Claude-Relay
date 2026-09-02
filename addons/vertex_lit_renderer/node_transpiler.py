@@ -116,6 +116,7 @@ class TranspileResult:
         self.params = []
         self.param_decls = []
         self.ok = False
+        self.needs_fallback = False   # True => engine should use the legacy texture path
         self.notes = []
 
 
@@ -575,7 +576,7 @@ def _find_base_socket(mat):
         if src.type == "EMISSION":
             return src.inputs.get("Color")
         return src.inputs.get("Base Color") or src.inputs.get("Color")
-    return surf
+    return None   # no shader on Surface -> caller falls back to legacy texture path
 
 
 def transpile_material(mat):
@@ -591,7 +592,11 @@ def transpile_material(mat):
     base = _find_base_socket(mat)
     t = _Transpiler()
     if base is None:
-        res.notes.append("no base-colour socket; using grey")
+        # Surface isn't a shape we can trace to a base colour (Mix Shader, node
+        # group, Add Shader, empty surface, ...). Signal the engine to use the
+        # legacy texture path instead of rendering flat grey.
+        res.needs_fallback = True
+        res.notes.append("no base-colour socket; using base-texture fallback")
         body_expr = "vec4(0.8, 0.8, 0.8, 1.0)"
     else:
         body_expr = _resolve_root(t, base)

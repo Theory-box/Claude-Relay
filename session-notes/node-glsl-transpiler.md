@@ -283,3 +283,21 @@ AUDIT NOTES (verified OK / known limitations, no change):
   input when actually linked (Tex Coord / Mapping).
 - Verified: Image->Base Color (no Tex Coord) now emits texture(uTx_0, vUV).
   Regression test added (spike case E). Full suite green.
+
+## v0.4.5 — 2nd audit round (more "breaks materials" cases + perf)
+FIXED:
+- Non-traceable surface (Mix Shader, node group, Add Shader, empty Surface) was
+  rendering FLAT GREY via the live path instead of falling back. Added
+  TranspileResult.needs_fallback; _find_base_socket returns None for unlinked
+  surface; _compile marks such materials failed -> engine uses the legacy base-
+  texture path. (Diffuse/Glossy BSDF 'Color' input still resolves normally.)
+- PERF: live-node params were read from the node tree + set PER OBJECT every frame;
+  they're identical across objects sharing a material, so now set once per program
+  per frame (params_done set). Big win for scenes with many instances of one material.
+
+VERIFIED OK (tests added / checked):
+- Full PBR Principled (base-colour image + roughness + normal maps on other inputs)
+  -> resolves to just the base-colour texture at vUV, no fallback, no bogus notes.
+- Diffuse BSDF with image in Color -> works, samples vUV.
+- Mix Shader / empty surface -> fallback (test_fallback.py).
+All 6 suites green.

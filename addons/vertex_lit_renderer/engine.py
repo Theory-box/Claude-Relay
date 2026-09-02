@@ -647,7 +647,8 @@ class VertexLitEngine(bpy.types.RenderEngine):
         mode=getattr(vls,'shading_mode','VERTEX')
         legacy=_get_main_shader(mode)
         use_live=bool(getattr(vls,'use_live_nodes',False))
-        frame_done=set()   # id(shader) that already received per-frame uniforms
+        frame_done=set()    # id(shader) that already received per-frame uniforms
+        params_done=set()   # id(shader) whose live node params were set this frame
 
         def _ensure_frame(sh):
             # bind every time (we may interleave shaders); set frame uniforms once.
@@ -680,13 +681,14 @@ class VertexLitEngine(bpy.types.RenderEngine):
             if prog is not None:
                 sh=prog['shader']
                 _ensure_frame(sh)
-                # Live constants (Mapping scale/loc/rot, mix factors, colours…):
-                # read current values from the node tree and push as uniforms —
-                # no recompile on edit.
-                nt=mat.node_tree if mat else None
-                for p in prog['params']:
-                    try: sh.uniform_float(p.uniform, p.value(nt))
-                    except Exception: pass
+                # Live constants are per-MATERIAL (identical across every object that
+                # shares it), so set them once per program per frame, not per object.
+                if id(sh) not in params_done:
+                    nt=mat.node_tree if mat else None
+                    for p in prog['params']:
+                        try: sh.uniform_float(p.uniform, p.value(nt))
+                        except Exception: pass
+                    params_done.add(id(sh))
                 sh.uniform_float('uModel',inst.matrix_world)
                 sh.uniform_float('uNormalMat',normal_mat)
                 for uni,image in prog['samplers']:
