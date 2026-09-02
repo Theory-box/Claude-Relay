@@ -246,3 +246,29 @@ transpiler follows (base colour is flat, or the texture is wired to another inpu
 note non-live _find_base_texture grabs ANY image node, hence the mismatch).
 NEED FROM USER: new console log + one material's node graph (is the image plugged
 into Principled Base Color, and through what nodes?).
+
+## v0.4.3 — pre-test audit fixes
+FIXED (real bugs):
+- material_shader.get_program: after a STRUCTURAL material edit, the current mode
+  recompiled but the OTHER mode's cached program kept the old structure (stale
+  shader when switching Per-Vertex<->Per-Pixel). Now a structural change drops ALL
+  cached modes for that material; value edits still reuse (params are live uniforms).
+- engine sky/ground ambient was multiplied by gi_bounce_strength -> lowering GI
+  bounce faded the sky/ground colour pickers to black ("settings do nothing").
+  Decoupled: hemisphere ambient is now independent; gi_bounce_strength only scales
+  the GI bounce term.
+
+AUDIT NOTES (verified OK / known limitations, no change):
+- socket.node exists in 4.4 -> unlinked/flat Base Colour becomes a live uniform
+  (shows the real colour), not grey. OK.
+- All 14 props are read (shading_mode/use_live_nodes via getattr).
+- Shadow settings (bias/darkness/res/use_shadows) only take effect when a SUN light
+  exists (do_shad = use_shadows and sun present). Expected; can surprise.
+- new_from_object(preserve_all_data_layers=True) contributes to rebuild churn;
+  mitigated by the 0.4.2 time-based absorb window; left True to keep GN colour attrs.
+- Instancing: only one instance per source object (dedup by name) — dupli/array
+  beyond the first isn't drawn with per-instance transforms. Pre-existing.
+- Multi-material objects: live path uses the object's ACTIVE material for the whole
+  object (base engine is also single-texture per object). Pre-existing.
+- _build_batch_from_cache builds against the Gouraud shader; safe only because both
+  modes share the _VERT_HEADER attribute layout. Fragile if a future mode differs.

@@ -90,22 +90,30 @@ def _compile(mat, mode):
 def get_program(mat, mode="VERTEX"):
     if mat is None:
         return None
-    key = (mat.name, mode)
+    name = mat.name
+    key = (name, mode)
     ent = _prog_cache.get(key)
-    dirty = mat.name in _dirty_mats
+    dirty = name in _dirty_mats
 
     if ent is not None and not dirty:
         return ent
 
-    if ent is not None and not ent["failed"] and ent["shader"] is not None:
-        if ent["sig"] == _nt.topo_signature(mat):
-            # value-only change: reuse this mode's program; clear dirty only when
-            # every cached mode for this material has been revalidated is overkill,
-            # so just clear here — other modes recompile lazily on next use.
-            _dirty_mats.discard(mat.name)
-            return ent
+    # Flagged dirty (or first build for this key). Distinguish a value-only edit
+    # (params are uniforms read live -> keep the compiled shader) from a structural
+    # edit (must recompile) via the structure signature.
+    new_sig = _nt.topo_signature(mat)
+    if ent is not None and not ent["failed"] and ent["shader"] is not None \
+            and ent["sig"] == new_sig:
+        _dirty_mats.discard(name)      # value-only edit: nothing to recompile
+        return ent
 
+    # First build, or a STRUCTURAL change. On a structural change the OTHER mode's
+    # cached program is stale too -> drop every mode for this material so each
+    # recompiles with the new structure on next use.
+    if dirty:
+        for k in [k for k in _prog_cache if k[0] == name]:
+            _prog_cache.pop(k, None)
     ent = _compile(mat, mode)
     _prog_cache[key] = ent
-    _dirty_mats.discard(mat.name)
+    _dirty_mats.discard(name)
     return ent

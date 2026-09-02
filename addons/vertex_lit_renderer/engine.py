@@ -612,10 +612,12 @@ class VertexLitEngine(bpy.types.RenderEngine):
             try: context.region.tag_redraw()
             except Exception: pass
 
-        sky   =tuple(c*(vls.gi_bounce_strength if vls else 1.0)
-                     for c in (tuple(vls.sky_color) if vls else (0.05,0.07,0.10)))
-        ground=tuple(c*(vls.gi_bounce_strength if vls else 1.0)
-                     for c in (tuple(vls.ground_color) if vls else (0.03,0.02,0.02)))
+        # Hemisphere ambient (sky/ground) is its OWN control — it must NOT be scaled
+        # by gi_bounce_strength, or lowering GI bounce silently fades these colours to
+        # black and the pickers appear to "do nothing". gi_bounce_strength now only
+        # scales the GI bounce term (bstr -> uBounceStrength).
+        sky   =tuple(vls.sky_color)    if vls else (0.05,0.07,0.10)
+        ground=tuple(vls.ground_color) if vls else (0.03,0.02,0.02)
         bstr  =vls.gi_bounce_strength if vls else 1.0
         u_shad=vls.use_shadows        if vls else True
         s_res =int(vls.shadow_resolution) if vls else 1024
