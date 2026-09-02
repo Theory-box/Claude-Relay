@@ -272,3 +272,14 @@ AUDIT NOTES (verified OK / known limitations, no change):
   object (base engine is also single-texture per object). Pre-existing.
 - _build_batch_from_cache builds against the Gouraud shader; safe only because both
   modes share the _VERT_HEADER attribute layout. Fragile if a future mode differs.
+
+## v0.4.4 — FIX the "solid colour per object" bug (root cause found)
+- Image Texture node with an UNCONNECTED Vector input was sampled at the socket's
+  (0,0,0) default (promoted to a uniform) instead of the mesh UVs -> every fragment
+  read one texel => whole object = flat colour. This is the user's long-standing
+  "won't show the texture plugged into the BSDF, just a solid colour" symptom.
+- Fix: _n_tex_image uses `vUV` when Vector is unlinked (Blender's real behaviour:
+  an unconnected texture Vector uses the active UV map). Only follows the Vector
+  input when actually linked (Tex Coord / Mapping).
+- Verified: Image->Base Color (no Tex Coord) now emits texture(uTx_0, vUV).
+  Regression test added (spike case E). Full suite green.

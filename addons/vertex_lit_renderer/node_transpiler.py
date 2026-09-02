@@ -257,7 +257,14 @@ class _Transpiler:
     def _n_tex_image(self, node, out):
         img = getattr(node, "image", None)
         vsock = node.inputs.get("Vector")
-        coords = self.input_expr(node, vsock, "vec2") if vsock else "vUV"
+        # An unconnected Vector input on an Image Texture uses the mesh UV map in
+        # Blender — NOT the socket's (0,0,0) default. Treating it as a constant
+        # samples every fragment at one texel => the whole object looks like a flat
+        # colour. Only follow the Vector input when it's actually linked.
+        if vsock is not None and vsock.is_linked:
+            coords = self.input_expr(node, vsock, "vec2")
+        else:
+            coords = "vUV"
         if img is None:
             self.notes.append("TEX_IMAGE '{}' has no image".format(node.name))
             return MAGENTA

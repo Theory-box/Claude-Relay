@@ -70,6 +70,17 @@ mD.diffuse_color = (0.2, 0.4, 0.6, 1.0)
 rD = nt.transpile_material(mD)
 check("0.2" in rD.glsl and "0.4" in rD.glsl, "D flat diffuse")
 
-print("\n================ SUMMARY ================")
-print("FAILED: " + ", ".join(FAILS) if FAILS else "ALL CHECKS PASSED")
+
+
+# --- regression: bare Image -> Base Color (no Tex Coord) must sample at vUV
+print("=== E: bare Image -> Base Color samples at vUV (not a constant) ===")
+mE, tE, bE = new_mat("E")
+imE = tE.nodes.new("ShaderNodeTexImage"); imE.image = bpy.data.images.new("e",4,4)
+tE.links.new(imE.outputs["Color"], bE.inputs["Base Color"])
+rE = nt.transpile_material(mE)
+import re as _re2
+mm = _re2.search(r"texture\(uTx_0,\s*(.+?)\);", rE.glsl)
+check(bool(mm), "E emits a texture() call")
+check(bool(mm) and mm.group(1).strip()=="vUV", "E samples at vUV (fixes solid-colour bug)")
+print("SUMMARY_E: " + ("FAILED" if FAILS else "ALL CHECKS PASSED"))
 sys.exit(1 if FAILS else 0)
