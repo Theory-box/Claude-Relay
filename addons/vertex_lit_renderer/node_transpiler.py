@@ -55,6 +55,18 @@ vec3 _hsv2rgb(vec3 c){
     return c.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y);
 }
 float _sdiv(float a, float b){ return (b == 0.0) ? 0.0 : a / b; }
+vec3 _overlay(vec3 a, vec3 b){
+    return mix(2.0*a*b, vec3(1.0)-2.0*(vec3(1.0)-a)*(vec3(1.0)-b), step(vec3(0.5), a));
+}
+vec3 _softlight(vec3 a, vec3 b){
+    vec3 lo = 2.0*a*b + a*a*(vec3(1.0)-2.0*b);
+    vec3 hi = sqrt(max(a,vec3(0.0)))*(2.0*b-vec3(1.0)) + 2.0*a*(vec3(1.0)-b);
+    return mix(lo, hi, step(vec3(0.5), b));
+}
+vec3 _bl_hue(vec3 a, vec3 b){ vec3 x=_rgb2hsv(a), y=_rgb2hsv(b); return _hsv2rgb(vec3(y.x, x.y, x.z)); }
+vec3 _bl_sat(vec3 a, vec3 b){ vec3 x=_rgb2hsv(a), y=_rgb2hsv(b); return _hsv2rgb(vec3(x.x, y.y, x.z)); }
+vec3 _bl_col(vec3 a, vec3 b){ vec3 x=_rgb2hsv(a), y=_rgb2hsv(b); return _hsv2rgb(vec3(y.x, y.y, x.z)); }
+vec3 _bl_val(vec3 a, vec3 b){ vec3 x=_rgb2hsv(a), y=_rgb2hsv(b); return _hsv2rgb(vec3(x.x, x.y, y.z)); }
 """
 
 
@@ -312,24 +324,42 @@ class _Transpiler:
 
     def _blend(self, mode, fac, a, b, clamp):
         var = self._new_var("mix")
+        # Compute the two colours once into vec3 temporaries (avoids re-sampling
+        # if an input is a texture and keeps the blend formulas readable).
+        self._line("vec3 {v}a = ({a}).rgb;".format(v=var, a=a))
+        self._line("vec3 {v}b = ({b}).rgb;".format(v=var, b=b))
+        A = var + "a"; B = var + "b"
         f = "clamp({}, 0.0, 1.0)".format(fac)
-        ops = {
-            "MIX":      "mix({a}, {b}, {f})",
-            "ADD":      "{a} + {f}*{b}",
-            "MULTIPLY": "mix({a}, {a}*{b}, {f})",
-            "SUBTRACT": "{a} - {f}*{b}",
-            "SCREEN":   "vec4(1.0) - (vec4(1.0)-{a})*(vec4(1.0)-{f}*{b})",
-            "DIVIDE":   "mix({a}, {a}/max({b}, vec4(1e-6)), {f})",
-            "DARKEN":   "mix({a}, min({a}, {b}), {f})",
-            "LIGHTEN":  "mix({a}, max({a}, {b}), {f})",
-            "DIFFERENCE": "mix({a}, abs({a}-{b}), {f})",
+        ONE = "vec3(1.0)"
+        table = {
+            "MIX":          "{B}",
+            "ADD":          "{A}+{B}",
+            "MULTIPLY":     "{A}*{B}",
+            "SUBTRACT":     "{A}-{B}",
+            "SCREEN":       ONE+"-("+ONE+"-{A})*("+ONE+"-{B})",
+            "DIVIDE":       "{A}/max({B},vec3(1e-6))",
+            "DIFFERENCE":   "abs({A}-{B})",
+            "DARKEN":       "min({A},{B})",
+            "LIGHTEN":      "max({A},{B})",
+            "OVERLAY":      "_overlay({A},{B})",
+            "SOFT_LIGHT":   "_softlight({A},{B})",
+            "LINEAR_LIGHT": "{A}+2.0*{B}-"+ONE,
+            "DODGE":        "{A}/max("+ONE+"-{B},vec3(1e-6))",
+            "BURN":         ONE+"-("+ONE+"-{A})/max({B},vec3(1e-6))",
+            "EXCLUSION":    "{A}+{B}-2.0*{A}*{B}",
+            "HUE":          "_bl_hue({A},{B})",
+            "SATURATION":   "_bl_sat({A},{B})",
+            "COLOR":        "_bl_col({A},{B})",
+            "VALUE":        "_bl_val({A},{B})",
         }
-        tmpl = ops.get(mode)
+        tmpl = table.get(mode)
         if tmpl is None:
             self.notes.append("MIX blend '{}' approximated as MIX".format(mode))
-            tmpl = ops["MIX"]
-        expr = tmpl.format(a=a, b=b, f=f)
-        if clamp: expr = "clamp({}, 0.0, 1.0)".format(expr)
+            tmpl = "{B}"
+        bl = tmpl.format(A=A, B=B)
+        expr = "vec4(mix({A}, {bl}, {f}), ({a}).a)".format(A=A, bl=bl, f=f, a=a)
+        if clamp:
+            expr = "clamp({}, 0.0, 1.0)".format(expr)
         self._line("vec4 {v} = {e};".format(v=var, e=expr))
         return var
 

@@ -348,3 +348,15 @@ Fix: VertexLitEngine.bl_use_shading_nodes_custom = False -> standard shader node
 Shader Editor follows the active object's material and edits propagate.
 Verified transpiler applies Bright/Contrast + Mix + Hue/Sat on top of the texture,
 so those now take effect once edits reach the material. Suite green.
+
+## v0.5.2 — full Mix blend modes + note on "nodes do nothing"
+- _blend rewritten to support ALL 19 Blender blend modes (was 9): added OVERLAY,
+  SOFT_LIGHT, DODGE, BURN, LINEAR_LIGHT, EXCLUSION and the HSV modes HUE/SATURATION/
+  COLOR/VALUE. New GLSL helpers (_overlay/_softlight/_bl_hue/_bl_sat/_bl_col/_bl_val)
+  in HELPERS. Inputs computed once into vec3 temps; result = mix(a, blend, fac).
+  Verified all modes emit real formulas (no 'approximated' note).
+- CLARIFICATION for user: node effects require the "Live Material Nodes" toggle ON
+  (that's the transpiler). bl_use_shading_nodes_custom=False only fixed the Shader
+  EDITOR; it doesn't make Blender evaluate nodes for us. If brightness/mix/sat still
+  do nothing, either the toggle is off or the console "[VertexLit] live ..." line
+  will show what's happening (sampler/param count or fallback reason).
