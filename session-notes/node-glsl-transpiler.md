@@ -301,3 +301,22 @@ VERIFIED OK (tests added / checked):
 - Diffuse BSDF with image in Color -> works, samples vUV.
 - Mix Shader / empty surface -> fallback (test_fallback.py).
 All 6 suites green.
+
+## v0.4.6 — intermittent chug (needs restart) investigation + guards
+Static audit of accumulation sources:
+- GI threads: start() signals previous via its own stop event; _run checks stop
+  every vertex -> old threads exit fast. ADDED a 0.25s join of the old thread in
+  start() to guarantee threads never STACK across rapid rebuilds.
+- _extract_mesh_data: exception-safe (except removes the temp mesh). OK.
+- build_scene_bvh (gi.py): has no try/finally BUT is DEAD CODE (engine uses
+  _build_bvh_from_cache) -> not the cause.
+- _ShadowMap: reused singleton; resize GC's old tex/fb. Not a per-frame leak.
+- Couldn't isolate the leak statically -> added instrumentation.
+
+INSTRUMENTATION (when _DEBUG): rebuild line now prints
+  "[VertexLit] rebuilt N objs (Xs) | GI-threads=? meshes=? shader-cache=?"
+  -> next chug log tells us what accumulates (threads / orphan meshes / programs).
+
+NOTE: use_gi defaults TRUE @128 samples (Python BVH ray casting) = the most
+expensive subsystem, on by default. Suggested user diagnostic: toggle GI Bounce
+OFF; if chug disappears, GI is the culprit (then lower samples / optimise).

@@ -1,6 +1,7 @@
 # vertex_lit_renderer/engine.py
 
 import time
+import threading
 import numpy as np
 import bpy
 import gpu
@@ -487,7 +488,13 @@ class VertexLitEngine(bpy.types.RenderEngine):
         self._shadow_dict =new_shadow
         self._dirty       =False
         self._shadow_dirty=True
-        print(f"[VertexLit] rebuilt {len(new_mesh)} objs ({time.time()-t0:.2f}s)")
+        if _DEBUG:
+            gi_threads=sum(1 for t in threading.enumerate() if t.name=='VertexLit-GI')
+            print("[VertexLit] rebuilt {} objs ({:.2f}s) | GI-threads={} meshes={} shader-cache={}".format(
+                len(new_mesh), time.time()-t0, gi_threads,
+                len(bpy.data.meshes), len(material_shader._prog_cache)))
+        else:
+            print(f"[VertexLit] rebuilt {len(new_mesh)} objs ({time.time()-t0:.2f}s)")
 
         if use_gi:
             # BVH built from cached vertex data — no extra new_from_object

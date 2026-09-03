@@ -233,6 +233,14 @@ class ProgressiveGI:
         # Signal the old thread (if any) via its own stop event
         self._stop.set()
 
+        # Bound thread overlap: briefly wait for the previous worker to exit before
+        # spawning a new one. It checks its stop flag every vertex, so this returns
+        # almost immediately; the timeout just guarantees we never stack GI threads
+        # across rapid rebuilds (a slow accumulation that would only clear on restart).
+        old = self._thread
+        if old is not None and old.is_alive():
+            old.join(timeout=0.25)
+
         # New stop event for the new thread — old thread keeps its reference
         new_stop = threading.Event()
         self._stop = new_stop
