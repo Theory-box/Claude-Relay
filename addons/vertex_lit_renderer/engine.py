@@ -9,7 +9,7 @@ from gpu_extras.batch import batch_for_shader
 from mathutils import Matrix, Vector
 from mathutils.bvhtree import BVHTree
 
-from .shaders import SHADOW_VERT, SHADOW_FRAG, MAIN_VERT, MAIN_FRAG, PHONG_VERT, PHONG_FRAG
+from .shaders import SHADOW_VERT, SHADOW_FRAG, MAIN_VERT, MAIN_FRAG, PHONG_VERT, PHONG_FRAG, WORKBENCH_FRAG
 from .gi import ProgressiveGI
 from . import material_shader
 
@@ -52,7 +52,9 @@ def _get_shadow_shader():
 def _get_main_shader(mode='VERTEX'):
     sh = _main_shader.get(mode)
     if sh is None:
-        if mode == 'PIXEL':
+        if mode == 'WORKBENCH':
+            sh = gpu.types.GPUShader(PHONG_VERT, WORKBENCH_FRAG)
+        elif mode == 'PIXEL':
             sh = gpu.types.GPUShader(PHONG_VERT, PHONG_FRAG)
         else:
             sh = gpu.types.GPUShader(MAIN_VERT, MAIN_FRAG)
@@ -566,29 +568,37 @@ class VertexLitEngine(bpy.types.RenderEngine):
     # ── Per-frame uniforms (shared by legacy + per-material shaders) ──────
 
     def _apply_frame_uniforms(self, shader, view_proj, ls_mat, sky, ground, bstr,
-                              do_shad, s_bias, s_dark, shad_tex, lights):
-        # All of these live in MAIN_VERT, which every program shares, so the
-        # same call works for the legacy shader and every transpiled material.
-        shader.uniform_float('uViewProj',       view_proj)
-        shader.uniform_float('uLightSpace',     ls_mat)
-        shader.uniform_float('uSkyColor',       sky)
-        shader.uniform_float('uGroundColor',    ground)
-        shader.uniform_float('uBounceStrength', bstr)
-        shader.uniform_int  ('uUseShadow',      1 if do_shad else 0)
-        shader.uniform_float('uShadowBias',     s_bias)
-        shader.uniform_float('uShadowDark',     s_dark)
-        shader.uniform_sampler('uShadowMap',    shad_tex)
-        shader.uniform_int('uNumLights',        len(lights))
+                              do_shad, s_bias, s_dark, shad_tex, lights, studio):
+        # Programs differ by shading mode (Workbench/Gouraud/Phong) and don't all
+        # declare the same uniforms, so set each defensively — a uniform the current
+        # program doesn't have simply raises ValueError and is skipped.
+        def sf(name, val):
+            try: shader.uniform_float(name, val)
+            except (ValueError, Exception): pass
+        def si(name, val):
+            try: shader.uniform_int(name, val)
+            except (ValueError, Exception): pass
+        def ss(name, val):
+            try: shader.uniform_sampler(name, val)
+            except (ValueError, Exception): pass
+
+        sf('uViewProj', view_proj)
+        # Workbench studio light (camera-following key + flat ambient)
+        key_dir, key_col, ambient = studio
+        sf('uKeyDir', key_dir); sf('uKeyCol', key_col); sf('uAmbient', ambient)
+        # Scene-light / shadow / GI uniforms (present only in VERTEX/PIXEL programs)
+        sf('uLightSpace', ls_mat); sf('uSkyColor', sky); sf('uGroundColor', ground)
+        sf('uBounceStrength', bstr); si('uUseShadow', 1 if do_shad else 0)
+        sf('uShadowBias', s_bias); sf('uShadowDark', s_dark); ss('uShadowMap', shad_tex)
+        si('uNumLights', len(lights))
         for i in range(8):
             l=lights[i] if i<len(lights) else None
-            try:
-                shader.uniform_float(f'uLPos[{i}]',    tuple(l['pos'])  if l else (0,0,0))
-                shader.uniform_float(f'uLDir[{i}]',    tuple(l['dir'])  if l else (0,0,-1))
-                shader.uniform_float(f'uLCol[{i}]',    l['color']       if l else (0,0,0))
-                shader.uniform_float(f'uLEnergy[{i}]', l['energy']      if l else 0.0)
-                shader.uniform_int  (f'uLType[{i}]',   l['type']        if l else 0)
-                shader.uniform_float(f'uLRadius[{i}]', l['radius']      if l else 1.0)
-            except ValueError: pass
+            sf(f'uLPos[{i}]',    tuple(l['pos'])  if l else (0,0,0))
+            sf(f'uLDir[{i}]',    tuple(l['dir'])  if l else (0,0,-1))
+            sf(f'uLCol[{i}]',    l['color']       if l else (0,0,0))
+            sf(f'uLEnergy[{i}]', l['energy']      if l else 0.0)
+            si(f'uLType[{i}]',   l['type']        if l else 0)
+            sf(f'uLRadius[{i}]', l['radius']      if l else 1.0)
 
     # ── Main draw ─────────────────────────────────────────────────────────
 
@@ -602,18 +612,18 @@ class VertexLitEngine(bpy.types.RenderEngine):
         if self._dirty:
             self._rebuild(depsgraph,vls)
 
-        if self._gi.has_update():
+        gi_on = bool(vls and vls.use_gi)
+        if gi_on and self._gi.has_update():
             gi_data,n=self._gi.get_update()
             self._apply_gi_update(gi_data)
-            print(f"[VertexLit] GI sample {n} applied")
+            if _DEBUG: print(f"[VertexLit] GI sample {n} applied")
 
-        # Drive continuous redraws while GI accumulates.
-        # self.tag_redraw() is the RenderEngine API; context.region.tag_redraw()
-        # is more direct and reliable in Blender 4.x.
-        # The module-level timer is a third-layer fallback.
+        # Drive continuous redraws only while GI is actually accumulating, or a
+        # shadow re-render is pending. With GI off (the default) nothing here forces
+        # redraws — the viewport stays idle like Workbench.
         global _gi_active, _last_draw_time
         _last_draw_time = time.time()
-        _gi_active=self._gi.is_running or self._shadow_dirty
+        _gi_active=(gi_on and self._gi.is_running) or self._shadow_dirty
         if _gi_active:
             self.tag_redraw()
             try: context.region.tag_redraw()
@@ -651,7 +661,15 @@ class VertexLitEngine(bpy.types.RenderEngine):
         gpu.state.face_culling_set('BACK')
 
         view_proj=rv3d.window_matrix@rv3d.view_matrix
-        mode=getattr(vls,'shading_mode','VERTEX')
+        mode=getattr(vls,'shading_mode','WORKBENCH')
+        # Workbench studio key light follows the view (like Blender's Solid mode):
+        # a fixed view-space direction rotated into world space each frame.
+        try:
+            kv=Vector((0.25,0.35,0.90)); kv.normalize()
+            key_dir=tuple(rv3d.view_rotation @ kv)
+        except Exception:
+            key_dir=(0.3,0.4,0.86)
+        studio=(key_dir, (0.9,0.9,0.9), 0.35)
         legacy=_get_main_shader(mode)
         use_live=bool(getattr(vls,'use_live_nodes',False))
         frame_done=set()    # id(shader) that already received per-frame uniforms
@@ -662,7 +680,7 @@ class VertexLitEngine(bpy.types.RenderEngine):
             sh.bind()
             if id(sh) not in frame_done:
                 self._apply_frame_uniforms(sh, view_proj, ls_mat, sky, ground, bstr,
-                                           do_shad, s_bias, s_dark, shad_tex, lights)
+                                           do_shad, s_bias, s_dark, shad_tex, lights, studio)
                 frame_done.add(id(sh))
 
         for inst in depsgraph.object_instances:

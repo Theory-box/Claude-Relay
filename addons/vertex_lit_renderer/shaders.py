@@ -147,8 +147,41 @@ void main() {
 }
 """
 
-# ---- Fragments used by the live-node material path (per mode) ---------------
-# The transpiler's computeBaseColor() body is spliced in by material_shader.
+# ---- Workbench-style studio shading (no scene lights, no GI, no shadows) -----
+# A camera-following key light + flat ambient, per fragment. Matches Blender's
+# Solid/Workbench "always lit" look. Pairs with PHONG_VERT (world normal + uv +
+# vertex colour). uKeyDir is world-space, updated each frame to follow the view.
+WORKBENCH_FRAG = """
+uniform sampler2D uAlbedo;
+uniform int   uHasTexture;
+uniform vec3  uKeyDir;
+uniform vec3  uKeyCol;
+uniform float uAmbient;
+in vec2 vUV;
+in vec4 vColor;
+in vec3 vNrm;
+out vec4 outColor;
+void main(){
+    vec3 N = normalize(vNrm);
+    float ndl = max(dot(N, normalize(uKeyDir)), 0.0);
+    vec3 lit = uKeyCol * ndl + vec3(uAmbient);
+    vec4 albedo = (uHasTexture != 0) ? texture(uAlbedo, vUV) : vec4(1.0);
+    outColor = vec4(lit * albedo.rgb * vColor.rgb, albedo.a * vColor.a);
+}
+"""
+
+MAT_FRAG_HEAD_WORKBENCH = ("in vec2 vUV;\nin vec4 vColor;\nin vec3 vNrm;\n"
+                           "uniform vec3 uKeyDir;\nuniform vec3 uKeyCol;\n"
+                           "uniform float uAmbient;\nout vec4 outColor;\n")
+MAT_FRAG_MAIN_WORKBENCH = (
+    "void main(){\n"
+    "    vec3 N = normalize(vNrm);\n"
+    "    float ndl = max(dot(N, normalize(uKeyDir)), 0.0);\n"
+    "    vec3 lit = uKeyCol * ndl + vec3(uAmbient);\n"
+    "    vec4 base = computeBaseColor(vUV);\n"
+    "    outColor = vec4(lit * base.rgb, base.a);\n"
+    "}\n"
+)
 MAT_FRAG_HEAD_VERTEX = "in vec4 vLight;\nin vec2 vUV;\nout vec4 outColor;\n"
 MAT_FRAG_MAIN_VERTEX = (
     "void main() {\n"

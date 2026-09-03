@@ -6,12 +6,15 @@ class VertexLitSettings(bpy.types.PropertyGroup):
     shading_mode: bpy.props.EnumProperty(
         name="Shading",
         items=[
+            ('WORKBENCH', "Solid (Studio)",
+             "Fast Workbench-style studio shading — always lit, no scene lights, "
+             "no GI, no shadows"),
             ('VERTEX', "Per-Vertex (Gouraud)",
-             "Lighting computed per vertex and interpolated (retro / fast)"),
+             "Scene-light lighting computed per vertex (retro; uses GI/shadows)"),
             ('PIXEL', "Per-Pixel (Phong)",
-             "Lighting computed per fragment (sharper highlights, smoother shadows)"),
+             "Scene-light lighting computed per fragment (uses GI/shadows)"),
         ],
-        default='VERTEX')
+        default='WORKBENCH')
 
     # Hemisphere fill (ambient fallback / low-frequency fill light)
     sky_color: bpy.props.FloatVectorProperty(
@@ -23,8 +26,10 @@ class VertexLitSettings(bpy.types.PropertyGroup):
 
     # GI
     use_gi: bpy.props.BoolProperty(
-        name="GI Bounce", default=True,
-        description="Compute real one-bounce light with BVH ray casting at rebuild time")
+        name="GI Bounce", default=False,
+        description="Compute real one-bounce light with BVH ray casting at rebuild "
+                    "time. Off by default (experimental / slow; only affects the "
+                    "Per-Vertex and Per-Pixel scene-light modes)")
     gi_samples: bpy.props.IntProperty(
         name="Samples", default=128, min=1, max=1024,
         description="Ray samples per vertex. More = less noise, slower rebuild")

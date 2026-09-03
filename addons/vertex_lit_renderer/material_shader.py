@@ -25,6 +25,9 @@ _dirty_mats = set()
 
 
 def _heads(mode):
+    if mode == "WORKBENCH":
+        return (_sh.PHONG_VERT, _sh.MAT_FRAG_HEAD_WORKBENCH,
+                _sh.MAT_FRAG_MAIN_WORKBENCH, "")
     if mode == "PIXEL":
         return _sh.PHONG_VERT, _sh.MAT_FRAG_HEAD_PIXEL, _sh.MAT_FRAG_MAIN_PIXEL, _sh.LIGHT_CHUNK
     return _sh.MAIN_VERT, _sh.MAT_FRAG_HEAD_VERTEX, _sh.MAT_FRAG_MAIN_VERTEX, ""

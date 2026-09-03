@@ -320,3 +320,20 @@ INSTRUMENTATION (when _DEBUG): rebuild line now prints
 NOTE: use_gi defaults TRUE @128 samples (Python BVH ray casting) = the most
 expensive subsystem, on by default. Suggested user diagnostic: toggle GI Bounce
 OFF; if chug disappears, GI is the culprit (then lower samples / optimise).
+
+## v0.5.0 — pivot to Workbench-style solid shading (GI + scene-light lighting OFF by default)
+Per user: turn off raytracing (GI) and vertex-based lighting for now; match Workbench.
+- NEW default shading_mode 'WORKBENCH' (Solid/Studio): per-fragment, camera-following
+  key light + flat ambient, NO scene lights / GI / shadows. shaders.WORKBENCH_FRAG +
+  MAT_FRAG_*_WORKBENCH; pairs PHONG_VERT. Engine computes uKeyDir from rv3d.view_rotation
+  each frame (light follows view). uKeyCol=0.9, uAmbient=0.35.
+- Live material nodes work in Workbench mode: computeBaseColor * studio light.
+- use_gi now defaults FALSE; GI start already gated on use_gi (no thread, no forced
+  redraws by default) -> removes the chug source. GI polling/redraw in view_draw gated
+  on use_gi too.
+- _apply_frame_uniforms made fully tolerant (per-uniform try/except) so Workbench
+  programs (which lack the scene-light/shadow uniforms) don't error; added studio uniforms.
+- Per-Vertex (Gouraud) and Per-Pixel (Phong) scene-light modes kept as options for later.
+- UI: in Workbench mode, GI/hemisphere/lights/shadows sections hidden (they don't apply)
+  -> no more "settings that do nothing".
+- test_workbench.py added; full 7-suite green. Defaults verified: mode=WORKBENCH, GI off.

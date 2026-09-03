@@ -18,6 +18,22 @@ class VERTEX_LIT_PT_settings(bpy.types.Panel):
 
         box = layout.box()
         row = box.row()
+        row.label(text="Materials", icon='NODE_MATERIAL')
+        row.prop(s, 'use_live_nodes', text="")
+        if s.use_live_nodes:
+            box.label(text="Live node graph → GLSL (experimental)", icon='INFO')
+            box.label(text="Falls back to base texture if a material can't compile")
+
+        # The rest only affect the scene-light modes (Per-Vertex / Per-Pixel).
+        # In Workbench (Solid) mode they do nothing, so hide them to avoid confusion.
+        if s.shading_mode == 'WORKBENCH':
+            box = layout.box()
+            box.label(text="Solid studio shading — always lit, no scene lights,", icon='INFO')
+            box.label(text="no GI, no shadows. (Switch mode for those.)")
+            return
+
+        box = layout.box()
+        row = box.row()
         row.label(text="GI Bounce (BVH ray cast)", icon='SHADERFX')
         row.prop(s, 'use_gi', text="")
         if s.use_gi:
@@ -37,14 +53,6 @@ class VERTEX_LIT_PT_settings(bpy.types.Panel):
         box = layout.box()
         box.label(text="Lights", icon='LIGHT')
         box.prop(s, 'energy_scale')
-
-        box = layout.box()
-        row = box.row()
-        row.label(text="Materials", icon='NODE_MATERIAL')
-        row.prop(s, 'use_live_nodes', text="")
-        if s.use_live_nodes:
-            box.label(text="Live node graph → GLSL (experimental)", icon='INFO')
-            box.label(text="Falls back to base texture if a material can't compile")
 
         box = layout.box()
         row = box.row()
