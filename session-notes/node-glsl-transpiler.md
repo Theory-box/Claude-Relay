@@ -337,3 +337,14 @@ Per user: turn off raytracing (GI) and vertex-based lighting for now; match Work
 - UI: in Workbench mode, GI/hemisphere/lights/shadows sections hidden (they don't apply)
   -> no more "settings that do nothing".
 - test_workbench.py added; full 7-suite green. Defaults verified: mode=WORKBENCH, GI off.
+
+## v0.5.1 — FIX shader-editor detachment (and "nodes do nothing")
+Root cause: RenderEngine.bl_use_shading_nodes_custom defaults TRUE for custom
+engines -> Blender treats us as having a CUSTOM node system and detaches the Shader
+Editor from materials (shows generic "Shader Nodetree", won't follow the selected
+object, edits go to a detached tree). That's why Saturation/Mix/Brightness edits
+"did nothing" — they never reached the material the engine reads.
+Fix: VertexLitEngine.bl_use_shading_nodes_custom = False -> standard shader nodes;
+Shader Editor follows the active object's material and edits propagate.
+Verified transpiler applies Bright/Contrast + Mix + Hue/Sat on top of the texture,
+so those now take effect once edits reach the material. Suite green.

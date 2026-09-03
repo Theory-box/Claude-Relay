@@ -333,6 +333,11 @@ def _build_bvh_from_cache(mesh_cache, objects):
 
 class VertexLitEngine(bpy.types.RenderEngine):
     bl_idname='VERTEX_LIT'; bl_label='Vertex Lit'; bl_use_preview=False
+    # Use Blender's STANDARD shader nodes (not a custom node system). Without this
+    # (it defaults True), Blender detaches the Shader Editor from materials: it shows
+    # a generic "Shader Nodetree", won't follow the selected object, and edits don't
+    # reach the real material — so live-node changes appear to do nothing.
+    bl_use_shading_nodes_custom = False
 
     def _ensure_state(self):
         if getattr(self,'_state_ready',False): return
