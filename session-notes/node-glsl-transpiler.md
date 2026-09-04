@@ -360,3 +360,17 @@ so those now take effect once edits reach the material. Suite green.
   EDITOR; it doesn't make Blender evaluate nodes for us. If brightness/mix/sat still
   do nothing, either the toggle is off or the console "[VertexLit] live ..." line
   will show what's happening (sampler/param count or fallback reason).
+
+## v0.5.3 — CPU GL test harness + full node map/plan
+- BIG: tests/gl_harness.py — compiles + renders the transpiler's computeBaseColor
+  GLSL on a SOFTWARE OpenGL 3.3 context (Mesa llvmpipe via EGL, moderngl installed
+  into Blender's python). Catches GLSL COMPILE errors AND reads back pixels to
+  verify node output values — on-machine, no GPU. test_gl_smoke.py proves it:
+  texture samples across UVs, brightness raises output, mix ADD 0.3+0.4=0.749,
+  all 19 blend modes compile. This de-risks every future node port.
+- NODES.md: full shader-node coverage map (done/partial/todo/out-of-scope) + the
+  port-from-Eevee-GLSL plan and order. Key finding: the user's stated edits
+  (skybox brightness, UV rescale, wall darken) are ALREADY covered (Mapping/
+  BrightContrast/Mix/HueSat) — the port effort is about breadth (procedurals etc).
+- Porting order starts with the Noise foundation (hash+noise+fractal), then
+  Voronoi/Wave, then Tex Coord Generated/Object (unlocks skybox mapping).
