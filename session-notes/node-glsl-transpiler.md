@@ -714,3 +714,28 @@ pipeline could overlap read+process for ~1.3-1.5x at real complexity/risk -> def
 Bigger levers: the shadow skip (done) + mesh density (dense meshes are inherently slower
 to upload). Incremental rebuild already means each mesh extracts ONCE.
 Suites green.
+
+## v0.9.2 — technical-debt / perf audit
+FIXED (real):
+1. CONTINUOUS IDLE REDRAWS when shadows OFF (default): _rebuild set _shadow_dirty=True,
+   but it's only cleared in the shadow pass, which never runs when shadows are off ->
+   _gi_active stayed True -> viewport redrew forever at max FPS pinning the GPU while
+   idle. Fix: clear _shadow_dirty when shadows off; _gi_active only counts shadow_dirty
+   when do_shad. Now idles like Workbench.
+2. topo_signature per-object per-frame while editing: the draw loop peeked get_program
+   per SLOT per OBJECT; for a dirty material the peek runs topo_signature (walks all
+   nodes+links). A dirty material on N objects -> N sig computes/frame. Fix: resolve each
+   material's program at most ONCE per frame (frame_progs dict).
+NOTED (debt / future, not fixed):
+- Per-frame frame-uniforms scale with material count: each unique shader gets ~48
+  uniforms/frame (Workbench = 1 shader). Fundamental to per-material shaders; proper fix
+  is a shared UBO (GPUUniformBuf + std140 block) -> deferred (bigger refactor). Matters
+  for material-heavy scenes.
+- Minor bounded leaks: _prog_cache/_tex_cache keep entries for deleted materials/images
+  until re-enter (cleared by _release_gpu_caches on unregister). Low priority.
+- GI (gi.py 317 lines) + shadow system are large chunks for off-by-default experimental
+  features. No per-frame cost when off (verified) but real complexity debt; candidates
+  for extraction/removal if they stay unused.
+- Many bare `except Exception: pass` (defensive) can mask real errors; `except
+  (ValueError, Exception)` is redundant (cosmetic).
+No dead functions found. 11 suites green.

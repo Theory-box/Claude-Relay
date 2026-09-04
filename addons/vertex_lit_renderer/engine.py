@@ -766,6 +766,28 @@ class VertexLitEngine(bpy.types.RenderEngine):
         gpu.state.depth_test_set('LESS_EQUAL')
         gpu.state.depth_mask_set(True)
         gpu.state.face_culling_set('BACK')
+
+        # Resolve each material's program at most ONCE per frame (materials are shared
+        # across many objects; the peek can run topo_signature for dirty materials, so
+        # doing it per-object per-frame is a real cost while editing).
+        frame_progs = {}
+        def _resolve_prog(mat_name):
+            if mat_name in frame_progs:
+                return frame_progs[mat_name]
+            mat = bpy.data.materials.get(mat_name) if mat_name else None
+            prog = None
+            if mat is not None and getattr(mat, 'use_nodes', False):
+                p = material_shader.get_program(mat, mode, may_compile=False)
+                if p is None:
+                    if time.time() < _compile_deadline:
+                        p = material_shader.get_program(mat, mode, may_compile=True)
+                    else:
+                        self._mat_pending = True
+                if p and not p['failed'] and p['shader'] is not None:
+                    prog = p
+            frame_progs[mat_name] = prog
+            return prog
+
         for inst in depsgraph.object_instances:
             obj=inst.object
             if obj.type!='MESH': continue
@@ -780,19 +802,8 @@ class VertexLitEngine(bpy.types.RenderEngine):
             except Exception: normal_mat=inst.matrix_world.to_3x3()
 
             for batch, mat_name, tex in slots:
-                mat=bpy.data.materials.get(mat_name) if mat_name else None
-                prog=None
-                if mat is not None and getattr(mat,'use_nodes',False):
-                    p=material_shader.get_program(mat, mode, may_compile=False)  # peek
-                    if p is None:
-                        # not compiled yet -> compile now only if within this frame's
-                        # time budget, else defer (draw base texture, retry next frame)
-                        if time.time() < _compile_deadline:
-                            p=material_shader.get_program(mat, mode, may_compile=True)
-                        else:
-                            self._mat_pending=True
-                    if p and not p['failed'] and p['shader'] is not None:
-                        prog=p
+                prog=_resolve_prog(mat_name)
+                mat=bpy.data.materials.get(mat_name) if (prog and mat_name) else None
 
                 if prog is not None:
                     sh=prog['shader']
@@ -844,14 +855,6 @@ class VertexLitEngine(bpy.types.RenderEngine):
         # Drive continuous redraws only while GI is actually accumulating, or a
         # shadow re-render is pending. With GI off (the default) nothing here forces
         # redraws — the viewport stays idle like Workbench.
-        global _gi_active, _last_draw_time
-        _last_draw_time = time.time()
-        _gi_active=(gi_on and self._gi.is_running) or self._shadow_dirty
-        if _gi_active:
-            self.tag_redraw()
-            try: context.region.tag_redraw()
-            except Exception: pass
-
         # Hemisphere ambient (sky/ground) is its OWN control — it must NOT be scaled
         # by gi_bounce_strength, or lowering GI bounce silently fades these colours to
         # black and the pickers appear to "do nothing". gi_bounce_strength now only
@@ -859,7 +862,7 @@ class VertexLitEngine(bpy.types.RenderEngine):
         sky   =tuple(vls.sky_color)    if vls else (0.05,0.07,0.10)
         ground=tuple(vls.ground_color) if vls else (0.03,0.02,0.02)
         bstr  =vls.gi_bounce_strength if vls else 1.0
-        u_shad=vls.use_shadows        if vls else True
+        u_shad=vls.use_shadows        if vls else False
         s_res =int(vls.shadow_resolution) if vls else 1024
         s_bias=vls.shadow_bias        if vls else 0.005
         s_dark=vls.shadow_darkness    if vls else 0.25
@@ -867,6 +870,21 @@ class VertexLitEngine(bpy.types.RenderEngine):
         lights=self._lights_cache
         sun=next((l for l in lights if l['is_sun']),None)
         do_shad=u_shad and sun is not None
+        # Shadows off -> clear any stale shadow-dirty so it can't force endless idle
+        # redraws (the shadow pass that clears it only runs when shadows are on).
+        if not do_shad:
+            self._shadow_dirty=False
+
+        # Force continuous redraws ONLY while GI is accumulating, or a shadow re-render
+        # is genuinely pending. Otherwise the viewport goes idle like Workbench instead
+        # of pinning the GPU at max FPS doing nothing.
+        global _gi_active, _last_draw_time
+        _last_draw_time = time.time()
+        _gi_active=(gi_on and self._gi.is_running) or (self._shadow_dirty and do_shad)
+        if _gi_active:
+            self.tag_redraw()
+            try: context.region.tag_redraw()
+            except Exception: pass
         center,radius=self._bounds_cache
         ls_mat=_build_light_space(sun,center,radius) if do_shad else Matrix.Identity(4)
         shad_tex=self._shadow_pass(ls_mat,s_res,depsgraph) if do_shad else self._dummy_depth
