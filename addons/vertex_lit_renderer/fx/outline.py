@@ -10,28 +10,33 @@ from .effect import ScreenEffect
 
 _OUTLINE_FRAG = """
 uniform sampler2D uColor;
-uniform sampler2D uId;      /* per-object flat colour; background = (0,0,0) */
+uniform sampler2D uId;      /* per-object flat colour; background=(0,0,0), excluded=(1,1,1) */
 uniform vec2 uTexel;
 uniform float uSize;        /* outline width in pixels */
 uniform vec3 uLineColor;
+uniform float uLineAlpha;   /* outline opacity */
 in vec2 vUV;
 out vec4 fragColor;
 
+const vec3 EXCL = vec3(1.0);   /* reserved id for outline-excluded objects */
+
 void main(){
     vec4 col = texture(uColor, vUV);
+    vec3 c = texture(uId, vUV).rgb;
+    if(c == EXCL){ fragColor = col; return; }   /* excluded object: never outlined */
     vec2 o = uTexel * max(uSize, 1.0);
-    vec3 c  = texture(uId, vUV).rgb;
     vec3 a0 = texture(uId, vUV + vec2(0.0, o.y)).rgb;
     vec3 a1 = texture(uId, vUV - vec2(0.0, o.y)).rgb;
     vec3 a2 = texture(uId, vUV + vec2(o.x, 0.0)).rgb;
     vec3 a3 = texture(uId, vUV - vec2(o.x, 0.0)).rgb;
-    /* Workbench: opacity = 1 - fraction of neighbours whose id == centre id */
+    /* Workbench: opacity = 1 - fraction of neighbours whose id == centre id.
+       An excluded-id neighbour counts as "same" so no outline forms against it. */
     float same = 0.0;
-    same += (a0 == c) ? 0.25 : 0.0;
-    same += (a1 == c) ? 0.25 : 0.0;
-    same += (a2 == c) ? 0.25 : 0.0;
-    same += (a3 == c) ? 0.25 : 0.0;
-    float op = 1.0 - same;
+    same += (a0 == c || a0 == EXCL) ? 0.25 : 0.0;
+    same += (a1 == c || a1 == EXCL) ? 0.25 : 0.0;
+    same += (a2 == c || a2 == EXCL) ? 0.25 : 0.0;
+    same += (a3 == c || a3 == EXCL) ? 0.25 : 0.0;
+    float op = (1.0 - same) * uLineAlpha;
     fragColor = vec4(mix(col.rgb, uLineColor, op), col.a);
 }
 """
@@ -64,4 +69,6 @@ class Outline(ScreenEffect):
             except Exception: pass
         sf('uTexel', ctx['texel'])
         sf('uSize', ctx.get('outline_size', 1.5))
-        sf('uLineColor', ctx.get('outline_color', (0.0, 0.0, 0.0)))
+        oc = ctx.get('outline_color', (0.0, 0.0, 0.0, 1.0))
+        sf('uLineColor', (oc[0], oc[1], oc[2]))
+        sf('uLineAlpha', oc[3] if len(oc) > 3 else 1.0)

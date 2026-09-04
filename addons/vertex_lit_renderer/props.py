@@ -9,6 +9,12 @@ class VertexLitSettings(bpy.types.PropertyGroup):
     ao_strength: bpy.props.FloatProperty(name="AO Strength", default=1.0, min=0.0, max=4.0)
     ao_radius: bpy.props.FloatProperty(name="AO Radius", default=0.5, min=0.01, max=5.0)
     ao_bias: bpy.props.FloatProperty(name="AO Bias", default=0.02, min=0.0, max=0.5)
+    ao_samples: bpy.props.EnumProperty(
+        name="AO Quality",
+        items=[('16', "Low (16)", "16 samples"),
+               ('32', "Medium (32)", "32 samples"),
+               ('64', "High (64)", "64 samples — smoothest, slowest")],
+        default='16', description="AO samples per pixel — higher is smoother but slower")
 
     # Object outline (screen-space)
     use_outline: bpy.props.BoolProperty(
@@ -18,8 +24,8 @@ class VertexLitSettings(bpy.types.PropertyGroup):
         name="Outline Width", default=1.5, min=0.5, max=10.0,
         description="Outline thickness in pixels")
     outline_color: bpy.props.FloatVectorProperty(
-        name="Outline Color", subtype='COLOR', default=(0.0, 0.0, 0.0),
-        min=0.0, max=1.0)
+        name="Outline Color", subtype='COLOR', size=4, default=(0.0, 0.0, 0.0, 1.0),
+        min=0.0, max=1.0, description="Outline colour and opacity (alpha)")
 
     # Shading model
     shading_mode: bpy.props.EnumProperty(
@@ -62,8 +68,12 @@ def register():
     bpy.types.Object.vlr_ao_exclude = bpy.props.BoolProperty(
         name="Exclude from AO", default=False,
         description="This object won't cast or receive screen-space AO")
+    bpy.types.Object.vlr_outline_exclude = bpy.props.BoolProperty(
+        name="Exclude from Outline", default=False,
+        description="This object won't get an outline")
 
 def unregister():
     del bpy.types.Object.vlr_ao_exclude
+    del bpy.types.Object.vlr_outline_exclude
     del bpy.types.Scene.vertex_lit
     bpy.utils.unregister_class(VertexLitSettings)

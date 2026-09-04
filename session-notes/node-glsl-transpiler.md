@@ -868,3 +868,17 @@ All GPU-side (visual) -> user tests. 13 checks + 12 suites green.
   object is outlined (incl. touching same-depth), thin + soft at corners like Workbench.
   Removed outline_threshold (unused).
 Suites green; ID + outline shaders compile.
+
+## v0.10.6 — render GPU context + outline alpha/exclusion + AO quality
+- RENDER (F12) FIX: added bl_use_gpu_context=True to VertexLitEngine. render() draws with
+  the gpu module, which needs a GPU context Blender only provides when this flag is set;
+  without it every GPU call in render() failed ("GPU functions not available"). Likely the
+  reason F12 never worked. (Can't test headless -> user confirms.)
+- OUTLINE ALPHA: outline_color is now RGBA (size 4); shader multiplies edge opacity by the
+  alpha (uLineAlpha) so outline opacity is adjustable.
+- OUTLINE EXCLUSION: Object.vlr_outline_exclude; excluded objects render the reserved id
+  (1,1,1) into the id buffer; the outline shader treats reserved-id pixels as never-outlined
+  and reserved neighbours as "same" -> no outline on/around excluded objects.
+- AO QUALITY: ao_samples enum (16/32/64); SSAO kernel expanded to 64, loops uSamples and
+  normalises by it. Fixed a GLSL name clash (loop count N vs normal N -> NS).
+UI: AO quality dropdown + AO/outline exclude toggles for the active object. Suites green.

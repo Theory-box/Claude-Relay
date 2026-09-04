@@ -20,6 +20,9 @@ class VERTEX_LIT_PT_settings(bpy.types.Panel):
             col = box.column(align=True)
             col.prop(s, 'outline_size')
             col.prop(s, 'outline_color', text="")
+            ob = context.active_object
+            if ob is not None and ob.type == 'MESH':
+                box.prop(ob, 'vlr_outline_exclude', text="Exclude active object")
 
         box = layout.box()
         box.label(text="Shading", icon='SHADING_RENDERED')
@@ -34,6 +37,7 @@ class VERTEX_LIT_PT_settings(bpy.types.Panel):
             col.prop(s, 'ao_strength')
             col.prop(s, 'ao_radius')
             col.prop(s, 'ao_bias')
+            col.prop(s, 'ao_samples')
             ob = context.active_object
             if ob is not None and ob.type == 'MESH':
                 box.prop(ob, 'vlr_ao_exclude', text="Exclude active object")

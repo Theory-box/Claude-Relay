@@ -386,6 +386,8 @@ def _build_shadow_batch_from_cache(cached):
 
 class VertexLitEngine(bpy.types.RenderEngine):
     bl_idname='VERTEX_LIT'; bl_label='Vertex Lit'; bl_use_preview=False
+    # F12 render() draws with the gpu module -> Blender must hand render() a GPU context.
+    bl_use_gpu_context = True
     # Use Blender's STANDARD shader nodes (not a custom node system). Without this
     # (it defaults True), Blender detaches the Shader Editor from materials: it shows
     # a generic "Shader Nodetree", won't follow the selected object, and edits don't
@@ -976,7 +978,10 @@ class VertexLitEngine(bpy.types.RenderEngine):
                             if o.type != 'MESH' or not i.show_self: continue
                             sl = self._batch_dict.get(o.name)
                             if not sl: continue
-                            col = ((idx & 0xFF)/255.0, ((idx >> 8) & 0xFF)/255.0, ((idx >> 16) & 0xFF)/255.0)
+                            if getattr(o, 'vlr_outline_exclude', False):
+                                col = (1.0, 1.0, 1.0)   # reserved id -> no outline
+                            else:
+                                col = ((idx & 0xFF)/255.0, ((idx >> 8) & 0xFF)/255.0, ((idx >> 16) & 0xFF)/255.0)
                             try:
                                 sh.uniform_float('uModel', i.matrix_world)
                                 sh.uniform_float('uId', col)
@@ -994,6 +999,7 @@ class VertexLitEngine(bpy.types.RenderEngine):
                     'ao_radius':   (vls.ao_radius   if vls else 0.5),
                     'ao_strength': (vls.ao_strength if vls else 1.0),
                     'ao_bias':     (vls.ao_bias     if vls else 0.02),
+                    'ao_samples':  (int(vls.ao_samples) if vls else 16),
                     'outline_size':      (vls.outline_size      if vls else 1.5),
                     'outline_color':     (tuple(vls.outline_color) if vls else (0.0,0.0,0.0)),
                 }
