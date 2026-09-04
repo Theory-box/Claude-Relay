@@ -15,6 +15,30 @@ from . import material_shader
 from . import fx
 import ctypes as _ct
 
+# Persistent CPU extraction cache — survives engine instances (leaving/re-entering
+# rendered view destroys the engine but NOT this). Re-entry reuses the already-extracted
+# mesh DATA (the slow part) and just rebuilds the GPU batches fresh (fast + always valid
+# in the current context). A cheap signature detects changes made while we weren't watching.
+_PERSIST_MESH = {}     # obj name -> extraction data dict
+_PERSIST_SIG = {}      # obj name -> cheap geometry signature
+
+
+def _geo_sig(obj, mesh):
+    """Cheap signature to detect whether an object's geometry changed while we weren't
+    watching (e.g. edited in Solid mode). Catches topology + modifier changes, and a
+    few sampled positions catch most vertex edits — without reading the whole mesh."""
+    try:
+        mods = tuple((m.type, bool(m.show_viewport)) for m in obj.modifiers)
+        nv = len(mesh.vertices)
+        s = 0.0
+        if nv:
+            vs = mesh.vertices
+            for i in (0, nv // 2, nv - 1):
+                c = vs[i].co; s += c.x * 1.1 + c.y * 2.3 + c.z * 3.7
+        return (getattr(mesh, 'name', ''), nv, len(mesh.polygons), mods, round(s, 4))
+    except Exception:
+        return None
+
 
 def _raw_attr(mesh, name, ctype, ncomp, count):
     """Read a mesh attribute as a numpy array DIRECTLY from Blender's contiguous
@@ -414,7 +438,9 @@ class VertexLitEngine(bpy.types.RenderEngine):
     def _ensure_state(self):
         if getattr(self,'_state_ready',False): return
         self._dirty            = True
-        self._mesh_cache       = {}
+        # Reuse the persistent extraction DATA across engine instances; batches are
+        # rebuilt fresh (cheap) so they're always valid in the current GPU context.
+        self._mesh_cache       = _PERSIST_MESH
         self._batch_dict       = {}
         self._shadow_dict      = {}
         self._dummy_depth      = None
@@ -621,32 +647,47 @@ class VertexLitEngine(bpy.types.RenderEngine):
                 self._mesh_cache.pop(name,None)
                 self._batch_dict.pop(name,None)
                 self._shadow_dict.pop(name,None)
+                _PERSIST_SIG.pop(name,None)
 
-        # 2) Decide what to (re)extract: dirty objects + brand-new objects. A full
-        #    rebuild (dirty_objects empty AND nothing cached) extracts everything once.
+        # (Re)build batches. Objects still cached whose signature matches are NOT
+        # re-extracted — we reuse their stored data and just rebuild the (cheap) batch.
+        # This makes re-entering rendered view fast (skip the slow extraction) and only
+        # re-extracts objects that actually changed.
         dirty=set(getattr(self,'_dirty_objects',set()))
-        full = (not self._mesh_cache) or getattr(self,'_force_full',False)
+        full = getattr(self,'_force_full',False)
         if full:
             to_do=set(current.keys())
         else:
-            to_do=(dirty & set(current.keys())) | {n for n in current if n not in self._mesh_cache}
+            to_do=(dirty & set(current.keys())) | {n for n in current if n not in self._batch_dict}
 
-        # Shadow batches are only needed when shadows are on (off by default). Building
-        # them per object otherwise wastes ~7ms/dense-object on data nobody draws.
         want_shadow = bool(vls and getattr(vls, 'use_shadows', False))
         budget_end = time.time() + 0.04
         remaining = []
         done = 0
+        reused = 0
         for name in to_do:
             if done > 0 and time.time() > budget_end:
                 remaining.append(name)
                 continue
             obj=current.get(name)
             if obj is None: continue
-            data=_extract_mesh_data(obj,depsgraph)   # reads eval mesh directly (no copy)
+            try:
+                eo=obj.evaluated_get(depsgraph); me=getattr(eo,'data',None)
+                sig_now=_geo_sig(obj, me) if me else None
+            except Exception:
+                sig_now=None
+            ent=self._mesh_cache.get(name)
+            if (ent is not None and sig_now is not None and name not in dirty
+                    and _PERSIST_SIG.get(name) == sig_now):
+                data=ent                              # unchanged -> reuse (no re-extract)
+                reused += 1
+            else:
+                data=_extract_mesh_data(obj,depsgraph)
+                if data is not None:
+                    self._mesh_cache[name]=data
+                    _PERSIST_SIG[name]=sig_now
             if data:
-                self._mesh_cache[name]=data
-                self._batch_dict[name]=_build_object_slots(data)
+                self._batch_dict[name]=_build_object_slots(data)   # fresh batch (fast, valid)
                 if want_shadow:
                     sb=_build_shadow_batch_from_cache(data)
                     if sb: self._shadow_dict[name]=sb
@@ -663,10 +704,12 @@ class VertexLitEngine(bpy.types.RenderEngine):
             if hasattr(self,'_dirty_objects'): self._dirty_objects.clear()
             self._geo_pending = False
         self._shadow_dirty=True
-        print("[VertexLit] loaded {}/{} objs ({:.2f}s){}{}".format(
-            done, len(current), time.time()-t0,
-            " [full]" if full else " [incremental]",
-            " (+{} streaming)".format(len(remaining)) if remaining else ""))
+        if done or remaining:
+            print("[VertexLit] loaded {}/{} objs ({:.2f}s){}{}{}".format(
+                done, len(current), time.time()-t0,
+                " [full]" if full else " [incremental]",
+                " ({} reused)".format(reused) if reused else "",
+                " (+{} streaming)".format(len(remaining)) if remaining else ""))
 
         if use_gi and not remaining:
             self._gi.cancel()
@@ -1048,6 +1091,8 @@ def _release_gpu_caches():
     _shadow_shader = None
     _shadow_map = None
     _tex_cache.clear()
+    # Persistent mesh/batch caches hold GPU batches tied to the (now gone) context.
+    _PERSIST_MESH.clear(); _PERSIST_SIG.clear()
     try:
         material_shader.invalidate()   # release compiled per-material programs
     except Exception:

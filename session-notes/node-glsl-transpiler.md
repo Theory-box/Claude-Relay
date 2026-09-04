@@ -794,3 +794,19 @@ AUDIT (pre-test) findings:
   override; self._edit_tmp persistent temp mesh, freed on teardown; mat_slot falls back
   to obj.active_material.
 12 suites green (+test_extract_raw).
+
+## v0.9.6 — persistent extraction cache (fast re-entry into rendered view)
+PROBLEM (user): leaving+re-entering rendered view re-extracted the WHOLE scene, because
+the mesh cache + batches lived on the engine INSTANCE, which Blender destroys on view exit.
+FIX: persist the CPU extraction DATA at module level (_PERSIST_MESH) + a cheap per-object
+geometry signature (_PERSIST_SIG). Across engine instances:
+- Re-entry reuses the stored extraction data (the SLOW part) and only rebuilds the GPU
+  batches fresh (fast, ~1-2ms/obj, and always valid in the current context — we do NOT
+  persist GPU batches to avoid stale-context crashes).
+- A cheap signature (vert/poly count + modifier state + 3 sampled vertex positions) detects
+  changes made while we weren't watching (e.g. edited in Solid mode) -> re-extract only those.
+- Unchanged objects are reused (verified: same sig=reuse; modifier or vertex edit=re-extract).
+- Cleared on unregister (_release_gpu_caches) since GPU context is gone then.
+Console now reports "loaded N/M objs [full] (K reused)". Re-entry with no changes reuses
+everything -> just fast batch rebuild, no extraction.
+9 suites green.
