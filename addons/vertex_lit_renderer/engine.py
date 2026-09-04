@@ -490,87 +490,58 @@ class VertexLitEngine(bpy.types.RenderEngine):
     # ── view_update ───────────────────────────────────────────────────────
 
     def view_update(self, context, depsgraph):
-        global _gi_active
         self._ensure_state()
 
-        if self._drain_cycles > 0:
-            self._drain_cycles -= 1
-            return
-        # Time-based absorb: for a short window after a rebuild, ignore ALL
-        # depsgraph updates. new_from_object/remove during extraction emit deferred
-        # geometry/material events; without this they can re-trigger _dirty AFTER
-        # the fixed cycle-drain expires -> the 0.9s rebuild loop seen in the console.
-        if time.time() - getattr(self, '_rebuild_time', 0.0) < 0.4:
-            return
-
-        vls_lb = getattr(depsgraph.scene, 'vertex_lit', None)
-        live = True   # live material nodes always on
-
+        # General rule: react to EVERY change in this depsgraph update, immediately.
+        # (No more churn-era throttling — extraction reads the eval mesh directly and no
+        # longer creates/removes datablocks, so there's nothing to "absorb".)
+        changed = False
         for update in depsgraph.updates:
-            id_data=update.id
-            if update.is_updated_geometry:
-                if isinstance(id_data,bpy.types.Mesh):
-                    if getattr(id_data,'users',0)>0:
-                        # mark objects using this mesh dirty (the Object update usually
-                        # also fires, but be robust)
-                        for nm in list(self._mesh_cache.keys()):
-                            ob=bpy.data.objects.get(nm)
-                            if ob is not None and getattr(ob,'data',None) is id_data:
-                                self._dirty_objects.add(nm)
-                        if _DEBUG: print("[VertexLit] dirty <- mesh geom:", id_data.name)
-                        self._dirty=True; self._shadow_dirty=True
-                        _gi_active=True; return
-                if isinstance(id_data,bpy.types.Object) and id_data.type=='MESH':
-                    # geometry edit OR a brand-new object -> re-extract just this one
-                    self._dirty_objects.add(id_data.name)
-                    if _DEBUG: print("[VertexLit] dirty <- object geom:", id_data.name)
-                    self._dirty=True; self._shadow_dirty=True
-                    _gi_active=True; return
-                if isinstance(id_data,bpy.types.Object) and id_data.type=='LIGHT':
-                    if _DEBUG: print("[VertexLit] rebuild <- light geom:", id_data.name)
-                    self._dirty=True; self._shadow_dirty=True
-                    _gi_active=True; return
-            if isinstance(id_data,bpy.types.Material):
-                material_shader.mark_dirty(id_data.name)
-                if live:
-                    # Live path reads the node graph at DRAW time -> only the tiny
-                    # per-material shader recompiles. NO full geometry rebuild (that
-                    # re-extract + GI restart on every material edit is the chug).
-                    _gi_active=True
-                    try: context.region.tag_redraw()
-                    except Exception: pass
-                    return
-                if _DEBUG: print("[VertexLit] rebuild <- material:", id_data.name)
-                self._dirty=True; self._shadow_dirty=True
-                _gi_active=True; return
-            if update.is_updated_transform:
-                if isinstance(id_data, bpy.types.Object):
-                    if id_data.type == 'LIGHT':
-                        self._dirty = True
-                        self._shadow_dirty = True
-                        _gi_active = True; return
-                    elif id_data.type == 'MESH':
-                        self._shadow_dirty = True
-                        _gi_active = True
-            if isinstance(id_data,bpy.types.Image):
-                _invalidate_tex(id_data.name)
+            id_data = update.id
+            if isinstance(id_data, bpy.types.Object):
+                if id_data.type == 'MESH':
+                    if update.is_updated_geometry:
+                        # modifier add/remove/toggle, geo-nodes, edit-mode edits, new
+                        # object... all surface here -> re-extract just this object.
+                        self._dirty_objects.add(id_data.name)
+                        self._dirty = True; self._shadow_dirty = True; changed = True
+                    elif update.is_updated_transform:
+                        # moving/rotating: matrix_world is read live in the draw loop, so
+                        # NO re-extract needed; only shadows must re-render.
+                        self._shadow_dirty = True; changed = True
+                elif id_data.type == 'LIGHT':
+                    self._dirty = True; self._shadow_dirty = True; changed = True
+            elif isinstance(id_data, bpy.types.Mesh):
+                # mesh datablock geometry (edit mode / linked duplicates write here) ->
+                # mark every cached object sharing this mesh.
+                if update.is_updated_geometry and getattr(id_data, 'users', 0) > 0:
+                    for nm in self._mesh_cache:
+                        ob = bpy.data.objects.get(nm)
+                        if ob is not None and getattr(ob, 'data', None) is id_data:
+                            self._dirty_objects.add(nm)
+                    self._dirty = True; self._shadow_dirty = True; changed = True
+            elif isinstance(id_data, bpy.types.Material):
+                # Live path: only the tiny per-material shader recompiles (peeked at draw
+                # time) — no geometry rebuild.
+                material_shader.mark_dirty(id_data.name); changed = True
+            elif isinstance(id_data, bpy.types.Image):
+                _invalidate_tex(id_data.name); changed = True
 
-        # Object deletions don't always surface as a geometry update — if a cached
-        # object no longer exists, trigger an (incremental) rebuild to drop it.
+        # Object deletion doesn't always surface as an update -> sync against the scene.
         if not self._dirty and self._mesh_cache:
             for nm in self._mesh_cache:
                 if nm not in bpy.data.objects:
-                    self._dirty = True
-                    try: context.region.tag_redraw()
-                    except Exception: pass
-                    break
+                    self._dirty = True; changed = True; break
+
+        if changed:
+            self.tag_redraw()
+            try: context.region.tag_redraw()
+            except Exception: pass
 
     # ── Rebuild ───────────────────────────────────────────────────────────
 
     def _rebuild(self, depsgraph, vls):
         self._rebuild_inner(depsgraph, vls)
-        self._drain_cycles=4      # absorb immediate deferred events
-        self._rebuild_time=time.time()  # + time-based absorb window (see view_update)
 
     def _rebuild_inner(self, depsgraph, vls):
         t0=time.time()
@@ -842,6 +813,22 @@ class VertexLitEngine(bpy.types.RenderEngine):
 
         scene=depsgraph.scene
         vls=getattr(scene,'vertex_lit',None)
+
+        # Edit mode: re-extract ONLY the object being edited each frame (its evaluated
+        # mesh reflects live edit-cage changes) and keep redrawing, so geometry edits
+        # show in real time. Direct fast path — no full-scene sync, bounded to one object.
+        eob = getattr(context, 'edit_object', None)
+        if eob is not None and eob.type == 'MESH':
+            try:
+                data = _extract_mesh_data(eob, depsgraph)
+                if data:
+                    self._mesh_cache[eob.name] = data
+                    self._batch_dict[eob.name] = _build_object_slots(data)
+            except Exception:
+                pass
+            self.tag_redraw()
+            try: context.region.tag_redraw()
+            except Exception: pass
 
         if self._dirty:
             self._rebuild(depsgraph,vls)

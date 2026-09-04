@@ -739,3 +739,22 @@ NOTED (debt / future, not fixed):
 - Many bare `except Exception: pass` (defensive) can mask real errors; `except
   (ValueError, Exception)` is redundant (cosmetic).
 No dead functions found. 11 suites green.
+
+## v0.9.3 — general realtime updates + live edit mode
+GENERALISED view_update (no more case-by-case):
+- One rule: ANY is_updated_geometry on a mesh object -> re-extract THAT object. Covers
+  modifier add/remove/toggle, geo-nodes, new objects, etc. automatically.
+- Mesh-datablock geom updates -> mark cached objects sharing it (linked dupes/edit).
+- Transforms -> matrix read live in draw (no re-extract), only shadows re-render.
+- Materials -> mark_dirty (shader peek at draw); Images -> tex invalidate; deletions synced.
+- Processes ALL updates in the depsgraph (removed the early `return` that only caught the
+  FIRST change -> batch edits on many objects now all update).
+REMOVED obsolete churn-era THROTTLING: the 0.4s post-rebuild "absorb window" + drain_cycles
+  ignored every update for 0.4s after a rebuild -> laggy/missed updates while editing. Gone
+  now that extraction reads eval_obj.data (no datablock churn to absorb). Updates are immediate.
+LIVE EDIT MODE: view_draw re-extracts ONLY context.edit_object each frame (its eval mesh
+  reflects the live edit cage) via a direct fast path (no full-scene sync) + forces redraw
+  -> geometry edits show in real time. Bounded to one object; stops on leaving edit mode.
+Removed dead _view_update_OLD (62 lines). Suites green.
+CAVEAT (user to test): edit-mode re-extract is per-frame for the edited object; a very
+  dense edited mesh (~16k+ verts = ~27ms) will edit at ~15-30fps. Fine for typical meshes.
