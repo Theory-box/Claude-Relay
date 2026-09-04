@@ -53,9 +53,9 @@ darken a wall → Bright/Contrast / Mix / Hue-Sat ✅ · show the texture → Im
 - ✅ Image Texture (unconnected Vector → mesh UV, fixed)
 - ⏳ **Noise** — port `gpu_shader_material_tex_noise.glsl` (+ hash + base noise +
   fractal). FOUNDATION: pulls in the shared hash/noise files everything else uses.
-- ⏳ **Voronoi** — `_tex_voronoi.glsl` (depends on hash)
+- ✅ **Voronoi** — F1 (Distance/Color/Position), 3D Euclidean, exact hash (F2/edge/other metrics todo)
 - ⏳ **Wave** — `_tex_wave.glsl` (depends on noise/fractal)
-- ⏳ Musgrave, Brick, Checker, Gradient, Magic, White Noise — each its own file
+- ✅ Checker (exact binary), Gradient (all types) · ⏳ Musgrave, Brick, Magic, White Noise, Wave
 - ⏳ Environment Texture + Sky Texture — equirectangular/sky mapping; relevant to
   "skybox" if it's a World/Environment setup rather than a plain image on a mesh
 - 🚫 Point Density, IES (volumetric / light data)

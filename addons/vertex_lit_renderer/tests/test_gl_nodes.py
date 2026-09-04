@@ -40,5 +40,27 @@ import numpy as np
 def hf(a): return np.abs(np.diff(a,axis=1)).mean()
 check(hf(hi)>hf(lo), "higher Noise scale = higher spatial frequency")
 
+# --- Voronoi F1 (Distance varies, in range; Color varies) ---
+def vor(outn, scale=5.0):
+    m,t,b=base('vor'); n=t.nodes.new('ShaderNodeTexVoronoi'); n.inputs['Scale'].default_value=scale
+    t.links.new(n.outputs[outn], b.inputs['Base Color']); px,_=H.render_material(m,size=32); return px
+vd=vor('Distance')
+check(vd[...,0].std()>0.05 and vd[...,0].min()>=0.0, "Voronoi Distance varies, >=0")
+check(vor('Color')[...,0].std()>0.03, "Voronoi Color varies per cell")
+
+# --- Checker (exact binary) ---
+def checker():
+    m,t,b=base('ck'); n=t.nodes.new('ShaderNodeTexChecker'); n.inputs['Scale'].default_value=4.0
+    t.links.new(n.outputs['Fac'], b.inputs['Base Color']); px,_=H.render_material(m,size=32); return px[...,0]
+u=set(np.unique(np.round(checker(),2)))
+check(u.issubset({0.0,1.0}) and len(u)==2, "Checker Fac is exactly binary {0,1}")
+
+# --- Gradient LINEAR == UV.x ---
+def grad():
+    m,t,b=base('gr'); n=t.nodes.new('ShaderNodeTexGradient')
+    t.links.new(n.outputs['Fac'], b.inputs['Base Color']); px,_=H.render_material(m,size=16); return px[...,0]
+g=grad()
+check(g[0,-1]>g[0,0]+0.5 and abs(g[0,0])<0.1, "Gradient LINEAR ramps with U (0->1)")
+
 print("SUMMARY: " + ("FAILED "+", ".join(F) if F else "ALL CHECKS PASSED"))
 sys.exit(1 if F else 0)

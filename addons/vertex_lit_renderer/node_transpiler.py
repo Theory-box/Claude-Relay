@@ -125,6 +125,27 @@ float _b_fbm3(vec3 co, float detail, float roughness, float lacunarity){
     }
     return 0.5*sum/maxamp+0.5;
 }
+/* hash->[0,1] variants (verbatim from gpu_shader_common_hash.glsl) for Voronoi/etc. */
+float hash_uint3_to_float(uint kx,uint ky,uint kz){ return float(hash_uint3(kx,ky,kz))/float(0xFFFFFFFFu); }
+float hash_uint4_to_float(uint kx,uint ky,uint kz,uint kw){ return float(hash_uint4(kx,ky,kz,kw))/float(0xFFFFFFFFu); }
+float hash_vec3_to_float(vec3 k){ return hash_uint3_to_float(floatBitsToUint(k.x),floatBitsToUint(k.y),floatBitsToUint(k.z)); }
+float hash_vec4_to_float(vec4 k){ return hash_uint4_to_float(floatBitsToUint(k.x),floatBitsToUint(k.y),floatBitsToUint(k.z),floatBitsToUint(k.w)); }
+vec3 hash_vec3_to_vec3(vec3 k){ return vec3(hash_vec3_to_float(k), hash_vec4_to_float(vec4(k,1.0)), hash_vec4_to_float(vec4(k,2.0))); }
+/* Blender Voronoi F1 (3D). Euclidean distance; returns nearest feature. */
+void _b_voronoi_f1(vec3 coord, float randomness, out float outDist, out vec3 outCol, out vec3 outPos){
+    vec3 cellPosition = floor(coord);
+    vec3 localPosition = coord - cellPosition;
+    float minDist = 8.0; vec3 targetOffset = vec3(0.0), targetPosition = vec3(0.0);
+    for(int k=-1;k<=1;k++) for(int j=-1;j<=1;j++) for(int i=-1;i<=1;i++){
+        vec3 cellOffset = vec3(float(i), float(j), float(k));
+        vec3 pointPosition = cellOffset + hash_vec3_to_vec3(cellPosition + cellOffset) * randomness;
+        float d = distance(pointPosition, localPosition);
+        if(d < minDist){ minDist = d; targetOffset = cellOffset; targetPosition = pointPosition; }
+    }
+    outDist = minDist;
+    outCol  = hash_vec3_to_vec3(cellPosition + targetOffset);
+    outPos  = targetPosition + cellPosition;
+}
 """
 
 
@@ -630,6 +651,70 @@ class _Transpiler:
                 v=var, r=_f(c1[0]), g=_f(c1[1]), b=_f(c1[2]), a=_f(c1[3]), w=w))
         return var
 
+    def _n_tex_checker(self, node, out):
+        vs = node.inputs.get("Vector")
+        co = self.input_expr(node, vs, "vec3") if (vs and vs.is_linked) else "vec3(vUV, 0.0)"
+        scale = self.input_expr(node, node.inputs.get("Scale"), "float")
+        c1 = self.input_expr(node, node.inputs.get("Color1"), "vec4")
+        c2 = self.input_expr(node, node.inputs.get("Color2"), "vec4")
+        v = self._new_var("chk")
+        self._line("vec3 {v}p = (({co})*{s} + 0.000001) * 0.999999;".format(v=v, co=co, s=scale))
+        self._line("int {v}x=int(floor({v}p.x)); int {v}y=int(floor({v}p.y)); int {v}z=int(floor({v}p.z));".format(v=v))
+        self._line("bool {v}c = (({v}x % 2 == {v}y % 2) == ({v}z % 2 == 0));".format(v=v))
+        if out.name == "Color":
+            return "({v}c ? ({c1}) : ({c2}))".format(v=v, c1=c1, c2=c2)
+        self._line("float {v}f = {v}c ? 1.0 : 0.0;".format(v=v))
+        self._var_type[v + "f"] = "float"
+        return v + "f"
+
+    def _n_tex_gradient(self, node, out):
+        vs = node.inputs.get("Vector")
+        co = self.input_expr(node, vs, "vec3") if (vs and vs.is_linked) else "vec3(vUV, 0.0)"
+        gt = getattr(node, "gradient_type", "LINEAR")
+        v = self._new_var("grad")
+        self._line("vec3 {v}p = {co};".format(v=v, co=co))
+        expr = {
+            "LINEAR":           "{v}p.x",
+            "QUADRATIC":        "max({v}p.x,0.0)*max({v}p.x,0.0)",
+            "EASING":           "clamp({v}p.x,0.0,1.0)*clamp({v}p.x,0.0,1.0)*(3.0-2.0*clamp({v}p.x,0.0,1.0))",
+            "DIAGONAL":         "({v}p.x+{v}p.y)*0.5",
+            "RADIAL":           "atan({v}p.y,{v}p.x)/(2.0*3.14159265)+0.5",
+            "SPHERICAL":        "max(1.0-length({v}p),0.0)",
+            "QUADRATIC_SPHERE": "max(1.0-length({v}p),0.0)*max(1.0-length({v}p),0.0)",
+        }.get(gt, "{v}p.x").format(v=v)
+        self._line("float {v}f = {e};".format(v=v, e=expr))
+        self._var_type[v + "f"] = "float"
+        if out.name == "Color":
+            return "vec4(vec3(max({v}f,0.0)), 1.0)".format(v=v)
+        return v + "f"
+
+    def _n_tex_voronoi(self, node, out):
+        vs = node.inputs.get("Vector")
+        co = self.input_expr(node, vs, "vec3") if (vs and vs.is_linked) else "vec3(vUV, 0.0)"
+        scale = self.input_expr(node, node.inputs.get("Scale"), "float")
+        rnd = self.input_expr(node, node.inputs.get("Randomness"), "float") \
+            if node.inputs.get("Randomness") else "1.0"
+        feat = getattr(node, "feature", "F1")
+        if feat != "F1":
+            self.notes.append("VORONOI feature '{}' approximated as F1".format(feat))
+        if getattr(node, "distance", "EUCLIDEAN") != "EUCLIDEAN":
+            self.notes.append("VORONOI distance approximated as EUCLIDEAN")
+        v = self._new_var("vor")
+        self._line("float {v}d; vec3 {v}c; vec3 {v}pos;".format(v=v))
+        # declared without '=', so record types for the coercer manually
+        self._var_type[v + "d"] = "float"
+        self._var_type[v + "c"] = "vec3"
+        self._var_type[v + "pos"] = "vec3"
+        self._line("_b_voronoi_f1(({co})*{s}, clamp({r},0.0,1.0), {v}d, {v}c, {v}pos);"
+                   .format(co=co, s=scale, r=rnd, v=v))
+        name = out.name
+        if name == "Color":
+            return "vec4({v}c, 1.0)".format(v=v)
+        if name == "Position":
+            return "vec4({v}pos, 1.0)".format(v=v)
+        # Distance (default), Radius, W -> the scalar distance
+        return "{v}d".format(v=v)
+
     def _n_tex_noise(self, node, out):
         vs = node.inputs.get("Vector")
         if vs is not None and vs.is_linked:
@@ -786,7 +871,10 @@ def _variant(n):
     elif t == "MAPPING": v = [getattr(n, "vector_type", "POINT")]
     elif t == "CLAMP": v = [getattr(n, "clamp_type", "MINMAX")]
     elif t == "MAP_RANGE": v = [getattr(n, "interpolation_type", "LINEAR"), str(getattr(n, "clamp", True))]
+    elif t == "TEX_GRADIENT": v = [getattr(n, "gradient_type", "LINEAR")]
     elif t in ("SEPARATE_COLOR", "COMBINE_COLOR"): v = [getattr(n, "mode", "RGB")]
+    elif t == "TEX_VORONOI": v = [getattr(n, "feature", "F1"), getattr(n, "distance", "EUCLIDEAN"),
+                                  getattr(n, "voronoi_dimensions", "3D")]
     elif t == "TEX_IMAGE": v = ["img=" + (n.image.name if n.image else "")]
     elif t == "VALTORGB":
         cr = n.color_ramp

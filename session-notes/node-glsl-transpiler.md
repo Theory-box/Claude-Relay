@@ -409,3 +409,15 @@ Follow-ups for full exactness: fetch gpu_shader_material_tex_noise.glsl to match
 exact distortion offsets + Color-output random offsets (currently faithful-but-not-
 verbatim); then Voronoi/Wave reuse this hash foundation.
 GPL: ported code is GPL-2.0-or-later; addon is GPL. OK.
+
+## v0.5.7 — Voronoi (F1) + Checker + Gradient
+- Voronoi: added verbatim hash_vec3_to_vec3 (+ deps) from Blender's hash file; _b_voronoi_f1
+  (3D Euclidean, 27-cell) — Distance/Color/Position outputs. Other features/metrics note+F1.
+  CPU-verified: Distance varies & >=0, Color varies per cell.
+- Checker: exact Blender parity logic ((xi%2==yi%2)==(zi%2==0)) with the 0.999999 offset.
+  CPU-verified Fac is exactly {0,1}.
+- Gradient: all types (linear/quadratic/easing/diagonal/radial/spherical/quadratic-sphere).
+  CPU-verified LINEAR == U ramp.
+- Fixed: output vars declared without '=' now get _var_type registered (Voronoi Distance
+  float coercion) — general gotcha for multi-decl lines.
+- test_gl_nodes: 11 checks. All 9 suites green. NODES.md updated.
