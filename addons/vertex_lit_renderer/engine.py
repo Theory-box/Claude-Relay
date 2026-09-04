@@ -15,18 +15,21 @@ from . import material_shader
 from . import fx
 import ctypes as _ct
 
-# Persistent CPU extraction cache — survives engine instances (leaving/re-entering
-# rendered view destroys the engine but NOT this). Re-entry reuses the already-extracted
-# mesh DATA (the slow part) and just rebuilds the GPU batches fresh (fast + always valid
-# in the current context). A cheap signature detects changes made while we weren't watching.
+# Persistent caches — survive engine instances (leaving/re-entering rendered view
+# destroys the engine but NOT these). Re-entry reuses the extracted data AND the GPU
+# batches, so unchanged objects need no work at all. A cheap signature detects changes
+# made while away. If a persisted batch is ever stale (GPU context changed), drawing it
+# raises and we self-heal by re-extracting that object. Cleared on unregister.
 _PERSIST_MESH = {}     # obj name -> extraction data dict
+_PERSIST_BATCH = {}    # obj name -> [(batch, material_name, texture), ...]
+_PERSIST_SHADOW = {}   # obj name -> shadow batch
 _PERSIST_SIG = {}      # obj name -> cheap geometry signature
 
 
 def _geo_sig(obj, mesh):
     """Cheap signature to detect whether an object's geometry changed while we weren't
-    watching (e.g. edited in Solid mode). Catches topology + modifier changes, and a
-    few sampled positions catch most vertex edits — without reading the whole mesh."""
+    watching. Uses the ORIGINAL mesh name (stable across evaluations, unlike the temp
+    evaluated mesh name), topology counts, modifier state, and a few sampled positions."""
     try:
         mods = tuple((m.type, bool(m.show_viewport)) for m in obj.modifiers)
         nv = len(mesh.vertices)
@@ -35,7 +38,8 @@ def _geo_sig(obj, mesh):
             vs = mesh.vertices
             for i in (0, nv // 2, nv - 1):
                 c = vs[i].co; s += c.x * 1.1 + c.y * 2.3 + c.z * 3.7
-        return (getattr(mesh, 'name', ''), nv, len(mesh.polygons), mods, round(s, 4))
+        base = getattr(getattr(obj, 'data', None), 'name', '')   # stable original name
+        return (base, nv, len(mesh.polygons), mods, round(s, 3))
     except Exception:
         return None
 
@@ -438,11 +442,12 @@ class VertexLitEngine(bpy.types.RenderEngine):
     def _ensure_state(self):
         if getattr(self,'_state_ready',False): return
         self._dirty            = True
-        # Reuse the persistent extraction DATA across engine instances; batches are
-        # rebuilt fresh (cheap) so they're always valid in the current GPU context.
+        # Reuse the persistent caches (data + batches) across engine instances so
+        # re-entering rendered view does NO work for unchanged objects.
         self._mesh_cache       = _PERSIST_MESH
-        self._batch_dict       = {}
-        self._shadow_dict      = {}
+        self._batch_dict       = _PERSIST_BATCH
+        self._shadow_dict      = _PERSIST_SHADOW
+        self._needs_verify     = True    # on (re)entry, sig-check cached objects once
         self._dummy_depth      = None
         self._white_tex        = None
         self._gi               = ProgressiveGI()
@@ -649,10 +654,22 @@ class VertexLitEngine(bpy.types.RenderEngine):
                 self._shadow_dict.pop(name,None)
                 _PERSIST_SIG.pop(name,None)
 
-        # (Re)build batches. Objects still cached whose signature matches are NOT
-        # re-extracted — we reuse their stored data and just rebuild the (cheap) batch.
-        # This makes re-entering rendered view fast (skip the slow extraction) and only
-        # re-extracts objects that actually changed.
+        # On (re)entry into rendered view the batches are already persisted. Verify each
+        # cached object's signature ONCE and mark only the changed ones dirty -> unchanged
+        # objects keep their persisted batch and are drawn immediately (no work).
+        if getattr(self, '_needs_verify', False):
+            for name, obj in current.items():
+                if name not in self._batch_dict:
+                    continue
+                try:
+                    eo=obj.evaluated_get(depsgraph); me=getattr(eo,'data',None)
+                    if me is None or _PERSIST_SIG.get(name) != _geo_sig(obj, me):
+                        self._dirty_objects.add(name)
+                except Exception:
+                    self._dirty_objects.add(name)
+            self._needs_verify = False
+
+        # Re-extract only dirty objects + brand-new objects (no persisted batch).
         dirty=set(getattr(self,'_dirty_objects',set()))
         full = getattr(self,'_force_full',False)
         if full:
@@ -664,30 +681,21 @@ class VertexLitEngine(bpy.types.RenderEngine):
         budget_end = time.time() + 0.04
         remaining = []
         done = 0
-        reused = 0
         for name in to_do:
             if done > 0 and time.time() > budget_end:
                 remaining.append(name)
                 continue
             obj=current.get(name)
             if obj is None: continue
-            try:
-                eo=obj.evaluated_get(depsgraph); me=getattr(eo,'data',None)
-                sig_now=_geo_sig(obj, me) if me else None
-            except Exception:
-                sig_now=None
-            ent=self._mesh_cache.get(name)
-            if (ent is not None and sig_now is not None and name not in dirty
-                    and _PERSIST_SIG.get(name) == sig_now):
-                data=ent                              # unchanged -> reuse (no re-extract)
-                reused += 1
-            else:
-                data=_extract_mesh_data(obj,depsgraph)
-                if data is not None:
-                    self._mesh_cache[name]=data
-                    _PERSIST_SIG[name]=sig_now
+            data=_extract_mesh_data(obj,depsgraph)
             if data:
-                self._batch_dict[name]=_build_object_slots(data)   # fresh batch (fast, valid)
+                self._mesh_cache[name]=data
+                self._batch_dict[name]=_build_object_slots(data)
+                try:
+                    eo=obj.evaluated_get(depsgraph); me=getattr(eo,'data',None)
+                    _PERSIST_SIG[name]=_geo_sig(obj, me) if me else None
+                except Exception:
+                    pass
                 if want_shadow:
                     sb=_build_shadow_batch_from_cache(data)
                     if sb: self._shadow_dict[name]=sb
@@ -705,10 +713,9 @@ class VertexLitEngine(bpy.types.RenderEngine):
             self._geo_pending = False
         self._shadow_dirty=True
         if done or remaining:
-            print("[VertexLit] loaded {}/{} objs ({:.2f}s){}{}{}".format(
+            print("[VertexLit] re-extracted {}/{} objs ({:.2f}s){}{}".format(
                 done, len(current), time.time()-t0,
-                " [full]" if full else " [incremental]",
-                " ({} reused)".format(reused) if reused else "",
+                " [full]" if full else "",
                 " (+{} streaming)".format(len(remaining)) if remaining else ""))
 
         if use_gi and not remaining:
@@ -889,7 +896,10 @@ class VertexLitEngine(bpy.types.RenderEngine):
                         if gtex is not None:
                             try: sh.uniform_sampler(uni,gtex)
                             except Exception: pass
-                    batch.draw(sh)
+                    try:
+                        batch.draw(sh)
+                    except Exception:
+                        self._batch_dict.pop(obj.name, None); self._dirty_objects.add(obj.name); self._dirty=True
                 else:
                     _ensure_frame(legacy)
                     legacy.uniform_float('uModel',inst.matrix_world)
@@ -898,7 +908,10 @@ class VertexLitEngine(bpy.types.RenderEngine):
                     except Exception: pass
                     legacy.uniform_sampler('uAlbedo',  tex if tex is not None else self._white_tex)
                     legacy.uniform_int('uHasTexture',  1 if tex is not None else 0)
-                    batch.draw(legacy)
+                    try:
+                        batch.draw(legacy)
+                    except Exception:
+                        self._batch_dict.pop(obj.name, None); self._dirty_objects.add(obj.name); self._dirty=True
 
     # ── Main draw ─────────────────────────────────────────────────────────
 
@@ -1092,7 +1105,7 @@ def _release_gpu_caches():
     _shadow_map = None
     _tex_cache.clear()
     # Persistent mesh/batch caches hold GPU batches tied to the (now gone) context.
-    _PERSIST_MESH.clear(); _PERSIST_SIG.clear()
+    _PERSIST_MESH.clear(); _PERSIST_BATCH.clear(); _PERSIST_SHADOW.clear(); _PERSIST_SIG.clear()
     try:
         material_shader.invalidate()   # release compiled per-material programs
     except Exception:

@@ -810,3 +810,18 @@ geometry signature (_PERSIST_SIG). Across engine instances:
 Console now reports "loaded N/M objs [full] (K reused)". Re-entry with no changes reuses
 everything -> just fast batch rebuild, no extraction.
 9 suites green.
+
+## v0.9.7 — persist GPU BATCHES too (0.9.6 still rebuilt them -> visible reload)
+0.9.6 persisted DATA but rebuilt every batch on re-entry -> streamed in visibly ("reloads
+most objects"). Now persist the GPU batches (_PERSIST_BATCH/_SHADOW) as well:
+- Re-entry: verify sigs ONCE, mark only CHANGED objects dirty; unchanged objects keep
+  their persisted batch and draw immediately -> no work, instant.
+- SIG HARDENED: use the ORIGINAL mesh name (obj.data.name), not the temp evaluated mesh
+  name (which can change across evaluations and would break reuse).
+- SELF-HEAL: batch.draw wrapped in try/except; if a persisted batch is stale (GPU context
+  changed on re-entry), the draw raises -> drop it + mark dirty -> re-extract next frame.
+  So worst case == the old behaviour (no crash, just re-extract), best case == instant.
+- Persist cleared on unregister.
+DIAGNOSTIC: on re-entry, NO "re-extracted" console line (or small N) = batches reused
+  (instant). "re-extracted 200/200" = batches were stale in this GPU context -> self-healed.
+10 suites green. Need user's console on re-entry to confirm batches survive their context.
