@@ -27,14 +27,6 @@ class VERTEX_LIT_PT_settings(bpy.types.Panel):
             col.prop(s, 'ao_bias')
             box.label(text="Screen-space (offscreen pipeline)", icon='INFO')
 
-        box = layout.box()
-        row = box.row()
-        row.label(text="Materials", icon='NODE_MATERIAL')
-        row.prop(s, 'use_live_nodes', text="")
-        if s.use_live_nodes:
-            box.label(text="Live node graph → GLSL (experimental)", icon='INFO')
-            box.label(text="Falls back to base texture if a material can't compile")
-
         # The rest only affect the scene-light modes (Per-Vertex / Per-Pixel).
         # In Workbench (Solid) mode they do nothing, so hide them to avoid confusion.
         if s.shading_mode == 'WORKBENCH':

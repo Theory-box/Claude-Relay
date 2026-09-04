@@ -466,7 +466,7 @@ class VertexLitEngine(bpy.types.RenderEngine):
             return
 
         vls_lb = getattr(depsgraph.scene, 'vertex_lit', None)
-        live = bool(getattr(vls_lb, 'use_live_nodes', False)) if vls_lb else False
+        live = True   # live material nodes always on
 
         for update in depsgraph.updates:
             id_data=update.id
@@ -667,7 +667,7 @@ class VertexLitEngine(bpy.types.RenderEngine):
     def _draw_batches(self, depsgraph, vls, view_proj, studio, ls_mat, sky, ground,
                       bstr, do_shad, s_bias, s_dark, shad_tex, lights, mode):
         legacy=_get_main_shader(mode)
-        use_live=bool(getattr(vls,'use_live_nodes',False))
+        use_live=True   # live material nodes are always on
         frame_done=set(); params_done=set()
 
         def _ensure_frame(sh):

@@ -217,9 +217,13 @@ class _Transpiler:
             return self._sock_var[key]
         handler = getattr(self, "_n_" + node.type.lower(), None)
         if handler is None:
-            self.notes.append("unsupported node: {} ({})".format(node.name, node.type))
-            self._sock_var[key] = MAGENTA
-            return MAGENTA
+            # Unsupported node -> emit a NEUTRAL white (1,1,1,1) and keep going, so the
+            # rest of the graph (brick, mixes, textures...) still renders instead of the
+            # whole material falling back to the base texture. White is a no-op for the
+            # common case where the node feeds a multiply/mix.
+            self.notes.append("unhandled node neutralised: {} ({})".format(node.name, node.type))
+            self._sock_var[key] = "vec4(1.0)"
+            return "vec4(1.0)"
         expr = handler(node, out_socket)
         self._sock_var[key] = expr
         return expr
@@ -906,6 +910,32 @@ class _Transpiler:
 
 
 # ---------------------------------------------------------------------------
+def _trace_base(node, depth=0):
+    """Follow a surface shader (through Mix/Add shaders) to a base-colour socket.
+    Skips shaders with no meaningful base colour (Transparent/Holdout) so a
+    Mix(Transparent, Principled) resolves to the Principled's Base Color."""
+    if node is None or depth > 8:
+        return None
+    t = node.type
+    if t == "BSDF_PRINCIPLED":
+        return node.inputs.get("Base Color")
+    if t == "EMISSION":
+        return node.inputs.get("Color")
+    if t in ("MIX_SHADER", "ADD_SHADER"):
+        for inp in node.inputs:
+            if inp.type == "SHADER" and inp.is_linked:
+                r = _trace_base(inp.links[0].from_node, depth + 1)
+                if r is not None:
+                    return r
+        return None
+    if t in ("BSDF_DIFFUSE", "BSDF_GLOSSY", "BSDF_TRANSLUCENT", "BSDF_GLASS",
+             "BSDF_REFRACTION", "BSDF_TOON", "BSDF_VELVET", "SUBSURFACE_SCATTERING",
+             "BSDF_SHEEN", "BSDF_METALLIC"):
+        return node.inputs.get("Color") or node.inputs.get("Base Color")
+    # Transparent / Holdout / Background / ... -> no base colour, let the caller skip on
+    return None
+
+
 def _find_base_socket(mat):
     nt = getattr(mat, "node_tree", None)
     if not nt: return None
@@ -920,12 +950,7 @@ def _find_base_socket(mat):
     if out is None: return None
     surf = out.inputs.get("Surface")
     if surf and surf.is_linked:
-        src = surf.links[0].from_node
-        if src.type == "BSDF_PRINCIPLED":
-            return src.inputs.get("Base Color")
-        if src.type == "EMISSION":
-            return src.inputs.get("Color")
-        return src.inputs.get("Base Color") or src.inputs.get("Color")
+        return _trace_base(surf.links[0].from_node)
     return None   # no shader on Surface -> caller falls back to legacy texture path
 
 

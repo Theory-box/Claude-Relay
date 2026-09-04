@@ -603,3 +603,23 @@ All 10 suites green.
   Workbench-quality (no shadows/GI in F12 yet). Wrapped in try/except + traceback.
 - Verified: compiles, registers, render + _draw_batches present, viewport suites green.
   NOT GPU-testable here (offscreen render + begin_result) -> user confirms F12 output.
+
+## v0.8.6 — brick/complex-material fix + defaults from testing
+BRICK "shows wood texture" ROOT CAUSE: material fell back to _find_base_texture
+(grabs any image) because (a) surface was a Mix Shader (couldn't trace base colour)
+and (b) unsupported nodes (AO/Geometry) triggered wholesale fallback. Fixes:
+- _find_base_socket now TRACES THROUGH Mix/Add shaders to the Principled/Emission/
+  BSDF base colour (skips Transparent/Holdout). Verified on willow-style Mix(Transparent,
+  Add(Principled+Translucent)) -> resolves to Principled Base Color.
+- Unsupported nodes now NEUTRALISE to white (1,1,1,1) in-graph instead of magenta +
+  wholesale fallback -> the rest of the graph (brick, mixes, textures) still renders.
+  Only a surface with NO traceable base colour falls back now.
+DEFAULTS (user request):
+- shadows OFF by default (were darkening objects; shadow feature is buggy - fix later).
+- shading_mode default PIXEL (per-pixel) instead of WORKBENCH.
+- use_live_nodes REMOVED entirely - live material nodes are ALWAYS ON now (engine
+  use_live=True; prop + UI toggle removed). This alone fixes "brick shows wood" when
+  the toggle was simply off.
+Tests updated for new behaviour (trace-through, neutralise, new defaults). 10 green.
+TODO: shadows look wrong (not like shadows) - redo later. CPU render mode requested -
+  not feasible for a GPU viewport engine; consider a flat 'albedo preview' instead.

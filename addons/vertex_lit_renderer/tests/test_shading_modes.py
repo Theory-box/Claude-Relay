@@ -68,9 +68,9 @@ o=tt.nodes.new("ShaderNodeOutputMaterial"); bb=tt.nodes.new("ShaderNodeBsdfPrinc
 noise=tt.nodes.new("ShaderNodeWireframe")
 tt.links.new(bb.outputs["BSDF"], o.inputs["Surface"])
 tt.links.new(noise.outputs["Fac"], bb.inputs["Base Color"])
-ent = ms._compile(mm, "VERTEX")   # returns before GPU compile for unsupported nodes
-check(ent["failed"] is True, "unsupported-node material marked failed (falls back)")
-check("unsupported" in ent["error"], "fallback reason recorded")
+ent = nt.transpile_material(mm)
+check(ent.needs_fallback is False, "unsupported-node material transpiles (node neutralised, no wholesale fallback)")
+check(any("neutralised" in str(n) for n in ent.notes), "neutralised node recorded in notes")
 
 print("SUMMARY2: " + ("FAILED " + ", ".join(F) if F else "ALL CHECKS PASSED"))
 sys.exit(1 if F else 0)

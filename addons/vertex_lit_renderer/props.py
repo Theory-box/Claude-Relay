@@ -23,7 +23,7 @@ class VertexLitSettings(bpy.types.PropertyGroup):
             ('PIXEL', "Per-Pixel (Phong)",
              "Scene-light lighting computed per fragment (uses GI/shadows)"),
         ],
-        default='WORKBENCH')
+        default='PIXEL')
 
     # Hemisphere fill (ambient fallback / low-frequency fill light)
     sky_color: bpy.props.FloatVectorProperty(
@@ -59,15 +59,9 @@ class VertexLitSettings(bpy.types.PropertyGroup):
         name="Light Energy Scale", default=0.01, min=0.0001, max=10.0)
 
     # Live material nodes (experimental)
-    use_live_nodes: bpy.props.BoolProperty(
-        name="Live Material Nodes", default=False,
-        description="Transpile the shader node graph to GLSL so procedural / mix / "
-                    "UV-distortion materials preview live in the viewport. "
-                    "Experimental; falls back to the base texture if a material "
-                    "can't be compiled")
 
     # Shadows
-    use_shadows: bpy.props.BoolProperty(name="Shadows", default=True)
+    use_shadows: bpy.props.BoolProperty(name="Shadows", default=False)
     shadow_resolution: bpy.props.EnumProperty(
         name="Shadow Resolution",
         items=[('512','512',''),('1024','1024',''),('2048','2048','')],

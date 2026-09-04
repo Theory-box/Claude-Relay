@@ -48,8 +48,9 @@ check("VertexLitEngine" in sub, "VertexLitEngine is registered as a RenderEngine
 sc = bpy.data.scenes[0] if bpy.data.scenes else bpy.data.scenes.new("t")
 vls = getattr(sc, "vertex_lit", None)
 check(vls is not None, "scene.vertex_lit property group present")
-check(hasattr(vls, "use_live_nodes"), "use_live_nodes toggle present")
-check(getattr(vls, "use_live_nodes", True) is False, "use_live_nodes defaults OFF (no regression)")
+check(not hasattr(vls, "use_live_nodes"), "use_live_nodes toggle removed (live nodes always on)")
+check(getattr(vls, "shading_mode", "") == "PIXEL", "shading_mode defaults to PIXEL")
+check(getattr(vls, "use_shadows", True) is False, "shadows default OFF")
 
 try:
     vlr.unregister(); unreg_ok = True
@@ -108,7 +109,7 @@ nt2.links.new(noise.outputs["Fac"], bsdf2.inputs["Base Color"])
 _, frag2, res2 = ms.build_material_frag(mat2, "VERTEX")
 check("void main()" in frag2 and balanced(frag2, "{", "}"),
       "unsupported node degrades to a structurally-valid frag")
-check(any("unsupported" in n for n in res2.notes), "unsupported node is reported in notes")
+check(any("neutralised" in n for n in res2.notes), "unsupported node neutralised + noted")
 
 # ---------------------------------------------------------------------------
 print("\n================ SUMMARY ================")
