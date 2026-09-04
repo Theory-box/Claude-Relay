@@ -537,3 +537,22 @@ VERIFIED HERE: SSAO shader compiles on software GL; addon registers; AO off by d
   depth_slot=bare GPUTexture (per docs).
 - Added a ONE-TIME full traceback on post-pipeline failure (engine _post_err_shown)
   so if anything still fails the console shows the exact line (no per-frame spam).
+
+## v0.8.2 — large-scene freeze: extraction rewrite (root perf fix)
+SYMPTOM: large scenes freeze ~1 frame/min (freeze->1 frame->freeze). This is
+REPEATED full scene rebuilds, not the AO pass (AO is screen-space, scene-size
+independent).
+ROOT CAUSES in _extract_mesh_data (per object, per rebuild):
+  1. new_from_object(preserve_all_data_layers=True) COPIED the whole evaluated mesh
+     (all layers) per object AND the create/remove generated depsgraph churn that
+     outlasted the 0.4s absorb window -> self-triggered rebuild loop.
+  2. Python loop over every colour-attribute element (millions on high-poly).
+  3. Python list-comp over every triangle corner for colours.
+FIX: read eval_obj.data DIRECTLY (no copy, no create/remove -> no churn, much
+  faster) + bulk foreach_get('color') + numpy gather for colours (verified
+  identical to the old loop). Removed mesh.remove() calls.
+EXPECTED: rebuilds are now fast (seconds, numpy-bound) AND don't self-repeat ->
+  the perpetual freeze should be gone; at most a one-time extract on enter/edit.
+Still O(all objects) per rebuild -> if a single edit on a huge scene still stalls,
+  INCREMENTAL rebuild (only changed objects) is the next step. Need user console
+  ("[VertexLit] rebuilt N objs (Xs)" frequency + time) to confirm.

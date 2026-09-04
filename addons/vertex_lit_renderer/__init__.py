@@ -3,7 +3,7 @@
 bl_info = {
     "name":        "Vertex Lit Renderer",
     "author":      "Theory-box / Claude",
-    "version":     (0, 8, 1),
+    "version":     (0, 8, 2),
     "blender":     (4, 4, 0),
     "location":    "Properties > Render > Render Engine → Vertex Lit",
     "description": "Solid studio + live-node material renderer (+ screen-space AO) for retro game look-dev. "

@@ -169,112 +169,84 @@ def _build_light_space(light,center,radius):
 
 def _extract_mesh_data(obj, depsgraph):
     """
-    Single new_from_object call per object. Returns all data needed for:
-      - Main draw batch  (positions / normals / colors / uvs — per loop)
-      - Shadow batch     (vert_co_local + vi_map — build indexed batch without extra call)
-      - GI / BVH        (vert_co_local / vert_no_local — transform to world in _rebuild)
+    Read the depsgraph-evaluated mesh DIRECTLY (no new_from_object copy, no
+    create/remove -> no depsgraph churn -> no self-triggered rebuild loop, and far
+    faster on large scenes). All reads are bulk foreach_get + numpy (no Python loops).
     """
-    mesh = None
     try:
         eval_obj = obj.evaluated_get(depsgraph)
-        mesh = bpy.data.meshes.new_from_object(
-            eval_obj, preserve_all_data_layers=True, depsgraph=depsgraph)
-        if not mesh: return None
-
+        mesh = getattr(eval_obj, 'data', None)
+        if mesh is None or not hasattr(mesh, 'loop_triangles'):
+            return None
         mesh.calc_loop_triangles()
-        if not mesh.loop_triangles:
-            bpy.data.meshes.remove(mesh); return None
+        n_tris = len(mesh.loop_triangles)
+        if n_tris == 0:
+            return None
 
         mat_slot = eval_obj.active_material
-        tex     = _get_gpu_tex(_find_base_texture(mat_slot))
-        default = [1.0,1.0,1.0,1.0]
+        tex = _get_gpu_tex(_find_base_texture(mat_slot))
+        default = [1.0, 1.0, 1.0, 1.0]
+        mat_diffuse = (0.8, 0.8, 0.8)
         if mat_slot:
-            c=mat_slot.diffuse_color; default=[c[0],c[1],c[2],1.0]
+            c = mat_slot.diffuse_color
+            default = [c[0], c[1], c[2], 1.0]
+            mat_diffuse = (float(c[0]), float(c[1]), float(c[2]))
 
-        vcol_point={}; vcol_corner={}
-        if mesh.color_attributes:
-            attr=None
-            try: attr=mesh.color_attributes.active_color
-            except Exception: pass
-            if attr is None and len(mesh.color_attributes): attr=mesh.color_attributes[0]
-            # Only FLOAT_COLOR and BYTE_COLOR have a .color accessor.
-            # GeoNodes can produce attributes of other types (FLOAT_VECTOR etc.)
-            # that will throw AttributeError on d.color and kill extraction.
-            if attr and getattr(attr, 'data_type', '') in ('FLOAT_COLOR','BYTE_COLOR',''):
-                for idx,d in enumerate(attr.data):
-                    try:
-                        c=d.color
-                        rgba=[float(c[0]),float(c[1]),float(c[2]),float(c[3]) if len(c)>3 else 1.0]
-                        if attr.domain=='POINT':  vcol_point[idx]=rgba
-                        elif attr.domain=='CORNER': vcol_corner[idx]=rgba
-                    except Exception:
-                        pass  # skip malformed elements, keep going
-
-        uv_layer=mesh.uv_layers.active
-        n_verts=len(mesh.vertices)
-        n_tris = len(mesh.loop_triangles)
+        n_verts = len(mesh.vertices)
+        n_loops = len(mesh.loops)
         n_flat = n_tris * 3
 
-        # Material albedo for GI/BVH face colours
-        mat_diffuse=(0.8,0.8,0.8)
-        if mat_slot:
-            c=mat_slot.diffuse_color
-            mat_diffuse=(float(c[0]),float(c[1]),float(c[2]))
+        tv = np.empty(n_flat, dtype=np.int32); mesh.loop_triangles.foreach_get('vertices', tv)
+        tl = np.empty(n_flat, dtype=np.int32); mesh.loop_triangles.foreach_get('loops', tl)
+        vi_flat = tv; li_flat = tl
 
-        # Numpy bulk reads — one allocation per array, no Python loops
-        tv = np.empty(n_tris * 3, dtype=np.int32)
-        mesh.loop_triangles.foreach_get('vertices', tv)
-        tv = tv.reshape(n_tris, 3)
-
-        tl = np.empty(n_tris * 3, dtype=np.int32)
-        mesh.loop_triangles.foreach_get('loops', tl)
-        tl = tl.reshape(n_tris, 3)
-
-        vi_flat = tv.ravel()
-        li_flat = tl.ravel()
-
-        vc = np.empty(n_verts * 3, dtype=np.float32)
-        mesh.vertices.foreach_get('co', vc)
+        vc = np.empty(n_verts * 3, dtype=np.float32); mesh.vertices.foreach_get('co', vc)
         vc = vc.reshape(n_verts, 3)
         positions = vc[vi_flat]
-
-        vn = np.empty(n_verts * 3, dtype=np.float32)
-        mesh.vertices.foreach_get('normal', vn)
+        vn = np.empty(n_verts * 3, dtype=np.float32); mesh.vertices.foreach_get('normal', vn)
         vn = vn.reshape(n_verts, 3)
         normals = vn[vi_flat]
+        vert_co_local = vc
+        vert_no_local = vn
 
-        # Keep numpy arrays for shadow batch + GI/BVH (no extra Python loops needed)
-        vert_co_local = vc  # (n_verts, 3) local positions
-        vert_no_local = vn  # (n_verts, 3) local normals
-
+        uv_layer = mesh.uv_layers.active
         if uv_layer:
-            uv_raw = np.empty(len(mesh.loops) * 2, dtype=np.float32)
-            uv_layer.data.foreach_get('uv', uv_raw)
-            uvs = uv_raw.reshape(len(mesh.loops), 2)[li_flat]
+            uv_raw = np.empty(n_loops * 2, dtype=np.float32); uv_layer.data.foreach_get('uv', uv_raw)
+            uvs = uv_raw.reshape(n_loops, 2)[li_flat]
         else:
             uvs = np.zeros((n_flat, 2), dtype=np.float32)
 
-        if vcol_point or vcol_corner:
-            colors = np.array(
-                [vcol_corner.get(int(li_flat[i]), vcol_point.get(int(vi_flat[i]), default))
-                 for i in range(n_flat)], dtype=np.float32)
-        else:
+        # Vertex colours: bulk foreach_get + numpy gather (no per-element Python loop).
+        colors = None
+        try:
+            ca = mesh.color_attributes
+            attr = None
+            if ca:
+                try: attr = ca.active_color
+                except Exception: attr = None
+                if attr is None and len(ca): attr = ca[0]
+            if attr is not None and getattr(attr, 'data_type', '') in ('FLOAT_COLOR', 'BYTE_COLOR'):
+                m = len(attr.data)
+                carr = np.empty(m * 4, dtype=np.float32)
+                attr.data.foreach_get('color', carr)
+                carr = carr.reshape(m, 4)
+                if attr.domain == 'CORNER':
+                    colors = carr[li_flat]
+                elif attr.domain == 'POINT':
+                    colors = carr[vi_flat]
+        except Exception:
+            colors = None
+        if colors is None:
             colors = np.tile(np.array(default, dtype=np.float32), (n_flat, 1))
 
-        vi_map = vi_flat.tolist()
-
-        bpy.data.meshes.remove(mesh)
         return dict(
             positions=positions, normals=normals, colors=colors,
-            uvs=uvs, vi_map=vi_map, texture=tex, n_verts=n_verts,
+            uvs=uvs, vi_map=vi_flat.tolist(), texture=tex, n_verts=n_verts,
             vert_co_local=vert_co_local, vert_no_local=vert_no_local,
             mat_diffuse=mat_diffuse,
         )
     except Exception as e:
         print(f"[VertexLit] extract error ({obj.name}): {e}")
-        if mesh:
-            try: bpy.data.meshes.remove(mesh)
-            except Exception: pass
         return None
 
 
