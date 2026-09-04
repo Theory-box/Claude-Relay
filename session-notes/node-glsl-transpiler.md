@@ -374,3 +374,11 @@ so those now take effect once edits reach the material. Suite green.
   BrightContrast/Mix/HueSat) — the port effort is about breadth (procedurals etc).
 - Porting order starts with the Noise foundation (hash+noise+fractal), then
   Voronoi/Wave, then Tex Coord Generated/Object (unlocks skybox mapping).
+
+## v0.5.4 — harness faithfulness fix + first ported node (RGB to BW)
+- gl_harness: param defaults now read the REAL node value via Param.value(nt)
+  (was 0.5 placeholder) so output tests match the engine exactly.
+- Ported node #0: RGB to BW (RGBTOBW) — Rec.709 luminance. CPU-verified:
+  white=1.0, red=0.213, green=0.715, blue=0.072 (test_gl_nodes.py).
+- Establishes the port workflow: add handler -> render on CPU harness -> assert
+  pixel values. Next: Noise foundation (hash+noise+fractal from Eevee GLSL).

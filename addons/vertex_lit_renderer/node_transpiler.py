@@ -572,6 +572,14 @@ class _Transpiler:
                 v=var, r=_f(c1[0]), g=_f(c1[1]), b=_f(c1[2]), a=_f(c1[3]), w=w))
         return var
 
+    def _n_rgbtobw(self, node, out):
+        col = self.input_expr(node, node.inputs.get("Color"), "vec4")
+        var = self._new_var("bw")
+        # Blender's rgb_to_bw luminance weights (Rec.709).
+        self._line("float {v} = dot(({c}).rgb, vec3(0.2126729, 0.7151522, 0.0721750));"
+                   .format(v=var, c=col))
+        return "vec4(vec3({v}), 1.0)".format(v=var) if out.type == "RGBA" else var
+
     # ---- Shaders: read colour input, never render as closure ----
     def _n_bsdf_principled(self, node, out):
         base = node.inputs.get("Base Color") or node.inputs.get("Color")

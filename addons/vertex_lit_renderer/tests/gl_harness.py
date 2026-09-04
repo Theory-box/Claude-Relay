@@ -94,12 +94,15 @@ def render_material(mat, size=16, param_values=None, textures=None):
         if s.uniform in prog:
             prog[s.uniform] = i
 
-    # set params
+    # set params — read the REAL value from the node tree (as the engine does),
+    # unless the test overrides it.
     for p in res.params:
         val = (param_values or {}).get(p.uniform)
         if val is None:
-            val = {"float": 0.5, "vec2": (0.5, 0.5),
-                   "vec3": (0.5, 0.5, 0.5), "vec4": (0.5, 0.5, 0.5, 1.0)}[p.want]
+            try: val = p.value(mat.node_tree)
+            except Exception:
+                val = {"float": 0.5, "vec2": (0.5, 0.5),
+                       "vec3": (0.5, 0.5, 0.5), "vec4": (0.5, 0.5, 0.5, 1.0)}[p.want]
         if p.uniform in prog:
             try: prog[p.uniform] = val
             except Exception: pass
