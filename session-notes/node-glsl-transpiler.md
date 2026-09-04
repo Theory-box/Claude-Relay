@@ -955,3 +955,19 @@ Matching Blender's two overlayable cavity types:
 - BACKFACE CULLING toggle (backface_cull, default True, global). view_draw/render set self._cull
   ('BACK' or 'NONE'); main draw + all prepasses (ao-occluder, id, normal) follow it. UI toggle in
   the Shading box. 14 suites green.
+
+## v0.10.11 — glass over film-transparent + AO exclusion masking
+GLASS / FILM TRANSPARENT: with render.film_transparent on, glass showed the checker instead of
+what's behind it because ALPHA blending dropped the framebuffer alpha below 1.
+- Transparent pass now uses color_mask_set(1,1,1,0): blends COLOUR but leaves the alpha channel
+  as the opaque pass wrote it (1 behind objects) -> glass-over-opaque stays opaque; glass-over-
+  empty stays transparent. F12 render() clears to alpha 0 when film_transparent so empty film is
+  actually transparent and the alpha channel is meaningful.
+AO EXCLUSION MASK: an excluded object received AO from geometry BEHIND it (looked see-through)
+because SSAO bound uDepth to the occluder depth for the CENTRE pixel too.
+- SSAO now binds uDepth=main (visible) depth for the centre P/N and uAoDepth=occluder depth for
+  the samples. New exclusion mask: if the visible surface is IN FRONT of the occluder depth
+  (z < aoZ), the pixel is an excluded object -> return colour unchanged (no AO). No exclusion ->
+  uAoDepth==uDepth, mask never fires. view_pos(sampler2D,uv) now takes the depth tex.
+14 suites green. (Opaque materials with alpha<1 + OPAQUE blend still write their alpha; force-to-1
+deferred as a rare edge case.)

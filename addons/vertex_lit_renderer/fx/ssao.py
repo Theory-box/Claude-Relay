@@ -12,7 +12,8 @@ from .effect import ScreenEffect
 
 _SSAO_FRAG = """
 uniform sampler2D uColor;
-uniform sampler2D uDepth;
+uniform sampler2D uDepth;    /* main (visible surface) depth */
+uniform sampler2D uAoDepth;  /* occluder depth: excluded objects omitted (== uDepth if none) */
 uniform mat4 uProj;
 uniform mat4 uInvProj;
 uniform vec2 uTexel;
@@ -58,8 +59,8 @@ const vec3 KERNEL[64] = vec3[](
     vec3(0.3047,-0.2869,0.7866),vec3(0.1799,-0.6937,0.5730),
     vec3(0.6368,0.4903,0.4964),vec3(-0.2620,0.5520,0.7560));
 
-vec3 view_pos(vec2 uv){
-    float z = texture(uDepth, uv).r;
+vec3 view_pos(sampler2D dtex, vec2 uv){
+    float z = texture(dtex, uv).r;
     vec4 clip = vec4(uv * 2.0 - 1.0, z * 2.0 - 1.0, 1.0);
     vec4 v = uInvProj * clip;
     return v.xyz / v.w;
@@ -72,7 +73,14 @@ void main(){
     if(any(isnan(col)) || any(isinf(col))) col = vec4(0.0, 0.0, 0.0, 1.0);
     if(z >= 1.0){ fragColor = col; return; }        /* background: no AO */
 
-    vec3 P = view_pos(vUV);
+    /* AO object exclusion mask: if the visible surface sits IN FRONT of the occluder
+       depth, this pixel belongs to an excluded object -> leave it untouched (no AO), so
+       occlusion from geometry behind it doesn't bleed on top of it. When nothing is
+       excluded uAoDepth == uDepth and this never triggers. */
+    float aoZ = texture(uAoDepth, vUV).r;
+    if(z < aoZ - 0.0008){ fragColor = col; return; }
+
+    vec3 P = view_pos(uDepth, vUV);
     vec3 N = normalize(cross(dFdx(P), dFdy(P)));
 
     float ang = rand(vUV) * 6.2831853;
@@ -93,14 +101,12 @@ void main(){
         vec2 suv = off.xy * 0.5 + 0.5;
         if(suv.x < 0.0 || suv.x > 1.0 || suv.y < 0.0 || suv.y > 1.0) continue;
 
-        float sz = texture(uDepth, suv).r;
-        vec3 gp = view_pos(suv);                  /* actual geometry at the sample's screen pos */
+        float sz = texture(uAoDepth, suv).r;      /* occluder depth (excluded omitted) */
+        vec3 gp = view_pos(uAoDepth, suv);
         float sd = gp.z;
         float rangeCheck = smoothstep(0.0, 1.0, uRadius / max(abs(P.z - sd), 1e-4));
-        occ += ((sd >= sp.z + uBias) ? 1.0 : 0.0) * rangeCheck;   /* valley (unchanged) */
+        occ += ((sd >= sp.z + uBias) ? 1.0 : 0.0) * rangeCheck;   /* valley */
 
-        /* ridge: is the neighbouring surface BELOW our tangent plane (i.e. surface curves
-           away = convex)? dot(dir,N) < 0 -> convex -> brighten. Skip background samples. */
         if(uRidge > 0.0 && sz < 1.0){
             vec3 dir = gp - P;
             float len = length(dir);
@@ -127,6 +133,21 @@ class SSAO(ScreenEffect):
     def enabled(self, vls):
         return bool(getattr(vls, "use_ao", False))
 
+    def run(self, color_tex, depth_tex, ctx):
+        sh = self.shader()
+        sh.bind()
+        try: sh.uniform_sampler('uColor', color_tex)
+        except Exception: pass
+        # Center pixel + exclusion mask use the MAIN (visible) depth; occlusion samples use
+        # the occluder-only depth (flagged objects omitted). No exclusion -> both are main.
+        try: sh.uniform_sampler('uDepth', depth_tex)
+        except Exception: pass
+        aod = ctx.get('ao_depth_tex')
+        try: sh.uniform_sampler('uAoDepth', aod if aod is not None else depth_tex)
+        except Exception: pass
+        self.set_uniforms(sh, ctx)
+        self._batch.draw(sh)
+
     def set_uniforms(self, sh, ctx):
         def sf(n, v):
             try: sh.uniform_float(n, v)
@@ -140,8 +161,3 @@ class SSAO(ScreenEffect):
         sf('uRidge', ctx.get('ao_ridge', 0.0))
         try: sh.uniform_int('uSamples', int(ctx.get('ao_samples', 16)))
         except Exception: pass
-        # AO object exclusion: sample the occluder-only depth (flagged objects omitted)
-        aod = ctx.get('ao_depth_tex')
-        if aod is not None:
-            try: sh.uniform_sampler('uDepth', aod)
-            except Exception: pass

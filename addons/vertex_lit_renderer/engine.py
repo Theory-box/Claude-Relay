@@ -479,8 +479,11 @@ class VertexLitEngine(bpy.types.RenderEngine):
                 with offscreen.bind():
                     fb = gpu.state.active_framebuffer_get()
                     wc = scene.world.color if scene.world else None
-                    fb.clear(color=(wc[0], wc[1], wc[2], 1.0) if wc else (0.05, 0.05, 0.05, 1.0),
-                             depth=1.0)
+                    if getattr(scene.render, 'film_transparent', False):
+                        fb.clear(color=(0.0, 0.0, 0.0, 0.0), depth=1.0)   # transparent film
+                    else:
+                        fb.clear(color=(wc[0], wc[1], wc[2], 1.0) if wc else (0.05, 0.05, 0.05, 1.0),
+                                 depth=1.0)
                     self._draw_batches(depsgraph, vls, view_proj, studio, Matrix.Identity(4),
                                        (0.05, 0.07, 0.10), (0.03, 0.02, 0.02), 1.0,
                                        False, 0.005, 0.25, self._dummy_depth,
@@ -850,8 +853,14 @@ class VertexLitEngine(bpy.types.RenderEngine):
             transparent.sort(key=lambda x: x[0], reverse=True)
             gpu.state.blend_set('ALPHA')
             gpu.state.depth_mask_set(False)
+            # Blend the COLOUR but leave the alpha channel untouched, so glass keeps the
+            # opaque surface's alpha (1) behind it. Otherwise ALPHA blending drops the
+            # framebuffer alpha below 1 and a film-transparent render shows the checker
+            # through the glass instead of what's behind it.
+            gpu.state.color_mask_set(True, True, True, False)
             for _d, args in transparent:
                 _draw_one(*args)
+            gpu.state.color_mask_set(True, True, True, True)
             gpu.state.blend_set('NONE')
             gpu.state.depth_mask_set(True)
 
