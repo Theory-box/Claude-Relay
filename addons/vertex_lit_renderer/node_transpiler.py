@@ -703,6 +703,46 @@ class _Transpiler:
                 v=var, r=_f(c1[0]), g=_f(c1[1]), b=_f(c1[2]), a=_f(c1[3]), w=w))
         return var
 
+    def _n_tex_magic(self, node, out):
+        vs = node.inputs.get("Vector")
+        co = self.input_expr(node, vs, "vec3") if (vs and vs.is_linked) else "vec3(vUV, 0.0)"
+        scale = self.input_expr(node, node.inputs.get("Scale"), "float")
+        dist = self.input_expr(node, node.inputs.get("Distortion"), "float")
+        depth = int(getattr(node, "turbulence_depth", 2))
+        v = self._new_var("magic")
+        d = "{v}d".format(v=v)
+        self._line("float {d} = {dist};".format(d=d, dist=dist))
+        self._line("vec3 {v}p = mod(({co})*{s}, vec3(6.28318530718));".format(v=v, co=co, s=scale))
+        self._line("float {v}x = sin(({v}p.x+{v}p.y+{v}p.z)*5.0);".format(v=v))
+        self._line("float {v}y = cos((-{v}p.x+{v}p.y-{v}p.z)*5.0);".format(v=v))
+        self._line("float {v}z = -cos((-{v}p.x-{v}p.y+{v}p.z)*5.0);".format(v=v))
+        x, y, z = v + "x", v + "y", v + "z"
+        if depth > 0:
+            self._line("{x} *= {d}; {y} *= {d}; {z} *= {d};".format(x=x, y=y, z=z, d=d))
+            self._line("{y} = -cos({x}-{y}+{z}); {y} *= {d};".format(x=x, y=y, z=z, d=d))
+        gated = [
+            (1, "{x} = cos({x}-{y}-{z}); {x} *= {d};"),
+            (2, "{z} = sin(-{x}-{y}-{z}); {z} *= {d};"),
+            (3, "{x} = -cos(-{x}+{y}-{z}); {x} *= {d};"),
+            (4, "{y} = -sin(-{x}+{y}+{z}); {y} *= {d};"),
+            (5, "{y} = -cos(-{x}+{y}+{z}); {y} *= {d};"),
+            (6, "{x} = cos({x}+{y}+{z}); {x} *= {d};"),
+            (7, "{z} = sin({x}+{y}-{z}); {z} *= {d};"),
+            (8, "{x} = -cos(-{x}-{y}+{z}); {x} *= {d};"),
+            (9, "{y} = -sin({x}-{y}+{z}); {y} *= {d};"),
+        ]
+        for thr, stmt in gated:
+            if depth > thr:
+                self._line(stmt.format(x=x, y=y, z=z, d=d))
+        self._line("if(abs({d})>1e-9){{ float {v}dd={d}*2.0; {x}/={v}dd; {y}/={v}dd; {z}/={v}dd; }}"
+                   .format(d=d, v=v, x=x, y=y, z=z))
+        self._line("vec4 {v}c = vec4(0.5-{x}, 0.5-{y}, 0.5-{z}, 1.0);".format(v=v, x=x, y=y, z=z))
+        if out.name == "Fac":
+            self._line("float {v}f = ({v}c.x+{v}c.y+{v}c.z)/3.0;".format(v=v))
+            self._var_type[v + "f"] = "float"
+            return v + "f"
+        return v + "c"
+
     def _n_tex_brick(self, node, out):
         vs = node.inputs.get("Vector")
         co = self.input_expr(node, vs, "vec3") if (vs and vs.is_linked) else "vec3(vUV, 0.0)"
@@ -997,6 +1037,7 @@ def _variant(n):
     elif t == "MAPPING": v = [getattr(n, "vector_type", "POINT")]
     elif t == "CLAMP": v = [getattr(n, "clamp_type", "MINMAX")]
     elif t == "MAP_RANGE": v = [getattr(n, "interpolation_type", "LINEAR"), str(getattr(n, "clamp", True)), getattr(n, "data_type", "FLOAT")]
+    elif t == "TEX_MAGIC": v = [str(getattr(n, "turbulence_depth", 2))]
     elif t == "TEX_BRICK": v = [str(getattr(n, "offset", 0.5)), str(getattr(n, "offset_frequency", 2)),
                                str(getattr(n, "squash", 1.0)), str(getattr(n, "squash_frequency", 2))]
     elif t == "TEX_WAVE": v = [getattr(n, "wave_type", "BANDS"), getattr(n, "bands_direction", "X"),

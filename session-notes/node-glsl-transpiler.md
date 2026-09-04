@@ -452,3 +452,12 @@ GPL: ported code is GPL-2.0-or-later; addon is GPL. OK.
   llvmpipe (uniform aliasing) — params verify correct, real GPU renders right;
   smoke mix-ADD check relaxed to a robust 'brightens' assertion + documented.
 - test_gl_nodes: 22 checks. All 9 suites green.
+
+## v0.6.2 — Magic + Musgrave finding
+- Magic: exact port of node_tex_magic. turbulence_depth is a node property so the
+  nested turbulence is UNROLLED at transpile time (clean GLSL, no runtime depth
+  branches). Distortion runtime-checked. Color+Fac CPU-verified at depth 0/2/5/10.
+- Musgrave: separate node was REMOVED in Blender 4.1 (folded into the Noise node's
+  type modes) -> nothing to port; noted N/A.
+- Procedural set now: Noise, Voronoi F1, Checker, Gradient, White Noise, Wave, Brick,
+  Magic. Remaining Voronoi features (F2/smooth/edge/radius, metrics, fractal) next.

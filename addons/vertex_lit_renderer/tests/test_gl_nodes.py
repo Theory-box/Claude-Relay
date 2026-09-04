@@ -106,4 +106,10 @@ def brick():
     px,_=H.render_material(m,size=64); return set(np.unique(np.round(px[...,0],1)))
 _bk=brick(); check(0.0 in _bk and 1.0 in _bk, "Brick Fac has brick(0) + mortar(1) regions")
 
+# --- Magic (varies, channels differ) ---
+def magic():
+    m,t,bb=base('mg'); n=t.nodes.new('ShaderNodeTexMagic'); n.inputs['Scale'].default_value=4.0
+    t.links.new(n.outputs['Color'], bb.inputs['Base Color']); px,_=H.render_material(m,size=32); return px
+_mg=magic(); check(_mg[...,:3].std()>0.05 and abs(_mg[...,0].mean()-_mg[...,1].mean())>0.005, "Magic varies with distinct channels")
+
 print("SUMMARY: " + ("FAILED "+", ".join(F) if F else "ALL CHECKS PASSED"))
