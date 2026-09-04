@@ -60,7 +60,7 @@ class Pipeline:
         self._id_depth = gpu.types.GPUTexture((w, h), format='DEPTH_COMPONENT32F')
         self._id_fb = gpu.types.GPUFrameBuffer(color_slots=(self._id,), depth_slot=self._id_depth)
 
-    def render(self, w, h, draw_scene, ctx, vls):
+    def render(self, w, h, draw_scene, ctx, vls, blit=True):
         # Supersampling: render the whole pipeline at ss*resolution and downscale on the
         # final blit for smooth edges (SSAA). ss=1 -> no change.
         ss = {'1': 1.0, '1.5': 1.5, '2': 2.0}.get(getattr(vls, 'supersampling', '1'), 1.0)
@@ -124,7 +124,11 @@ class Pipeline:
             cur = self.ping.tex[idx]
             idx ^= 1
 
-        # 3) blit final colour to the target framebuffer, downscaling sw,sh -> w,h (SSAA)
+        # 3) blit final colour to the target framebuffer, downscaling sw,sh -> w,h (SSAA).
+        #    For an offscreen (F12) render, return the texture instead — draw_texture_2d is
+        #    built for a viewport region and misplaces the image inside an offscreen.
+        if not blit:
+            return (cur, sw, sh)
         gpu.state.depth_test_set('NONE')
         gpu.state.blend_set('NONE')
         draw_texture_2d(cur, (0, 0), w, h)

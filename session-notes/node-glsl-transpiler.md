@@ -1028,3 +1028,13 @@ F12 RENDER: was upside-down, ignored effects, wrong hemisphere colours.
   MATERIAL -> uObjColor per slot (hash material name) so shared materials match and multi-material
   objects get one colour per slot.
 15 suites green. (F12 camera + SSAA need on-GPU confirmation.)
+
+## v0.11.4 — F12 "4 quadrants" fix (offscreen blit -> direct texture read)
+Root cause of the quadrant/low-res F12 render: routing F12 through the post pipeline ended in
+draw_texture_2d, which is built for a viewport REGION and misplaces the image inside a GPUOffScreen.
+- Pipeline.render(..., blit=True): when blit=False it returns (final_tex, sw, sh) instead of blitting.
+- F12 now reads that texture directly via a temp GPUFrameBuffer.read_color, then _area_resize()
+  downscales sw x sh -> w x h for supersampling (cumulative-sum area average; correct for any ratio,
+  verified 2x + 1.5x). Viewport path unchanged (still blits to the region).
+- Active camera: scene.camera is already the active camera; F12 uses the evaluated one (v0.11.3).
+15 suites green. (Needs on-GPU confirmation but the blit path is removed for offscreen.)

@@ -25,6 +25,36 @@ _PERSIST_SIG = {}      # obj name -> cheap geometry signature
 _FORCE_REEXTRACT = False   # set when the chosen colour attribute changes -> full re-extract
 
 
+def _area_resize(arr, W, H):
+    """Area-average resize of an (h, w, 4) float image to (H, W, 4) — used to downscale a
+    supersampled F12 render. Correct for any (including non-integer) ratio."""
+    import numpy as _np
+    sh, sw = arr.shape[0], arr.shape[1]
+    if sw == W and sh == H:
+        return arr
+
+    def _axis(a, out):
+        n = a.shape[0]
+        cs = _np.zeros((n + 1,) + a.shape[1:], dtype=_np.float64)
+        cs[1:] = _np.cumsum(a, axis=0)
+        edges = _np.linspace(0.0, n, out + 1)
+
+        def _cs_at(pos):
+            p0 = _np.floor(pos).astype(int)
+            frac = (pos - p0).reshape((-1,) + (1,) * (a.ndim - 1))
+            p0c = _np.clip(p0, 0, n)
+            p1c = _np.clip(p0 + 1, 0, n)
+            return cs[p0c] + (cs[p1c] - cs[p0c]) * frac
+
+        total = _cs_at(edges[1:]) - _cs_at(edges[:-1])
+        widths = (edges[1:] - edges[:-1]).reshape((-1,) + (1,) * (a.ndim - 1))
+        return (total / _np.maximum(widths, 1e-9)).astype(_np.float32)
+
+    arr = _axis(arr, H)                                    # resample rows
+    arr = _axis(arr.transpose(1, 0, 2), W).transpose(1, 0, 2)   # resample columns
+    return arr
+
+
 def _geo_sig(obj, mesh):
     """Cheap signature to detect whether an object's geometry changed while we weren't
     watching. Uses the ORIGINAL mesh name (stable across evaluations, unlike the temp
@@ -525,20 +555,29 @@ class VertexLitEngine(bpy.types.RenderEngine):
                                  depth=1.0)
                     post = getattr(self, '_post', None)
                     if post is not None and post.any_enabled(vls):
-                        # Same effect pipeline as the viewport (AO / cavity / outline).
+                        # Same effect pipeline as the viewport (AO / cavity / outline / FXAA).
                         view_mat3 = view.to_3x3()
                         draw_scene, post_ctx = self._make_post_ctx(
                             depsgraph, vls, view_proj, view_mat3, proj, w, h, wc,
                             studio, Matrix.Identity(4), sky, ground, 1.0, self._lights_cache)
-                        post.render(w, h, draw_scene, post_ctx, vls)
+                        final_tex, sw, sh = post.render(w, h, draw_scene, post_ctx, vls, blit=False)
+                        # Read the pipeline's final texture straight out (it may be at a
+                        # supersampled sw x sh; downscale to w x h below).
+                        tmp_fb = gpu.types.GPUFrameBuffer(color_slots=(final_tex,))
+                        with tmp_fb.bind():
+                            buf = tmp_fb.read_color(0, 0, sw, sh, 4, 0, 'FLOAT')
+                        buf.dimensions = sw * sh * 4
+                        arr = np.array(buf, dtype=np.float32).reshape(sh, sw, 4)
+                        if (sw, sh) != (w, h):
+                            arr = _area_resize(arr, w, h)
                     else:
                         self._draw_batches(depsgraph, vls, view_proj, studio, Matrix.Identity(4),
                                            sky, ground, 1.0, False, 0.005, 0.25, self._dummy_depth,
                                            self._lights_cache, 'PIXEL')
-                    buf = fb.read_color(0, 0, w, h, 4, 0, 'FLOAT')
-                buf.dimensions = w * h * 4
-                # read_color is bottom-up and Blender's render rect is bottom-up too -> no flip.
-                arr = np.array(buf, dtype=np.float32).reshape(h, w, 4)
+                        buf = fb.read_color(0, 0, w, h, 4, 0, 'FLOAT')
+                        buf.dimensions = w * h * 4
+                        # read_color is bottom-up and Blender's render rect is bottom-up too.
+                        arr = np.array(buf, dtype=np.float32).reshape(h, w, 4)
             finally:
                 offscreen.free()
 
