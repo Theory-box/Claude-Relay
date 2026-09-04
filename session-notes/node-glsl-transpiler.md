@@ -593,3 +593,13 @@ All 10 suites green.
 STILL TODO: F12 final render (engine is viewport-only; render() only stops GI).
   Important for the AI-feed pipeline (they render images). Next piece.
 All 10 suites green.
+
+## v0.8.5 — F12 final render + shared draw refactor
+- Extracted the viewport object loop into _draw_batches(depsgraph, vls, view_proj,
+  studio, lighting...) — used by BOTH view_draw and render() (modular, no dup).
+- render(depsgraph): F12 now works — resolution from scene.render, camera view_proj
+  (cam.calc_matrix_camera), studio light from camera orientation, draw into a
+  GPUOffScreen, read_color -> flip -> begin_result/end_result. No camera -> black.
+  Workbench-quality (no shadows/GI in F12 yet). Wrapped in try/except + traceback.
+- Verified: compiles, registers, render + _draw_batches present, viewport suites green.
+  NOT GPU-testable here (offscreen render + begin_result) -> user confirms F12 output.

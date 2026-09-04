@@ -360,7 +360,68 @@ class VertexLitEngine(bpy.types.RenderEngine):
         if hasattr(self,'_gi'): self._gi.stop()
 
     def render(self, depsgraph):
-        if hasattr(self,'_gi'): self._gi.stop()
+        # F12 final image: render the scene from the active camera into an offscreen
+        # (Workbench-style shading) and hand the pixels to Blender. Viewport-quality
+        # only (no shadows/GI in the F12 path yet).
+        if hasattr(self, '_gi'):
+            try: self._gi.stop()
+            except Exception: pass
+        try:
+            scene = depsgraph.scene
+            sc = scene.render.resolution_percentage / 100.0
+            w = max(int(scene.render.resolution_x * sc), 1)
+            h = max(int(scene.render.resolution_y * sc), 1)
+            vls = getattr(scene, 'vertex_lit', None)
+            cam = scene.camera
+
+            self._ensure_state(); self._ensure_resources()
+            self._dirty = True
+            self._rebuild(depsgraph, vls)
+
+            result = self.begin_result(0, 0, w, h)
+            rl = result.layers[0].passes["Combined"]
+
+            if cam is None or cam.type != 'CAMERA':
+                rl.rect = [[0.0, 0.0, 0.0, 1.0]] * (w * h)
+                self.end_result(result)
+                return
+
+            view = cam.matrix_world.inverted()
+            proj = cam.calc_matrix_camera(depsgraph, x=w, y=h)
+            view_proj = proj @ view
+            try:
+                kv = Vector((0.25, 0.35, 0.90)); kv.normalize()
+                key_dir = tuple(cam.matrix_world.to_quaternion() @ kv)
+            except Exception:
+                key_dir = (0.3, 0.4, 0.86)
+            studio = (key_dir, (0.9, 0.9, 0.9), 0.35)
+            mode = getattr(vls, 'shading_mode', 'WORKBENCH')
+
+            offscreen = gpu.types.GPUOffScreen(w, h)
+            arr = None
+            try:
+                with offscreen.bind():
+                    fb = gpu.state.active_framebuffer_get()
+                    wc = scene.world.color if scene.world else None
+                    fb.clear(color=(wc[0], wc[1], wc[2], 1.0) if wc else (0.05, 0.05, 0.05, 1.0),
+                             depth=1.0)
+                    self._draw_batches(depsgraph, vls, view_proj, studio, Matrix.Identity(4),
+                                       (0.05, 0.07, 0.10), (0.03, 0.02, 0.02), 1.0,
+                                       False, 0.005, 0.25, self._dummy_depth,
+                                       self._lights_cache, mode)
+                    buf = fb.read_color(0, 0, w, h, 4, 0, 'FLOAT')
+                buf.dimensions = w * h * 4
+                arr = np.array(buf, dtype=np.float32).reshape(h, w, 4)
+                arr = np.flipud(arr)               # Blender image is bottom-up
+            finally:
+                offscreen.free()
+
+            rl.rect = arr.reshape(-1, 4).tolist() if arr is not None else \
+                [[0.0, 0.0, 0.0, 1.0]] * (w * h)
+            self.end_result(result)
+        except Exception as e:
+            print("[VertexLit] render() failed:", e)
+            import traceback; traceback.print_exc()
 
     def free(self):
         # Called when the engine instance is destroyed (leaving rendered mode).
@@ -601,6 +662,74 @@ class VertexLitEngine(bpy.types.RenderEngine):
             si(f'uLType[{i}]',   l['type']        if l else 0)
             sf(f'uLRadius[{i}]', l['radius']      if l else 1.0)
 
+    # ── Shared scene draw (used by the viewport AND F12 render) ─────────────
+
+    def _draw_batches(self, depsgraph, vls, view_proj, studio, ls_mat, sky, ground,
+                      bstr, do_shad, s_bias, s_dark, shad_tex, lights, mode):
+        legacy=_get_main_shader(mode)
+        use_live=bool(getattr(vls,'use_live_nodes',False))
+        frame_done=set(); params_done=set()
+
+        def _ensure_frame(sh):
+            sh.bind()
+            if id(sh) not in frame_done:
+                self._apply_frame_uniforms(sh, view_proj, ls_mat, sky, ground, bstr,
+                                           do_shad, s_bias, s_dark, shad_tex, lights, studio)
+                frame_done.add(id(sh))
+
+        gpu.state.depth_test_set('LESS_EQUAL')
+        gpu.state.depth_mask_set(True)
+        gpu.state.face_culling_set('BACK')
+        for inst in depsgraph.object_instances:
+            obj=inst.object
+            if obj.type!='MESH': continue
+            if not inst.show_self: continue
+            entry=self._batch_dict.get(obj.name)
+            if entry is None: continue
+            batch,tex=entry[0],entry[1]
+            gmin=entry[2] if len(entry)>2 else (0.0,0.0,0.0)
+            gsc =entry[3] if len(entry)>3 else (1.0,1.0,1.0)
+
+            try:   normal_mat=inst.matrix_world.to_3x3().inverted().transposed()
+            except Exception: normal_mat=inst.matrix_world.to_3x3()
+
+            prog=None
+            if use_live:
+                mat=getattr(obj,'active_material',None)
+                if mat is not None and getattr(mat,'use_nodes',False):
+                    p=material_shader.get_program(mat, mode)
+                    if p and not p['failed'] and p['shader'] is not None:
+                        prog=p
+
+            if prog is not None:
+                sh=prog['shader']
+                _ensure_frame(sh)
+                if id(sh) not in params_done:
+                    nt=mat.node_tree if mat else None
+                    for p in prog['params']:
+                        try: sh.uniform_float(p.uniform, p.value(nt))
+                        except Exception: pass
+                    params_done.add(id(sh))
+                sh.uniform_float('uModel',inst.matrix_world)
+                sh.uniform_float('uNormalMat',normal_mat)
+                try: sh.uniform_float('uGenMin',gmin); sh.uniform_float('uGenScale',gsc)
+                except Exception: pass
+                for uni,image in prog['samplers']:
+                    gtex=_get_gpu_tex(image)
+                    if gtex is not None:
+                        try: sh.uniform_sampler(uni,gtex)
+                        except Exception: pass
+                batch.draw(sh)
+            else:
+                _ensure_frame(legacy)
+                legacy.uniform_float('uModel',inst.matrix_world)
+                legacy.uniform_float('uNormalMat',normal_mat)
+                try: legacy.uniform_float('uGenMin',gmin); legacy.uniform_float('uGenScale',gsc)
+                except Exception: pass
+                legacy.uniform_sampler('uAlbedo',  tex if tex is not None else self._white_tex)
+                legacy.uniform_int('uHasTexture',  1 if tex is not None else 0)
+                batch.draw(legacy)
+
     # ── Main draw ─────────────────────────────────────────────────────────
 
     def view_draw(self, context, depsgraph):
@@ -671,72 +800,9 @@ class VertexLitEngine(bpy.types.RenderEngine):
         except Exception:
             key_dir=(0.3,0.4,0.86)
         studio=(key_dir, (0.9,0.9,0.9), 0.35)
-        legacy=_get_main_shader(mode)
-        use_live=bool(getattr(vls,'use_live_nodes',False))
-        frame_done=set()    # id(shader) that already received per-frame uniforms
-        params_done=set()   # id(shader) whose live node params were set this frame
-
-        def _ensure_frame(sh):
-            # bind every time (we may interleave shaders); set frame uniforms once.
-            sh.bind()
-            if id(sh) not in frame_done:
-                self._apply_frame_uniforms(sh, view_proj, ls_mat, sky, ground, bstr,
-                                           do_shad, s_bias, s_dark, shad_tex, lights, studio)
-                frame_done.add(id(sh))
-
         def _draw_objects():
-            gpu.state.depth_test_set('LESS_EQUAL')
-            gpu.state.depth_mask_set(True)
-            gpu.state.face_culling_set('BACK')
-            for inst in depsgraph.object_instances:
-                obj=inst.object
-                if obj.type!='MESH': continue
-                if not inst.show_self: continue      # respect hidden objects/collections
-                entry=self._batch_dict.get(obj.name)
-                if entry is None: continue
-                batch,tex=entry[0],entry[1]
-                gmin=entry[2] if len(entry)>2 else (0.0,0.0,0.0)
-                gsc =entry[3] if len(entry)>3 else (1.0,1.0,1.0)
-
-                try:   normal_mat=inst.matrix_world.to_3x3().inverted().transposed()
-                except Exception: normal_mat=inst.matrix_world.to_3x3()
-
-                prog=None
-                if use_live:
-                    mat=getattr(obj,'active_material',None)
-                    if mat is not None and getattr(mat,'use_nodes',False):
-                        p=material_shader.get_program(mat, mode)
-                        if p and not p['failed'] and p['shader'] is not None:
-                            prog=p
-
-                if prog is not None:
-                    sh=prog['shader']
-                    _ensure_frame(sh)
-                    if id(sh) not in params_done:
-                        nt=mat.node_tree if mat else None
-                        for p in prog['params']:
-                            try: sh.uniform_float(p.uniform, p.value(nt))
-                            except Exception: pass
-                        params_done.add(id(sh))
-                    sh.uniform_float('uModel',inst.matrix_world)
-                    sh.uniform_float('uNormalMat',normal_mat)
-                    try: sh.uniform_float('uGenMin',gmin); sh.uniform_float('uGenScale',gsc)
-                    except Exception: pass
-                    for uni,image in prog['samplers']:
-                        gtex=_get_gpu_tex(image)
-                        if gtex is not None:
-                            try: sh.uniform_sampler(uni,gtex)
-                            except Exception: pass
-                    batch.draw(sh)
-                else:
-                    _ensure_frame(legacy)
-                    legacy.uniform_float('uModel',inst.matrix_world)
-                    legacy.uniform_float('uNormalMat',normal_mat)
-                    try: legacy.uniform_float('uGenMin',gmin); legacy.uniform_float('uGenScale',gsc)
-                    except Exception: pass
-                    legacy.uniform_sampler('uAlbedo',  tex if tex is not None else self._white_tex)
-                    legacy.uniform_int('uHasTexture',  1 if tex is not None else 0)
-                    batch.draw(legacy)
+            self._draw_batches(depsgraph, vls, view_proj, studio, ls_mat, sky, ground,
+                               bstr, do_shad, s_bias, s_dark, shad_tex, lights, mode)
 
         # Route through the screen-space post pipeline if any effect is enabled;
         # otherwise draw straight to the viewport (default path, unchanged). Any
