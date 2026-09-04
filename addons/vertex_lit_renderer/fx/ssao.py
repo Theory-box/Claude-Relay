@@ -51,6 +51,7 @@ float rand(vec2 co){ return fract(sin(dot(co, vec2(12.9898, 78.233))) * 43758.54
 void main(){
     float z = texture(uDepth, vUV).r;
     vec4 col = texture(uColor, vUV);
+    if(any(isnan(col)) || any(isinf(col))) col = vec4(0.0, 0.0, 0.0, 1.0);
     if(z >= 1.0){ fragColor = col; return; }        /* background: no AO */
 
     vec3 P = view_pos(vUV);

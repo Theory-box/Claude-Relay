@@ -203,9 +203,18 @@ def _extract_mesh_data(obj, depsgraph):
         vc = np.empty(n_verts * 3, dtype=np.float32); mesh.vertices.foreach_get('co', vc)
         vc = vc.reshape(n_verts, 3)
         positions = vc[vi_flat]
+
+        # Per-VERTEX normals for GI/BVH (averaged); per-CORNER normals for the draw
+        # batch so flat/hard shading, sharp edges and custom split normals are honoured
+        # (vertex normals alone force everything smooth).
         vn = np.empty(n_verts * 3, dtype=np.float32); mesh.vertices.foreach_get('normal', vn)
         vn = vn.reshape(n_verts, 3)
-        normals = vn[vi_flat]
+        try:
+            cn = np.empty(n_loops * 3, dtype=np.float32)
+            mesh.corner_normals.foreach_get('vector', cn)
+            normals = cn.reshape(n_loops, 3)[li_flat]
+        except Exception:
+            normals = vn[vi_flat]
         vert_co_local = vc
         vert_no_local = vn
 
@@ -466,6 +475,7 @@ class VertexLitEngine(bpy.types.RenderEngine):
         for inst in depsgraph.object_instances:
             obj=inst.object
             if obj.type!='MESH': continue
+            if not inst.show_self: continue          # respect hidden objects/collections
             if obj.name in seen: continue
             seen.add(obj.name)
 
@@ -681,6 +691,7 @@ class VertexLitEngine(bpy.types.RenderEngine):
             for inst in depsgraph.object_instances:
                 obj=inst.object
                 if obj.type!='MESH': continue
+                if not inst.show_self: continue      # respect hidden objects/collections
                 entry=self._batch_dict.get(obj.name)
                 if entry is None: continue
                 batch,tex=entry[0],entry[1]

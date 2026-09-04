@@ -576,3 +576,20 @@ NOTED (not fixed): Blackbody/Wavelength need Blender's precomputed spectrum LUT
   AO normal uses dFdx/dFdy (face normals) -> faceted AO; a normal G-buffer would
   improve it + enable SSR later.
 All 10 suites green.
+
+## v0.8.4 — fixes from 0.8.2 testing
+- FLAT/HARD SHADING shown as smooth: extraction used per-VERTEX normals (always
+  averaged/smooth). Now uses per-CORNER normals (mesh.corner_normals) for the draw
+  batch -> respects flat shading, sharp edges, custom split normals. (vertex normals
+  kept for GI). Verified corner vs vertex differ on a flat cube.
+- HIDDEN objects/collections shown: draw + rebuild loops now skip inst.show_self==False.
+- BRICK broken/dark + cross-material brightening: added div-by-zero guards (row_height,
+  brick_width, mortar_size) -> int(inf) was undefined on real GPUs (likely NaN source).
+  Renders clean on software GL either way.
+- AO NaN guard: SSAO sanitizes NaN/Inf colour (isnan/isinf) before compositing so a
+  broken material can't bleed through screen-space sampling to neighbours.
+- Cross-material brightening theory: brick NaN -> gbuffer -> AO neighbour sampling.
+  Brick guards + AO sanitize should address it; need user re-test to confirm.
+STILL TODO: F12 final render (engine is viewport-only; render() only stops GI).
+  Important for the AI-feed pipeline (they render images). Next piece.
+All 10 suites green.

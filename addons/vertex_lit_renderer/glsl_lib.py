@@ -237,21 +237,23 @@ float integer_noise(int n){
 _BRICK = """
 vec2 _b_brick(vec3 p, float mortar_size, float mortar_smooth, float bias, float brick_width,
               float row_height, float offset_amount, int offset_freq, float squash_amount, int squash_freq){
-    int rownum = int(floor(p.y / row_height));
-    float offset = 0.0; float bw = brick_width;
+    float rh = max(row_height, 1e-4);
+    int rownum = int(floor(p.y / rh));
+    float offset = 0.0; float bw = max(brick_width, 1e-4);
     if(offset_freq != 0 && squash_freq != 0){
         bw *= (rownum % squash_freq != 0) ? 1.0 : squash_amount;
+        bw = max(bw, 1e-4);
         offset = (rownum % offset_freq != 0) ? 0.0 : (bw * offset_amount);
     }
     int bricknum = int(floor((p.x + offset) / bw));
     float x = (p.x + offset) - bw * float(bricknum);
-    float y = p.y - row_height * float(rownum);
+    float y = p.y - rh * float(rownum);
     float tint = clamp(integer_noise((rownum << 16) + (bricknum & 0xFFFF)) + bias, 0.0, 1.0);
-    float md = min(min(x, y), min(bw - x, row_height - y));
+    float md = min(min(x, y), min(bw - x, rh - y));
     float fac;
     if(md >= mortar_size) fac = 0.0;
     else if(mortar_smooth == 0.0) fac = 1.0;
-    else { md = 1.0 - md / mortar_size; fac = smoothstep(0.0, mortar_smooth, md); }
+    else { md = 1.0 - md / max(mortar_size, 1e-6); fac = smoothstep(0.0, mortar_smooth, md); }
     return vec2(tint, fac);
 }
 """
