@@ -990,3 +990,13 @@ Big UX/feature refactor (internal engine id stays 'VERTEX_LIT').
   BG_VERT/BG_FRAG fullscreen pass drawn first in _draw_batches (skipped when film_transparent).
   background_mode + background_color props.
 New tests/test_workbench2.py (props/panels/shaders/random). 15 suites green.
+
+## v0.11.1 — Random view mode fix + viewport transparency revert
+- RANDOM view mode: uGenMin/uGenScale are optimised out of VIEWMODE_FRAG (it never uses
+  vGenerated), so the shared per-object try/except in _draw_viewmode threw on uGenMin and
+  SKIPPED uObjColor -> random colour never set. Now each uniform is set independently (sf()).
+  Solid/Attribute/Normal were unaffected (no per-object uniform).
+- Transparency: color_mask alpha-off is now applied ONLY for film-transparent F12 renders.
+  The viewport uses plain ALPHA again (its known-good glass behaviour). GPU test confirmed the
+  ALPHA blend itself composites objects-behind correctly, so this rules out color_mask as the
+  cause of a viewport "glass fades to nothing" report (likely scene-specific — awaiting details).

@@ -791,10 +791,12 @@ class VertexLitEngine(bpy.types.RenderEngine):
         self._apply_frame_uniforms(sh, view_proj, ls_mat, sky, ground, bstr,
                                    False, 0.005, 0.25, self._dummy_depth, lights, studio)
         vmid = _VIEWMODE_ID.get(view_mode, 1)
-        try:
-            sh.uniform_int('uViewMode', vmid)
-            sh.uniform_float('uSolidColor', tuple(vls.solid_color) if vls else (0.8, 0.8, 0.8))
+        def sf(n, v):
+            try: sh.uniform_float(n, v)
+            except Exception: pass
+        try: sh.uniform_int('uViewMode', vmid)
         except Exception: pass
+        sf('uSolidColor', tuple(vls.solid_color) if vls else (0.8, 0.8, 0.8))
         gpu.state.depth_test_set('LESS_EQUAL'); gpu.state.depth_mask_set(True)
         gpu.state.face_culling_set(getattr(self, '_cull', 'BACK'))
         for inst in depsgraph.object_instances:
@@ -807,13 +809,13 @@ class VertexLitEngine(bpy.types.RenderEngine):
             gsc = cached.get('gen_scale', (1.0, 1.0, 1.0)) if cached else (1.0, 1.0, 1.0)
             try: nmat = inst.matrix_world.to_3x3().inverted().transposed()
             except Exception: nmat = inst.matrix_world.to_3x3()
-            try:
-                sh.uniform_float('uModel', inst.matrix_world)
-                sh.uniform_float('uNormalMat', nmat)
-                sh.uniform_float('uGenMin', gmin); sh.uniform_float('uGenScale', gsc)
-                if vmid == 2:
-                    sh.uniform_float('uObjColor', _obj_random_color(obj.name))
-            except Exception: pass
+            # Each uniform set independently — some (uGenMin/uGenScale) are optimised out of
+            # this program, and a shared try/except would skip uObjColor after the first miss.
+            sf('uModel', inst.matrix_world)
+            sf('uNormalMat', nmat)
+            sf('uGenMin', gmin); sf('uGenScale', gsc)
+            if vmid == 2:
+                sf('uObjColor', _obj_random_color(obj.name))
             for batch, _mat_name, _tex in slots:
                 try: batch.draw(sh)
                 except Exception: pass
@@ -946,14 +948,16 @@ class VertexLitEngine(bpy.types.RenderEngine):
             transparent.sort(key=lambda x: x[0], reverse=True)
             gpu.state.blend_set('ALPHA')
             gpu.state.depth_mask_set(False)
-            # Blend the COLOUR but leave the alpha channel untouched, so glass keeps the
-            # opaque surface's alpha (1) behind it. Otherwise ALPHA blending drops the
-            # framebuffer alpha below 1 and a film-transparent render shows the checker
-            # through the glass instead of what's behind it.
-            gpu.state.color_mask_set(True, True, True, False)
+            # Only for a film-transparent render do we protect the alpha channel (so glass
+            # over an opaque object keeps alpha=1 instead of showing the transparent film).
+            # In the viewport, plain alpha blending is what we want.
+            _mask_a = getattr(self, '_film_transparent', False)
+            if _mask_a:
+                gpu.state.color_mask_set(True, True, True, False)
             for _d, args in transparent:
                 _draw_one(*args)
-            gpu.state.color_mask_set(True, True, True, True)
+            if _mask_a:
+                gpu.state.color_mask_set(True, True, True, True)
             gpu.state.blend_set('NONE')
             gpu.state.depth_mask_set(True)
 
