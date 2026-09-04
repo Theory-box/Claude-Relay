@@ -9,11 +9,12 @@ no changes.
 """
 from .pipeline import Pipeline
 from .ssao import SSAO
+from .outline import Outline
 
 
 def default_effects():
-    # order matters: AO darkens colour before any later grading/compositing pass.
-    return [SSAO()]
+    # order matters: AO darkens colour first, then outline draws lines on top.
+    return [SSAO(), Outline()]
 
 
 def make_pipeline():

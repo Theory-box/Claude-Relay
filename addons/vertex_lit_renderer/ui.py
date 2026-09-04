@@ -13,6 +13,16 @@ class VERTEX_LIT_PT_settings(bpy.types.Panel):
         s = context.scene.vertex_lit
 
         box = layout.box()
+        row = box.row()
+        row.label(text="Outline", icon='MOD_EDGESPLIT')
+        row.prop(s, 'use_outline', text="")
+        if s.use_outline:
+            col = box.column(align=True)
+            col.prop(s, 'outline_size')
+            col.prop(s, 'outline_threshold')
+            col.prop(s, 'outline_color', text="")
+
+        box = layout.box()
         box.label(text="Shading", icon='SHADING_RENDERED')
         box.prop(s, 'shading_mode', text="")
 

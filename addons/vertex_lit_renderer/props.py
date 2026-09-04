@@ -10,6 +10,20 @@ class VertexLitSettings(bpy.types.PropertyGroup):
     ao_radius: bpy.props.FloatProperty(name="AO Radius", default=0.5, min=0.01, max=5.0)
     ao_bias: bpy.props.FloatProperty(name="AO Bias", default=0.02, min=0.0, max=0.5)
 
+    # Object outline (screen-space)
+    use_outline: bpy.props.BoolProperty(
+        name="Outline", default=False,
+        description="Draw an outline around objects (Workbench-style)")
+    outline_size: bpy.props.FloatProperty(
+        name="Outline Width", default=1.5, min=0.5, max=10.0,
+        description="Outline thickness in pixels")
+    outline_threshold: bpy.props.FloatProperty(
+        name="Edge Sensitivity", default=0.15, min=0.01, max=1.0,
+        description="Lower = more inner edges detected; higher = silhouettes only")
+    outline_color: bpy.props.FloatVectorProperty(
+        name="Outline Color", subtype='COLOR', default=(0.0, 0.0, 0.0),
+        min=0.0, max=1.0)
+
     # Shading model
     shading_mode: bpy.props.EnumProperty(
         name="Shading",

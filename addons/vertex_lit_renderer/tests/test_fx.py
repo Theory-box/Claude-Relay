@@ -10,6 +10,7 @@ def grab(path, var):
     s=open(path).read(); m=re.search(var+r'\s*=\s*"""(.*?)"""', s, re.S); return m.group(1) if m else None
 FS_VERT=grab(os.path.join(_fx,"effect.py"),"FS_VERT")
 SSAO=grab(os.path.join(_fx,"ssao.py"),"_SSAO_FRAG")
+OUTLINE=grab(os.path.join(_fx,"outline.py"),"_OUTLINE_FRAG")
 import moderngl
 ctx=moderngl.create_standalone_context(backend="egl")
 def compiles(frag):
@@ -21,5 +22,8 @@ def compiles(frag):
 ok,info=compiles(SSAO)
 check(ok, "SSAO fragment compiles" + ("" if ok else " :: "+str(info)))
 check(ok and 'uDepth' in info and 'uProj' in info and 'uInvProj' in info, "SSAO exposes depth + projection uniforms")
+ok2,info2=compiles(OUTLINE)
+check(ok2, "Outline fragment compiles" + ("" if ok2 else " :: "+str(info2)))
+check(ok2 and 'uSize' in info2 and 'uLineColor' in info2, "Outline exposes size + colour uniforms")
 print("SUMMARY: " + ("FAILED "+", ".join(F) if F else "ALL CHECKS PASSED"))
 sys.exit(1 if F else 0)

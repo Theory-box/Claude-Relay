@@ -907,6 +907,9 @@ class VertexLitEngine(bpy.types.RenderEngine):
                     'ao_radius':   (vls.ao_radius   if vls else 0.5),
                     'ao_strength': (vls.ao_strength if vls else 1.0),
                     'ao_bias':     (vls.ao_bias     if vls else 0.02),
+                    'outline_size':      (vls.outline_size      if vls else 1.5),
+                    'outline_threshold': (vls.outline_threshold if vls else 0.15),
+                    'outline_color':     (tuple(vls.outline_color) if vls else (0.0,0.0,0.0)),
                 }
                 post.render(rw, rh, _draw_objects, post_ctx, vls)
                 gpu.state.depth_test_set('NONE')
