@@ -255,32 +255,67 @@ def _extract_mesh_data(obj, depsgraph):
                      1.0/float(size[1]) if size[1] > 1e-9 else 0.0,
                      1.0/float(size[2]) if size[2] > 1e-9 else 0.0)
 
+        # Per-triangle material index -> split the mesh into one draw slot per material,
+        # so multi-material objects show each material on its own faces.
+        mi = np.zeros(n_tris, dtype=np.int32)
+        try: mesh.loop_triangles.foreach_get('material_index', mi)
+        except Exception: pass
+        mi_corner = np.repeat(mi, 3)                      # (n_flat,)
+        has_vcol = (colors.shape[0] == n_flat and not np.all(colors == colors[0]))
+        slots_out = []
+        for idx in np.unique(mi):
+            m = (mi_corner == idx)
+            slot_mat = None
+            try:
+                ms = obj.material_slots
+                if idx < len(ms): slot_mat = ms[idx].material
+            except Exception:
+                pass
+            if slot_mat is None:
+                slot_mat = mat_slot
+            stex = _get_gpu_tex(_find_base_texture(slot_mat))
+            sdefault = [1.0, 1.0, 1.0, 1.0]
+            if slot_mat is not None:
+                dc = slot_mat.diffuse_color; sdefault = [dc[0], dc[1], dc[2], 1.0]
+            scolors = colors[m] if has_vcol else \
+                np.tile(np.array(sdefault, dtype=np.float32), (int(m.sum()), 1))
+            slots_out.append(dict(
+                positions=positions[m], normals=normals[m], uvs=uvs[m], colors=scolors,
+                material_name=(slot_mat.name if slot_mat else None), texture=stex,
+            ))
+
         return dict(
-            positions=positions, normals=normals, colors=colors,
-            uvs=uvs, vi_map=vi_flat.tolist(), texture=tex, n_verts=n_verts,
+            slots=slots_out, gen_min=gen_min, gen_scale=gen_scale,
+            vi_map=vi_flat.tolist(), n_verts=n_verts,
             vert_co_local=vert_co_local, vert_no_local=vert_no_local,
-            mat_diffuse=mat_diffuse, gen_min=gen_min, gen_scale=gen_scale,
+            mat_diffuse=mat_diffuse,
         )
     except Exception as e:
         print(f"[VertexLit] extract error ({obj.name}): {e}")
         return None
 
 
-def _build_batch_from_cache(cached, gi_per_vert=None):
+def _build_slot_batch(slot):
     shader=_get_main_shader()
-    vi_map=cached['vi_map']; n_v=cached['n_verts']
-    if gi_per_vert and len(gi_per_vert) == n_v:
-        gi_arr = np.array(gi_per_vert, dtype=np.float32)
-        bounces = gi_arr[np.array(vi_map, dtype=np.int32)]
-    else:
-        bounces = np.zeros((len(vi_map), 3), dtype=np.float32)
+    n=len(slot['positions'])
     return batch_for_shader(shader,'TRIS',{
-        'position':    cached['positions'],
-        'normal':      cached['normals'],
-        'vertColor':   cached['colors'],
-        'texCoord':    cached['uvs'],
-        'bounceColor': bounces,
+        'position':    slot['positions'],
+        'normal':      slot['normals'],
+        'vertColor':   slot['colors'],
+        'texCoord':    slot['uvs'],
+        'bounceColor': np.zeros((n,3), dtype=np.float32),
     })
+
+
+def _build_object_slots(cached):
+    """Return a list of (batch, material_name, texture) — one per material slot."""
+    out=[]
+    for slot in cached.get('slots', []):
+        try:
+            out.append((_build_slot_batch(slot), slot.get('material_name'), slot.get('texture')))
+        except Exception as e:
+            print("[VertexLit] slot batch error:", e)
+    return out
 
 
 def _build_shadow_batch_from_cache(cached):
@@ -342,6 +377,8 @@ class VertexLitEngine(bpy.types.RenderEngine):
         self._bounds_cache     = (Vector((0,0,0)),10.0)
         self._shadow_dirty     = True
         self._shadow_tex_cache = None
+        self._dirty_objects    = set()   # names of objects to re-extract (incremental)
+        self._force_full       = False   # force a full re-extract next rebuild
         self._post             = fx.make_pipeline()   # screen-space effects (AO...)
         # After rebuild, skip N view_update cycles. new_from_object / remove
         # queue deferred depsgraph events that arrive after _rebuild returns.
@@ -473,14 +510,21 @@ class VertexLitEngine(bpy.types.RenderEngine):
             if update.is_updated_geometry:
                 if isinstance(id_data,bpy.types.Mesh):
                     if getattr(id_data,'users',0)>0:
-                        if _DEBUG: print("[VertexLit] rebuild <- mesh geom:", id_data.name)
+                        # mark objects using this mesh dirty (the Object update usually
+                        # also fires, but be robust)
+                        for nm in list(self._mesh_cache.keys()):
+                            ob=bpy.data.objects.get(nm)
+                            if ob is not None and getattr(ob,'data',None) is id_data:
+                                self._dirty_objects.add(nm)
+                        if _DEBUG: print("[VertexLit] dirty <- mesh geom:", id_data.name)
                         self._dirty=True; self._shadow_dirty=True
                         _gi_active=True; return
                 if isinstance(id_data,bpy.types.Object) and id_data.type=='MESH':
-                    if id_data.name not in self._mesh_cache:
-                        if _DEBUG: print("[VertexLit] rebuild <- new object:", id_data.name)
-                        self._dirty=True; self._shadow_dirty=True
-                        _gi_active=True; return
+                    # geometry edit OR a brand-new object -> re-extract just this one
+                    self._dirty_objects.add(id_data.name)
+                    if _DEBUG: print("[VertexLit] dirty <- object geom:", id_data.name)
+                    self._dirty=True; self._shadow_dirty=True
+                    _gi_active=True; return
                 if isinstance(id_data,bpy.types.Object) and id_data.type=='LIGHT':
                     if _DEBUG: print("[VertexLit] rebuild <- light geom:", id_data.name)
                     self._dirty=True; self._shadow_dirty=True
@@ -510,6 +554,16 @@ class VertexLitEngine(bpy.types.RenderEngine):
             if isinstance(id_data,bpy.types.Image):
                 _invalidate_tex(id_data.name)
 
+        # Object deletions don't always surface as a geometry update — if a cached
+        # object no longer exists, trigger an (incremental) rebuild to drop it.
+        if not self._dirty and self._mesh_cache:
+            for nm in self._mesh_cache:
+                if nm not in bpy.data.objects:
+                    self._dirty = True
+                    try: context.region.tag_redraw()
+                    except Exception: pass
+                    break
+
     # ── Rebuild ───────────────────────────────────────────────────────────
 
     def _rebuild(self, depsgraph, vls):
@@ -519,88 +573,93 @@ class VertexLitEngine(bpy.types.RenderEngine):
 
     def _rebuild_inner(self, depsgraph, vls):
         t0=time.time()
-        self._gi.cancel()
 
-        use_gi  =vls.use_gi        if vls else True
+        use_gi  =vls.use_gi        if vls else False
         gi_samp        = vls.gi_samples      if vls else 128
         rays_per_pass  = vls.gi_rays_per_pass if vls else 4
         thread_pause   = vls.gi_thread_pause  if vls else 0.001
         en_scale=vls.energy_scale  if vls else 0.01
         lights  =_collect_lights(depsgraph,en_scale)
-
         self._lights_cache=lights
         self._bounds_cache=_scene_bounds(depsgraph)
 
-        new_mesh={}; new_shadow={}; seen=set()
-
+        # Current visible mesh objects in the scene.
+        current={}
         for inst in depsgraph.object_instances:
             obj=inst.object
             if obj.type!='MESH': continue
-            if not inst.show_self: continue          # respect hidden objects/collections
-            if obj.name in seen: continue
-            seen.add(obj.name)
+            if not inst.show_self: continue
+            if obj.name not in current: current[obj.name]=obj
 
-            data=_extract_mesh_data(obj,depsgraph)  # ONE new_from_object per object
-            if data:
-                new_mesh[obj.name]=data
-                self._batch_dict[obj.name]=(_build_batch_from_cache(data), data['texture'], data['gen_min'], data['gen_scale'])
-                # Shadow batch built from cached data — no extra new_from_object
-                sb=_build_shadow_batch_from_cache(data)
-                if sb: new_shadow[obj.name]=sb
+        # 1) Drop objects that no longer exist / were hidden.
+        for name in list(self._mesh_cache.keys()):
+            if name not in current:
+                self._mesh_cache.pop(name,None)
+                self._batch_dict.pop(name,None)
+                self._shadow_dict.pop(name,None)
 
-        self._mesh_cache  =new_mesh
-        self._shadow_dict =new_shadow
-        self._dirty       =False
-        self._shadow_dirty=True
-        if _DEBUG:
-            gi_threads=sum(1 for t in threading.enumerate() if t.name=='VertexLit-GI')
-            print("[VertexLit] rebuilt {} objs ({:.2f}s) | GI-threads={} meshes={} shader-cache={}".format(
-                len(new_mesh), time.time()-t0, gi_threads,
-                len(bpy.data.meshes), len(material_shader._prog_cache)))
+        # 2) Decide what to (re)extract: dirty objects + brand-new objects. A full
+        #    rebuild (dirty_objects empty AND nothing cached) extracts everything once.
+        dirty=set(getattr(self,'_dirty_objects',set()))
+        full = (not self._mesh_cache) or getattr(self,'_force_full',False)
+        if full:
+            to_do=set(current.keys())
         else:
-            print(f"[VertexLit] rebuilt {len(new_mesh)} objs ({time.time()-t0:.2f}s)")
+            to_do=(dirty & set(current.keys())) | {n for n in current if n not in self._mesh_cache}
+
+        for name in to_do:
+            obj=current.get(name)
+            if obj is None: continue
+            data=_extract_mesh_data(obj,depsgraph)   # reads eval mesh directly (no copy)
+            if data:
+                self._mesh_cache[name]=data
+                self._batch_dict[name]=_build_object_slots(data)
+                sb=_build_shadow_batch_from_cache(data)
+                if sb: self._shadow_dict[name]=sb
+
+        self._dirty=False
+        self._force_full=False
+        if hasattr(self,'_dirty_objects'): self._dirty_objects.clear()
+        self._shadow_dirty=True
+        print("[VertexLit] rebuilt {}/{} objs ({:.2f}s){}".format(
+            len(to_do), len(current), time.time()-t0, " [full]" if full else " [incremental]"))
 
         if use_gi:
-            # BVH built from cached vertex data — no extra new_from_object
-            bpy_objects={name:bpy.data.objects.get(name) for name in new_mesh}
-            bvh,face_albedo=_build_bvh_from_cache(new_mesh,bpy_objects)
+            self._gi.cancel()
+            bpy_objects={name:bpy.data.objects.get(name) for name in self._mesh_cache}
+            bvh,face_albedo=_build_bvh_from_cache(self._mesh_cache,bpy_objects)
             if bvh is None: return
-
             plain_lights=[{
                 'pos':tuple(l['pos']),'dir':tuple(l['dir']),
                 'color':tuple(l['color']),'energy':float(l['energy']),
                 'type':int(l['type']),'radius':float(l['radius']),
             } for l in lights]
-
             gi_verts={}; gi_norms={}
-            for name,data in new_mesh.items():
+            for name,data in self._mesh_cache.items():
                 obj=bpy_objects.get(name)
                 if obj is None: continue
                 m=obj.matrix_world; m3=m.to_3x3()
-                mat4_np = np.array(m, dtype=np.float32)
-                mat3_np = np.array(m3, dtype=np.float32)
-                vc = data['vert_co_local']  # numpy (n_v, 3)
-                vn = data['vert_no_local']  # numpy (n_v, 3)
-                n_v = len(vc)
+                mat4_np = np.array(m, dtype=np.float32); mat3_np = np.array(m3, dtype=np.float32)
+                vc = data['vert_co_local']; vn = data['vert_no_local']; n_v = len(vc)
                 vc_h = np.ones((n_v, 4), dtype=np.float32); vc_h[:,:3] = vc
                 gi_verts[name] = (mat4_np @ vc_h.T).T[:,:3].tolist()
                 gi_norms[name] = (mat3_np @ vn.T).T.tolist()
-
             self._gi.start(
-                dict(bvh=bvh, face_albedo=face_albedo,
-                     lights=plain_lights, verts=gi_verts, normals=gi_norms,
-                     rays_per_pass=rays_per_pass,
-                     thread_pause=thread_pause / 1000.0),  # ms → seconds
+                dict(bvh=bvh, face_albedo=face_albedo, lights=plain_lights,
+                     verts=gi_verts, normals=gi_norms, rays_per_pass=rays_per_pass,
+                     thread_pause=thread_pause / 1000.0),
                 target_samples=gi_samp)
             print(f"[VertexLit] GI started ({gi_samp} samples)")
 
     # ── Apply GI ──────────────────────────────────────────────────────────
 
     def _apply_gi_update(self, gi_data):
+        # GI is off by default; when on, just rebuild the object's slot batches.
+        # (Per-vertex GI bounce colours aren't threaded into slots yet — GI stays
+        # experimental; this keeps the batches valid.)
         for name,cached in self._mesh_cache.items():
-            gv=gi_data.get(name)
-            if gv is None: continue
-            self._batch_dict[name]=(_build_batch_from_cache(cached,gv), cached['texture'], cached.get('gen_min',(0.0,0.0,0.0)), cached.get('gen_scale',(1.0,1.0,1.0)))
+            if name in gi_data:
+                self._batch_dict[name]=_build_object_slots(cached)
 
     # ── Shadow pass ───────────────────────────────────────────────────────
 
@@ -684,51 +743,51 @@ class VertexLitEngine(bpy.types.RenderEngine):
             obj=inst.object
             if obj.type!='MESH': continue
             if not inst.show_self: continue
-            entry=self._batch_dict.get(obj.name)
-            if entry is None: continue
-            batch,tex=entry[0],entry[1]
-            gmin=entry[2] if len(entry)>2 else (0.0,0.0,0.0)
-            gsc =entry[3] if len(entry)>3 else (1.0,1.0,1.0)
+            slots=self._batch_dict.get(obj.name)
+            if not slots: continue
+            cached=self._mesh_cache.get(obj.name)
+            gmin=cached.get('gen_min',(0.0,0.0,0.0)) if cached else (0.0,0.0,0.0)
+            gsc =cached.get('gen_scale',(1.0,1.0,1.0)) if cached else (1.0,1.0,1.0)
 
             try:   normal_mat=inst.matrix_world.to_3x3().inverted().transposed()
             except Exception: normal_mat=inst.matrix_world.to_3x3()
 
-            prog=None
-            if use_live:
-                mat=getattr(obj,'active_material',None)
+            for batch, mat_name, tex in slots:
+                mat=bpy.data.materials.get(mat_name) if mat_name else None
+                prog=None
                 if mat is not None and getattr(mat,'use_nodes',False):
                     p=material_shader.get_program(mat, mode)
                     if p and not p['failed'] and p['shader'] is not None:
                         prog=p
 
-            if prog is not None:
-                sh=prog['shader']
-                _ensure_frame(sh)
-                if id(sh) not in params_done:
-                    nt=mat.node_tree if mat else None
-                    for p in prog['params']:
-                        try: sh.uniform_float(p.uniform, p.value(nt))
-                        except Exception: pass
-                    params_done.add(id(sh))
-                sh.uniform_float('uModel',inst.matrix_world)
-                sh.uniform_float('uNormalMat',normal_mat)
-                try: sh.uniform_float('uGenMin',gmin); sh.uniform_float('uGenScale',gsc)
-                except Exception: pass
-                for uni,image in prog['samplers']:
-                    gtex=_get_gpu_tex(image)
-                    if gtex is not None:
-                        try: sh.uniform_sampler(uni,gtex)
-                        except Exception: pass
-                batch.draw(sh)
-            else:
-                _ensure_frame(legacy)
-                legacy.uniform_float('uModel',inst.matrix_world)
-                legacy.uniform_float('uNormalMat',normal_mat)
-                try: legacy.uniform_float('uGenMin',gmin); legacy.uniform_float('uGenScale',gsc)
-                except Exception: pass
-                legacy.uniform_sampler('uAlbedo',  tex if tex is not None else self._white_tex)
-                legacy.uniform_int('uHasTexture',  1 if tex is not None else 0)
-                batch.draw(legacy)
+                if prog is not None:
+                    sh=prog['shader']
+                    _ensure_frame(sh)
+                    if id(sh) not in params_done:
+                        nt=mat.node_tree if mat else None
+                        for p in prog['params']:
+                            try: sh.uniform_float(p.uniform, p.value(nt))
+                            except Exception: pass
+                        params_done.add(id(sh))
+                    sh.uniform_float('uModel',inst.matrix_world)
+                    sh.uniform_float('uNormalMat',normal_mat)
+                    try: sh.uniform_float('uGenMin',gmin); sh.uniform_float('uGenScale',gsc)
+                    except Exception: pass
+                    for uni,image in prog['samplers']:
+                        gtex=_get_gpu_tex(image)
+                        if gtex is not None:
+                            try: sh.uniform_sampler(uni,gtex)
+                            except Exception: pass
+                    batch.draw(sh)
+                else:
+                    _ensure_frame(legacy)
+                    legacy.uniform_float('uModel',inst.matrix_world)
+                    legacy.uniform_float('uNormalMat',normal_mat)
+                    try: legacy.uniform_float('uGenMin',gmin); legacy.uniform_float('uGenScale',gsc)
+                    except Exception: pass
+                    legacy.uniform_sampler('uAlbedo',  tex if tex is not None else self._white_tex)
+                    legacy.uniform_int('uHasTexture',  1 if tex is not None else 0)
+                    batch.draw(legacy)
 
     # ── Main draw ─────────────────────────────────────────────────────────
 

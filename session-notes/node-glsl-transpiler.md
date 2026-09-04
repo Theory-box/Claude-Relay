@@ -623,3 +623,22 @@ DEFAULTS (user request):
 Tests updated for new behaviour (trace-through, neutralise, new defaults). 10 green.
 TODO: shadows look wrong (not like shadows) - redo later. CPU render mode requested -
   not feasible for a GPU viewport engine; consider a flat 'albedo preview' instead.
+
+## v0.8.7 — incremental rebuild (fixes 30s freeze) + multi-material support
+THE CORE SLOWDOWN: _rebuild_inner re-extracted EVERY object on ANY change (single
+bool self._dirty). Adding/removing an object or entering edit mode on ONE object
+re-extracted the whole scene -> 30s. NOT the old GI (correctly skipped when off).
+FIX - incremental rebuild:
+- view_update now records WHICH objects changed in self._dirty_objects (per-object),
+  not a global dirty. Object deletion detected by a cheap cache-vs-bpy.data check.
+- _rebuild_inner now: syncs removals (drop cached objects no longer present), extracts
+  ONLY dirty + brand-new objects, keeps all other batches. Full extract only on first
+  build or _force_full. Log says [incremental] vs [full] + N/total.
+  => edits are O(changed objects), not O(scene). Console: "rebuilt 1/2000 objs [incremental]".
+MULTI-MATERIAL: _extract_mesh_data now splits loop_triangles by material_index into
+  per-slot arrays; each object caches a LIST of (batch, material_name, texture) slots.
+  Draw loop iterates slots, drawing each with its own material program/texture. Verified
+  3-material cube -> 3 slots, tris sum to whole mesh; single mat -> 1 slot.
+- Removed _build_batch_from_cache; added _build_slot_batch + _build_object_slots.
+- GI apply + BVH still use whole-mesh vert_co_local/vi_map (unchanged); GI off by default.
+11 suites green (added test_multimat).
