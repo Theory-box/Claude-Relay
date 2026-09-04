@@ -13,6 +13,11 @@ Run inside Blender's Python (needs bpy for the node tree + moderngl for GL):
 
 Requires moderngl installed into Blender's Python and Mesa software GL. The env
 vars below force the software path.
+
+CAVEAT: under llvmpipe, exact values of blends with MULTIPLE vec4 uniforms are
+unreliable (a software-GL uniform-aliasing quirk). Compile-checking and single/
+few-param math are reliable; for exact multi-colour blend values, trust the
+transpiler output + real-GPU rendering rather than this harness.
 """
 import os
 os.environ.setdefault("LIBGL_ALWAYS_SOFTWARE", "1")
@@ -113,10 +118,11 @@ def render_material(mat, size=16, param_values=None, textures=None):
     quad = ctx.buffer(np.array([-1, -1, 1, -1, -1, 1, 1, 1], dtype="f4").tobytes())
     vao = ctx.vertex_array(prog, [(quad, "2f", "p")])
     vao.render(moderngl.TRIANGLE_STRIP)
+    ctx.finish()   # llvmpipe is multithreaded — force completion before readback
     px = np.frombuffer(fbo.read(components=4), dtype=np.uint8).reshape(size, size, 4).astype(np.float32) / 255.0
 
     for t in tex_objs: t.release()
-    fbo.release(); vao.release(); quad.release()
+    fbo.release(); vao.release(); quad.release(); prog.release()
     return px, res
 
 

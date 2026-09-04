@@ -55,7 +55,7 @@ darken a wall → Bright/Contrast / Mix / Hue-Sat ✅ · show the texture → Im
   fractal). FOUNDATION: pulls in the shared hash/noise files everything else uses.
 - ✅ **Voronoi** — F1 (Distance/Color/Position), 3D Euclidean, exact hash (F2/edge/other metrics todo)
 - ⏳ **Wave** — `_tex_wave.glsl` (depends on noise/fractal)
-- ✅ Checker (exact binary), Gradient (all types) · ⏳ Musgrave, Brick, Magic, White Noise, Wave
+- ✅ Checker, Gradient (all types), White Noise, Wave (bands/rings x sin/saw/tri), Brick · ⏳ Musgrave, Magic
 - ⏳ Environment Texture + Sky Texture — equirectangular/sky mapping; relevant to
   "skybox" if it's a World/Environment setup rather than a plain image on a mesh
 - 🚫 Point Density, IES (volumetric / light data)

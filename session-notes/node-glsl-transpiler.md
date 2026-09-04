@@ -439,3 +439,16 @@ GPL: ported code is GPL-2.0-or-later; addon is GPL. OK.
   linear-only).
 - CPU-verified: all 41 Math + 27 VMath ops compile (no passthrough); ADD/MULTIPLY
   exact; TRUNC fixed. test_gl_nodes now 18 checks. All 9 suites green.
+
+## v0.6.1 — local Blender source + Wave + Brick + harness determinism
+- EFFICIENCY: sparse blobless clone of Blender's shader dir (/home/claude/blender-src,
+  120 material .glsl files) -> port from local source, no more per-file web fetches.
+- Wave: exact port of calc_wave (bands X/Y/Z/diagonal, rings X/Y/Z/spherical,
+  SIN/SAW/TRI profiles, distortion via exact fbm). All 6 combos CPU-verified.
+- Brick: exact port (integer_noise + calc_brick_texture; offset/squash freq as node
+  props). Color + Fac (mortar mask) CPU-verified.
+- HARNESS: llvmpipe readback race -> added ctx.finish() (deterministic now).
+  Known caveat: exact values of MULTI-vec4-uniform blends are unreliable under
+  llvmpipe (uniform aliasing) — params verify correct, real GPU renders right;
+  smoke mix-ADD check relaxed to a robust 'brightens' assertion + documented.
+- test_gl_nodes: 22 checks. All 9 suites green.

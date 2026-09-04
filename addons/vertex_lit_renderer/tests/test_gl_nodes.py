@@ -92,4 +92,18 @@ def wn():
     t.links.new(n.outputs['Value'], bb.inputs['Base Color']); px,_=H.render_material(m,size=32); return px[...,0]
 check(wn().std()>0.1, "White Noise is high-frequency random")
 
+# --- Wave (all 6 combos vary) ---
+def wave(wt,prof):
+    m,t,bb=base('wv'); n=t.nodes.new('ShaderNodeTexWave'); n.wave_type=wt; n.wave_profile=prof
+    n.inputs['Scale'].default_value=3.0; t.links.new(n.outputs['Fac'], bb.inputs['Base Color'])
+    px,_=H.render_material(m,size=32); return px[...,0].std()
+check(all(wave(wt,pr)>0.05 for wt in ('BANDS','RINGS') for pr in ('SIN','SAW','TRI')), "Wave: all 6 band/ring x profile combos vary")
+
+# --- Brick (mortar + brick regions) ---
+def brick():
+    m,t,bb=base('bk'); n=t.nodes.new('ShaderNodeTexBrick'); n.inputs['Scale'].default_value=3.0
+    n.inputs['Mortar Size'].default_value=0.1; t.links.new(n.outputs['Fac'], bb.inputs['Base Color'])
+    px,_=H.render_material(m,size=64); return set(np.unique(np.round(px[...,0],1)))
+_bk=brick(); check(0.0 in _bk and 1.0 in _bk, "Brick Fac has brick(0) + mortar(1) regions")
+
 print("SUMMARY: " + ("FAILED "+", ".join(F) if F else "ALL CHECKS PASSED"))

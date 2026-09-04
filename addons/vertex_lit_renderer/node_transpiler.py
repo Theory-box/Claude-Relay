@@ -154,6 +154,33 @@ void _b_voronoi_f1(vec3 coord, float randomness, out float outDist, out vec3 out
     outCol  = hash_vec3_to_vec3(cellPosition + targetOffset);
     outPos  = targetPosition + cellPosition;
 }
+/* integer_noise (verbatim from Blender hash) — used by Brick */
+float integer_noise(int n){
+    uint nn = (uint(n) + 1013u) & 0x7fffffffu;
+    nn = (nn >> 13u) ^ nn;
+    nn = (uint(nn * (nn * nn * 60493u + 19990303u)) + 1376312589u) & 0x7fffffffu;
+    return 0.5 * (float(nn) / 1073741824.0);
+}
+/* Blender Brick (calc_brick_texture) -> vec2(tint, fac) */
+vec2 _b_brick(vec3 p, float mortar_size, float mortar_smooth, float bias, float brick_width,
+              float row_height, float offset_amount, int offset_freq, float squash_amount, int squash_freq){
+    int rownum = int(floor(p.y / row_height));
+    float offset = 0.0; float bw = brick_width;
+    if(offset_freq != 0 && squash_freq != 0){
+        bw *= (rownum % squash_freq != 0) ? 1.0 : squash_amount;
+        offset = (rownum % offset_freq != 0) ? 0.0 : (bw * offset_amount);
+    }
+    int bricknum = int(floor((p.x + offset) / bw));
+    float x = (p.x + offset) - bw * float(bricknum);
+    float y = p.y - row_height * float(rownum);
+    float tint = clamp(integer_noise((rownum << 16) + (bricknum & 0xFFFF)) + bias, 0.0, 1.0);
+    float md = min(min(x, y), min(bw - x, row_height - y));
+    float fac;
+    if(md >= mortar_size) fac = 0.0;
+    else if(mortar_smooth == 0.0) fac = 1.0;
+    else { md = 1.0 - md / mortar_size; fac = smoothstep(0.0, mortar_smooth, md); }
+    return vec2(tint, fac);
+}
 """
 
 
@@ -676,6 +703,71 @@ class _Transpiler:
                 v=var, r=_f(c1[0]), g=_f(c1[1]), b=_f(c1[2]), a=_f(c1[3]), w=w))
         return var
 
+    def _n_tex_brick(self, node, out):
+        vs = node.inputs.get("Vector")
+        co = self.input_expr(node, vs, "vec3") if (vs and vs.is_linked) else "vec3(vUV, 0.0)"
+        scale = self.input_expr(node, node.inputs.get("Scale"), "float")
+        c1 = self.input_expr(node, node.inputs.get("Color1"), "vec4")
+        c2 = self.input_expr(node, node.inputs.get("Color2"), "vec4")
+        mortar = self.input_expr(node, node.inputs.get("Mortar"), "vec4")
+        ms = self.input_expr(node, node.inputs.get("Mortar Size"), "float")
+        msm = self.input_expr(node, node.inputs.get("Mortar Smooth"), "float")
+        bias = self.input_expr(node, node.inputs.get("Bias"), "float")
+        bw = self.input_expr(node, node.inputs.get("Brick Width"), "float")
+        rh = self.input_expr(node, node.inputs.get("Row Height"), "float")
+        off = _f(getattr(node, "offset", 0.5))
+        offf = int(getattr(node, "offset_frequency", 2))
+        sq = _f(getattr(node, "squash", 1.0))
+        sqf = int(getattr(node, "squash_frequency", 2))
+        v = self._new_var("brick")
+        self._line("vec2 {v}bf = _b_brick(({co})*{s}, {ms},{msm},{bias},{bw},{rh}, {off},{offf}, {sq},{sqf});"
+                   .format(v=v, co=co, s=scale, ms=ms, msm=msm, bias=bias, bw=bw, rh=rh,
+                           off=off, offf=offf, sq=sq, sqf=sqf))
+        self._line("float {v}tint = {v}bf.x; float {v}f = {v}bf.y;".format(v=v))
+        self._var_type[v + "f"] = "float"
+        if out.name == "Fac":
+            return v + "f"
+        self._line("vec4 {v}c1 = {c1};".format(v=v, c1=c1))
+        self._line("if({v}f != 1.0){{ {v}c1 = (1.0-{v}tint)*{v}c1 + {v}tint*({c2}); }}".format(v=v, c2=c2))
+        self._line("vec4 {v}col = mix({v}c1, {mortar}, {v}f);".format(v=v, mortar=mortar))
+        return v + "col"
+
+    def _n_tex_wave(self, node, out):
+        vs = node.inputs.get("Vector")
+        co = self.input_expr(node, vs, "vec3") if (vs and vs.is_linked) else "vec3(vUV, 0.0)"
+        scale = self.input_expr(node, node.inputs.get("Scale"), "float")
+        dist = self.input_expr(node, node.inputs.get("Distortion"), "float")
+        detail = self.input_expr(node, node.inputs.get("Detail"), "float")
+        dscale = self.input_expr(node, node.inputs.get("Detail Scale"), "float")
+        drough = self.input_expr(node, node.inputs.get("Detail Roughness"), "float")
+        phase = self.input_expr(node, node.inputs.get("Phase Offset"), "float")
+        wtype = getattr(node, "wave_type", "BANDS")
+        bdir = getattr(node, "bands_direction", "X")
+        rdir = getattr(node, "rings_direction", "X")
+        prof = getattr(node, "wave_profile", "SIN")
+        v = self._new_var("wave")
+        self._line("vec3 {v}p = (({co})*{s} + 0.000001) * 0.999999;".format(v=v, co=co, s=scale))
+        if wtype == "BANDS":
+            n = {"X": "{v}p.x*20.0", "Y": "{v}p.y*20.0", "Z": "{v}p.z*20.0",
+                 "DIAGONAL": "({v}p.x+{v}p.y+{v}p.z)*10.0"}.get(bdir, "{v}p.x*20.0").format(v=v)
+        else:  # RINGS
+            rp = {"X": "vec3(0.0,{v}p.y,{v}p.z)", "Y": "vec3({v}p.x,0.0,{v}p.z)",
+                  "Z": "vec3({v}p.x,{v}p.y,0.0)", "SPHERICAL": "{v}p"}.get(rdir, "{v}p").format(v=v)
+            n = "length({rp})*20.0".format(rp=rp)
+        self._line("float {v}n = {n} + ({ph});".format(v=v, n=n, ph=phase))
+        self._line("if(abs({d}) > 1e-9){{ {v}n += ({d})*(_b_fbm3({v}p*({ds}),{det},{dr},2.0)*2.0-1.0); }}"
+                   .format(v=v, d=dist, ds=dscale, det=detail, dr=drough))
+        if prof == "SIN":
+            self._line("float {v}f = 0.5 + 0.5*sin({v}n - 1.57079632679);".format(v=v))
+        elif prof == "SAW":
+            self._line("{v}n /= (2.0*3.14159265359); float {v}f = {v}n - floor({v}n);".format(v=v))
+        else:  # TRI
+            self._line("{v}n /= (2.0*3.14159265359); float {v}f = abs({v}n - floor({v}n+0.5))*2.0;".format(v=v))
+        self._var_type[v + "f"] = "float"
+        if out.name == "Color":
+            return "vec4(vec3({v}f), 1.0)".format(v=v)
+        return v + "f"
+
     def _n_tex_white_noise(self, node, out):
         vs = node.inputs.get("Vector")
         co = self.input_expr(node, vs, "vec3") if (vs and vs.is_linked) else "vec3(vUV, 0.0)"
@@ -905,6 +997,10 @@ def _variant(n):
     elif t == "MAPPING": v = [getattr(n, "vector_type", "POINT")]
     elif t == "CLAMP": v = [getattr(n, "clamp_type", "MINMAX")]
     elif t == "MAP_RANGE": v = [getattr(n, "interpolation_type", "LINEAR"), str(getattr(n, "clamp", True)), getattr(n, "data_type", "FLOAT")]
+    elif t == "TEX_BRICK": v = [str(getattr(n, "offset", 0.5)), str(getattr(n, "offset_frequency", 2)),
+                               str(getattr(n, "squash", 1.0)), str(getattr(n, "squash_frequency", 2))]
+    elif t == "TEX_WAVE": v = [getattr(n, "wave_type", "BANDS"), getattr(n, "bands_direction", "X"),
+                              getattr(n, "rings_direction", "X"), getattr(n, "wave_profile", "SIN")]
     elif t == "TEX_GRADIENT": v = [getattr(n, "gradient_type", "LINEAR")]
     elif t in ("SEPARATE_COLOR", "COMBINE_COLOR"): v = [getattr(n, "mode", "RGB")]
     elif t == "TEX_VORONOI": v = [getattr(n, "feature", "F1"), getattr(n, "distance", "EUCLIDEAN"),
