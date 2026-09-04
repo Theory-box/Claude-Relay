@@ -6,6 +6,7 @@ import numpy as np
 import bpy
 import gpu
 from gpu_extras.batch import batch_for_shader
+from gpu_extras.presets import draw_texture_2d
 from mathutils import Matrix, Vector
 
 from .shaders import SHADOW_VERT, SHADOW_FRAG, PHONG_VERT, PHONG_FRAG, WORKBENCH_FRAG, ID_VERT, ID_FRAG, NORMAL_VERT, NORMAL_FRAG, VIEWMODE_FRAG, BG_VERT, BG_FRAG
@@ -512,8 +513,19 @@ class VertexLitEngine(bpy.types.RenderEngine):
             cam = scene.camera
 
             self._ensure_state(); self._ensure_resources()
+            # F12 uses the RENDER depsgraph (Is Viewport = False -> full geometry, not the
+            # viewport's convex-hull preview). Drop the viewport-populated caches and extract
+            # everything fresh from this depsgraph, fully (no streaming budget) before drawing.
+            _PERSIST_MESH.clear(); _PERSIST_BATCH.clear(); _PERSIST_SHADOW.clear(); _PERSIST_SIG.clear()
+            self._mesh_cache.clear(); self._batch_dict.clear(); self._shadow_dict.clear()
+            self._force_full = True
             self._dirty = True
             self._rebuild(depsgraph, vls)
+            _guard = 0
+            while getattr(self, '_geo_pending', False) and _guard < 100000:
+                # _force_full already consumed; subsequent passes drain the remaining queue.
+                self._rebuild(depsgraph, vls)
+                _guard += 1
 
             result = self.begin_result(0, 0, w, h)
             rl = result.layers[0].passes["Combined"]
@@ -1228,17 +1240,25 @@ class VertexLitEngine(bpy.types.RenderEngine):
         # failure in the offscreen pipeline falls back to a direct draw.
         rw, rh = region.width, region.height
         post = getattr(self, '_post', None)
-        if post is not None and post.any_enabled(vls):
+        if post is not None:
             try:
                 proj = rv3d.window_matrix
                 wc = scene.world.color if scene.world else None
                 draw_scene, post_ctx = self._make_post_ctx(
                     depsgraph, vls, view_proj, rv3d.view_matrix.to_3x3(), proj,
                     rw, rh, wc, studio, ls_mat, sky, ground, bstr, lights)
-                post.render(rw, rh, draw_scene, post_ctx, vls)
-                gpu.state.depth_test_set('NONE')
+                final_tex, sw, sh = post.render(rw, rh, draw_scene, post_ctx, vls, blit=False)
+                # Blit to the viewport THROUGH the scene's colour management (view transform,
+                # look, exposure, gamma) so the viewport matches the F12 render.
+                gpu.state.depth_test_set('NONE'); gpu.state.depth_mask_set(False)
+                gpu.state.blend_set('NONE')
+                try:
+                    self.bind_display_space_shader(scene)
+                    draw_texture_2d(final_tex, (0, 0), rw, rh)
+                    self.unbind_display_space_shader()
+                except Exception:
+                    draw_texture_2d(final_tex, (0, 0), rw, rh)   # fallback: linear
                 gpu.state.face_culling_set('NONE')
-                gpu.state.depth_mask_set(False)
                 if getattr(self, '_mat_pending', False) or getattr(self, '_geo_pending', False):
                     self.tag_redraw()
                     try: context.region.tag_redraw()

@@ -1038,3 +1038,16 @@ draw_texture_2d, which is built for a viewport REGION and misplaces the image in
   verified 2x + 1.5x). Viewport path unchanged (still blits to the region).
 - Active camera: scene.camera is already the active camera; F12 uses the evaluated one (v0.11.3).
 15 suites green. (Needs on-GPU confirmation but the blit path is removed for offscreen.)
+
+## v0.11.5 — F12 render depsgraph (Is Viewport) + viewport colour management
+- IS VIEWPORT / render geometry: F12 was reusing the viewport's cached convex-hull batches, so
+  "Is Viewport" geometry-node branches rendered the preview geo. render() now clears all caches
+  and re-extracts fresh from the RENDER depsgraph (Is Viewport=False -> full geo), fully (loops
+  _rebuild until _geo_pending clears; _force_full only on the first pass so it converges).
+- COLOUR MANAGEMENT: viewport now renders through the pipeline to a texture and blits it via
+  self.bind_display_space_shader(scene) / draw_texture_2d / unbind_display_space_shader(), applying
+  the scene view transform / look / exposure / gamma — so the viewport matches the F12 render
+  (which Blender colour-manages). Always routes through the pipeline now (no separate direct path
+  except as an exception fallback). Verified bind/unbind_display_space_shader are real RenderEngine
+  RNA functions. draw_texture_2d imported in engine.
+15 suites green. (Colour-management match + Is Viewport need on-GPU confirmation.)
