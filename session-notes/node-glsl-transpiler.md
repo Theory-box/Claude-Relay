@@ -421,3 +421,9 @@ GPL: ported code is GPL-2.0-or-later; addon is GPL. OK.
 - Fixed: output vars declared without '=' now get _var_type registered (Voronoi Distance
   float coercion) — general gotcha for multi-decl lines.
 - test_gl_nodes: 11 checks. All 9 suites green. NODES.md updated.
+
+## v0.5.8 — White Noise
+- _n_tex_white_noise: Value=hash_vec3_to_float, Color=hash_vec3_to_vec3 (verbatim
+  Blender hash). CPU-verified high-frequency random in [0,1].
+- Procedural coverage now: Noise(exact Perlin), Voronoi F1, Checker, Gradient,
+  White Noise. Remaining: Wave, Musgrave, Brick, Magic (need source fetch for exactness).

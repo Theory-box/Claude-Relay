@@ -651,6 +651,15 @@ class _Transpiler:
                 v=var, r=_f(c1[0]), g=_f(c1[1]), b=_f(c1[2]), a=_f(c1[3]), w=w))
         return var
 
+    def _n_tex_white_noise(self, node, out):
+        vs = node.inputs.get("Vector")
+        co = self.input_expr(node, vs, "vec3") if (vs and vs.is_linked) else "vec3(vUV, 0.0)"
+        if out.name == "Color":
+            return "vec4(hash_vec3_to_vec3({co}), 1.0)".format(co=co)
+        v = self._new_var("wn")
+        self._line("float {v} = hash_vec3_to_float({co});".format(v=v, co=co))
+        return v
+
     def _n_tex_checker(self, node, out):
         vs = node.inputs.get("Vector")
         co = self.input_expr(node, vs, "vec3") if (vs and vs.is_linked) else "vec3(vUV, 0.0)"
