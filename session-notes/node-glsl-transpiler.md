@@ -509,3 +509,22 @@ EXACTNESS (task 1): Noise distortion + Color now use Blender's exact random offs
   (_b_rvec3 = random_vec3_offset, seeds in [100,200] via hash_vec2_to_float) instead
   of the reconstructed offsets. Noise is now verbatim across Fac, distortion, and Color.
 All 9 suites green; addon registers.
+
+## v0.8.0 — screen-space post pipeline (modular) + SSAO (Phase 1)
+NEW fx/ subpackage — a general screen-space effects pipeline (foundation for SSR,
+compositing, DoF later; AO is the first effect):
+- fx/gbuffer.py: GBuffer (colour RGBA16F + sampleable depth) + PingPong targets.
+- fx/effect.py: ScreenEffect base (one fullscreen fragment pass; FS_VERT).
+- fx/ssao.py: SSAO — reconstruct view pos from depth, normal from dFdx/dFdy, 16-sample
+  hemisphere kernel, output colour*ao. Params: strength/radius/bias.
+- fx/pipeline.py: render scene -> gbuffer, chain enabled effects (ping-pong), blit
+  to viewport (draw_texture_2d). To add an effect: new module + append in fx/__init__.
+ENGINE: object loop wrapped in _draw_objects(); when any effect is enabled, routed
+  through the pipeline (offscreen); otherwise DIRECT draw to viewport (default,
+  unchanged). Pipeline failure -> fallback to direct draw (try/except). _post created
+  in _ensure_state, freed in free().
+PROPS/UI: use_ao (default OFF), ao_strength/radius/bias + AO box.
+VERIFIED HERE: SSAO shader compiles on software GL; addon registers; AO off by default;
+  node suites unaffected. NOT verifiable here (GPU-only): the offscreen plumbing,
+  depth-texture sampling, and the AO look/sign-conventions — user tests on GPU.
+  Radius/bias/strength + sign conventions likely need tuning on real hardware.

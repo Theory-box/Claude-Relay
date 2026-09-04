@@ -2,6 +2,15 @@ import bpy
 
 class VertexLitSettings(bpy.types.PropertyGroup):
 
+    # Screen-space Ambient Occlusion (post effect)
+    use_ao: bpy.props.BoolProperty(
+        name="Ambient Occlusion", default=False,
+        description="Screen-space AO — darkens creases/contact. Routes drawing through "
+                    "an offscreen pipeline (experimental)")
+    ao_strength: bpy.props.FloatProperty(name="AO Strength", default=1.0, min=0.0, max=4.0)
+    ao_radius: bpy.props.FloatProperty(name="AO Radius", default=0.5, min=0.01, max=5.0)
+    ao_bias: bpy.props.FloatProperty(name="AO Bias", default=0.02, min=0.0, max=0.5)
+
     # Shading model
     shading_mode: bpy.props.EnumProperty(
         name="Shading",

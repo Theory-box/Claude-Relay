@@ -3,10 +3,10 @@
 bl_info = {
     "name":        "Vertex Lit Renderer",
     "author":      "Theory-box / Claude",
-    "version":     (0, 7, 1),
+    "version":     (0, 8, 0),
     "blender":     (4, 4, 0),
     "location":    "Properties > Render > Render Engine → Vertex Lit",
-    "description": "Gouraud per-vertex shading renderer for retro game look-dev. "
+    "description": "Solid studio + live-node material renderer (+ screen-space AO) for retro game look-dev. "
                    "Lighting (diffuse + shadow + ambient) is computed per vertex "
                    "and interpolated (Gouraud), or per pixel (Phong). "
                    "Optional live material-node preview (transpiles the shader graph to GLSL).",

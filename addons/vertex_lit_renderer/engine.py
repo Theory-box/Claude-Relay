@@ -12,6 +12,7 @@ from mathutils.bvhtree import BVHTree
 from .shaders import SHADOW_VERT, SHADOW_FRAG, MAIN_VERT, MAIN_FRAG, PHONG_VERT, PHONG_FRAG, WORKBENCH_FRAG
 from .gi import ProgressiveGI
 from . import material_shader
+from . import fx
 
 MAX_LIGHTS = 8
 _DEBUG = True   # prints "[VertexLit] rebuild <- ..." naming what triggers a rebuild
@@ -352,6 +353,7 @@ class VertexLitEngine(bpy.types.RenderEngine):
         self._bounds_cache     = (Vector((0,0,0)),10.0)
         self._shadow_dirty     = True
         self._shadow_tex_cache = None
+        self._post             = fx.make_pipeline()   # screen-space effects (AO...)
         # After rebuild, skip N view_update cycles. new_from_object / remove
         # queue deferred depsgraph events that arrive after _rebuild returns.
         # The drain absorbs them so they don't re-trigger a rebuild.
@@ -381,6 +383,10 @@ class VertexLitEngine(bpy.types.RenderEngine):
         if hasattr(self, '_gi'):
             try: self._gi.stop()   # signal + join the GI worker thread
             except Exception: pass
+        if getattr(self, '_post', None) is not None:
+            try: self._post.free()
+            except Exception: pass
+            self._post = None
         # Drop per-instance references (batches/textures) so they can be GC'd.
         # Do NOT clear the shared shader/program caches here: the viewport GPU
         # context persists across enter/leave, so those stay valid — clearing them
@@ -688,68 +694,93 @@ class VertexLitEngine(bpy.types.RenderEngine):
                                            do_shad, s_bias, s_dark, shad_tex, lights, studio)
                 frame_done.add(id(sh))
 
-        for inst in depsgraph.object_instances:
-            obj=inst.object
-            if obj.type!='MESH': continue
-            entry=self._batch_dict.get(obj.name)
-            if entry is None: continue
-            batch,tex=entry
+        def _draw_objects():
+            gpu.state.depth_test_set('LESS_EQUAL')
+            gpu.state.depth_mask_set(True)
+            gpu.state.face_culling_set('BACK')
+            for inst in depsgraph.object_instances:
+                obj=inst.object
+                if obj.type!='MESH': continue
+                entry=self._batch_dict.get(obj.name)
+                if entry is None: continue
+                batch,tex=entry
 
-            try:   normal_mat=inst.matrix_world.to_3x3().inverted().transposed()
-            except Exception: normal_mat=inst.matrix_world.to_3x3()
+                try:   normal_mat=inst.matrix_world.to_3x3().inverted().transposed()
+                except Exception: normal_mat=inst.matrix_world.to_3x3()
 
-            # Object bounding box -> Generated texture coords (uGenMin, uGenScale).
+                # Object bounding box -> Generated texture coords (uGenMin, uGenScale).
+                try:
+                    bb=obj.bound_box
+                    gmnx=min(c[0] for c in bb); gmny=min(c[1] for c in bb); gmnz=min(c[2] for c in bb)
+                    gmxx=max(c[0] for c in bb); gmxy=max(c[1] for c in bb); gmxz=max(c[2] for c in bb)
+                    gmin=(gmnx,gmny,gmnz)
+                    gsc=(1.0/(gmxx-gmnx) if gmxx-gmnx>1e-9 else 0.0,
+                         1.0/(gmxy-gmny) if gmxy-gmny>1e-9 else 0.0,
+                         1.0/(gmxz-gmnz) if gmxz-gmnz>1e-9 else 0.0)
+                except Exception:
+                    gmin=(0.0,0.0,0.0); gsc=(1.0,1.0,1.0)
+
+                prog=None
+                if use_live:
+                    mat=getattr(obj,'active_material',None)
+                    if mat is not None and getattr(mat,'use_nodes',False):
+                        p=material_shader.get_program(mat, mode)
+                        if p and not p['failed'] and p['shader'] is not None:
+                            prog=p
+
+                if prog is not None:
+                    sh=prog['shader']
+                    _ensure_frame(sh)
+                    if id(sh) not in params_done:
+                        nt=mat.node_tree if mat else None
+                        for p in prog['params']:
+                            try: sh.uniform_float(p.uniform, p.value(nt))
+                            except Exception: pass
+                        params_done.add(id(sh))
+                    sh.uniform_float('uModel',inst.matrix_world)
+                    sh.uniform_float('uNormalMat',normal_mat)
+                    try: sh.uniform_float('uGenMin',gmin); sh.uniform_float('uGenScale',gsc)
+                    except Exception: pass
+                    for uni,image in prog['samplers']:
+                        gtex=_get_gpu_tex(image)
+                        if gtex is not None:
+                            try: sh.uniform_sampler(uni,gtex)
+                            except Exception: pass
+                    batch.draw(sh)
+                else:
+                    _ensure_frame(legacy)
+                    legacy.uniform_float('uModel',inst.matrix_world)
+                    legacy.uniform_float('uNormalMat',normal_mat)
+                    try: legacy.uniform_float('uGenMin',gmin); legacy.uniform_float('uGenScale',gsc)
+                    except Exception: pass
+                    legacy.uniform_sampler('uAlbedo',  tex if tex is not None else self._white_tex)
+                    legacy.uniform_int('uHasTexture',  1 if tex is not None else 0)
+                    batch.draw(legacy)
+
+        # Route through the screen-space post pipeline if any effect is enabled;
+        # otherwise draw straight to the viewport (default path, unchanged). Any
+        # failure in the offscreen pipeline falls back to a direct draw.
+        rw, rh = region.width, region.height
+        post = getattr(self, '_post', None)
+        if post is not None and post.any_enabled(vls):
             try:
-                bb=obj.bound_box
-                gmnx=min(c[0] for c in bb); gmny=min(c[1] for c in bb); gmnz=min(c[2] for c in bb)
-                gmxx=max(c[0] for c in bb); gmxy=max(c[1] for c in bb); gmxz=max(c[2] for c in bb)
-                gmin=(gmnx,gmny,gmnz)
-                gsc=(1.0/(gmxx-gmnx) if gmxx-gmnx>1e-9 else 0.0,
-                     1.0/(gmxy-gmny) if gmxy-gmny>1e-9 else 0.0,
-                     1.0/(gmxz-gmnz) if gmxz-gmnz>1e-9 else 0.0)
-            except Exception:
-                gmin=(0.0,0.0,0.0); gsc=(1.0,1.0,1.0)
+                proj = rv3d.window_matrix
+                post_ctx = {
+                    'proj': proj, 'inv_proj': proj.inverted(),
+                    'texel': (1.0/max(rw,1), 1.0/max(rh,1)),
+                    'ao_radius':   (vls.ao_radius   if vls else 0.5),
+                    'ao_strength': (vls.ao_strength if vls else 1.0),
+                    'ao_bias':     (vls.ao_bias     if vls else 0.02),
+                }
+                post.render(rw, rh, _draw_objects, post_ctx, vls)
+                gpu.state.depth_test_set('NONE')
+                gpu.state.face_culling_set('NONE')
+                gpu.state.depth_mask_set(False)
+                return
+            except Exception as e:
+                if _DEBUG: print("[VertexLit] post pipeline failed -> direct draw:", e)
 
-            prog=None
-            if use_live:
-                mat=getattr(obj,'active_material',None)
-                if mat is not None and getattr(mat,'use_nodes',False):
-                    p=material_shader.get_program(mat, mode)
-                    # failed==True means the GLSL didn't compile on THIS GPU →
-                    # silently use the legacy texture path for that material.
-                    if p and not p['failed'] and p['shader'] is not None:
-                        prog=p
-
-            if prog is not None:
-                sh=prog['shader']
-                _ensure_frame(sh)
-                # Live constants are per-MATERIAL (identical across every object that
-                # shares it), so set them once per program per frame, not per object.
-                if id(sh) not in params_done:
-                    nt=mat.node_tree if mat else None
-                    for p in prog['params']:
-                        try: sh.uniform_float(p.uniform, p.value(nt))
-                        except Exception: pass
-                    params_done.add(id(sh))
-                sh.uniform_float('uModel',inst.matrix_world)
-                sh.uniform_float('uNormalMat',normal_mat)
-                try: sh.uniform_float('uGenMin',gmin); sh.uniform_float('uGenScale',gsc)
-                except Exception: pass
-                for uni,image in prog['samplers']:
-                    gtex=_get_gpu_tex(image)
-                    if gtex is not None:
-                        try: sh.uniform_sampler(uni,gtex)
-                        except Exception: pass
-                batch.draw(sh)
-            else:
-                _ensure_frame(legacy)
-                legacy.uniform_float('uModel',inst.matrix_world)
-                legacy.uniform_float('uNormalMat',normal_mat)
-                try: legacy.uniform_float('uGenMin',gmin); legacy.uniform_float('uGenScale',gsc)
-                except Exception: pass
-                legacy.uniform_sampler('uAlbedo',  tex if tex is not None else self._white_tex)
-                legacy.uniform_int('uHasTexture',  1 if tex is not None else 0)
-                batch.draw(legacy)
+        _draw_objects()
 
         gpu.state.depth_test_set('NONE')
         gpu.state.face_culling_set('NONE')

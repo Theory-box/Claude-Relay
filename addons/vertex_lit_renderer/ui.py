@@ -18,6 +18,17 @@ class VERTEX_LIT_PT_settings(bpy.types.Panel):
 
         box = layout.box()
         row = box.row()
+        row.label(text="Ambient Occlusion", icon='SHADING_RENDERED')
+        row.prop(s, 'use_ao', text="")
+        if s.use_ao:
+            col = box.column(align=True)
+            col.prop(s, 'ao_strength')
+            col.prop(s, 'ao_radius')
+            col.prop(s, 'ao_bias')
+            box.label(text="Screen-space (offscreen pipeline)", icon='INFO')
+
+        box = layout.box()
+        row = box.row()
         row.label(text="Materials", icon='NODE_MATERIAL')
         row.prop(s, 'use_live_nodes', text="")
         if s.use_live_nodes:
