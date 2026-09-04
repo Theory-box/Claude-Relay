@@ -556,3 +556,23 @@ EXPECTED: rebuilds are now fast (seconds, numpy-bound) AND don't self-repeat ->
 Still O(all objects) per rebuild -> if a single edit on a huge scene still stalls,
   INCREMENTAL rebuild (only changed objects) is the next step. Need user console
   ("[VertexLit] rebuilt N objs (Xs)" frequency + time) to confirm.
+
+## v0.8.3 — audit pass (fuzz + perf + AO + coverage)
+FUZZ AUDIT (every ShaderNode -> Base Color, harness compile): ZERO compile-fails,
+  ZERO exceptions. Transpiler is robust — everything works, falls back safely, or is
+  a surface shader with no colour output. Unsupported (36) are correctly out-of-scope
+  (Bump/Normal/Displacement/BSDF closures/view- or scene-data-dependent).
+FIXES:
+- Mix node FLOAT/VECTOR data types were broken (only RGBA handled -> empty inputs ->
+  black). Now mixes floats/vectors correctly (verified FLOAT 0.2->0.8=0.8).
+- PERF: object bbox for Generated coords was recomputed EVERY frame per object;
+  now cached at extract time (gen_min/gen_scale in the batch entry). Win on
+  high-object-count scenes.
+- AO: gbuffer cleared black while direct path cleared world colour -> background
+  changed when toggling AO. Now clears with the scene/world colour (ctx.clear_color).
+- COVERAGE: added CombineHSV/SeparateHSV (exact via hsv helpers; verified).
+NOTED (not fixed): Blackbody/Wavelength need Blender's precomputed spectrum LUT
+  (sampler1DArray) -> not inline-portable exactly; left as safe fallback (niche).
+  AO normal uses dFdx/dFdy (face normals) -> faceted AO; a normal G-buffer would
+  improve it + enable SSR later.
+All 10 suites green.

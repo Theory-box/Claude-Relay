@@ -300,13 +300,30 @@ class _Transpiler:
                            getattr(node, "use_clamp", False))
 
     def _n_mix(self, node, out):
-        if getattr(node, "data_type", "RGBA") != "RGBA":
-            self.notes.append("MIX data_type approximated as RGBA")
+        dt = getattr(node, "data_type", "RGBA")
+        if dt == "FLOAT":
+            fa = [s for s in node.inputs if s.type == "VALUE"]
+            # sockets: Factor(Float), A(Float), B(Float) -> the last two floats are A,B
+            a = self.input_expr(node, fa[-2] if len(fa) >= 2 else None, "float")
+            b = self.input_expr(node, fa[-1] if len(fa) >= 1 else None, "float")
+            fac = self.input_expr(node, node.inputs.get("Factor"), "float")
+            var = self._new_var("mixf")
+            self._line("float {v} = mix({a}, {b}, clamp({f},0.0,1.0));".format(v=var, a=a, b=b, f=fac))
+            return var
+        if dt == "VECTOR":
+            va = [s for s in node.inputs if s.type == "VECTOR"]
+            a = self.input_expr(node, va[0] if len(va) > 0 else None, "vec3")
+            b = self.input_expr(node, va[1] if len(va) > 1 else None, "vec3")
+            fs = node.inputs.get("Factor")
+            fac = self.input_expr(node, fs, "float")
+            var = self._new_var("mixv")
+            self._line("vec3 {v} = mix({a}, {b}, clamp(vec3({f}),0.0,1.0));".format(v=var, a=a, b=b, f=fac))
+            return "vec4({v}, 1.0)".format(v=var)
+        # RGBA (colour) — full blend-mode handling
         col = [s for s in node.inputs if s.type == "RGBA"]
-        fac_s = node.inputs.get("Factor")
         a = self.input_expr(node, col[0] if len(col) > 0 else None, "vec4")
         b = self.input_expr(node, col[1] if len(col) > 1 else None, "vec4")
-        fac = self.input_expr(node, fac_s, "float")
+        fac = self.input_expr(node, node.inputs.get("Factor"), "float")
         return self._blend(getattr(node, "blend_type", "MIX"), fac, a, b,
                            getattr(node, "clamp_result", False))
 
@@ -855,6 +872,17 @@ class _Transpiler:
         self._line("float {v} = _b_fbm3({v}p, {det}, {r}, {l});".format(
             v=v, det=detail, r=rough, l=lac))
         return v
+
+    def _n_combhsv(self, node, out):
+        h = self.input_expr(node, node.inputs.get("H"), "float")
+        s = self.input_expr(node, node.inputs.get("S"), "float")
+        v = self.input_expr(node, node.inputs.get("V"), "float")
+        return "vec4(_hsv2rgb(vec3({h}, {s}, {v})), 1.0)".format(h=h, s=s, v=v)
+
+    def _n_sephsv(self, node, out):
+        col = self.input_expr(node, node.inputs.get("Color"), "vec4")
+        idx = {"H": 0, "S": 1, "V": 2}.get(out.name, 0)
+        return "vec4(vec3(_rgb2hsv(({c}).rgb)[{i}]), 1.0)".format(c=col, i=idx)
 
     def _n_rgbtobw(self, node, out):
         col = self.input_expr(node, node.inputs.get("Color"), "vec4")

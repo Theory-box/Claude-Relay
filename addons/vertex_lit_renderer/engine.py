@@ -239,11 +239,18 @@ def _extract_mesh_data(obj, depsgraph):
         if colors is None:
             colors = np.tile(np.array(default, dtype=np.float32), (n_flat, 1))
 
+        # Generated-coord bbox (local) — cached so the draw loop needn't recompute per frame.
+        vmin = vc.min(axis=0); vmax = vc.max(axis=0); size = vmax - vmin
+        gen_min = (float(vmin[0]), float(vmin[1]), float(vmin[2]))
+        gen_scale = (1.0/float(size[0]) if size[0] > 1e-9 else 0.0,
+                     1.0/float(size[1]) if size[1] > 1e-9 else 0.0,
+                     1.0/float(size[2]) if size[2] > 1e-9 else 0.0)
+
         return dict(
             positions=positions, normals=normals, colors=colors,
             uvs=uvs, vi_map=vi_flat.tolist(), texture=tex, n_verts=n_verts,
             vert_co_local=vert_co_local, vert_no_local=vert_no_local,
-            mat_diffuse=mat_diffuse,
+            mat_diffuse=mat_diffuse, gen_min=gen_min, gen_scale=gen_scale,
         )
     except Exception as e:
         print(f"[VertexLit] extract error ({obj.name}): {e}")
@@ -465,7 +472,7 @@ class VertexLitEngine(bpy.types.RenderEngine):
             data=_extract_mesh_data(obj,depsgraph)  # ONE new_from_object per object
             if data:
                 new_mesh[obj.name]=data
-                self._batch_dict[obj.name]=(_build_batch_from_cache(data), data['texture'])
+                self._batch_dict[obj.name]=(_build_batch_from_cache(data), data['texture'], data['gen_min'], data['gen_scale'])
                 # Shadow batch built from cached data — no extra new_from_object
                 sb=_build_shadow_batch_from_cache(data)
                 if sb: new_shadow[obj.name]=sb
@@ -522,7 +529,7 @@ class VertexLitEngine(bpy.types.RenderEngine):
         for name,cached in self._mesh_cache.items():
             gv=gi_data.get(name)
             if gv is None: continue
-            self._batch_dict[name]=(_build_batch_from_cache(cached,gv), cached['texture'])
+            self._batch_dict[name]=(_build_batch_from_cache(cached,gv), cached['texture'], cached.get('gen_min',(0.0,0.0,0.0)), cached.get('gen_scale',(1.0,1.0,1.0)))
 
     # ── Shadow pass ───────────────────────────────────────────────────────
 
@@ -676,22 +683,12 @@ class VertexLitEngine(bpy.types.RenderEngine):
                 if obj.type!='MESH': continue
                 entry=self._batch_dict.get(obj.name)
                 if entry is None: continue
-                batch,tex=entry
+                batch,tex=entry[0],entry[1]
+                gmin=entry[2] if len(entry)>2 else (0.0,0.0,0.0)
+                gsc =entry[3] if len(entry)>3 else (1.0,1.0,1.0)
 
                 try:   normal_mat=inst.matrix_world.to_3x3().inverted().transposed()
                 except Exception: normal_mat=inst.matrix_world.to_3x3()
-
-                # Object bounding box -> Generated texture coords (uGenMin, uGenScale).
-                try:
-                    bb=obj.bound_box
-                    gmnx=min(c[0] for c in bb); gmny=min(c[1] for c in bb); gmnz=min(c[2] for c in bb)
-                    gmxx=max(c[0] for c in bb); gmxy=max(c[1] for c in bb); gmxz=max(c[2] for c in bb)
-                    gmin=(gmnx,gmny,gmnz)
-                    gsc=(1.0/(gmxx-gmnx) if gmxx-gmnx>1e-9 else 0.0,
-                         1.0/(gmxy-gmny) if gmxy-gmny>1e-9 else 0.0,
-                         1.0/(gmxz-gmnz) if gmxz-gmnz>1e-9 else 0.0)
-                except Exception:
-                    gmin=(0.0,0.0,0.0); gsc=(1.0,1.0,1.0)
 
                 prog=None
                 if use_live:
@@ -738,9 +735,11 @@ class VertexLitEngine(bpy.types.RenderEngine):
         if post is not None and post.any_enabled(vls):
             try:
                 proj = rv3d.window_matrix
+                wc = scene.world.color if scene.world else None
                 post_ctx = {
                     'proj': proj, 'inv_proj': proj.inverted(),
                     'texel': (1.0/max(rw,1), 1.0/max(rh,1)),
+                    'clear_color': (wc[0],wc[1],wc[2],1.0) if wc else (0.08,0.08,0.08,1.0),
                     'ao_radius':   (vls.ao_radius   if vls else 0.5),
                     'ao_strength': (vls.ao_strength if vls else 1.0),
                     'ao_bias':     (vls.ao_bias     if vls else 0.02),

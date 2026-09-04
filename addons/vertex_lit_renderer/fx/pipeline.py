@@ -35,7 +35,7 @@ class Pipeline:
         with self.gbuf.fb.bind():
             gpu.state.depth_test_set('LESS_EQUAL')
             gpu.state.depth_mask_set(True)
-            self.gbuf.fb.clear(color=(0.0, 0.0, 0.0, 1.0), depth=1.0)
+            self.gbuf.fb.clear(color=ctx.get('clear_color', (0.08, 0.08, 0.08, 1.0)), depth=1.0)
             draw_scene()
 
         # 2) run enabled effects, bouncing between ping targets
