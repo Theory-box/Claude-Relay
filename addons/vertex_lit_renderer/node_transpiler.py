@@ -68,32 +68,62 @@ vec3 _bl_sat(vec3 a, vec3 b){ vec3 x=_rgb2hsv(a), y=_rgb2hsv(b); return _hsv2rgb
 vec3 _bl_col(vec3 a, vec3 b){ vec3 x=_rgb2hsv(a), y=_rgb2hsv(b); return _hsv2rgb(vec3(y.x, y.y, x.z)); }
 vec3 _bl_val(vec3 a, vec3 b){ vec3 x=_rgb2hsv(a), y=_rgb2hsv(b); return _hsv2rgb(vec3(x.x, x.y, y.z)); }
 
-/* ---- coherent value noise + fbm (procedural textures) ---- */
-float _hash3(vec3 p){
-    p = fract(p * 0.3183099 + vec3(0.1, 0.2, 0.3));
-    p *= 17.0;
-    return fract(p.x * p.y * p.z * (p.x + p.y + p.z));
+/* ===== Blender-exact Perlin noise — ported from Blender's GPL GLSL
+ * (gpu_shader_common_hash.glsl + gpu_shader_material_noise.glsl).
+ * Adapted for GLSL 330: float3->vec3, stripped 'f' suffixes, renamed the
+ * Jenkins macros so they don't shadow the builtin mix(). ===== */
+#define HROT(x, k) (((x) << (k)) | ((x) >> (32u - (k))))
+#define HFINAL(a, b, c) { c^=b; c-=HROT(b,14u); a^=c; a-=HROT(c,11u); b^=a; b-=HROT(a,25u); c^=b; c-=HROT(b,16u); a^=c; a-=HROT(c,4u); b^=a; b-=HROT(a,14u); c^=b; c-=HROT(b,24u); }
+#define HMIX(a, b, c) { a-=c; a^=HROT(c,4u); c+=b; b-=a; b^=HROT(a,6u); a+=c; c-=b; c^=HROT(b,8u); b+=a; a-=c; a^=HROT(c,16u); c+=b; b-=a; b^=HROT(a,19u); a+=c; c-=b; c^=HROT(b,4u); b+=a; }
+uint hash_uint(uint kx){ uint a,b,c; a=b=c=0xdeadbeefu+(1u<<2u)+13u; a+=kx; HFINAL(a,b,c); return c; }
+uint hash_uint2(uint kx,uint ky){ uint a,b,c; a=b=c=0xdeadbeefu+(2u<<2u)+13u; b+=ky; a+=kx; HFINAL(a,b,c); return c; }
+uint hash_uint3(uint kx,uint ky,uint kz){ uint a,b,c; a=b=c=0xdeadbeefu+(3u<<2u)+13u; c+=kz; b+=ky; a+=kx; HFINAL(a,b,c); return c; }
+uint hash_uint4(uint kx,uint ky,uint kz,uint kw){ uint a,b,c; a=b=c=0xdeadbeefu+(4u<<2u)+13u; a+=kx; b+=ky; c+=kz; HMIX(a,b,c); a+=kw; HFINAL(a,b,c); return c; }
+#undef HROT
+#undef HFINAL
+#undef HMIX
+int _b_int3h(int kx,int ky,int kz){ return int(hash_uint3(uint(kx),uint(ky),uint(kz))); }
+float _b_cmod(float x, float m){ return x - m*trunc(x/m); }
+vec3  _b_cmod3(vec3 x, float m){ return vec3(_b_cmod(x.x,m),_b_cmod(x.y,m),_b_cmod(x.z,m)); }
+float _b_fade(float t){ return t*t*t*(t*(t*6.0-15.0)+10.0); }
+float _b_negif(float v, uint c){ return (c!=0u)? -v : v; }
+float _b_grad(uint hash, float x, float y, float z){
+    uint h=hash&15u; float u=h<8u?x:y; float vt=((h==12u)||(h==14u))?x:z; float v=h<4u?y:vt;
+    return _b_negif(u,h&1u)+_b_negif(v,h&2u);
 }
-float _vnoise(vec3 x){
-    vec3 i = floor(x); vec3 f = fract(x);
-    f = f * f * (3.0 - 2.0 * f);
-    float n000=_hash3(i), n100=_hash3(i+vec3(1,0,0));
-    float n010=_hash3(i+vec3(0,1,0)), n110=_hash3(i+vec3(1,1,0));
-    float n001=_hash3(i+vec3(0,0,1)), n101=_hash3(i+vec3(1,0,1));
-    float n011=_hash3(i+vec3(0,1,1)), n111=_hash3(i+vec3(1,1,1));
-    float x00=mix(n000,n100,f.x), x10=mix(n010,n110,f.x);
-    float x01=mix(n001,n101,f.x), x11=mix(n011,n111,f.x);
-    return mix(mix(x00,x10,f.y), mix(x01,x11,f.y), f.z);
+float _b_trimix(float v0,float v1,float v2,float v3,float v4,float v5,float v6,float v7,float x,float y,float z){
+    float x1=1.0-x,y1=1.0-y,z1=1.0-z;
+    return z1*(y1*(v0*x1+v1*x)+y*(v2*x1+v3*x))+z*(y1*(v4*x1+v5*x)+y*(v6*x1+v7*x));
 }
-float _fbm3(vec3 p, float detail, float roughness, float lacunarity){
-    float amp=1.0, freq=1.0, sum=0.0, maxamp=0.0;
-    int oct = int(clamp(detail, 0.0, 7.0)) + 1;
-    for(int i=0;i<8;i++){
-        if(i>=oct) break;
-        sum += amp * _vnoise(p*freq);
-        maxamp += amp; amp *= roughness; freq *= max(lacunarity, 1e-4);
+float _b_perlin3(vec3 p){
+    float xf=floor(p.x); int X=int(xf); float fx=p.x-xf;
+    float yf=floor(p.y); int Y=int(yf); float fy=p.y-yf;
+    float zf=floor(p.z); int Z=int(zf); float fz=p.z-zf;
+    float u=_b_fade(fx), v=_b_fade(fy), w=_b_fade(fz);
+    return _b_trimix(
+        _b_grad(uint(_b_int3h(X,Y,Z)),         fx,     fy,     fz),
+        _b_grad(uint(_b_int3h(X+1,Y,Z)),       fx-1.0, fy,     fz),
+        _b_grad(uint(_b_int3h(X,Y+1,Z)),       fx,     fy-1.0, fz),
+        _b_grad(uint(_b_int3h(X+1,Y+1,Z)),     fx-1.0, fy-1.0, fz),
+        _b_grad(uint(_b_int3h(X,Y,Z+1)),       fx,     fy,     fz-1.0),
+        _b_grad(uint(_b_int3h(X+1,Y,Z+1)),     fx-1.0, fy,     fz-1.0),
+        _b_grad(uint(_b_int3h(X,Y+1,Z+1)),     fx,     fy-1.0, fz-1.0),
+        _b_grad(uint(_b_int3h(X+1,Y+1,Z+1)),   fx-1.0, fy-1.0, fz-1.0),
+        u,v,w);
+}
+float _b_snoise3(vec3 p){ return 0.9820 * _b_perlin3(_b_cmod3(p, 100000.0)); }  /* signed, ~[-1,1] */
+/* fractal fbm (Blender NOISE_FBM, normalize=true -> [0,1]) */
+float _b_fbm3(vec3 co, float detail, float roughness, float lacunarity){
+    vec3 p=co; float fscale=1.0, amp=1.0, maxamp=0.0, sum=0.0; int n=int(detail);
+    for(int i=0;i<16;i++){ if(i>n) break;
+        sum += amp*_b_snoise3(fscale*p); maxamp += amp; amp *= roughness; fscale *= max(lacunarity,1e-6);
     }
-    return sum / max(maxamp, 1e-6);
+    float rmd = detail - floor(detail);
+    if(rmd != 0.0){
+        float t = _b_snoise3(fscale*p); float sum2 = sum + t*amp;
+        return mix(0.5*sum/maxamp+0.5, 0.5*sum2/(maxamp+amp)+0.5, rmd);
+    }
+    return 0.5*sum/maxamp+0.5;
 }
 """
 
@@ -615,15 +645,15 @@ class _Transpiler:
         v = self._new_var("noise")
         self._line("vec3 {v}p = ({co}) * {s};".format(v=v, co=co, s=scale))
         # distortion: perturb the coordinate by noise of itself
-        self._line("{v}p += {d} * vec3(_vnoise({v}p+vec3(0.0)), _vnoise({v}p+vec3(13.5)), "
-                   "_vnoise({v}p+vec3(27.1)));".format(v=v, d=dist))
+        self._line("{v}p += {d} * vec3(_b_snoise3({v}p+vec3(0.0)), _b_snoise3({v}p+vec3(13.5)), "
+                   "_b_snoise3({v}p+vec3(27.1)));".format(v=v, d=dist))
         if out.name == "Color":
-            self._line("vec3 {v}c = vec3(_fbm3({v}p,{det},{r},{l}), "
-                       "_fbm3({v}p+vec3(41.0),{det},{r},{l}), "
-                       "_fbm3({v}p+vec3(97.0),{det},{r},{l}));".format(
+            self._line("vec3 {v}c = vec3(_b_fbm3({v}p,{det},{r},{l}), "
+                       "_b_fbm3({v}p+vec3(41.0),{det},{r},{l}), "
+                       "_b_fbm3({v}p+vec3(97.0),{det},{r},{l}));".format(
                            v=v, det=detail, r=rough, l=lac))
             return "vec4({v}c, 1.0)".format(v=v)
-        self._line("float {v} = _fbm3({v}p, {det}, {r}, {l});".format(
+        self._line("float {v} = _b_fbm3({v}p, {det}, {r}, {l});".format(
             v=v, det=detail, r=rough, l=lac))
         return v
 

@@ -393,3 +393,19 @@ so those now take effect once edits reach the material. Suite green.
   surface, in 0..1, higher scale -> higher spatial frequency; Color channels differ.
 - Fallback tests switched from Noise (now supported) to Wireframe (out-of-scope).
 - All 9 suites green.
+
+## v0.5.6 — EXACT Blender noise (ported hash + Perlin), replacing the approximation
+User standard: exact, not "close enough". Ported Blender's GPL GLSL faithfully:
+- gpu_shader_common_hash.glsl -> hash_uint/2/3/4 (Jenkins lookup3); macros renamed
+  HROT/HMIX/HFINAL to avoid shadowing builtin mix(); adapted float3->vec3, stripped
+  'f' suffixes for GLSL 330.
+- gpu_shader_material_noise.glsl -> _b_perlin3 (fade + gradient + tri_mix), noise_scale3
+  (0.9820), snoise (compatible_mod via trunc), and the NOISE_FBM fbm (normalize=[0,1]).
+- _n_tex_noise now calls _b_fbm3/_b_snoise3. Fac output with distortion=0 is
+  BIT-EXACT Blender Perlin (hash + gradient + scale constants are verbatim).
+- CPU-verified: compiles, Perlin centers on ~0.5 (mean 0.495), varies, in 0..1.
+- Removed the old value-noise approximation.
+Follow-ups for full exactness: fetch gpu_shader_material_tex_noise.glsl to match the
+exact distortion offsets + Color-output random offsets (currently faithful-but-not-
+verbatim); then Voronoi/Wave reuse this hash foundation.
+GPL: ported code is GPL-2.0-or-later; addon is GPL. OK.
