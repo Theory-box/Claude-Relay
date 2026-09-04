@@ -148,4 +148,13 @@ _v0=vrot(0.0)
 check(abs(_v0[0,-1]-_v0[0,0])>0.4, "Vector Rotate angle 0 = identity (horizontal gradient)")
 check(abs(vrot(1.5708)[0,-1]-vrot(1.5708)[0,0]) < abs(_v0[0,-1]-_v0[0,0]), "Vector Rotate 90deg transforms coords")
 
+# --- Principled Alpha (opacity) folds into output alpha ---
+def palpha(a):
+    m=bpy.data.materials.new('pa'); m.use_nodes=True; t=m.node_tree; t.nodes.clear()
+    o=t.nodes.new('ShaderNodeOutputMaterial'); b=t.nodes.new('ShaderNodeBsdfPrincipled')
+    b.inputs['Base Color'].default_value=(1,0,0,1); b.inputs['Alpha'].default_value=a
+    t.links.new(b.outputs['BSDF'],o.inputs['Surface']); px,_=H.render_material(m,size=2); return px[0,0,3]
+check(abs(palpha(0.4)-0.4)<0.05, "Principled Alpha 0.4 -> output alpha 0.4")
+check(abs(palpha(1.0)-1.0)<0.05, "Principled Alpha 1.0 -> opaque")
+
 print("SUMMARY: " + ("FAILED "+", ".join(F) if F else "ALL CHECKS PASSED"))

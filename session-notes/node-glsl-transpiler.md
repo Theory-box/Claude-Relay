@@ -841,3 +841,16 @@ REMOVED:
 - extraction: vert_no_local + mat_diffuse (GI-only) dropped; vert_co_local kept (shadows).
 KEPT: rasterised shadow MAP (that's item 3 to fix, not vertex-based), hemisphere ambient,
   energy_scale, per-pixel Phong lighting. ~400 lines lighter (3600->3192). 12 suites green.
+
+## v0.10.1-0.10.3 — outline + AO exclusion + transparency (roadmap 4,5,6/7)
+- 0.10.1 OUTLINE (fx/outline.py): depth-edge silhouette (object->background + view-space
+  depth discontinuity); width + sensitivity + colour; slots into fx chain after AO.
+- 0.10.2 AO EXCLUSION: per-object Object.vlr_ao_exclude prop + UI. Pipeline renders a
+  separate AO-depth of only non-excluded occluders when any object is flagged; SSAO
+  samples that (uDepth override) so flagged objects don't cast/receive AO. No cost when
+  none flagged.
+- 0.10.3 TRANSPARENCY: transpiler folds Principled Alpha input into base-colour alpha
+  (verified 0.4->0.4, 1.0->opaque). Draw loop is now two-pass: opaque (depth write) then
+  transparent (materials with blend_method=='BLEND') sorted back-to-front, alpha-blended,
+  depth-write off. Frags already output base.a.
+All GPU-side (visual) -> user tests. 13 checks + 12 suites green.

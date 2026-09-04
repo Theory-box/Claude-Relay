@@ -755,6 +755,42 @@ class VertexLitEngine(bpy.types.RenderEngine):
             frame_progs[mat_name] = prog
             return prog
 
+        transparent = []   # (sort_depth, draw_fn) for a back-to-front blended pass
+
+        def _draw_one(prog, mat, batch, tex, model, nmat, gmin, gsc, oname):
+            if prog is not None:
+                sh=prog['shader']
+                _ensure_frame(sh)
+                if id(sh) not in params_done:
+                    nt=mat.node_tree if mat else None
+                    for p in prog['params']:
+                        try: sh.uniform_float(p.uniform, p.value(nt))
+                        except Exception: pass
+                    params_done.add(id(sh))
+                sh.uniform_float('uModel',model)
+                sh.uniform_float('uNormalMat',nmat)
+                try: sh.uniform_float('uGenMin',gmin); sh.uniform_float('uGenScale',gsc)
+                except Exception: pass
+                for uni,image in prog['samplers']:
+                    gtex=_get_gpu_tex(image)
+                    if gtex is not None:
+                        try: sh.uniform_sampler(uni,gtex)
+                        except Exception: pass
+                try: batch.draw(sh)
+                except Exception:
+                    self._batch_dict.pop(oname, None); self._dirty_objects.add(oname); self._dirty=True
+            else:
+                _ensure_frame(legacy)
+                legacy.uniform_float('uModel',model)
+                legacy.uniform_float('uNormalMat',nmat)
+                try: legacy.uniform_float('uGenMin',gmin); legacy.uniform_float('uGenScale',gsc)
+                except Exception: pass
+                legacy.uniform_sampler('uAlbedo',  tex if tex is not None else self._white_tex)
+                legacy.uniform_int('uHasTexture',  1 if tex is not None else 0)
+                try: batch.draw(legacy)
+                except Exception:
+                    self._batch_dict.pop(oname, None); self._dirty_objects.add(oname); self._dirty=True
+
         for inst in depsgraph.object_instances:
             obj=inst.object
             if obj.type!='MESH': continue
@@ -767,45 +803,32 @@ class VertexLitEngine(bpy.types.RenderEngine):
 
             try:   normal_mat=inst.matrix_world.to_3x3().inverted().transposed()
             except Exception: normal_mat=inst.matrix_world.to_3x3()
+            model=inst.matrix_world.copy()
 
             for batch, mat_name, tex in slots:
                 prog=_resolve_prog(mat_name)
-                mat=bpy.data.materials.get(mat_name) if (prog and mat_name) else None
-
-                if prog is not None:
-                    sh=prog['shader']
-                    _ensure_frame(sh)
-                    if id(sh) not in params_done:
-                        nt=mat.node_tree if mat else None
-                        for p in prog['params']:
-                            try: sh.uniform_float(p.uniform, p.value(nt))
-                            except Exception: pass
-                        params_done.add(id(sh))
-                    sh.uniform_float('uModel',inst.matrix_world)
-                    sh.uniform_float('uNormalMat',normal_mat)
-                    try: sh.uniform_float('uGenMin',gmin); sh.uniform_float('uGenScale',gsc)
-                    except Exception: pass
-                    for uni,image in prog['samplers']:
-                        gtex=_get_gpu_tex(image)
-                        if gtex is not None:
-                            try: sh.uniform_sampler(uni,gtex)
-                            except Exception: pass
+                mat=bpy.data.materials.get(mat_name) if mat_name else None
+                # Alpha-blended if the material's blend mode is 'BLEND'.
+                is_transp = mat is not None and getattr(mat, 'blend_method', 'OPAQUE') == 'BLEND'
+                if is_transp:
                     try:
-                        batch.draw(sh)
+                        c = model.translation; clip = view_proj @ c.to_4d()
+                        d = clip.z / clip.w if abs(clip.w) > 1e-6 else 0.0
                     except Exception:
-                        self._batch_dict.pop(obj.name, None); self._dirty_objects.add(obj.name); self._dirty=True
+                        d = 0.0
+                    transparent.append((d, (prog, mat, batch, tex, model, normal_mat, gmin, gsc, obj.name)))
                 else:
-                    _ensure_frame(legacy)
-                    legacy.uniform_float('uModel',inst.matrix_world)
-                    legacy.uniform_float('uNormalMat',normal_mat)
-                    try: legacy.uniform_float('uGenMin',gmin); legacy.uniform_float('uGenScale',gsc)
-                    except Exception: pass
-                    legacy.uniform_sampler('uAlbedo',  tex if tex is not None else self._white_tex)
-                    legacy.uniform_int('uHasTexture',  1 if tex is not None else 0)
-                    try:
-                        batch.draw(legacy)
-                    except Exception:
-                        self._batch_dict.pop(obj.name, None); self._dirty_objects.add(obj.name); self._dirty=True
+                    _draw_one(prog, mat, batch, tex, model, normal_mat, gmin, gsc, obj.name)
+
+        # Transparent pass: farthest first, alpha blend, no depth write (still tested).
+        if transparent:
+            transparent.sort(key=lambda x: x[0], reverse=True)
+            gpu.state.blend_set('ALPHA')
+            gpu.state.depth_mask_set(False)
+            for _d, args in transparent:
+                _draw_one(*args)
+            gpu.state.blend_set('NONE')
+            gpu.state.depth_mask_set(True)
 
     # ── Main draw ─────────────────────────────────────────────────────────
 

@@ -1019,6 +1019,20 @@ def transpile_material(mat):
         body_expr = "vec4(0.8, 0.8, 0.8, 1.0)"
     else:
         body_expr = _resolve_root(t, base)
+        # Fold the Principled "Alpha" input (opacity) into the result's alpha, so
+        # transparency driven by the Alpha slider or a linked value works.
+        try:
+            pnode = base.node
+            asock = pnode.inputs.get('Alpha') if pnode else None
+            if asock is not None and (asock.is_linked or
+                    (hasattr(asock, 'default_value') and float(asock.default_value) < 0.999)):
+                a_expr = t.input_expr(pnode, asock, "float")
+                av = t._new_var("bc")
+                t._line("vec4 {v} = {be};".format(v=av, be=body_expr))
+                t._line("{v}.a *= {a};".format(v=av, a=a_expr))
+                body_expr = av
+        except Exception:
+            pass
 
     body = "\n    ".join(t.lines)
     res.glsl = ("vec4 computeBaseColor(vec2 vUV) {\n"
