@@ -447,6 +447,7 @@ class VertexLitEngine(bpy.types.RenderEngine):
             w = max(int(scene.render.resolution_x * sc), 1)
             h = max(int(scene.render.resolution_y * sc), 1)
             vls = getattr(scene, 'vertex_lit', None)
+            self._cull = 'BACK' if (vls and getattr(vls, 'backface_cull', True)) else 'NONE'
             cam = scene.camera
 
             self._ensure_state(); self._ensure_resources()
@@ -753,7 +754,7 @@ class VertexLitEngine(bpy.types.RenderEngine):
 
         gpu.state.depth_test_set('LESS_EQUAL')
         gpu.state.depth_mask_set(True)
-        gpu.state.face_culling_set('BACK')
+        gpu.state.face_culling_set(getattr(self, '_cull', 'BACK'))
 
         # Resolve each material's program at most ONCE per frame (materials are shared
         # across many objects; the peek can run topo_signature for dirty materials, so
@@ -922,7 +923,8 @@ class VertexLitEngine(bpy.types.RenderEngine):
 
         gpu.state.depth_test_set('LESS_EQUAL')
         gpu.state.depth_mask_set(True)
-        gpu.state.face_culling_set('BACK')
+        self._cull = 'BACK' if (vls and getattr(vls, 'backface_cull', True)) else 'NONE'
+        gpu.state.face_culling_set(self._cull)
 
         view_proj=rv3d.window_matrix@rv3d.view_matrix
         mode=getattr(vls,'shading_mode','WORKBENCH')
@@ -958,7 +960,7 @@ class VertexLitEngine(bpy.types.RenderEngine):
                             sh = _get_main_shader(mode); sh.bind()
                             try: sh.uniform_float('uViewProj', view_proj)
                             except Exception: pass
-                            gpu.state.face_culling_set('BACK')
+                            gpu.state.face_culling_set(getattr(self, '_cull', 'BACK'))
                             for i in depsgraph.object_instances:
                                 o = i.object
                                 if o.type != 'MESH' or not i.show_self: continue
@@ -978,7 +980,7 @@ class VertexLitEngine(bpy.types.RenderEngine):
                         try: sh.uniform_float('uViewProj', view_proj)
                         except Exception: pass
                         gpu.state.depth_test_set('LESS_EQUAL'); gpu.state.depth_mask_set(True)
-                        gpu.state.face_culling_set('BACK')
+                        gpu.state.face_culling_set(getattr(self, '_cull', 'BACK'))
                         idx = 1
                         for i in depsgraph.object_instances:
                             o = i.object
@@ -1008,7 +1010,7 @@ class VertexLitEngine(bpy.types.RenderEngine):
                             sh.uniform_float('uViewMat3', view_mat3)
                         except Exception: pass
                         gpu.state.depth_test_set('LESS_EQUAL'); gpu.state.depth_mask_set(True)
-                        gpu.state.face_culling_set('BACK')
+                        gpu.state.face_culling_set(getattr(self, '_cull', 'BACK'))
                         for i in depsgraph.object_instances:
                             o = i.object
                             if o.type != 'MESH' or not i.show_self: continue
@@ -1033,6 +1035,7 @@ class VertexLitEngine(bpy.types.RenderEngine):
                     'ao_radius':   (vls.ao_radius   if vls else 0.5),
                     'ao_strength': (vls.ao_strength if vls else 1.0),
                     'ao_bias':     (vls.ao_bias     if vls else 0.02),
+                    'ao_ridge':    (vls.ao_ridge    if vls else 0.0),
                     'ao_samples':  (int(vls.ao_samples) if vls else 16),
                     'cavity_ridge':  (vls.cavity_ridge  if vls else 1.0),
                     'cavity_valley': (vls.cavity_valley if vls else 1.0),

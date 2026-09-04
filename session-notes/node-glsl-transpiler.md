@@ -942,3 +942,16 @@ GC'd wrapper's address gets reused and id() collides -> a group's Width could re
 (uP_8,uP_8) non-deterministically (hash-seed/GC dependent). Now keys on as_pointer() (stable C
 pointer) for both sockets and group-stack nodes. Verified stable across PYTHONHASHSEED 0-7.
 14 suites green. (Discovered via flaky test_reroute — a real bug, not a test artifact.)
+
+## v0.10.10 — Cavity World/Screen split + world ridge + backface-cull toggle
+Matching Blender's two overlayable cavity types:
+- Renamed UI "Ambient Occlusion" -> "Cavity World" (SSAO); its strength relabelled "Valley",
+  radius "Distance", samples "Quality". Internal props keep ao_* names.
+- Renamed UI "Cavity" -> "Cavity Screen" (the curvature effect from v0.10.9) — unchanged logic.
+- NEW world-space RIDGE (ao_ridge) added to the SSAO shader alongside the untouched valley:
+  per sample, reconstruct the neighbour's view position, dir=neighbour-P; dot(dir,N)<0 means the
+  surface curves away (convex) -> brighten. Applied as colour *= ao * (1 + edg*uRidge). uRidge=0
+  reproduces the old valley-only output exactly (background samples skipped to avoid halos).
+- BACKFACE CULLING toggle (backface_cull, default True, global). view_draw/render set self._cull
+  ('BACK' or 'NONE'); main draw + all prepasses (ao-occluder, id, normal) follow it. UI toggle in
+  the Shading box. 14 suites green.

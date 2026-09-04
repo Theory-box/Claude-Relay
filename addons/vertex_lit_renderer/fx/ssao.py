@@ -19,6 +19,7 @@ uniform vec2 uTexel;
 uniform float uRadius;
 uniform float uStrength;
 uniform float uBias;
+uniform float uRidge;
 uniform int uSamples;
 in vec2 vUV;
 out vec4 fragColor;
@@ -79,6 +80,7 @@ void main(){
     mat2 rot = mat2(ca, -sa, sa, ca);
 
     float occ = 0.0;
+    float edg = 0.0;   /* world-space ridge: convex exposure */
     int NS = uSamples;
     for(int i = 0; i < NS; i++){
         vec3 s = KERNEL[i];
@@ -91,13 +93,28 @@ void main(){
         vec2 suv = off.xy * 0.5 + 0.5;
         if(suv.x < 0.0 || suv.x > 1.0 || suv.y < 0.0 || suv.y > 1.0) continue;
 
-        float sd = view_pos(suv).z;               /* sampled surface depth (view Z) */
+        float sz = texture(uDepth, suv).r;
+        vec3 gp = view_pos(suv);                  /* actual geometry at the sample's screen pos */
+        float sd = gp.z;
         float rangeCheck = smoothstep(0.0, 1.0, uRadius / max(abs(P.z - sd), 1e-4));
-        occ += ((sd >= sp.z + uBias) ? 1.0 : 0.0) * rangeCheck;
+        occ += ((sd >= sp.z + uBias) ? 1.0 : 0.0) * rangeCheck;   /* valley (unchanged) */
+
+        /* ridge: is the neighbouring surface BELOW our tangent plane (i.e. surface curves
+           away = convex)? dot(dir,N) < 0 -> convex -> brighten. Skip background samples. */
+        if(uRidge > 0.0 && sz < 1.0){
+            vec3 dir = gp - P;
+            float len = length(dir);
+            if(len > 1e-4){
+                float d = dot(dir / len, N);
+                edg += max(-d - uBias, 0.0) * rangeCheck;
+            }
+        }
     }
     float ao = 1.0 - (occ / float(NS)) * uStrength;
     ao = clamp(ao, 0.0, 1.0);
-    fragColor = vec4(col.rgb * ao, col.a);
+    float ridge = (edg / float(NS)) * uRidge;     /* 0 when uRidge==0 -> valley-only, as before */
+    vec3 outc = col.rgb * ao * (1.0 + ridge);
+    fragColor = vec4(outc, col.a);
 }
 """
 
@@ -120,6 +137,7 @@ class SSAO(ScreenEffect):
         sf('uRadius', ctx.get('ao_radius', 0.5))
         sf('uStrength', ctx.get('ao_strength', 1.0))
         sf('uBias', ctx.get('ao_bias', 0.02))
+        sf('uRidge', ctx.get('ao_ridge', 0.0))
         try: sh.uniform_int('uSamples', int(ctx.get('ao_samples', 16)))
         except Exception: pass
         # AO object exclusion: sample the occluder-only depth (flagged objects omitted)

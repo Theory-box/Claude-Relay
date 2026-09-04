@@ -27,24 +27,26 @@ class VERTEX_LIT_PT_settings(bpy.types.Panel):
         box = layout.box()
         box.label(text="Shading", icon='SHADING_RENDERED')
         box.prop(s, 'shading_mode', text="")
+        box.prop(s, 'backface_cull')
 
         box = layout.box()
         row = box.row()
-        row.label(text="Ambient Occlusion", icon='SHADING_RENDERED')
+        row.label(text="Cavity World", icon='SHADING_RENDERED')
         row.prop(s, 'use_ao', text="")
         if s.use_ao:
             col = box.column(align=True)
-            col.prop(s, 'ao_strength')
-            col.prop(s, 'ao_radius')
-            col.prop(s, 'ao_bias')
-            col.prop(s, 'ao_samples')
+            col.prop(s, 'ao_strength', text="Valley")
+            col.prop(s, 'ao_ridge', text="Ridge")
+            col.prop(s, 'ao_radius', text="Distance")
+            col.prop(s, 'ao_bias', text="Bias")
+            col.prop(s, 'ao_samples', text="Quality")
             ob = context.active_object
             if ob is not None and ob.type == 'MESH':
                 box.prop(ob, 'vlr_ao_exclude', text="Exclude active object")
 
         box = layout.box()
         row = box.row()
-        row.label(text="Cavity", icon='MESH_ICOSPHERE')
+        row.label(text="Cavity Screen", icon='MESH_ICOSPHERE')
         row.prop(s, 'use_cavity', text="")
         if s.use_cavity:
             col = box.column(align=True)
