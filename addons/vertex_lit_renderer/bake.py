@@ -62,15 +62,26 @@ def bake_material_to_image(obj, mat, depsgraph, res=1024, margin_fill=True):
                 if gtex is not None:
                     try: shader.uniform_sampler(uni, gtex)
                     except Exception: pass
+            # Only feed the attributes the compiled shader actually kept — unused ones
+            # (e.g. 'normal', or 'vertColor'/'position' for a UV-only graph) get optimised
+            # out, and batch_for_shader errors if given an attribute the shader lacks.
+            try:
+                have = {a[0] for a in shader.attrs_info_get()}
+            except Exception:
+                have = {'position', 'texCoord', 'normal', 'vertColor'}
             for slot in slots:
                 cols = slot['colors'] if slot.get('colors') is not None else \
                     np.ones((len(slot['positions']), 4), dtype=np.float32)
-                batch = batch_for_shader(shader, 'TRIS', {
+                avail = {
                     'position':  slot['positions'],
+                    'texCoord':  slot['uvs'],
                     'normal':    slot['normals'],
                     'vertColor': cols,
-                    'texCoord':  slot['uvs'],
-                })
+                }
+                content = {k: v for k, v in avail.items() if k in have}
+                if 'texCoord' not in content:      # UV attr is mandatory for the bake
+                    content['texCoord'] = slot['uvs']
+                batch = batch_for_shader(shader, 'TRIS', content)
                 batch.draw(shader)
             buf = fb.read_color(0, 0, res, res, 4, 0, 'FLOAT')
         buf.dimensions = res * res * 4

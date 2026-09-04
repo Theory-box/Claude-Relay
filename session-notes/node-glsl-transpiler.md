@@ -1064,3 +1064,10 @@ draw_texture_2d, which is built for a viewport REGION and misplaces the image in
 - RENDER FREEZE: put a 120s wall-clock cap on the F12 full-reextract loop so it can't hang forever
   (proper fix deferred — on the list with glass). 16 suites green.
 KNOWN ISSUES LIST: (1) glass compositing over objects; (2) F12 render freeze on very dense geo.
+
+## v0.11.7 — Bake attribute fix ("Unknown attribute 'normal'")
+The bake frag only computes base colour, so the GLSL compiler strips unused vertex inputs
+(vNrm->normal always; vColor/position too for a UV-only graph). batch_for_shader then errored
+when handed an attribute the compiled shader lacked. Fix: query shader.attrs_info_get() and build
+the bake batch with ONLY the attributes the shader actually kept (texCoord always included as it
+drives gl_Position). 16 suites green. Actual bake still needs on-GPU confirmation.
