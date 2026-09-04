@@ -615,7 +615,12 @@ class VertexLitEngine(bpy.types.RenderEngine):
             to_do=(dirty & set(current.keys())) | {n for n in current if n not in self._batch_dict}
 
         want_shadow = bool(vls and getattr(vls, 'use_shadows', False))
-        budget_end = time.time() + 0.04
+        # Adaptive per-frame budget: spend more time extracting when a LOT is queued
+        # (initial/large load -> load fast), less when it's a small incremental edit
+        # (stay responsive). Batch creation must happen on the main thread in view_draw,
+        # so this is the main lever for load speed (threading can't move the GPU upload).
+        budget = 0.10 if len(to_do) > 8 else 0.04
+        budget_end = time.time() + budget
         remaining = []
         done = 0
         for name in to_do:
