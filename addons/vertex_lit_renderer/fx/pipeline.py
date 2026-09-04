@@ -37,7 +37,10 @@ class Pipeline:
         self._nrm_fb = gpu.types.GPUFrameBuffer(color_slots=(self._nrm,), depth_slot=self._nrm_depth)
 
     def any_enabled(self, vls):
-        return any(e.enabled(vls) for e in self.effects)
+        if any(e.enabled(vls) for e in self.effects):
+            return True
+        # Supersampling runs through the pipeline too, even with no other effect on.
+        return getattr(vls, 'supersampling', '1') not in ('1', '', None)
 
     def _ensure_ao_depth(self, w, h):
         w = max(int(w), 1); h = max(int(h), 1)
@@ -58,8 +61,13 @@ class Pipeline:
         self._id_fb = gpu.types.GPUFrameBuffer(color_slots=(self._id,), depth_slot=self._id_depth)
 
     def render(self, w, h, draw_scene, ctx, vls):
-        self.gbuf.ensure(w, h)
-        self.ping.ensure(w, h)
+        # Supersampling: render the whole pipeline at ss*resolution and downscale on the
+        # final blit for smooth edges (SSAA). ss=1 -> no change.
+        ss = {'1': 1.0, '1.5': 1.5, '2': 2.0}.get(getattr(vls, 'supersampling', '1'), 1.0)
+        sw, sh = max(int(w * ss), 1), max(int(h * ss), 1)
+        self.gbuf.ensure(sw, sh)
+        self.ping.ensure(sw, sh)
+        ctx['texel'] = (1.0 / sw, 1.0 / sh)   # effects sample at the supersampled resolution
 
         # 1) scene -> gbuffer (colour + depth)
         with self.gbuf.fb.bind():
@@ -72,7 +80,7 @@ class Pipeline:
         #     buffer; AO samples that so flagged objects don't cast (or receive) AO.
         aod = ctx.get('draw_ao_occluders')
         if aod is not None:
-            self._ensure_ao_depth(w, h)
+            self._ensure_ao_depth(sw, sh)
             with self._aod_fb.bind():
                 gpu.state.depth_test_set('LESS_EQUAL')
                 gpu.state.depth_mask_set(True)
@@ -83,7 +91,7 @@ class Pipeline:
         # 1c) Object-ID pass for the outline effect (Workbench-style).
         idd = ctx.get('draw_object_ids')
         if idd is not None:
-            self._ensure_id(w, h)
+            self._ensure_id(sw, sh)
             with self._id_fb.bind():
                 gpu.state.depth_test_set('LESS_EQUAL')
                 gpu.state.depth_mask_set(True)
@@ -94,7 +102,7 @@ class Pipeline:
         # 1d) View-space normal pass for the Cavity (curvature) effect.
         nrm = ctx.get('draw_view_normals')
         if nrm is not None:
-            self._ensure_normal(w, h)
+            self._ensure_normal(sw, sh)
             with self._nrm_fb.bind():
                 gpu.state.depth_test_set('LESS_EQUAL')
                 gpu.state.depth_mask_set(True)
@@ -116,7 +124,7 @@ class Pipeline:
             cur = self.ping.tex[idx]
             idx ^= 1
 
-        # 3) blit final colour to the viewport (already-bound default framebuffer)
+        # 3) blit final colour to the target framebuffer, downscaling sw,sh -> w,h (SSAA)
         gpu.state.depth_test_set('NONE')
         gpu.state.blend_set('NONE')
         draw_texture_2d(cur, (0, 0), w, h)

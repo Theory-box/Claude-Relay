@@ -15,7 +15,7 @@ for p in ('solid_color','background_color','key_intensity','sky_color','ground_c
     check(hasattr(s,p), "prop %s present"%p)
 # view mode enum has all 5
 items={e.identifier for e in s.bl_rna.properties['view_mode'].enum_items}
-check(items=={'TEXTURED','SOLID','RANDOM','ATTRIBUTE','NORMAL'}, "view_mode has 5 options (%s)"%items)
+check(items=={'TEXTURED','SOLID','RANDOM','ATTRIBUTE','NORMAL','DEPTH'}, "view_mode has 6 options (%s)"%items)
 
 # engine renamed, id preserved
 E=[c for c in bpy.types.RenderEngine.__subclasses__() if c.__name__=='VertexLitEngine'][0]

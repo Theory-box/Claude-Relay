@@ -121,7 +121,7 @@ def _get_bg():
                                      {"pos": [(-1.0, -1.0), (3.0, -1.0), (-1.0, 3.0)]})
     return _bg_shader, _bg_batch
 
-_VIEWMODE_ID = {'SOLID': 1, 'RANDOM': 2, 'ATTRIBUTE': 3, 'NORMAL': 4}
+_VIEWMODE_ID = {'SOLID': 1, 'RANDOM': 2, 'ATTRIBUTE': 3, 'NORMAL': 4, 'DEPTH': 5}
 
 def _obj_random_color(name):
     """Stable pseudo-random colour per object (Blender-like), from the object name."""
@@ -493,15 +493,19 @@ class VertexLitEngine(bpy.types.RenderEngine):
                 self.end_result(result)
                 return
 
-            view = cam.matrix_world.inverted()
-            proj = cam.calc_matrix_camera(depsgraph, x=w, y=h)
+            # Use the DEPSGRAPH-EVALUATED camera so animation (and any constraints/drivers)
+            # are applied at the frame being rendered — otherwise we'd read the original
+            # object's stale transform and the view looks wrong / zoomed.
+            cam_eval = cam.evaluated_get(depsgraph)
+            view = cam_eval.matrix_world.inverted()
+            proj = cam_eval.calc_matrix_camera(depsgraph, x=w, y=h)
             view_proj = proj @ view
             self._film_transparent = getattr(scene.render, 'film_transparent', False)
-            try: self._cam_pos = tuple(cam.matrix_world.translation)
+            try: self._cam_pos = tuple(cam_eval.matrix_world.translation)
             except Exception: self._cam_pos = (0.0, 0.0, 0.0)
             try:
                 kv = Vector((0.25, 0.35, 0.90)); kv.normalize()
-                key_dir = tuple(cam.matrix_world.to_quaternion() @ kv)
+                key_dir = tuple(cam_eval.matrix_world.to_quaternion() @ kv)
             except Exception:
                 key_dir = (0.3, 0.4, 0.86)
             studio = (key_dir, (1.0, 1.0, 1.0), (vls.key_intensity if vls else 0.8))
@@ -806,12 +810,16 @@ class VertexLitEngine(bpy.types.RenderEngine):
         self._apply_frame_uniforms(sh, view_proj, ls_mat, sky, ground, bstr,
                                    False, 0.005, 0.25, self._dummy_depth, lights, studio)
         vmid = _VIEWMODE_ID.get(view_mode, 1)
+        rand_mode = getattr(vls, 'random_mode', 'OBJECT') if vls else 'OBJECT'
         def sf(n, v):
             try: sh.uniform_float(n, v)
             except Exception: pass
         try: sh.uniform_int('uViewMode', vmid)
         except Exception: pass
         sf('uSolidColor', tuple(vls.solid_color) if vls else (0.8, 0.8, 0.8))
+        sf('uCamPos', getattr(self, '_cam_pos', (0.0, 0.0, 0.0)))
+        sf('uDepthMin', vls.depth_min if vls else 0.0)
+        sf('uDepthMax', vls.depth_max if vls else 20.0)
         gpu.state.depth_test_set('LESS_EQUAL'); gpu.state.depth_mask_set(True)
         gpu.state.face_culling_set(getattr(self, '_cull', 'BACK'))
         for inst in depsgraph.object_instances:
@@ -829,9 +837,11 @@ class VertexLitEngine(bpy.types.RenderEngine):
             sf('uModel', inst.matrix_world)
             sf('uNormalMat', nmat)
             sf('uGenMin', gmin); sf('uGenScale', gsc)
-            if vmid == 2:
+            if vmid == 2 and rand_mode == 'OBJECT':
                 sf('uObjColor', _obj_random_color(obj.name))
             for batch, _mat_name, _tex in slots:
+                if vmid == 2 and rand_mode == 'MATERIAL':
+                    sf('uObjColor', _obj_random_color(_mat_name or '__no_material__'))
                 try: batch.draw(sh)
                 except Exception: pass
 

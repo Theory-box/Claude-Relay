@@ -40,6 +40,12 @@ class VERTEX_LIT_PT_viewmode(_Base, bpy.types.Panel):
         layout.prop(s, 'view_mode', text="")
         if s.view_mode == 'SOLID':
             layout.prop(s, 'solid_color', text="")
+        elif s.view_mode == 'RANDOM':
+            layout.prop(s, 'random_mode', text="")
+        elif s.view_mode == 'DEPTH':
+            col = layout.column(align=True)
+            col.prop(s, 'depth_min')
+            col.prop(s, 'depth_max')
         elif s.view_mode == 'ATTRIBUTE':
             ob = context.active_object
             me = ob.data if (ob is not None and ob.type == 'MESH') else None
@@ -140,7 +146,9 @@ class VERTEX_LIT_PT_render_settings(_Base, bpy.types.Panel):
 
     def draw(self, context):
         s = context.scene.vertex_lit
-        self.layout.prop(s, 'aa_method')
+        col = self.layout.column()
+        col.prop(s, 'aa_method')
+        col.prop(s, 'supersampling')
 
 
 _CLASSES = (

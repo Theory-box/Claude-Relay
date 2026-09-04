@@ -1015,3 +1015,16 @@ F12 RENDER: was upside-down, ignored effects, wrong hemisphere colours.
   color_attributes). _extract_mesh_data(attr_name=...) reads the chosen attribute (blank = active);
   changing it sets engine._FORCE_REEXTRACT which view_draw consumes to drop caches + full re-extract.
 15 suites green. (F12 upside-down/effects need on-GPU confirmation.)
+
+## v0.11.3 — F12 animated camera + SSAA + Depth view + Random per-material
+- F12 CAMERA: use cam.evaluated_get(depsgraph) for view + calc_matrix_camera + cam_pos + key dir,
+  so the ANIMATED camera at the current frame is used (fixes "zoomed in / wrong frame").
+- SUPERSAMPLING (SSAA): supersampling enum (1/1.5/2x) in Settings. Pipeline renders gbuffer + all
+  prepasses + effects at ss*res and downsamples on the final draw_texture_2d blit; ctx texel uses
+  the supersampled res. any_enabled() true when ss>1 so it runs even with no other effect.
+- DEPTH view mode: VIEWMODE_FRAG mode 5 -> greyscale by distance(vWpos,uCamPos) mapped between
+  depth_min (white) and depth_max (black); depth_min/depth_max props + UI when Depth selected.
+- RANDOM per-object vs per-material: random_mode enum. OBJECT -> uObjColor per object (hash name);
+  MATERIAL -> uObjColor per slot (hash material name) so shared materials match and multi-material
+  objects get one colour per slot.
+15 suites green. (F12 camera + SSAA need on-GPU confirmation.)

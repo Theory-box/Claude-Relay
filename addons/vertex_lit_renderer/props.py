@@ -33,12 +33,25 @@ class VertexLitSettings(bpy.types.PropertyGroup):
         items=[
             ('TEXTURED',  "Textured",  "Show materials / textures (live node graph)"),
             ('SOLID',     "Solid",     "Flat single colour on every surface"),
-            ('RANDOM',    "Random",    "A random colour per object"),
+            ('RANDOM',    "Random",    "A random colour per object or per material"),
             ('ATTRIBUTE', "Attribute", "Show the mesh colour attribute (vertex colours)"),
             ('NORMAL',    "Normal",    "Visualise surface normals as colour"),
+            ('DEPTH',     "Depth",     "Visualise distance from the camera as greyscale"),
         ],
         default='TEXTURED',
         description="What surface colour to display")
+    random_mode: bpy.props.EnumProperty(
+        name="Random By",
+        items=[('OBJECT',   "Per Object",   "A colour per object"),
+               ('MATERIAL', "Per Material", "A colour per material (shared objects match; "
+                                            "multi-material objects get one colour per slot)")],
+        default='OBJECT')
+    depth_min: bpy.props.FloatProperty(
+        name="Near", default=0.0, min=0.0, soft_max=100.0,
+        description="Distance mapped to white")
+    depth_max: bpy.props.FloatProperty(
+        name="Far", default=20.0, min=0.01, soft_max=1000.0,
+        description="Distance mapped to black")
     solid_color: bpy.props.FloatVectorProperty(
         name="Solid Color", subtype='COLOR', default=(0.8, 0.8, 0.8),
         min=0.0, max=1.0, description="Flat colour used by the Solid view mode")
@@ -111,6 +124,13 @@ class VertexLitSettings(bpy.types.PropertyGroup):
                ('FXAA', "FXAA", "Fast approximate anti-aliasing (post-process edge smoothing)")],
         default='FXAA',
         description="Edge anti-aliasing method")
+    supersampling: bpy.props.EnumProperty(
+        name="Supersampling",
+        items=[('1', "1x (off)", "No supersampling"),
+               ('1.5', "1.5x", "Render at 1.5x resolution and downscale"),
+               ('2', "2x", "Render at 2x resolution and downscale — sharpest, slowest")],
+        default='1',
+        description="Render at higher resolution and downscale for smooth edges (SSAA)")
 
     # ── Hidden (kept for engine wiring; no UI) ──────────────────────────────
     energy_scale: bpy.props.FloatProperty(
