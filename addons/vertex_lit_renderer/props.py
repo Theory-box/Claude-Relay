@@ -1,6 +1,21 @@
 import bpy
 
 
+def _view_attr_update(self, context):
+    # Selecting a different colour attribute needs a re-extraction of the vertex colours.
+    try:
+        from . import engine
+        engine._FORCE_REEXTRACT = True
+    except Exception:
+        pass
+    try:
+        for area in context.screen.areas:
+            if area.type == 'VIEW_3D':
+                area.tag_redraw()
+    except Exception:
+        pass
+
+
 class VertexLitSettings(bpy.types.PropertyGroup):
 
     # ── Lighting ────────────────────────────────────────────────────────────
@@ -27,6 +42,10 @@ class VertexLitSettings(bpy.types.PropertyGroup):
     solid_color: bpy.props.FloatVectorProperty(
         name="Solid Color", subtype='COLOR', default=(0.8, 0.8, 0.8),
         min=0.0, max=1.0, description="Flat colour used by the Solid view mode")
+    view_attribute: bpy.props.StringProperty(
+        name="Attribute", default="",
+        description="Colour attribute to display in Attribute view (blank = active)",
+        update=_view_attr_update)
 
     # ── Background ──────────────────────────────────────────────────────────
     background_mode: bpy.props.EnumProperty(
@@ -84,6 +103,14 @@ class VertexLitSettings(bpy.types.PropertyGroup):
         description="Screen-space curvature: brighten convex edges (ridge), darken creases (valley)")
     cavity_ridge: bpy.props.FloatProperty(name="Ridge", default=1.0, min=0.0, max=4.0)
     cavity_valley: bpy.props.FloatProperty(name="Valley", default=1.0, min=0.0, max=4.0)
+
+    # ── Settings ────────────────────────────────────────────────────────────
+    aa_method: bpy.props.EnumProperty(
+        name="Anti-Aliasing",
+        items=[('OFF', "None", "No anti-aliasing"),
+               ('FXAA', "FXAA", "Fast approximate anti-aliasing (post-process edge smoothing)")],
+        default='FXAA',
+        description="Edge anti-aliasing method")
 
     # ── Hidden (kept for engine wiring; no UI) ──────────────────────────────
     energy_scale: bpy.props.FloatProperty(

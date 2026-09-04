@@ -22,6 +22,7 @@ _PERSIST_MESH = {}     # obj name -> extraction data dict
 _PERSIST_BATCH = {}    # obj name -> [(batch, material_name, texture), ...]
 _PERSIST_SHADOW = {}   # obj name -> shadow batch
 _PERSIST_SIG = {}      # obj name -> cheap geometry signature
+_FORCE_REEXTRACT = False   # set when the chosen colour attribute changes -> full re-extract
 
 
 def _geo_sig(obj, mesh):
@@ -242,7 +243,7 @@ def _build_light_space(light,center,radius):
 
 # ── Mesh extraction (one new_from_object call per object, everything derived from it) ──
 
-def _extract_mesh_data(obj, depsgraph, mesh=None):
+def _extract_mesh_data(obj, depsgraph, mesh=None, attr_name=""):
     """
     Read the depsgraph-evaluated mesh DIRECTLY (no new_from_object copy, no
     create/remove -> no depsgraph churn -> no self-triggered rebuild loop, and far
@@ -317,8 +318,12 @@ def _extract_mesh_data(obj, depsgraph, mesh=None):
             ca = mesh.color_attributes
             attr = None
             if ca:
-                try: attr = ca.active_color
-                except Exception: attr = None
+                if attr_name:
+                    try: attr = ca.get(attr_name)
+                    except Exception: attr = None
+                if attr is None:
+                    try: attr = ca.active_color
+                    except Exception: attr = None
                 if attr is None and len(ca): attr = ca[0]
             if attr is not None and getattr(attr, 'data_type', '') in ('FLOAT_COLOR', 'BYTE_COLOR'):
                 m = len(attr.data)
@@ -500,7 +505,8 @@ class VertexLitEngine(bpy.types.RenderEngine):
             except Exception:
                 key_dir = (0.3, 0.4, 0.86)
             studio = (key_dir, (1.0, 1.0, 1.0), (vls.key_intensity if vls else 0.8))
-            mode = 'PIXEL'
+            sky = tuple(vls.sky_color) if vls else (0.6, 0.68, 0.78)
+            ground = tuple(vls.ground_color) if vls else (0.2, 0.18, 0.16)
 
             offscreen = gpu.types.GPUOffScreen(w, h)
             arr = None
@@ -513,14 +519,22 @@ class VertexLitEngine(bpy.types.RenderEngine):
                     else:
                         fb.clear(color=(wc[0], wc[1], wc[2], 1.0) if wc else (0.05, 0.05, 0.05, 1.0),
                                  depth=1.0)
-                    self._draw_batches(depsgraph, vls, view_proj, studio, Matrix.Identity(4),
-                                       (0.05, 0.07, 0.10), (0.03, 0.02, 0.02), 1.0,
-                                       False, 0.005, 0.25, self._dummy_depth,
-                                       self._lights_cache, mode)
+                    post = getattr(self, '_post', None)
+                    if post is not None and post.any_enabled(vls):
+                        # Same effect pipeline as the viewport (AO / cavity / outline).
+                        view_mat3 = view.to_3x3()
+                        draw_scene, post_ctx = self._make_post_ctx(
+                            depsgraph, vls, view_proj, view_mat3, proj, w, h, wc,
+                            studio, Matrix.Identity(4), sky, ground, 1.0, self._lights_cache)
+                        post.render(w, h, draw_scene, post_ctx, vls)
+                    else:
+                        self._draw_batches(depsgraph, vls, view_proj, studio, Matrix.Identity(4),
+                                           sky, ground, 1.0, False, 0.005, 0.25, self._dummy_depth,
+                                           self._lights_cache, 'PIXEL')
                     buf = fb.read_color(0, 0, w, h, 4, 0, 'FLOAT')
                 buf.dimensions = w * h * 4
+                # read_color is bottom-up and Blender's render rect is bottom-up too -> no flip.
                 arr = np.array(buf, dtype=np.float32).reshape(h, w, 4)
-                arr = np.flipud(arr)               # Blender image is bottom-up
             finally:
                 offscreen.free()
 
@@ -610,6 +624,7 @@ class VertexLitEngine(bpy.types.RenderEngine):
         self._rebuild_inner(depsgraph, vls)
 
     def _rebuild_inner(self, depsgraph, vls):
+        self._view_attr = getattr(vls, 'view_attribute', '') if vls else ''
         t0=time.time()
 
         en_scale=vls.energy_scale  if vls else 0.01
@@ -671,7 +686,7 @@ class VertexLitEngine(bpy.types.RenderEngine):
                 continue
             obj=current.get(name)
             if obj is None: continue
-            data=_extract_mesh_data(obj,depsgraph)
+            data=_extract_mesh_data(obj,depsgraph,attr_name=getattr(self,'_view_attr',''))
             if data:
                 self._mesh_cache[name]=data
                 self._batch_dict[name]=_build_object_slots(data)
@@ -963,6 +978,109 @@ class VertexLitEngine(bpy.types.RenderEngine):
 
     # ── Main draw ─────────────────────────────────────────────────────────
 
+    def _make_post_ctx(self, depsgraph, vls, view_proj, view_mat3, proj, rw, rh, wc,
+                       studio, ls_mat, sky, ground, bstr, lights):
+        """Build the draw-scene callback + post_ctx (AO occluders, ID pass, normal pass,
+        effect params). Shared by the viewport and the F12 render so both get effects."""
+        cull = getattr(self, '_cull', 'BACK')
+
+        def _draw_objects():
+            self._draw_batches(depsgraph, vls, view_proj, studio, ls_mat, sky, ground,
+                               bstr, False, 0.005, 0.25, self._dummy_depth, lights, 'PIXEL')
+
+        ao_occluders = None
+        if vls and getattr(vls, 'use_ao', False):
+            any_excl = any(getattr(i.object, 'vlr_ao_exclude', False)
+                           for i in depsgraph.object_instances if i.object.type == 'MESH')
+            if any_excl:
+                def ao_occluders():
+                    sh = _get_main_shader('PIXEL'); sh.bind()
+                    try: sh.uniform_float('uViewProj', view_proj)
+                    except Exception: pass
+                    gpu.state.face_culling_set(cull)
+                    for i in depsgraph.object_instances:
+                        o = i.object
+                        if o.type != 'MESH' or not i.show_self: continue
+                        if getattr(o, 'vlr_ao_exclude', False): continue
+                        sl = self._batch_dict.get(o.name)
+                        if not sl: continue
+                        try: sh.uniform_float('uModel', i.matrix_world)
+                        except Exception: pass
+                        for b, _mn, _tx in sl:
+                            try: b.draw(sh)
+                            except Exception: pass
+
+        ids_cb = None
+        if vls and (getattr(vls, 'use_outline', False) or getattr(vls, 'use_cavity', False)):
+            def ids_cb():
+                sh = _get_id_shader(); sh.bind()
+                try: sh.uniform_float('uViewProj', view_proj)
+                except Exception: pass
+                gpu.state.depth_test_set('LESS_EQUAL'); gpu.state.depth_mask_set(True)
+                gpu.state.face_culling_set(cull)
+                idx = 1
+                for i in depsgraph.object_instances:
+                    o = i.object
+                    if o.type != 'MESH' or not i.show_self: continue
+                    sl = self._batch_dict.get(o.name)
+                    if not sl: continue
+                    if getattr(o, 'vlr_outline_exclude', False):
+                        col = (1.0, 1.0, 1.0)
+                    else:
+                        col = ((idx & 0xFF)/255.0, ((idx >> 8) & 0xFF)/255.0, ((idx >> 16) & 0xFF)/255.0)
+                    try:
+                        sh.uniform_float('uModel', i.matrix_world)
+                        sh.uniform_float('uId', col)
+                    except Exception: pass
+                    for b, _mn, _tx in sl:
+                        try: b.draw(sh)
+                        except Exception: pass
+                    idx += 1
+
+        normals_cb = None
+        if vls and getattr(vls, 'use_cavity', False):
+            def normals_cb():
+                sh = _get_normal_shader(); sh.bind()
+                try:
+                    sh.uniform_float('uViewProj', view_proj)
+                    sh.uniform_float('uViewMat3', view_mat3)
+                except Exception: pass
+                gpu.state.depth_test_set('LESS_EQUAL'); gpu.state.depth_mask_set(True)
+                gpu.state.face_culling_set(cull)
+                for i in depsgraph.object_instances:
+                    o = i.object
+                    if o.type != 'MESH' or not i.show_self: continue
+                    sl = self._batch_dict.get(o.name)
+                    if not sl: continue
+                    try: nmat = i.matrix_world.to_3x3().inverted().transposed()
+                    except Exception: nmat = i.matrix_world.to_3x3()
+                    try:
+                        sh.uniform_float('uModel', i.matrix_world)
+                        sh.uniform_float('uNormalMat', nmat)
+                    except Exception: pass
+                    for b, _mn, _tx in sl:
+                        try: b.draw(sh)
+                        except Exception: pass
+
+        post_ctx = {
+            'proj': proj, 'inv_proj': proj.inverted(),
+            'texel': (1.0/max(rw, 1), 1.0/max(rh, 1)),
+            'clear_color': (wc[0], wc[1], wc[2], 1.0) if wc else (0.08, 0.08, 0.08, 1.0),
+            'draw_ao_occluders': ao_occluders,
+            'draw_object_ids': ids_cb,
+            'draw_view_normals': normals_cb,
+            'ao_radius':   (vls.ao_radius   if vls else 0.5),
+            'ao_strength': (vls.ao_strength if vls else 1.0),
+            'ao_bias':     (vls.ao_bias     if vls else 0.02),
+            'ao_ridge':    (vls.ao_ridge    if vls else 0.0),
+            'ao_samples':  (int(vls.ao_samples) if vls else 16),
+            'cavity_ridge':  (vls.cavity_ridge  if vls else 1.0),
+            'cavity_valley': (vls.cavity_valley if vls else 1.0),
+            'outline_size':      (vls.outline_size  if vls else 1.5),
+            'outline_color':     (tuple(vls.outline_color) if vls else (0.0, 0.0, 0.0)),
+        }
+        return _draw_objects, post_ctx
+
     def view_draw(self, context, depsgraph):
         self._ensure_state()
         self._ensure_resources()
@@ -970,7 +1088,14 @@ class VertexLitEngine(bpy.types.RenderEngine):
         scene=depsgraph.scene
         vls=getattr(scene,'vertex_lit',None)
 
-        # Edit mode: the evaluated mesh is empty and obj.data is stale — the live
+        # Colour-attribute selection changed -> drop caches and re-extract everything so the
+        # new attribute is read into the vertex-colour buffers.
+        global _FORCE_REEXTRACT
+        if _FORCE_REEXTRACT:
+            _FORCE_REEXTRACT = False
+            self._mesh_cache.clear(); self._batch_dict.clear(); self._shadow_dict.clear()
+            _PERSIST_SIG.clear()
+            self._dirty = True; self._force_full = True
         # geometry lives only in the edit BMesh. Write it to a reused temp mesh (~0.5ms)
         # and extract from that, so geometry edits show in real time. One object only.
         eob = getattr(context, 'edit_object', None)
@@ -981,7 +1106,7 @@ class VertexLitEngine(bpy.types.RenderEngine):
                 if getattr(self, '_edit_tmp', None) is None:
                     self._edit_tmp = bpy.data.meshes.new('_vlr_edit_tmp')
                 bm.to_mesh(self._edit_tmp)
-                data = _extract_mesh_data(eob, depsgraph, mesh=self._edit_tmp)
+                data = _extract_mesh_data(eob, depsgraph, mesh=self._edit_tmp, attr_name=getattr(self,'_view_attr',''))
                 if data:
                     self._mesh_cache[eob.name] = data
                     self._batch_dict[eob.name] = _build_object_slots(data)
@@ -1058,100 +1183,10 @@ class VertexLitEngine(bpy.types.RenderEngine):
             try:
                 proj = rv3d.window_matrix
                 wc = scene.world.color if scene.world else None
-                # AO object exclusion: only build the occluder-draw callback if AO is on
-                # AND at least one object is flagged (otherwise AO uses the gbuffer depth).
-                ao_occluders = None
-                if vls and getattr(vls, 'use_ao', False):
-                    any_excl = any(getattr(i.object, 'vlr_ao_exclude', False)
-                                   for i in depsgraph.object_instances if i.object.type == 'MESH')
-                    if any_excl:
-                        def ao_occluders():
-                            sh = _get_main_shader(mode); sh.bind()
-                            try: sh.uniform_float('uViewProj', view_proj)
-                            except Exception: pass
-                            gpu.state.face_culling_set(getattr(self, '_cull', 'BACK'))
-                            for i in depsgraph.object_instances:
-                                o = i.object
-                                if o.type != 'MESH' or not i.show_self: continue
-                                if getattr(o, 'vlr_ao_exclude', False): continue
-                                sl = self._batch_dict.get(o.name)
-                                if not sl: continue
-                                try: sh.uniform_float('uModel', i.matrix_world)
-                                except Exception: pass
-                                for b, _mn, _tx in sl:
-                                    try: b.draw(sh)
-                                    except Exception: pass
-                # Object-ID pass (outline + cavity both use it).
-                ids_cb = None
-                if vls and (getattr(vls, 'use_outline', False) or getattr(vls, 'use_cavity', False)):
-                    def ids_cb():
-                        sh = _get_id_shader(); sh.bind()
-                        try: sh.uniform_float('uViewProj', view_proj)
-                        except Exception: pass
-                        gpu.state.depth_test_set('LESS_EQUAL'); gpu.state.depth_mask_set(True)
-                        gpu.state.face_culling_set(getattr(self, '_cull', 'BACK'))
-                        idx = 1
-                        for i in depsgraph.object_instances:
-                            o = i.object
-                            if o.type != 'MESH' or not i.show_self: continue
-                            sl = self._batch_dict.get(o.name)
-                            if not sl: continue
-                            if getattr(o, 'vlr_outline_exclude', False):
-                                col = (1.0, 1.0, 1.0)   # reserved id -> no outline
-                            else:
-                                col = ((idx & 0xFF)/255.0, ((idx >> 8) & 0xFF)/255.0, ((idx >> 16) & 0xFF)/255.0)
-                            try:
-                                sh.uniform_float('uModel', i.matrix_world)
-                                sh.uniform_float('uId', col)
-                            except Exception: pass
-                            for b, _mn, _tx in sl:
-                                try: b.draw(sh)
-                                except Exception: pass
-                            idx += 1
-                # View-space normal pass for the Cavity (curvature) effect.
-                normals_cb = None
-                if vls and getattr(vls, 'use_cavity', False):
-                    view_mat3 = rv3d.view_matrix.to_3x3()
-                    def normals_cb():
-                        sh = _get_normal_shader(); sh.bind()
-                        try:
-                            sh.uniform_float('uViewProj', view_proj)
-                            sh.uniform_float('uViewMat3', view_mat3)
-                        except Exception: pass
-                        gpu.state.depth_test_set('LESS_EQUAL'); gpu.state.depth_mask_set(True)
-                        gpu.state.face_culling_set(getattr(self, '_cull', 'BACK'))
-                        for i in depsgraph.object_instances:
-                            o = i.object
-                            if o.type != 'MESH' or not i.show_self: continue
-                            sl = self._batch_dict.get(o.name)
-                            if not sl: continue
-                            try: nmat = i.matrix_world.to_3x3().inverted().transposed()
-                            except Exception: nmat = i.matrix_world.to_3x3()
-                            try:
-                                sh.uniform_float('uModel', i.matrix_world)
-                                sh.uniform_float('uNormalMat', nmat)
-                            except Exception: pass
-                            for b, _mn, _tx in sl:
-                                try: b.draw(sh)
-                                except Exception: pass
-                post_ctx = {
-                    'proj': proj, 'inv_proj': proj.inverted(),
-                    'texel': (1.0/max(rw,1), 1.0/max(rh,1)),
-                    'clear_color': (wc[0],wc[1],wc[2],1.0) if wc else (0.08,0.08,0.08,1.0),
-                    'draw_ao_occluders': ao_occluders,
-                    'draw_object_ids': ids_cb,
-                    'draw_view_normals': normals_cb,
-                    'ao_radius':   (vls.ao_radius   if vls else 0.5),
-                    'ao_strength': (vls.ao_strength if vls else 1.0),
-                    'ao_bias':     (vls.ao_bias     if vls else 0.02),
-                    'ao_ridge':    (vls.ao_ridge    if vls else 0.0),
-                    'ao_samples':  (int(vls.ao_samples) if vls else 16),
-                    'cavity_ridge':  (vls.cavity_ridge  if vls else 1.0),
-                    'cavity_valley': (vls.cavity_valley if vls else 1.0),
-                    'outline_size':      (vls.outline_size      if vls else 1.5),
-                    'outline_color':     (tuple(vls.outline_color) if vls else (0.0,0.0,0.0)),
-                }
-                post.render(rw, rh, _draw_objects, post_ctx, vls)
+                draw_scene, post_ctx = self._make_post_ctx(
+                    depsgraph, vls, view_proj, rv3d.view_matrix.to_3x3(), proj,
+                    rw, rh, wc, studio, ls_mat, sky, ground, bstr, lights)
+                post.render(rw, rh, draw_scene, post_ctx, vls)
                 gpu.state.depth_test_set('NONE')
                 gpu.state.face_culling_set('NONE')
                 gpu.state.depth_mask_set(False)

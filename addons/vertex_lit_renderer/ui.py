@@ -40,6 +40,13 @@ class VERTEX_LIT_PT_viewmode(_Base, bpy.types.Panel):
         layout.prop(s, 'view_mode', text="")
         if s.view_mode == 'SOLID':
             layout.prop(s, 'solid_color', text="")
+        elif s.view_mode == 'ATTRIBUTE':
+            ob = context.active_object
+            me = ob.data if (ob is not None and ob.type == 'MESH') else None
+            if me is not None and hasattr(me, 'color_attributes'):
+                layout.prop_search(s, 'view_attribute', me, 'color_attributes', text="")
+            else:
+                layout.prop(s, 'view_attribute', text="")
 
 
 class VERTEX_LIT_PT_background(_Base, bpy.types.Panel):
@@ -126,6 +133,16 @@ class VERTEX_LIT_PT_cavity_screen(_Base, bpy.types.Panel):
         col.prop(s, 'cavity_valley', text="Valley")
 
 
+class VERTEX_LIT_PT_render_settings(_Base, bpy.types.Panel):
+    bl_label = "Settings"
+    bl_parent_id = "VERTEX_LIT_PT_settings"
+    bl_options = {'DEFAULT_CLOSED'}
+
+    def draw(self, context):
+        s = context.scene.vertex_lit
+        self.layout.prop(s, 'aa_method')
+
+
 _CLASSES = (
     VERTEX_LIT_PT_settings,
     VERTEX_LIT_PT_lighting,
@@ -135,6 +152,7 @@ _CLASSES = (
     VERTEX_LIT_PT_outline,
     VERTEX_LIT_PT_cavity_world,
     VERTEX_LIT_PT_cavity_screen,
+    VERTEX_LIT_PT_render_settings,
 )
 
 

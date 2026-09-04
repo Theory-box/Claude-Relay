@@ -1000,3 +1000,18 @@ New tests/test_workbench2.py (props/panels/shaders/random). 15 suites green.
   The viewport uses plain ALPHA again (its known-good glass behaviour). GPU test confirmed the
   ALPHA blend itself composites objects-behind correctly, so this rules out color_mask as the
   cause of a viewport "glass fades to nothing" report (likely scene-specific — awaiting details).
+
+## v0.11.2 — F12 render fixes + FXAA + Attribute selection
+F12 RENDER: was upside-down, ignored effects, wrong hemisphere colours.
+- Removed the erroneous np.flipud (read_color is bottom-up, Blender's rect is bottom-up too).
+- Hemisphere sky/ground now read from vls (were hardcoded).
+- render() now routes through the SAME post pipeline as the viewport when effects are enabled:
+  extracted _make_post_ctx(depsgraph, vls, view_proj, view_mat3, proj, w, h, wc, studio, ls_mat,
+  sky, ground, bstr, lights) -> (draw_scene, post_ctx), shared by view_draw + render(). F12 now
+  shows AO / cavity / outline / FXAA. (film_transparent+effects clear-alpha still a corner case.)
+- ANTI-ALIASING: new fx/fxaa.py (FXAA post pass, runs last), aa_method enum (OFF/FXAA, default
+  FXAA), in a new collapsible "Settings" sub-panel.
+- ATTRIBUTE VIEW SELECTION: view_attribute StringProperty (prop_search over the active mesh's
+  color_attributes). _extract_mesh_data(attr_name=...) reads the chosen attribute (blank = active);
+  changing it sets engine._FORCE_REEXTRACT which view_draw consumes to drop caches + full re-extract.
+15 suites green. (F12 upside-down/effects need on-GPU confirmation.)

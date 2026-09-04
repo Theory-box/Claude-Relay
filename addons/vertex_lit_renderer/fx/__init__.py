@@ -11,11 +11,12 @@ from .pipeline import Pipeline
 from .ssao import SSAO
 from .cavity import Cavity
 from .outline import Outline
+from .fxaa import FXAA
 
 
 def default_effects():
-    # order matters: AO + cavity shade the colour first, then outline draws lines on top.
-    return [SSAO(), Cavity(), Outline()]
+    # order matters: AO + cavity shade the colour, outline draws lines, FXAA smooths last.
+    return [SSAO(), Cavity(), Outline(), FXAA()]
 
 
 def make_pipeline():
