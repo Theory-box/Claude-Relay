@@ -1071,3 +1071,12 @@ The bake frag only computes base colour, so the GLSL compiler strips unused vert
 when handed an attribute the compiled shader lacked. Fix: query shader.attrs_info_get() and build
 the bake batch with ONLY the attributes the shader actually kept (texCoord always included as it
 drives gl_Position). 16 suites green. Actual bake still needs on-GPU confirmation.
+
+## v0.11.8 — Bake empty-image debugging (viewport + UV guard + diagnostics)
+Bake produced a fully transparent image (nothing rasterised). Added:
+- gpu.state.viewport_set(0,0,res,res) inside the offscreen bind (offscreen bind doesn't always set
+  the GL viewport -> triangles land nowhere).
+- UV guard: raise a clear error if the mesh has no active UV map (all-zero UVs collapse every tri
+  to a point -> empty bake).
+- Console diagnostic line (slots/verts/uv-range/params/samplers) to pinpoint if still empty.
+Can't run the actual bake headless (Blender gpu can't draw in --background) -> user confirms.

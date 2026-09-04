@@ -38,10 +38,32 @@ def bake_material_to_image(obj, mat, depsgraph, res=1024, margin_fill=True):
     if not slots:
         slots = data.get('slots', [])   # fall back to everything if names don't line up
 
+    # A UV-space bake needs UVs. If the mesh has no active UV map every triangle collapses
+    # to a point and the bake comes out empty — flag that instead of writing a blank image.
+    has_uv = False
+    for s in slots:
+        uvs = s.get('uvs')
+        if uvs is not None and len(uvs) and float(np.abs(np.asarray(uvs)).max()) > 1e-6:
+            has_uv = True; break
+    if not has_uv:
+        raise RuntimeError("object has no active UV map to bake into")
+
+    try:
+        _nv = sum(len(s['positions']) for s in slots)
+        _uv = np.concatenate([np.asarray(s['uvs']) for s in slots]) if slots else np.zeros((0, 2))
+        print("[VertexLit] bake '{}': {} slot(s), {} verts, uv range [{:.3f},{:.3f}], "
+              "{} params, {} samplers".format(
+                  mat.name, len(slots), _nv,
+                  float(_uv.min()) if len(_uv) else 0.0, float(_uv.max()) if len(_uv) else 0.0,
+                  len(tr.params), len(tr.samplers)))
+    except Exception:
+        pass
+
     offscreen = gpu.types.GPUOffScreen(res, res)
     arr = None
     try:
         with offscreen.bind():
+            gpu.state.viewport_set(0, 0, res, res)
             fb = gpu.state.active_framebuffer_get()
             fb.clear(color=(0.0, 0.0, 0.0, 0.0))
             gpu.state.blend_set('NONE')
