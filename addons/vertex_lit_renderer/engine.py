@@ -8,7 +8,7 @@ import gpu
 from gpu_extras.batch import batch_for_shader
 from mathutils import Matrix, Vector
 
-from .shaders import SHADOW_VERT, SHADOW_FRAG, PHONG_VERT, PHONG_FRAG, WORKBENCH_FRAG, ID_VERT, ID_FRAG, NORMAL_VERT, NORMAL_FRAG
+from .shaders import SHADOW_VERT, SHADOW_FRAG, PHONG_VERT, PHONG_FRAG, WORKBENCH_FRAG, ID_VERT, ID_FRAG, NORMAL_VERT, NORMAL_FRAG, VIEWMODE_FRAG, BG_VERT, BG_FRAG
 from . import material_shader
 from . import fx
 import ctypes as _ct
@@ -101,6 +101,32 @@ def _get_normal_shader():
     if _normal_shader is None:
         _normal_shader = gpu.types.GPUShader(NORMAL_VERT, NORMAL_FRAG)
     return _normal_shader
+
+_viewmode_shader = None
+def _get_viewmode_shader():
+    global _viewmode_shader
+    if _viewmode_shader is None:
+        _viewmode_shader = gpu.types.GPUShader(PHONG_VERT, VIEWMODE_FRAG)
+    return _viewmode_shader
+
+_bg_shader = None
+_bg_batch = None
+def _get_bg():
+    global _bg_shader, _bg_batch
+    if _bg_shader is None:
+        from gpu_extras.batch import batch_for_shader
+        _bg_shader = gpu.types.GPUShader(BG_VERT, BG_FRAG)
+        _bg_batch = batch_for_shader(_bg_shader, 'TRIS',
+                                     {"pos": [(-1.0, -1.0), (3.0, -1.0), (-1.0, 3.0)]})
+    return _bg_shader, _bg_batch
+
+_VIEWMODE_ID = {'SOLID': 1, 'RANDOM': 2, 'ATTRIBUTE': 3, 'NORMAL': 4}
+
+def _obj_random_color(name):
+    """Stable pseudo-random colour per object (Blender-like), from the object name."""
+    import hashlib
+    h = hashlib.md5(name.encode('utf-8')).digest()
+    return (0.15 + 0.8 * (h[0] / 255.0), 0.15 + 0.8 * (h[1] / 255.0), 0.15 + 0.8 * (h[2] / 255.0))
 
 def _get_main_shader(mode='PIXEL'):
     sh = _main_shader.get(mode)
@@ -392,7 +418,7 @@ def _build_shadow_batch_from_cache(cached):
 # ── Render Engine ─────────────────────────────────────────────────────────────
 
 class VertexLitEngine(bpy.types.RenderEngine):
-    bl_idname='VERTEX_LIT'; bl_label='Vertex Lit'; bl_use_preview=False
+    bl_idname='VERTEX_LIT'; bl_label='Workbench 2.0'; bl_use_preview=False
     # F12 render() draws with the gpu module -> Blender must hand render() a GPU context.
     bl_use_gpu_context = True
     # Use Blender's STANDARD shader nodes (not a custom node system). Without this
@@ -465,13 +491,16 @@ class VertexLitEngine(bpy.types.RenderEngine):
             view = cam.matrix_world.inverted()
             proj = cam.calc_matrix_camera(depsgraph, x=w, y=h)
             view_proj = proj @ view
+            self._film_transparent = getattr(scene.render, 'film_transparent', False)
+            try: self._cam_pos = tuple(cam.matrix_world.translation)
+            except Exception: self._cam_pos = (0.0, 0.0, 0.0)
             try:
                 kv = Vector((0.25, 0.35, 0.90)); kv.normalize()
                 key_dir = tuple(cam.matrix_world.to_quaternion() @ kv)
             except Exception:
                 key_dir = (0.3, 0.4, 0.86)
-            studio = (key_dir, (0.9, 0.9, 0.9), 0.35)
-            mode = getattr(vls, 'shading_mode', 'WORKBENCH')
+            studio = (key_dir, (1.0, 1.0, 1.0), (vls.key_intensity if vls else 0.8))
+            mode = 'PIXEL'
 
             offscreen = gpu.types.GPUOffScreen(w, h)
             arr = None
@@ -718,8 +747,8 @@ class VertexLitEngine(bpy.types.RenderEngine):
 
         sf('uViewProj', view_proj)
         # Workbench studio light (camera-following key + flat ambient)
-        key_dir, key_col, ambient = studio
-        sf('uKeyDir', key_dir); sf('uKeyCol', key_col); sf('uAmbient', ambient)
+        key_dir, key_col, key_int = studio
+        sf('uKeyDir', key_dir); sf('uKeyCol', key_col); sf('uKeyIntensity', key_int)
         # Scene-light / shadow uniforms (present only in the PIXEL program)
         sf('uLightSpace', ls_mat); sf('uSkyColor', sky); sf('uGroundColor', ground)
         si('uUseShadow', 1 if do_shad else 0)
@@ -735,6 +764,59 @@ class VertexLitEngine(bpy.types.RenderEngine):
             sf(f'uLRadius[{i}]', l['radius']      if l else 1.0)
 
     # ── Shared scene draw (used by the viewport AND F12 render) ─────────────
+
+    def _draw_background(self, vls, view_proj, sky, ground):
+        """Fullscreen background: world hemisphere gradient or a flat colour."""
+        try:
+            bgsh, bgbatch = _get_bg()
+            bgsh.bind()
+            mode = getattr(vls, 'background_mode', 'WORLD')
+            bgsh.uniform_float('uInvViewProj', view_proj.inverted())
+            bgsh.uniform_float('uCamPos', getattr(self, '_cam_pos', (0.0, 0.0, 0.0)))
+            bgsh.uniform_float('uSkyColor', sky)
+            bgsh.uniform_float('uGroundColor', ground)
+            bgsh.uniform_int('uBgMode', 0 if mode == 'WORLD' else 1)
+            bgc = tuple(vls.background_color) if vls else (0.05, 0.05, 0.05)
+            bgsh.uniform_float('uBgColor', bgc)
+            gpu.state.depth_test_set('NONE'); gpu.state.depth_mask_set(False)
+            bgbatch.draw(bgsh)
+            gpu.state.depth_test_set('LESS_EQUAL'); gpu.state.depth_mask_set(True)
+        except Exception as e:
+            print(f"[VertexLit] background: {e}")
+
+    def _draw_viewmode(self, depsgraph, vls, view_proj, studio, ls_mat, sky, ground,
+                       bstr, lights, view_mode):
+        """Solid / Random / Attribute / Normal view: one shared lit shader, no materials."""
+        sh = _get_viewmode_shader(); sh.bind()
+        self._apply_frame_uniforms(sh, view_proj, ls_mat, sky, ground, bstr,
+                                   False, 0.005, 0.25, self._dummy_depth, lights, studio)
+        vmid = _VIEWMODE_ID.get(view_mode, 1)
+        try:
+            sh.uniform_int('uViewMode', vmid)
+            sh.uniform_float('uSolidColor', tuple(vls.solid_color) if vls else (0.8, 0.8, 0.8))
+        except Exception: pass
+        gpu.state.depth_test_set('LESS_EQUAL'); gpu.state.depth_mask_set(True)
+        gpu.state.face_culling_set(getattr(self, '_cull', 'BACK'))
+        for inst in depsgraph.object_instances:
+            obj = inst.object
+            if obj.type != 'MESH' or not inst.show_self: continue
+            slots = self._batch_dict.get(obj.name)
+            if not slots: continue
+            cached = self._mesh_cache.get(obj.name)
+            gmin = cached.get('gen_min', (0.0, 0.0, 0.0)) if cached else (0.0, 0.0, 0.0)
+            gsc = cached.get('gen_scale', (1.0, 1.0, 1.0)) if cached else (1.0, 1.0, 1.0)
+            try: nmat = inst.matrix_world.to_3x3().inverted().transposed()
+            except Exception: nmat = inst.matrix_world.to_3x3()
+            try:
+                sh.uniform_float('uModel', inst.matrix_world)
+                sh.uniform_float('uNormalMat', nmat)
+                sh.uniform_float('uGenMin', gmin); sh.uniform_float('uGenScale', gsc)
+                if vmid == 2:
+                    sh.uniform_float('uObjColor', _obj_random_color(obj.name))
+            except Exception: pass
+            for batch, _mat_name, _tex in slots:
+                try: batch.draw(sh)
+                except Exception: pass
 
     def _draw_batches(self, depsgraph, vls, view_proj, studio, ls_mat, sky, ground,
                       bstr, do_shad, s_bias, s_dark, shad_tex, lights, mode):
@@ -758,6 +840,17 @@ class VertexLitEngine(bpy.types.RenderEngine):
         gpu.state.depth_test_set('LESS_EQUAL')
         gpu.state.depth_mask_set(True)
         gpu.state.face_culling_set(getattr(self, '_cull', 'BACK'))
+
+        # Background (behind everything). Skipped for a film-transparent render.
+        if not getattr(self, '_film_transparent', False):
+            self._draw_background(vls, view_proj, sky, ground)
+
+        # Non-textured view modes bypass the material programs entirely.
+        view_mode = getattr(vls, 'view_mode', 'TEXTURED')
+        if view_mode != 'TEXTURED':
+            self._draw_viewmode(depsgraph, vls, view_proj, studio, ls_mat, sky, ground,
+                                bstr, lights, view_mode)
+            return
 
         # Resolve each material's program at most ONCE per frame (materials are shared
         # across many objects; the peek can run topo_signature for dirty materials, so
@@ -936,7 +1029,10 @@ class VertexLitEngine(bpy.types.RenderEngine):
         gpu.state.face_culling_set(self._cull)
 
         view_proj=rv3d.window_matrix@rv3d.view_matrix
-        mode=getattr(vls,'shading_mode','WORKBENCH')
+        self._film_transparent = False
+        try: self._cam_pos = tuple(rv3d.view_matrix.inverted().translation)
+        except Exception: self._cam_pos = (0.0, 0.0, 0.0)
+        mode='PIXEL'
         # Workbench studio key light follows the view (like Blender's Solid mode):
         # a fixed view-space direction rotated into world space each frame.
         try:
@@ -944,7 +1040,7 @@ class VertexLitEngine(bpy.types.RenderEngine):
             key_dir=tuple(rv3d.view_rotation @ kv)
         except Exception:
             key_dir=(0.3,0.4,0.86)
-        studio=(key_dir, (0.9,0.9,0.9), 0.35)
+        studio=(key_dir, (1.0,1.0,1.0), (vls.key_intensity if vls else 0.8))
         def _draw_objects():
             self._draw_batches(depsgraph, vls, view_proj, studio, ls_mat, sky, ground,
                                bstr, do_shad, s_bias, s_dark, shad_tex, lights, mode)

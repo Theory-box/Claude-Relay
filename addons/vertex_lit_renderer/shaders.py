@@ -26,6 +26,9 @@ uniform float uLRadius[8];
 uniform int   uNumLights;
 uniform vec3  uSkyColor;
 uniform vec3  uGroundColor;
+uniform vec3  uKeyDir;       /* camera-following key light (world space) */
+uniform vec3  uKeyCol;
+uniform float uKeyIntensity;
 uniform sampler2D uShadowMap;
 uniform int       uUseShadow;
 uniform float     uShadowBias;
@@ -36,6 +39,8 @@ LIGHT_FUNCS = """
 vec3 vlr_light(vec3 wPos, vec3 N) {
     float hemi = dot(N, vec3(0.0, 0.0, 1.0)) * 0.5 + 0.5;
     vec3 light = mix(uGroundColor, uSkyColor, hemi);
+    /* camera key light (headlamp) — follows the view, added on top of the hemisphere */
+    light += uKeyCol * (max(dot(N, normalize(uKeyDir)), 0.0) * uKeyIntensity);
     for (int i = 0; i < 8; i++) {
         float lightOn = (i < uNumLights) ? 1.0 : 0.0;
         vec3  L; float att = 1.0;
@@ -203,4 +208,53 @@ NORMAL_FRAG = """
 in vec3 vVN;
 out vec4 fragColor;
 void main(){ fragColor = vec4(normalize(vVN) * 0.5 + 0.5, 1.0); }
+"""
+
+
+# ---- View-mode shader: Solid / Random / Attribute / Normal --------------------
+# Pairs with PHONG_VERT (vUV, vColor, vWpos, vNrm). Textured mode uses the material
+# programs instead; this covers the non-material colour modes with the same lighting.
+VIEWMODE_FRAG = ("in vec2 vUV;\nin vec4 vColor;\nin vec3 vWpos;\nin vec3 vNrm;\n"
+                 "in vec3 vGenerated;\nin vec3 vObjPos;\nout vec4 outColor;\n"
+                 + LIGHT_CHUNK +
+                 "uniform int  uViewMode;   /* 1=solid 2=random 3=attribute 4=normal */\n"
+                 "uniform vec3 uSolidColor;\n"
+                 "uniform vec3 uObjColor;\n"
+                 "void main(){\n"
+                 "    vec3 N = normalize(vNrm);\n"
+                 "    if(uViewMode == 4){ outColor = vec4(N * 0.5 + 0.5, 1.0); return; }\n"
+                 "    vec3 albedo;\n"
+                 "    if(uViewMode == 1) albedo = uSolidColor;\n"
+                 "    else if(uViewMode == 2) albedo = uObjColor;\n"
+                 "    else albedo = vColor.rgb;\n"
+                 "    vec3 light = clamp(vlr_light(vWpos, N), 0.0, 12.0) * vlr_shadow(vWpos);\n"
+                 "    outColor = vec4(light * albedo, 1.0);\n"
+                 "}\n")
+
+
+# ---- Background: hemisphere sky/ground gradient (world space) or flat colour ---
+BG_VERT = """
+in vec2 pos;
+out vec2 vNdc;
+void main(){ vNdc = pos; gl_Position = vec4(pos, 1.0, 1.0); }
+"""
+
+BG_FRAG = """
+uniform mat4 uInvViewProj;
+uniform vec3 uCamPos;
+uniform vec3 uSkyColor;
+uniform vec3 uGroundColor;
+uniform int  uBgMode;      /* 0 = world gradient, 1 = flat colour */
+uniform vec3 uBgColor;
+in vec2 vNdc;
+out vec4 fragColor;
+void main(){
+    if(uBgMode == 1){ fragColor = vec4(uBgColor, 1.0); return; }
+    /* reconstruct the world-space view ray at this pixel and gradient by its up (world +Z) */
+    vec4 wp = uInvViewProj * vec4(vNdc, 1.0, 1.0);
+    vec3 world = wp.xyz / wp.w;
+    vec3 dir = normalize(world - uCamPos);
+    float t = clamp(dir.z * 0.5 + 0.5, 0.0, 1.0);
+    fragColor = vec4(mix(uGroundColor, uSkyColor, t), 1.0);
+}
 """

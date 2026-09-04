@@ -1,11 +1,11 @@
 # vertex_lit_renderer/__init__.py
 
 bl_info = {
-    "name":        "Vertex Lit Renderer",
+    "name":        "Workbench 2.0",
     "author":      "Theory-box / Claude",
-    "version":     (0, 10, 11),
+    "version":     (0, 11, 0),
     "blender":     (4, 4, 0),
-    "location":    "Properties > Render > Render Engine → Vertex Lit",
+    "location":    "Properties > Render > Render Engine → Workbench 2.0",
     "description": "Solid studio + live-node material renderer (+ screen-space AO) for retro game look-dev. "
                    "Lighting (diffuse + shadow + ambient) is computed per vertex "
                    "with per-pixel scene lighting, shadows, and live node materials. "

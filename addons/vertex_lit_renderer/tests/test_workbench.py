@@ -33,7 +33,7 @@ print("=== defaults ===")
 import vertex_lit_renderer as vlr
 vlr.register()
 sc=bpy.data.scenes[0]
-check(sc.vertex_lit.shading_mode=='PIXEL', "shading defaults to PIXEL")
+check(sc.vertex_lit.view_mode=='TEXTURED', "view mode defaults to TEXTURED")
 vlr.unregister()
 
 print("SUMMARY: " + ("FAILED "+", ".join(F) if F else "ALL CHECKS PASSED"))

@@ -49,7 +49,7 @@ sc = bpy.data.scenes[0] if bpy.data.scenes else bpy.data.scenes.new("t")
 vls = getattr(sc, "vertex_lit", None)
 check(vls is not None, "scene.vertex_lit property group present")
 check(not hasattr(vls, "use_live_nodes"), "use_live_nodes toggle removed (live nodes always on)")
-check(getattr(vls, "shading_mode", "") == "PIXEL", "shading_mode defaults to PIXEL")
+check(getattr(vls, "view_mode", "") == "TEXTURED", "view_mode defaults to TEXTURED")
 check(getattr(vls, "use_shadows", True) is False, "shadows default OFF")
 
 try:

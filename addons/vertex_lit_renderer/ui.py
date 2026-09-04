@@ -1,88 +1,148 @@
 import bpy
 
-class VERTEX_LIT_PT_settings(bpy.types.Panel):
-    bl_label='Vertex Lit Settings'; bl_idname='VERTEX_LIT_PT_settings'
-    bl_space_type='PROPERTIES'; bl_region_type='WINDOW'; bl_context='render'
+
+class _Base:
+    bl_space_type = 'PROPERTIES'
+    bl_region_type = 'WINDOW'
+    bl_context = 'render'
 
     @classmethod
     def poll(cls, context):
         return context.scene.render.engine == 'VERTEX_LIT'
 
+
+class VERTEX_LIT_PT_settings(_Base, bpy.types.Panel):
+    bl_label = "Workbench 2.0"
+    bl_idname = "VERTEX_LIT_PT_settings"
+
     def draw(self, context):
-        layout = self.layout
+        pass   # container; collapsible sub-panels below
+
+
+class VERTEX_LIT_PT_lighting(_Base, bpy.types.Panel):
+    bl_label = "Lighting"
+    bl_parent_id = "VERTEX_LIT_PT_settings"
+
+    def draw(self, context):
         s = context.scene.vertex_lit
+        col = self.layout.column(align=True)
+        col.prop(s, 'sky_color')
+        col.prop(s, 'ground_color')
 
-        box = layout.box()
-        row = box.row()
-        row.label(text="Outline", icon='MOD_EDGESPLIT')
-        row.prop(s, 'use_outline', text="")
-        if s.use_outline:
-            col = box.column(align=True)
-            col.prop(s, 'outline_size')
-            col.prop(s, 'outline_color', text="")
-            ob = context.active_object
-            if ob is not None and ob.type == 'MESH':
-                box.prop(ob, 'vlr_outline_exclude', text="Exclude active object")
 
-        box = layout.box()
-        box.label(text="Shading", icon='SHADING_RENDERED')
-        box.prop(s, 'shading_mode', text="")
-        box.prop(s, 'backface_cull')
+class VERTEX_LIT_PT_viewmode(_Base, bpy.types.Panel):
+    bl_label = "View Mode"
+    bl_parent_id = "VERTEX_LIT_PT_settings"
 
-        box = layout.box()
-        row = box.row()
-        row.label(text="Cavity World", icon='SHADING_RENDERED')
-        row.prop(s, 'use_ao', text="")
-        if s.use_ao:
-            col = box.column(align=True)
-            col.prop(s, 'ao_strength', text="Valley")
-            col.prop(s, 'ao_ridge', text="Ridge")
-            col.prop(s, 'ao_radius', text="Distance")
-            col.prop(s, 'ao_bias', text="Bias")
-            col.prop(s, 'ao_samples', text="Quality")
-            ob = context.active_object
-            if ob is not None and ob.type == 'MESH':
-                box.prop(ob, 'vlr_ao_exclude', text="Exclude active object")
+    def draw(self, context):
+        s = context.scene.vertex_lit
+        layout = self.layout
+        layout.prop(s, 'view_mode', text="")
+        if s.view_mode == 'SOLID':
+            layout.prop(s, 'solid_color', text="")
 
-        box = layout.box()
-        row = box.row()
-        row.label(text="Cavity Screen", icon='MESH_ICOSPHERE')
-        row.prop(s, 'use_cavity', text="")
-        if s.use_cavity:
-            col = box.column(align=True)
-            col.prop(s, 'cavity_ridge')
-            col.prop(s, 'cavity_valley')
 
-        # The rest only affect the Per-Pixel (lit) mode. In Solid (studio) mode they
-        # do nothing, so hide them to avoid confusion.
-        if s.shading_mode == 'WORKBENCH':
-            box = layout.box()
-            box.label(text="Solid studio shading — always lit, no scene lights", icon='INFO')
-            box.label(text="or shadows. (Switch to Per-Pixel for those.)")
-            return
+class VERTEX_LIT_PT_background(_Base, bpy.types.Panel):
+    bl_label = "Background"
+    bl_parent_id = "VERTEX_LIT_PT_settings"
+    bl_options = {'DEFAULT_CLOSED'}
 
-        box = layout.box()
-        box.label(text="Hemisphere Fill", icon='LIGHT_HEMI')
-        row = box.row(align=True)
-        row.prop(s, 'sky_color', text="Sky")
-        row.prop(s, 'ground_color', text="Ground")
+    def draw(self, context):
+        s = context.scene.vertex_lit
+        layout = self.layout
+        layout.prop(s, 'background_mode', text="")
+        if s.background_mode == 'COLOR':
+            layout.prop(s, 'background_color', text="")
 
-        box = layout.box()
-        box.label(text="Lights", icon='LIGHT')
-        box.prop(s, 'energy_scale')
 
-        box = layout.box()
-        row = box.row()
-        row.label(text="Shadows", icon='SHADING_RENDERED')
-        row.prop(s, 'use_shadows', text="")
-        if s.use_shadows:
-            col = box.column(align=True)
-            col.prop(s, 'shadow_resolution')
-            col.prop(s, 'shadow_bias')
-            col.prop(s, 'shadow_darkness')
+class VERTEX_LIT_PT_shading(_Base, bpy.types.Panel):
+    bl_label = "Shading"
+    bl_parent_id = "VERTEX_LIT_PT_settings"
+
+    def draw(self, context):
+        s = context.scene.vertex_lit
+        col = self.layout.column(align=True)
+        col.prop(s, 'backface_cull')
+        col.prop(s, 'key_intensity')
+
+
+class VERTEX_LIT_PT_outline(_Base, bpy.types.Panel):
+    bl_label = "Outline"
+    bl_parent_id = "VERTEX_LIT_PT_shading"
+    bl_options = {'DEFAULT_CLOSED'}
+
+    def draw_header(self, context):
+        self.layout.prop(context.scene.vertex_lit, 'use_outline', text="")
+
+    def draw(self, context):
+        s = context.scene.vertex_lit
+        layout = self.layout
+        layout.active = s.use_outline
+        col = layout.column(align=True)
+        col.prop(s, 'outline_size')
+        col.prop(s, 'outline_color', text="")
+        ob = context.active_object
+        if ob is not None and ob.type == 'MESH':
+            layout.prop(ob, 'vlr_outline_exclude', text="Exclude active object")
+
+
+class VERTEX_LIT_PT_cavity_world(_Base, bpy.types.Panel):
+    bl_label = "Cavity World"
+    bl_parent_id = "VERTEX_LIT_PT_shading"
+    bl_options = {'DEFAULT_CLOSED'}
+
+    def draw_header(self, context):
+        self.layout.prop(context.scene.vertex_lit, 'use_ao', text="")
+
+    def draw(self, context):
+        s = context.scene.vertex_lit
+        layout = self.layout
+        layout.active = s.use_ao
+        col = layout.column(align=True)
+        col.prop(s, 'ao_strength', text="Valley")
+        col.prop(s, 'ao_ridge', text="Ridge")
+        col.prop(s, 'ao_radius', text="Distance")
+        col.prop(s, 'ao_bias', text="Bias")
+        col.prop(s, 'ao_samples', text="Quality")
+        ob = context.active_object
+        if ob is not None and ob.type == 'MESH':
+            layout.prop(ob, 'vlr_ao_exclude', text="Exclude active object")
+
+
+class VERTEX_LIT_PT_cavity_screen(_Base, bpy.types.Panel):
+    bl_label = "Cavity Screen"
+    bl_parent_id = "VERTEX_LIT_PT_shading"
+    bl_options = {'DEFAULT_CLOSED'}
+
+    def draw_header(self, context):
+        self.layout.prop(context.scene.vertex_lit, 'use_cavity', text="")
+
+    def draw(self, context):
+        s = context.scene.vertex_lit
+        layout = self.layout
+        layout.active = s.use_cavity
+        col = layout.column(align=True)
+        col.prop(s, 'cavity_ridge', text="Ridge")
+        col.prop(s, 'cavity_valley', text="Valley")
+
+
+_CLASSES = (
+    VERTEX_LIT_PT_settings,
+    VERTEX_LIT_PT_lighting,
+    VERTEX_LIT_PT_viewmode,
+    VERTEX_LIT_PT_background,
+    VERTEX_LIT_PT_shading,
+    VERTEX_LIT_PT_outline,
+    VERTEX_LIT_PT_cavity_world,
+    VERTEX_LIT_PT_cavity_screen,
+)
+
 
 def register():
-    bpy.utils.register_class(VERTEX_LIT_PT_settings)
+    for c in _CLASSES:
+        bpy.utils.register_class(c)
+
 
 def unregister():
-    bpy.utils.unregister_class(VERTEX_LIT_PT_settings)
+    for c in reversed(_CLASSES):
+        bpy.utils.unregister_class(c)

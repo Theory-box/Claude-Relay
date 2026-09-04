@@ -971,3 +971,22 @@ because SSAO bound uDepth to the occluder depth for the CENTRE pixel too.
   uAoDepth==uDepth, mask never fires. view_pos(sampler2D,uv) now takes the depth tex.
 14 suites green. (Opaque materials with alpha<1 + OPAQUE blend still write their alpha; force-to-1
 deferred as a rare edge case.)
+
+## v0.11.0 — WORKBENCH 2.0 rebrand + panel overhaul + view modes + background + key light
+Big UX/feature refactor (internal engine id stays 'VERTEX_LIT').
+- RENAME: engine bl_label + addon name -> "Workbench 2.0".
+- REMOVED: shading_mode selector (always PIXEL now; Solid-Studio mode gone from use, WORKBENCH_FRAG
+  kept as dead code). Lights + Shadows panels removed (props kept hidden for wiring).
+- COLLAPSIBLE PANELS (classic sub-panel classes; layout.panel() absent in 4.4): Lighting / View Mode
+  / Background / Shading, with Outline + Cavity World + Cavity Screen as header-checkbox sub-panels
+  nested under Shading.
+- CAMERA KEY LIGHT: folded into vlr_light as an additive headlamp (uKeyDir view-following, uKeyCol,
+  uKeyIntensity). key_intensity slider under Shading. Replaces the old studio mode's key light.
+- VIEW MODES (Blender "Color"): Textured (materials, default) | Solid (flat colour) | Random (per-
+  object hashed colour) | Attribute (vertex colours) | Normal (N*0.5+0.5). Non-textured modes bypass
+  the material programs via a shared VIEWMODE_FRAG (PHONG_VERT) lit by the same hemisphere+key; engine
+  _draw_viewmode + _obj_random_color(name).
+- BACKGROUND: world hemisphere gradient (world-space, gradient by view-ray world +Z) or flat colour;
+  BG_VERT/BG_FRAG fullscreen pass drawn first in _draw_batches (skipped when film_transparent).
+  background_mode + background_color props.
+New tests/test_workbench2.py (props/panels/shaders/random). 15 suites green.
