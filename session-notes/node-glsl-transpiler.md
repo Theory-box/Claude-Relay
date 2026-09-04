@@ -825,3 +825,19 @@ most objects"). Now persist the GPU batches (_PERSIST_BATCH/_SHADOW) as well:
 DIAGNOSTIC: on re-entry, NO "re-extracted" console line (or small N) = batches reused
   (instant). "re-extracted 200/200" = batches were stale in this GPU context -> self-healed.
 10 suites green. Need user's console on re-entry to confirm batches survive their context.
+
+## v0.10.0 — REMOVE old vertex lighting + GI (roadmap item 1/7)
+User roadmap: (1) remove vertex lighting/GI [DONE], (2) matcaps, (3) sun+rasterised
+shadows rewrite, (4) outline fx, (5) AO object exclusion, (6) transparency, (7) mask/
+depth/ID passes.
+REMOVED:
+- Per-Vertex (Gouraud) shading mode entirely (MAIN_VERT/MAIN_FRAG, MAT_FRAG_*_VERTEX).
+  Shading modes now: WORKBENCH (Solid studio) + PIXEL (per-pixel lit, default).
+- The whole GI system: gi.py (317 lines, ProgressiveGI thread), BVH build, per-vertex
+  bounce colours (bounceColor attr, uBounceStrength), _apply_gi_update, and the GI redraw
+  timer (_gi_redraw_timer/_gi_active/_last_draw_time). Redraws now driven purely by
+  tag_redraw (streaming/edit/materials) + a one-shot shadow redraw.
+- GI props (use_gi/gi_samples/gi_rays_per_pass/gi_thread_pause/gi_bounce_strength) + UI.
+- extraction: vert_no_local + mat_diffuse (GI-only) dropped; vert_co_local kept (shadows).
+KEPT: rasterised shadow MAP (that's item 3 to fix, not vertex-based), hemisphere ambient,
+  energy_scale, per-pixel Phong lighting. ~400 lines lighter (3600->3192). 12 suites green.

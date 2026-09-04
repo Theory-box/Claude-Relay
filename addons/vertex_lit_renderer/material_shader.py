@@ -28,12 +28,11 @@ def _heads(mode):
     if mode == "WORKBENCH":
         return (_sh.PHONG_VERT, _sh.MAT_FRAG_HEAD_WORKBENCH,
                 _sh.MAT_FRAG_MAIN_WORKBENCH, "")
-    if mode == "PIXEL":
-        return _sh.PHONG_VERT, _sh.MAT_FRAG_HEAD_PIXEL, _sh.MAT_FRAG_MAIN_PIXEL, _sh.LIGHT_CHUNK
-    return _sh.MAIN_VERT, _sh.MAT_FRAG_HEAD_VERTEX, _sh.MAT_FRAG_MAIN_VERTEX, ""
+    # PIXEL (default): per-fragment scene lighting
+    return _sh.PHONG_VERT, _sh.MAT_FRAG_HEAD_PIXEL, _sh.MAT_FRAG_MAIN_PIXEL, _sh.LIGHT_CHUNK
 
 
-def build_material_frag(mat, mode="VERTEX"):
+def build_material_frag(mat, mode="PIXEL"):
     """Return (vertex_src, frag_src, transpile_result). No GPU needed."""
     res = _nt.transpile_material(mat)
     vert, head, main, light = _heads(mode)
@@ -90,7 +89,7 @@ def _compile(mat, mode):
     return ent
 
 
-def get_program(mat, mode="VERTEX", may_compile=True):
+def get_program(mat, mode="PIXEL", may_compile=True):
     if mat is None:
         return None
     name = mat.name

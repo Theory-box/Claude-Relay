@@ -34,7 +34,6 @@ import vertex_lit_renderer as vlr
 vlr.register()
 sc=bpy.data.scenes[0]
 check(sc.vertex_lit.shading_mode=='PIXEL', "shading defaults to PIXEL")
-check(sc.vertex_lit.use_gi is False, "GI defaults OFF")
 vlr.unregister()
 
 print("SUMMARY: " + ("FAILED "+", ".join(F) if F else "ALL CHECKS PASSED"))

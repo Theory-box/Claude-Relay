@@ -26,7 +26,6 @@ uniform float uLRadius[8];
 uniform int   uNumLights;
 uniform vec3  uSkyColor;
 uniform vec3  uGroundColor;
-uniform float uBounceStrength;
 uniform sampler2D uShadowMap;
 uniform int       uUseShadow;
 uniform float     uShadowBias;
@@ -34,7 +33,7 @@ uniform float     uShadowDark;
 """
 
 LIGHT_FUNCS = """
-vec3 vlr_light(vec3 wPos, vec3 N, vec3 bounce) {
+vec3 vlr_light(vec3 wPos, vec3 N) {
     float hemi = dot(N, vec3(0.0, 0.0, 1.0)) * 0.5 + 0.5;
     vec3 light = mix(uGroundColor, uSkyColor, hemi);
     for (int i = 0; i < 8; i++) {
@@ -52,7 +51,6 @@ vec3 vlr_light(vec3 wPos, vec3 N, vec3 bounce) {
         float diff = max(dot(N, L), 0.0);
         light += uLCol[i] * (uLEnergy[i] * diff * att) * lightOn;
     }
-    light += bounce * uBounceStrength;
     return light;
 }
 
@@ -81,38 +79,8 @@ in vec3 position;
 in vec3 normal;
 in vec4 vertColor;
 in vec2 texCoord;
-in vec3 bounceColor;   /* one-bounce GI baked at rebuild time */
 out vec3 vGenerated;   /* object bbox-normalised position (Tex Coord: Generated) */
 out vec3 vObjPos;      /* object-space position (Tex Coord: Object) */
-"""
-
-# ---- Per-vertex (Gouraud): lighting in the vertex shader -> vLight ----------
-MAIN_VERT = _VERT_HEADER + LIGHT_CHUNK + """
-out vec4 vLight;
-out vec2 vUV;
-void main() {
-    vec4 wPos4 = uModel * vec4(position, 1.0);
-    vec3 N     = normalize(uNormalMat * normal);
-    vec3 light = vlr_light(wPos4.xyz, N, bounceColor);
-    float sh   = vlr_shadow(wPos4.xyz);
-    vLight      = vec4(clamp(light, 0.0, 12.0) * sh * vertColor.rgb, vertColor.a);
-    vUV         = texCoord;
-    vObjPos     = position;
-    vGenerated  = (position - uGenMin) * uGenScale;
-    gl_Position = uViewProj * wPos4;
-}
-"""
-
-MAIN_FRAG = """
-uniform sampler2D uAlbedo;
-uniform int       uHasTexture;
-in vec4 vLight;
-in vec2 vUV;
-out vec4 outColor;
-void main() {
-    vec4 albedo = (uHasTexture != 0) ? texture(uAlbedo, vUV) : vec4(1.0);
-    outColor = vec4(vLight.rgb * albedo.rgb, vLight.a * albedo.a);
-}
 """
 
 # ---- Per-pixel (Phong): pass world data through, light in the fragment ------
@@ -121,13 +89,11 @@ out vec2 vUV;
 out vec4 vColor;
 out vec3 vWpos;
 out vec3 vNrm;
-out vec3 vBounce;
 void main() {
     vec4 wPos4 = uModel * vec4(position, 1.0);
     vWpos   = wPos4.xyz;
     vNrm    = uNormalMat * normal;
     vColor  = vertColor;
-    vBounce = bounceColor;
     vUV     = texCoord;
     vObjPos = position;
     vGenerated = (position - uGenMin) * uGenScale;
@@ -142,12 +108,11 @@ in vec2 vUV;
 in vec4 vColor;
 in vec3 vWpos;
 in vec3 vNrm;
-in vec3 vBounce;
 out vec4 outColor;
 """ + LIGHT_CHUNK + """
 void main() {
     vec3 N     = normalize(vNrm);
-    vec3 light = vlr_light(vWpos, N, vBounce);
+    vec3 light = vlr_light(vWpos, N);
     float sh   = vlr_shadow(vWpos);
     vec3 lit   = clamp(light, 0.0, 12.0) * sh * vColor.rgb;
     vec4 albedo = (uHasTexture != 0) ? texture(uAlbedo, vUV) : vec4(1.0);
@@ -190,20 +155,13 @@ MAT_FRAG_MAIN_WORKBENCH = (
     "    outColor = vec4(lit * base.rgb, base.a);\n"
     "}\n"
 )
-MAT_FRAG_HEAD_VERTEX = "in vec4 vLight;\nin vec2 vUV;\nin vec3 vGenerated;\nin vec3 vObjPos;\nout vec4 outColor;\n"
-MAT_FRAG_MAIN_VERTEX = (
-    "void main() {\n"
-    "    vec4 base = computeBaseColor(vUV);\n"
-    "    outColor = vec4(vLight.rgb * base.rgb, vLight.a * base.a);\n"
-    "}\n"
-)
 
 MAT_FRAG_HEAD_PIXEL = ("in vec2 vUV;\nin vec4 vColor;\nin vec3 vWpos;\nin vec3 vGenerated;\nin vec3 vObjPos;\n"
-                       "in vec3 vNrm;\nin vec3 vBounce;\nout vec4 outColor;\n")
+                       "in vec3 vNrm;\nout vec4 outColor;\n")
 MAT_FRAG_MAIN_PIXEL = (
     "void main() {\n"
     "    vec3 N     = normalize(vNrm);\n"
-    "    vec3 light = vlr_light(vWpos, N, vBounce);\n"
+    "    vec3 light = vlr_light(vWpos, N);\n"
     "    float sh   = vlr_shadow(vWpos);\n"
     "    vec3 lit   = clamp(light, 0.0, 12.0) * sh * vColor.rgb;\n"
     "    vec4 base  = computeBaseColor(vUV);\n"

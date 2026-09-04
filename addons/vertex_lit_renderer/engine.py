@@ -7,10 +7,8 @@ import bpy
 import gpu
 from gpu_extras.batch import batch_for_shader
 from mathutils import Matrix, Vector
-from mathutils.bvhtree import BVHTree
 
-from .shaders import SHADOW_VERT, SHADOW_FRAG, MAIN_VERT, MAIN_FRAG, PHONG_VERT, PHONG_FRAG, WORKBENCH_FRAG
-from .gi import ProgressiveGI
+from .shaders import SHADOW_VERT, SHADOW_FRAG, PHONG_VERT, PHONG_FRAG, WORKBENCH_FRAG
 from . import material_shader
 from . import fx
 import ctypes as _ct
@@ -77,24 +75,7 @@ _DEBUG = True   # prints "[VertexLit] rebuild <- ..." naming what triggers a reb
 # Backup for self.tag_redraw() — forces redraws at 20 fps while GI runs.
 # Uses bpy.data (always valid in timers) not bpy.context (may be None).
 
-_gi_active = False
-_last_draw_time = 0.0   # updated every view_draw; timer stops when this goes stale
 _post_err_shown = False  # print the post-pipeline traceback only once
-
-def _gi_redraw_timer():
-    # Only force viewport redraws while GI is active AND a rendered viewport is
-    # actually drawing (view_draw seen in the last 0.5s). This prevents the timer
-    # from hammering redraws forever after the user leaves rendered mode.
-    if _gi_active and (time.time() - _last_draw_time) < 0.5:
-        try:
-            for wm in bpy.data.window_managers:
-                for window in wm.windows:
-                    for area in window.screen.areas:
-                        if area.type == 'VIEW_3D':
-                            area.tag_redraw()
-        except Exception:
-            pass
-    return 0.05
 
 # ── Shader singletons ─────────────────────────────────────────────────────────
 
@@ -107,15 +88,13 @@ def _get_shadow_shader():
         _shadow_shader = gpu.types.GPUShader(SHADOW_VERT, SHADOW_FRAG)
     return _shadow_shader
 
-def _get_main_shader(mode='VERTEX'):
+def _get_main_shader(mode='PIXEL'):
     sh = _main_shader.get(mode)
     if sh is None:
         if mode == 'WORKBENCH':
             sh = gpu.types.GPUShader(PHONG_VERT, WORKBENCH_FRAG)
-        elif mode == 'PIXEL':
-            sh = gpu.types.GPUShader(PHONG_VERT, PHONG_FRAG)
         else:
-            sh = gpu.types.GPUShader(MAIN_VERT, MAIN_FRAG)
+            sh = gpu.types.GPUShader(PHONG_VERT, PHONG_FRAG)   # PIXEL (lit)
         _main_shader[mode] = sh
     return sh
 
@@ -244,11 +223,9 @@ def _extract_mesh_data(obj, depsgraph, mesh=None):
         mat_slot = eval_obj.active_material or getattr(obj, 'active_material', None)
         tex = _get_gpu_tex(_find_base_texture(mat_slot))
         default = [1.0, 1.0, 1.0, 1.0]
-        mat_diffuse = (0.8, 0.8, 0.8)
         if mat_slot:
             c = mat_slot.diffuse_color
             default = [c[0], c[1], c[2], 1.0]
-            mat_diffuse = (float(c[0]), float(c[1]), float(c[2]))
 
         n_verts = len(mesh.vertices)
         n_loops = len(mesh.loops)
@@ -282,7 +259,6 @@ def _extract_mesh_data(obj, depsgraph, mesh=None):
         except Exception:
             normals = vn[vi_flat]
         vert_co_local = vc.copy()   # stored in cache -> must not alias Blender memory
-        vert_no_local = vn
 
         # --- UVs: raw from the active UV attribute, with fallback ---
         uv_layer = mesh.uv_layers.active
@@ -362,8 +338,7 @@ def _extract_mesh_data(obj, depsgraph, mesh=None):
         return dict(
             slots=slots_out, gen_min=gen_min, gen_scale=gen_scale,
             vi_map=vi_flat, n_verts=n_verts,
-            vert_co_local=vert_co_local, vert_no_local=vert_no_local,
-            mat_diffuse=mat_diffuse,
+            vert_co_local=vert_co_local,
         )
     except Exception as e:
         print(f"[VertexLit] extract error ({obj.name}): {e}")
@@ -372,13 +347,11 @@ def _extract_mesh_data(obj, depsgraph, mesh=None):
 
 def _build_slot_batch(slot):
     shader=_get_main_shader()
-    n=len(slot['positions'])
     return batch_for_shader(shader,'TRIS',{
         'position':    slot['positions'],
         'normal':      slot['normals'],
         'vertColor':   slot['colors'],
         'texCoord':    slot['uvs'],
-        'bounceColor': np.zeros((n,3), dtype=np.float32),
     })
 
 
@@ -402,33 +375,6 @@ def _build_shadow_batch_from_cache(cached):
     return batch_for_shader(shader,'TRIS',{'position':positions},indices=indices)
 
 
-def _build_bvh_from_cache(mesh_cache, objects):
-    """
-    Build world-space BVH from cached vert data.
-    No new_from_object — uses vert_co_local transformed by matrix_world.
-    """
-    all_verts=[]; all_polys=[]; face_albedo=[]; v_offset=0
-    for name,data in mesh_cache.items():
-        obj=objects.get(name)
-        if obj is None: continue
-        mat4 = np.array(obj.matrix_world, dtype=np.float32)
-        vc_local = data['vert_co_local']  # numpy (n_v, 3)
-        n_v = len(vc_local)
-        vc_h = np.ones((n_v, 4), dtype=np.float32)
-        vc_h[:, :3] = vc_local
-        wv = (mat4 @ vc_h.T).T[:, :3]
-        all_verts.extend(map(tuple, wv.tolist()))
-        vi_map=data['vi_map']
-        vi_list = vi_map.tolist() if hasattr(vi_map, 'tolist') else vi_map
-        alb=data['mat_diffuse']
-        for i in range(0,len(vi_list),3):
-            all_polys.append([vi_list[i]+v_offset,vi_list[i+1]+v_offset,vi_list[i+2]+v_offset])
-            face_albedo.append(alb)
-        v_offset+=len(data['vert_co_local'])
-    if not all_verts: return None,[]
-    bvh=BVHTree.FromPolygons(all_verts,all_polys,epsilon=1e-6)
-    return bvh,face_albedo
-
 # ── Render Engine ─────────────────────────────────────────────────────────────
 
 class VertexLitEngine(bpy.types.RenderEngine):
@@ -450,7 +396,6 @@ class VertexLitEngine(bpy.types.RenderEngine):
         self._needs_verify     = True    # on (re)entry, sig-check cached objects once
         self._dummy_depth      = None
         self._white_tex        = None
-        self._gi               = ProgressiveGI()
         self._lights_cache     = []
         self._bounds_cache     = (Vector((0,0,0)),10.0)
         self._shadow_dirty     = True
@@ -474,15 +419,12 @@ class VertexLitEngine(bpy.types.RenderEngine):
             self._white_tex=gpu.types.GPUTexture((1,1),format='RGBA8')
 
     def update(self, data=None, depsgraph=None):
-        if hasattr(self,'_gi'): self._gi.stop()
+        pass
 
     def render(self, depsgraph):
         # F12 final image: render the scene from the active camera into an offscreen
         # (Workbench-style shading) and hand the pixels to Blender. Viewport-quality
         # only (no shadows/GI in the F12 path yet).
-        if hasattr(self, '_gi'):
-            try: self._gi.stop()
-            except Exception: pass
         try:
             scene = depsgraph.scene
             sc = scene.render.resolution_percentage / 100.0
@@ -542,14 +484,6 @@ class VertexLitEngine(bpy.types.RenderEngine):
 
     def free(self):
         # Called when the engine instance is destroyed (leaving rendered mode).
-        # CRITICAL: clear the module-level redraw flag, else _gi_redraw_timer keeps
-        # forcing every 3D viewport to redraw at 20fps forever (view_draw — the only
-        # place that resets it — stops being called once we leave rendered mode).
-        global _gi_active
-        _gi_active = False
-        if hasattr(self, '_gi'):
-            try: self._gi.stop()   # signal + join the GI worker thread
-            except Exception: pass
         if getattr(self, '_post', None) is not None:
             try: self._post.free()
             except Exception: pass
@@ -629,10 +563,6 @@ class VertexLitEngine(bpy.types.RenderEngine):
     def _rebuild_inner(self, depsgraph, vls):
         t0=time.time()
 
-        use_gi  =vls.use_gi        if vls else False
-        gi_samp        = vls.gi_samples      if vls else 128
-        rays_per_pass  = vls.gi_rays_per_pass if vls else 4
-        thread_pause   = vls.gi_thread_pause  if vls else 0.001
         en_scale=vls.energy_scale  if vls else 0.01
         lights  =_collect_lights(depsgraph,en_scale)
         self._lights_cache=lights
@@ -718,42 +648,6 @@ class VertexLitEngine(bpy.types.RenderEngine):
                 " [full]" if full else "",
                 " (+{} streaming)".format(len(remaining)) if remaining else ""))
 
-        if use_gi and not remaining:
-            self._gi.cancel()
-            bpy_objects={name:bpy.data.objects.get(name) for name in self._mesh_cache}
-            bvh,face_albedo=_build_bvh_from_cache(self._mesh_cache,bpy_objects)
-            if bvh is None: return
-            plain_lights=[{
-                'pos':tuple(l['pos']),'dir':tuple(l['dir']),
-                'color':tuple(l['color']),'energy':float(l['energy']),
-                'type':int(l['type']),'radius':float(l['radius']),
-            } for l in lights]
-            gi_verts={}; gi_norms={}
-            for name,data in self._mesh_cache.items():
-                obj=bpy_objects.get(name)
-                if obj is None: continue
-                m=obj.matrix_world; m3=m.to_3x3()
-                mat4_np = np.array(m, dtype=np.float32); mat3_np = np.array(m3, dtype=np.float32)
-                vc = data['vert_co_local']; vn = data['vert_no_local']; n_v = len(vc)
-                vc_h = np.ones((n_v, 4), dtype=np.float32); vc_h[:,:3] = vc
-                gi_verts[name] = (mat4_np @ vc_h.T).T[:,:3].tolist()
-                gi_norms[name] = (mat3_np @ vn.T).T.tolist()
-            self._gi.start(
-                dict(bvh=bvh, face_albedo=face_albedo, lights=plain_lights,
-                     verts=gi_verts, normals=gi_norms, rays_per_pass=rays_per_pass,
-                     thread_pause=thread_pause / 1000.0),
-                target_samples=gi_samp)
-            print(f"[VertexLit] GI started ({gi_samp} samples)")
-
-    # ── Apply GI ──────────────────────────────────────────────────────────
-
-    def _apply_gi_update(self, gi_data):
-        # GI is off by default; when on, just rebuild the object's slot batches.
-        # (Per-vertex GI bounce colours aren't threaded into slots yet — GI stays
-        # experimental; this keeps the batches valid.)
-        for name,cached in self._mesh_cache.items():
-            if name in gi_data:
-                self._batch_dict[name]=_build_object_slots(cached)
 
     # ── Shadow pass ───────────────────────────────────────────────────────
 
@@ -784,7 +678,7 @@ class VertexLitEngine(bpy.types.RenderEngine):
 
     def _apply_frame_uniforms(self, shader, view_proj, ls_mat, sky, ground, bstr,
                               do_shad, s_bias, s_dark, shad_tex, lights, studio):
-        # Programs differ by shading mode (Workbench/Gouraud/Phong) and don't all
+        # Programs differ by shading mode (Solid studio vs per-pixel lit) and don't all
         # declare the same uniforms, so set each defensively — a uniform the current
         # program doesn't have simply raises ValueError and is skipped.
         def sf(name, val):
@@ -801,9 +695,9 @@ class VertexLitEngine(bpy.types.RenderEngine):
         # Workbench studio light (camera-following key + flat ambient)
         key_dir, key_col, ambient = studio
         sf('uKeyDir', key_dir); sf('uKeyCol', key_col); sf('uAmbient', ambient)
-        # Scene-light / shadow / GI uniforms (present only in VERTEX/PIXEL programs)
+        # Scene-light / shadow uniforms (present only in the PIXEL program)
         sf('uLightSpace', ls_mat); sf('uSkyColor', sky); sf('uGroundColor', ground)
-        sf('uBounceStrength', bstr); si('uUseShadow', 1 if do_shad else 0)
+        si('uUseShadow', 1 if do_shad else 0)
         sf('uShadowBias', s_bias); sf('uShadowDark', s_dark); ss('uShadowMap', shad_tex)
         si('uNumLights', len(lights))
         for i in range(8):
@@ -946,22 +840,9 @@ class VertexLitEngine(bpy.types.RenderEngine):
         if self._dirty:
             self._rebuild(depsgraph,vls)
 
-        gi_on = bool(vls and vls.use_gi)
-        if gi_on and self._gi.has_update():
-            gi_data,n=self._gi.get_update()
-            self._apply_gi_update(gi_data)
-            if _DEBUG: print(f"[VertexLit] GI sample {n} applied")
-
-        # Drive continuous redraws only while GI is actually accumulating, or a
-        # shadow re-render is pending. With GI off (the default) nothing here forces
-        # redraws — the viewport stays idle like Workbench.
-        # Hemisphere ambient (sky/ground) is its OWN control — it must NOT be scaled
-        # by gi_bounce_strength, or lowering GI bounce silently fades these colours to
-        # black and the pickers appear to "do nothing". gi_bounce_strength now only
-        # scales the GI bounce term (bstr -> uBounceStrength).
         sky   =tuple(vls.sky_color)    if vls else (0.05,0.07,0.10)
         ground=tuple(vls.ground_color) if vls else (0.03,0.02,0.02)
-        bstr  =vls.gi_bounce_strength if vls else 1.0
+        bstr  =0.0
         u_shad=vls.use_shadows        if vls else False
         s_res =int(vls.shadow_resolution) if vls else 1024
         s_bias=vls.shadow_bias        if vls else 0.005
@@ -975,13 +856,8 @@ class VertexLitEngine(bpy.types.RenderEngine):
         if not do_shad:
             self._shadow_dirty=False
 
-        # Force continuous redraws ONLY while GI is accumulating, or a shadow re-render
-        # is genuinely pending. Otherwise the viewport goes idle like Workbench instead
-        # of pinning the GPU at max FPS doing nothing.
-        global _gi_active, _last_draw_time
-        _last_draw_time = time.time()
-        _gi_active=(gi_on and self._gi.is_running) or (self._shadow_dirty and do_shad)
-        if _gi_active:
+        # Shadows pending -> one redraw so the shadow map re-renders this frame.
+        if self._shadow_dirty and do_shad:
             self.tag_redraw()
             try: context.region.tag_redraw()
             except Exception: pass
@@ -1115,12 +991,8 @@ def _release_gpu_caches():
 def register():
     bpy.utils.register_class(VertexLitEngine)
     _register_panels()
-    if not bpy.app.timers.is_registered(_gi_redraw_timer):
-        bpy.app.timers.register(_gi_redraw_timer, persistent=True)
 
 def unregister():
-    if bpy.app.timers.is_registered(_gi_redraw_timer):
-        bpy.app.timers.unregister(_gi_redraw_timer)
     _unregister_panels()
     _release_gpu_caches()
     bpy.utils.unregister_class(VertexLitEngine)

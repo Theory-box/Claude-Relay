@@ -83,12 +83,12 @@ def spike_mat():
     return m
 
 mat = spike_mat()
-_, frag, res = ms.build_material_frag(mat, "VERTEX")
+_, frag, res = ms.build_material_frag(mat, "PIXEL")
 print(frag)
 check("void main()" in frag, "frag has main()")
 check("computeBaseColor" in frag, "frag defines computeBaseColor")
 check("out vec4 outColor" in frag, "frag declares outColor")
-check("in vec4 vLight" in frag and "in vec2 vUV" in frag, "frag declares vertex-stage inputs")
+check("in vec2 vUV" in frag and "in vec3 vNrm" in frag, "frag declares per-pixel inputs")
 check(balanced(frag, "{", "}"), "frag braces balanced")
 check(balanced(frag, "(", ")"), "frag parens balanced")
 # every declared sampler must be used, and every used uTx_ must be declared
@@ -106,7 +106,7 @@ bsdf2 = nt2.nodes.new("ShaderNodeBsdfPrincipled")
 noise = nt2.nodes.new("ShaderNodeWireframe")  # unsupported in spike
 nt2.links.new(bsdf2.outputs["BSDF"], out2.inputs["Surface"])
 nt2.links.new(noise.outputs["Fac"], bsdf2.inputs["Base Color"])
-_, frag2, res2 = ms.build_material_frag(mat2, "VERTEX")
+_, frag2, res2 = ms.build_material_frag(mat2, "PIXEL")
 check("void main()" in frag2 and balanced(frag2, "{", "}"),
       "unsupported node degrades to a structurally-valid frag")
 check(any("neutralised" in n for n in res2.notes), "unsupported node neutralised + noted")

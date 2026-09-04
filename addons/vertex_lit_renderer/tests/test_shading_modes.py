@@ -30,20 +30,17 @@ def spike():
     return m
 
 print("=== base shaders ===")
-check("vlr_light(" in sh.MAIN_VERT, "Gouraud computes lighting in VERTEX shader")
-check("vlr_light(" not in sh.MAIN_FRAG, "Gouraud frag has no lighting (uses vLight)")
 check("vlr_light(" in sh.PHONG_FRAG, "Phong computes lighting in FRAGMENT shader")
 check("uLPos[8]" in sh.PHONG_FRAG, "Phong frag declares light uniforms")
 check("vNrm" in sh.PHONG_VERT and "vWpos" in sh.PHONG_VERT, "Phong vert passes world normal/pos")
 check("vlr_light(" not in sh.PHONG_VERT, "Phong vert has no lighting")
 
-print("=== material frag: VERTEX mode ===")
+print("=== material frag: PIXEL mode ===")
 m = spike()
-vertV, fragV, resV = ms.build_material_frag(m, "VERTEX")
-check(vertV is sh.MAIN_VERT, "VERTEX mode pairs MAIN_VERT")
-check("in vec4 vLight" in fragV and "vLight.rgb * base.rgb" in fragV, "VERTEX frag uses vLight")
-check("vlr_light(" not in fragV, "VERTEX frag has no per-fragment lighting")
-check("computeBaseColor" in fragV and bal(fragV,"{","}") and bal(fragV,"(",")"), "VERTEX frag valid+balanced")
+vertV, fragV, resV = ms.build_material_frag(m, "PIXEL")
+check(vertV is sh.PHONG_VERT, "PIXEL mode pairs PHONG_VERT")
+check("vlr_light(" in fragV, "PIXEL frag lights per-fragment")
+check("computeBaseColor" in fragV and bal(fragV,"{","}") and bal(fragV,"(",")"), "PIXEL frag valid+balanced")
 
 print("=== material frag: PIXEL mode ===")
 vertP, fragP, resP = ms.build_material_frag(m, "PIXEL")
@@ -58,7 +55,6 @@ check("uLPos[8]" not in vertP, "no duplicate light uniforms across Phong stages"
 
 print("=== mode is part of the cache key ===")
 # build_material_frag differs by mode -> distinct programs
-check(fragV != fragP, "VERTEX and PIXEL produce different fragments")
 
 
 # --- graceful fallback: unsupported node -> material marked failed (engine uses legacy)
