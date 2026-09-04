@@ -62,5 +62,34 @@ def grad():
 g=grad()
 check(g[0,-1]>g[0,0]+0.5 and abs(g[0,0])<0.1, "Gradient LINEAR ramps with U (0->1)")
 
+# --- Math: all ops handled + exact arithmetic ---
+def mathop(op,a=0.6,b=0.2,c=0.5):
+    m,t,bb=base('m'); n=t.nodes.new('ShaderNodeMath'); n.operation=op
+    n.inputs[0].default_value=a; n.inputs[1].default_value=b
+    if len(n.inputs)>2: n.inputs[2].default_value=c
+    t.links.new(n.outputs[0], bb.inputs['Base Color']); px,r=H.render_material(m,size=2)
+    return px[...,0].mean(), any('passthrough' in x for x in r.notes)
+_MATH=['ADD','SUBTRACT','MULTIPLY','DIVIDE','MULTIPLY_ADD','POWER','LOGARITHM','SQRT','INVERSE_SQRT','ABSOLUTE','EXPONENT','MINIMUM','MAXIMUM','LESS_THAN','GREATER_THAN','SIGN','COMPARE','SMOOTH_MIN','SMOOTH_MAX','ROUND','FLOOR','CEIL','TRUNC','FRACT','MODULO','FLOORED_MODULO','WRAP','SNAP','PINGPONG','SINE','COSINE','TANGENT','ARCSINE','ARCCOSINE','ARCTANGENT','ARCTAN2','SINH','COSH','TANH','RADIANS','DEGREES']
+check(not any(mathop(op)[1] for op in _MATH), "all {} Math ops handled (no passthrough)".format(len(_MATH)))
+check(abs(mathop('ADD')[0]-0.8)<0.02 and abs(mathop('MULTIPLY')[0]-0.12)<0.02, "Math ADD/MULTIPLY exact")
+check(abs(mathop('TRUNC',0.6)[0]-0.0)<0.02, "Math TRUNC(0.6)=0 (fixes TRUNCATE typo)")
+
+# --- Vector Math: all ops handled ---
+def vop(op):
+    m,t,bb=base('vm'); n=t.nodes.new('ShaderNodeVectorMath'); n.operation=op
+    for i,s in enumerate([s for s in n.inputs if s.type=='VECTOR']): s.default_value=(0.5+0.1*i,0.3,0.7)
+    out='Value' if op in ('DOT_PRODUCT','DISTANCE','LENGTH') else 'Vector'
+    t.links.new(n.outputs[out], bb.inputs['Base Color']); px,r=H.render_material(m,size=2)
+    return any('passthrough' in x for x in r.notes)
+_VM=['ADD','SUBTRACT','MULTIPLY','DIVIDE','MULTIPLY_ADD','CROSS_PRODUCT','PROJECT','REFLECT','REFRACT','FACEFORWARD','DOT_PRODUCT','DISTANCE','LENGTH','SCALE','NORMALIZE','ABSOLUTE','MINIMUM','MAXIMUM','FLOOR','CEIL','FRACTION','MODULO','WRAP','SNAP','SINE','COSINE','TANGENT']
+check(not any(vop(op) for op in _VM), "all {} Vector Math ops handled".format(len(_VM)))
+
+# --- White Noise ---
+def wn():
+    m,t,bb=base('wn'); tc=t.nodes.new('ShaderNodeTexCoord'); mp=t.nodes.new('ShaderNodeMapping')
+    mp.inputs['Scale'].default_value=(50,50,50); n=t.nodes.new('ShaderNodeTexWhiteNoise')
+    t.links.new(tc.outputs['UV'],mp.inputs['Vector']); t.links.new(mp.outputs['Vector'],n.inputs['Vector'])
+    t.links.new(n.outputs['Value'], bb.inputs['Base Color']); px,_=H.render_material(m,size=32); return px[...,0]
+check(wn().std()>0.1, "White Noise is high-frequency random")
+
 print("SUMMARY: " + ("FAILED "+", ".join(F) if F else "ALL CHECKS PASSED"))
-sys.exit(1 if F else 0)

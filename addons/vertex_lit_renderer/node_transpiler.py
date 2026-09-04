@@ -68,6 +68,14 @@ vec3 _bl_sat(vec3 a, vec3 b){ vec3 x=_rgb2hsv(a), y=_rgb2hsv(b); return _hsv2rgb
 vec3 _bl_col(vec3 a, vec3 b){ vec3 x=_rgb2hsv(a), y=_rgb2hsv(b); return _hsv2rgb(vec3(y.x, y.y, x.z)); }
 vec3 _bl_val(vec3 a, vec3 b){ vec3 x=_rgb2hsv(a), y=_rgb2hsv(b); return _hsv2rgb(vec3(x.x, x.y, y.z)); }
 
+/* ---- Math-node helpers (match Blender's math utils) ---- */
+float _bsmin(float a, float b, float k){ if(k!=0.0){ float h=max(k-abs(a-b),0.0)/k; return min(a,b)-h*h*h*k*(1.0/6.0); } return min(a,b); }
+float _bsmax(float a, float b, float k){ return -_bsmin(-a,-b,k); }
+float _bwrapf(float v, float mx, float mn){ float r=mx-mn; return (r!=0.0)? v-r*floor((v-mn)/r) : mn; }
+vec3  _bwrap3(vec3 v, vec3 mx, vec3 mn){ return vec3(_bwrapf(v.x,mx.x,mn.x),_bwrapf(v.y,mx.y,mn.y),_bwrapf(v.z,mx.z,mn.z)); }
+float _bpingpong(float a, float s){ return (s!=0.0)? abs(fract((a-s)/(s*2.0))*s*2.0-s) : 0.0; }
+float _btmod(float a, float b){ return (b!=0.0)? a-b*trunc(a/b) : 0.0; }   /* truncated modulo (Blender MODULO) */
+
 /* ===== Blender-exact Perlin noise — ported from Blender's GPL GLSL
  * (gpu_shader_common_hash.glsl + gpu_shader_material_noise.glsl).
  * Adapted for GLSL 330: float3->vec3, stripped 'f' suffixes, renamed the
@@ -459,12 +467,16 @@ class _Transpiler:
             "MINIMUM": "min({a},{b})", "MAXIMUM": "max({a},{b})",
             "LESS_THAN": "float(({a})<({b}))", "GREATER_THAN": "float(({a})>({b}))",
             "SIGN": "sign({a})", "COMPARE": "float(abs(({a})-({b}))<=({c}))",
+            "SMOOTH_MIN": "_bsmin({a},{b},{c})", "SMOOTH_MAX": "_bsmax({a},{b},{c})",
             "ROUND": "floor(({a})+0.5)", "FLOOR": "floor({a})", "CEIL": "ceil({a})",
-            "TRUNCATE": "trunc({a})", "FRACT": "fract({a})",
-            "MODULO": "mod({a},{b})", "SNAP": "floor(_sdiv({a},{b}))*({b})",
+            "TRUNC": "trunc({a})", "FRACT": "fract({a})",
+            "MODULO": "_btmod({a},{b})", "FLOORED_MODULO": "mod({a},{b})",
+            "WRAP": "_bwrapf({a},{b},{c})", "SNAP": "floor(_sdiv({a},{b}))*({b})",
+            "PINGPONG": "_bpingpong({a},{b})",
             "SINE": "sin({a})", "COSINE": "cos({a})", "TANGENT": "tan({a})",
             "ARCSINE": "asin(clamp({a},-1.0,1.0))", "ARCCOSINE": "acos(clamp({a},-1.0,1.0))",
             "ARCTANGENT": "atan({a})", "ARCTAN2": "atan({a},{b})",
+            "SINH": "sinh({a})", "COSH": "cosh({a})", "TANH": "tanh({a})",
             "RADIANS": "radians({a})", "DEGREES": "degrees({a})",
         }
         tmpl = m.get(op)
@@ -481,16 +493,22 @@ class _Transpiler:
         vs = [s for s in node.inputs if s.type == "VECTOR"]
         a = self.input_expr(node, vs[0] if len(vs) > 0 else None, "vec3")
         b = self.input_expr(node, vs[1] if len(vs) > 1 else None, "vec3")
+        c = self.input_expr(node, vs[2] if len(vs) > 2 else None, "vec3")
         scale = self.input_expr(node, node.inputs.get("Scale"), "float") if node.inputs.get("Scale") else "1.0"
         op = getattr(node, "operation", "ADD")
         vec_ops = {
             "ADD": "({a})+({b})", "SUBTRACT": "({a})-({b})",
             "MULTIPLY": "({a})*({b})", "DIVIDE": "({a})/max({b},vec3(1e-6))",
+            "MULTIPLY_ADD": "({a})*({b})+({c})",
             "CROSS_PRODUCT": "cross({a},{b})", "PROJECT": "({b})*_sdiv(dot({a},{b}),dot({b},{b}))",
-            "REFLECT": "reflect({a},normalize({b}))", "NORMALIZE": "normalize({a})",
+            "REFLECT": "reflect({a},normalize({b}))",
+            "REFRACT": "refract({a},normalize({b}),{s})",
+            "FACEFORWARD": "faceforward({a},{b},{c})",
+            "NORMALIZE": "normalize({a})",
             "ABSOLUTE": "abs({a})", "MINIMUM": "min({a},{b})", "MAXIMUM": "max({a},{b})",
             "FLOOR": "floor({a})", "CEIL": "ceil({a})", "FRACTION": "fract({a})",
             "MODULO": "mod({a},{b})", "SNAP": "floor({a}/{b})*({b})",
+            "WRAP": "_bwrap3({a},{b},{c})",
             "SINE": "sin({a})", "COSINE": "cos({a})", "TANGENT": "tan({a})",
             "SCALE": "({a})*({s})",
         }
@@ -508,7 +526,7 @@ class _Transpiler:
             self.notes.append("VECT_MATH op '{}' passthrough".format(op)); tmpl = "({a})"
         var = self._new_var("vvec")
         self._line("vec3 {v} = {e};".format(
-            v=var, e=tmpl.format(a=a, b=b, s=scale)))
+            v=var, e=tmpl.format(a=a, b=b, c=c, s=scale)))
         return "vec4({v}, 1.0)".format(v=var)
 
     # ---- Map Range (linear FLOAT) ----
@@ -518,11 +536,18 @@ class _Transpiler:
         fmx = self.input_expr(node, node.inputs.get("From Max"), "float")
         tmn = self.input_expr(node, node.inputs.get("To Min"), "float")
         tmx = self.input_expr(node, node.inputs.get("To Max"), "float")
-        if getattr(node, "interpolation_type", "LINEAR") != "LINEAR":
-            self.notes.append("MAP_RANGE interpolation approximated as LINEAR")
+        interp = getattr(node, "interpolation_type", "LINEAR")
         var = self._new_var("mr")
-        expr = "({tmn}) + (({val})-({fmn}))*_sdiv(({tmx})-({tmn}),({fmx})-({fmn}))".format(
-            val=val, fmn=fmn, fmx=fmx, tmn=tmn, tmx=tmx)
+        self._line("float {v}t = _sdiv(({val})-({fmn}), ({fmx})-({fmn}));".format(
+            v=var, val=val, fmn=fmn, fmx=fmx))
+        if interp == "SMOOTHSTEP":
+            self._line("{v}t = clamp({v}t,0.0,1.0); {v}t = {v}t*{v}t*(3.0-2.0*{v}t);".format(v=var))
+        elif interp == "SMOOTHERSTEP":
+            self._line("{v}t = clamp({v}t,0.0,1.0); {v}t = {v}t*{v}t*{v}t*({v}t*({v}t*6.0-15.0)+10.0);".format(v=var))
+        elif interp == "STEPPED":
+            steps = self.input_expr(node, node.inputs.get("Steps"), "float") if node.inputs.get("Steps") else "4.0"
+            self._line("{v}t = ({s} > 0.0) ? floor(clamp({v}t,0.0,1.0)*({s}+1.0))/{s} : 0.0;".format(v=var, s=steps))
+        expr = "({tmn}) + {v}t*(({tmx})-({tmn}))".format(v=var, tmn=tmn, tmx=tmx)
         if getattr(node, "clamp", True):
             expr = "clamp({e}, min({tmn},{tmx}), max({tmn},{tmx}))".format(e=expr, tmn=tmn, tmx=tmx)
         self._line("float {v} = {e};".format(v=var, e=expr))
@@ -879,7 +904,7 @@ def _variant(n):
     elif t == "VECT_MATH": v = [getattr(n, "operation", "")]
     elif t == "MAPPING": v = [getattr(n, "vector_type", "POINT")]
     elif t == "CLAMP": v = [getattr(n, "clamp_type", "MINMAX")]
-    elif t == "MAP_RANGE": v = [getattr(n, "interpolation_type", "LINEAR"), str(getattr(n, "clamp", True))]
+    elif t == "MAP_RANGE": v = [getattr(n, "interpolation_type", "LINEAR"), str(getattr(n, "clamp", True)), getattr(n, "data_type", "FLOAT")]
     elif t == "TEX_GRADIENT": v = [getattr(n, "gradient_type", "LINEAR")]
     elif t in ("SEPARATE_COLOR", "COMBINE_COLOR"): v = [getattr(n, "mode", "RGB")]
     elif t == "TEX_VORONOI": v = [getattr(n, "feature", "F1"), getattr(n, "distance", "EUCLIDEAN"),

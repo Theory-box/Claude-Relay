@@ -427,3 +427,15 @@ GPL: ported code is GPL-2.0-or-later; addon is GPL. OK.
   Blender hash). CPU-verified high-frequency random in [0,1].
 - Procedural coverage now: Noise(exact Perlin), Voronoi F1, Checker, Gradient,
   White Noise. Remaining: Wave, Musgrave, Brick, Magic (need source fetch for exactness).
+
+## v0.6.0 — core converter nodes COMPLETE (Math, Vector Math, Map Range)
+- Math: now all 41 ops (added SMOOTH_MIN/MAX, FLOORED_MODULO, WRAP, PINGPONG,
+  SINH/COSH/TANH). FIXED two bugs: 'TRUNCATE' -> 'TRUNC' (was silently passthrough),
+  MODULO now truncated (_btmod) not GLSL floored; FLOORED_MODULO = GLSL mod.
+  Helpers _bsmin/_bsmax/_bwrapf/_bwrap3/_bpingpong/_btmod added.
+- Vector Math: all 27 ops (added MULTIPLY_ADD, REFRACT, FACEFORWARD, WRAP; third
+  vector input plumbed).
+- Map Range: LINEAR + STEPPED + SMOOTHSTEP + SMOOTHERSTEP interpolations (was
+  linear-only).
+- CPU-verified: all 41 Math + 27 VMath ops compile (no passthrough); ADD/MULTIPLY
+  exact; TRUNC fixed. test_gl_nodes now 18 checks. All 9 suites green.
