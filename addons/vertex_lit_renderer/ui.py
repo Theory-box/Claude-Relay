@@ -151,6 +151,26 @@ class VERTEX_LIT_PT_render_settings(_Base, bpy.types.Panel):
         col.prop(s, 'supersampling')
 
 
+class VERTEX_LIT_PT_bake(_Base, bpy.types.Panel):
+    bl_label = "Bake"
+    bl_parent_id = "VERTEX_LIT_PT_settings"
+    bl_options = {'DEFAULT_CLOSED'}
+
+    def draw(self, context):
+        s = context.scene.vertex_lit
+        layout = self.layout
+        col = layout.column(align=True)
+        col.prop(s, 'bake_resolution')
+        ob = context.active_object
+        mat = ob.active_material if ob is not None else None
+        row = layout.row()
+        row.enabled = (ob is not None and ob.type == 'MESH'
+                       and mat is not None and getattr(mat, 'use_nodes', False))
+        row.operator("vertex_lit.bake_material", icon='RENDER_STILL')
+        if mat is not None:
+            layout.label(text="Active material: {}".format(mat.name), icon='MATERIAL')
+
+
 _CLASSES = (
     VERTEX_LIT_PT_settings,
     VERTEX_LIT_PT_lighting,
@@ -161,6 +181,7 @@ _CLASSES = (
     VERTEX_LIT_PT_cavity_world,
     VERTEX_LIT_PT_cavity_screen,
     VERTEX_LIT_PT_render_settings,
+    VERTEX_LIT_PT_bake,
 )
 
 

@@ -43,6 +43,17 @@ def build_material_frag(mat, mode="PIXEL"):
     return vert, frag, res
 
 
+def build_bake_frag(mat):
+    """Return (BAKE_VERT, bake_frag, transpile_result) that outputs computeBaseColor (albedo,
+    unlit) — for baking the live material graph to a UV texture."""
+    res = _nt.transpile_material(mat)
+    sampler_decls = "".join("uniform sampler2D {};\n".format(s.uniform) for s in res.samplers)
+    param_decls = "".join(d + "\n" for d in res.param_decls)
+    frag = (_sh.BAKE_FRAG_HEAD + sampler_decls + param_decls + res.helpers + "\n"
+            + res.glsl + "\n" + _sh.BAKE_FRAG_MAIN)
+    return _sh.BAKE_VERT, frag, res
+
+
 def mark_dirty(name):
     _dirty_mats.add(name)
 

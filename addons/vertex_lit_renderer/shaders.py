@@ -266,3 +266,33 @@ void main(){
     fragColor = vec4(mix(uGroundColor, uSkyColor, t), 1.0);
 }
 """
+
+
+# ---- Bake: rasterise the mesh in UV space and evaluate computeBaseColor per texel ---------
+BAKE_VERT = """
+uniform vec3 uGenMin;
+uniform vec3 uGenScale;
+in vec3 position;
+in vec3 normal;
+in vec4 vertColor;
+in vec2 texCoord;
+out vec2 vUV;
+out vec4 vColor;
+out vec3 vWpos;
+out vec3 vNrm;
+out vec3 vGenerated;
+out vec3 vObjPos;
+void main(){
+    vUV        = texCoord;
+    vColor     = vertColor;
+    vNrm       = normal;
+    vWpos      = position;
+    vGenerated = (position - uGenMin) * uGenScale;
+    vObjPos    = position;
+    gl_Position = vec4(texCoord * 2.0 - 1.0, 0.0, 1.0);   /* UV space -> clip */
+}
+"""
+
+BAKE_FRAG_HEAD = ("in vec2 vUV;\nin vec4 vColor;\nin vec3 vWpos;\nin vec3 vNrm;\n"
+                  "in vec3 vGenerated;\nin vec3 vObjPos;\nout vec4 fragColor;\n")
+BAKE_FRAG_MAIN = "void main(){ fragColor = computeBaseColor(vUV); }\n"

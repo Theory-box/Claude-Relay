@@ -1051,3 +1051,16 @@ draw_texture_2d, which is built for a viewport REGION and misplaces the image in
   except as an exception fallback). Verified bind/unbind_display_space_shader are real RenderEngine
   RNA functions. draw_texture_2d imported in engine.
 15 suites green. (Colour-management match + Is Viewport need on-GPU confirmation.)
+
+## v0.11.6 — Instant material bake to image + render-freeze safety cap
+- BAKE: bake.py — rasterise the mesh in UV SPACE (BAKE_VERT: gl_Position = texCoord*2-1) and run
+  the transpiled computeBaseColor per texel into a GPUOffScreen, one GPU pass, no ray tracing.
+  material_shader.build_bake_frag(mat) assembles head+samplers+params+helpers+computeBaseColor with
+  a main that outputs the albedo. Operator vertex_lit.bake_material bakes the active object's active
+  material -> a packed Blender image "<mat>_baked" (bake_resolution 512/1024/2048/4096). Bake sub-
+  panel under Settings. Reuses _extract_mesh_data slots for geometry; binds params + image samplers.
+  tests/test_bake.py (assembly + GPU compile). Shader compile verified; the actual bake needs a real
+  GPU (Blender gpu module can't draw in --background).
+- RENDER FREEZE: put a 120s wall-clock cap on the F12 full-reextract loop so it can't hang forever
+  (proper fix deferred — on the list with glass). 16 suites green.
+KNOWN ISSUES LIST: (1) glass compositing over objects; (2) F12 render freeze on very dense geo.

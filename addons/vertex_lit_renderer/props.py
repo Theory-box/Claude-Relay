@@ -131,6 +131,11 @@ class VertexLitSettings(bpy.types.PropertyGroup):
                ('2', "2x", "Render at 2x resolution and downscale — sharpest, slowest")],
         default='1',
         description="Render at higher resolution and downscale for smooth edges (SSAA)")
+    bake_resolution: bpy.props.EnumProperty(
+        name="Bake Size",
+        items=[('512', "512", ""), ('1024', "1024", ""), ('2048', "2048", ""), ('4096', "4096", "")],
+        default='1024',
+        description="Resolution of the baked material image")
 
     # ── Hidden (kept for engine wiring; no UI) ──────────────────────────────
     energy_scale: bpy.props.FloatProperty(

@@ -522,7 +522,8 @@ class VertexLitEngine(bpy.types.RenderEngine):
             self._dirty = True
             self._rebuild(depsgraph, vls)
             _guard = 0
-            while getattr(self, '_geo_pending', False) and _guard < 100000:
+            _deadline = time.time() + 120.0   # safety cap: render what's loaded rather than hang
+            while getattr(self, '_geo_pending', False) and _guard < 100000 and time.time() < _deadline:
                 # _force_full already consumed; subsequent passes drain the remaining queue.
                 self._rebuild(depsgraph, vls)
                 _guard += 1
