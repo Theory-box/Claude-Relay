@@ -60,19 +60,25 @@ class Sampler:
 
 class Param:
     """A tweakable constant promoted to a uniform, read live from the node tree."""
-    __slots__ = ("uniform", "want", "node_name", "kind", "index")
-    def __init__(self, uniform, want, node_name, kind, index=-1):
+    __slots__ = ("uniform", "want", "node_name", "kind", "index", "tree_name")
+    def __init__(self, uniform, want, node_name, kind, index=-1, tree_name=None):
         self.uniform = uniform      # GLSL uniform name
         self.want = want            # 'float'|'vec2'|'vec3'|'vec4'
         self.node_name = node_name
         self.kind = kind            # 'input' | 'rgb' | 'value'
         self.index = index          # input socket index (kind='input')
+        self.tree_name = tree_name  # node-group tree name if the node lives inside a group
 
     def gltype(self):
         return self.want
 
     def _raw(self, nt):
-        node = nt.nodes.get(self.node_name) if nt else None
+        if self.tree_name:
+            import bpy
+            gt = bpy.data.node_groups.get(self.tree_name)
+            node = gt.nodes.get(self.node_name) if gt else None
+        else:
+            node = nt.nodes.get(self.node_name) if nt else None
         if node is None:
             return 0.0
         try:
@@ -136,6 +142,7 @@ class _Transpiler:
         self._var_type = {}     # glsl var name -> 'float'|'vec2'|'vec3'|'vec4'
         self._param_type = {}   # uniform name  -> same
         self._counter = 0
+        self._group_stack = []  # [(group_node_instance, {ext-input-name: ext socket}), ...]
 
     _DECL = _re.compile(r'^(vec4|vec3|vec2|float)\s+(n_\w+)\s*=')
 
@@ -176,13 +183,20 @@ class _Transpiler:
         return {"float": "0.0", "vec2": "vec2(0.0)",
                 "vec3": "vec3(0.0)", "vec4": "vec4(0.0,0.0,0.0,1.0)"}[want]
 
+    def _cur_tree(self):
+        """Name of the node-group tree we're currently inside, or None at material level."""
+        if self._group_stack:
+            gt = getattr(self._group_stack[-1][0], "node_tree", None)
+            return gt.name if gt is not None else None
+        return None
+
     def _uniform_default(self, node, socket, want):
         name = "uP_{}".format(len(self.params) + 1)
         try:
             idx = list(node.inputs).index(socket)
         except Exception:
             idx = -1
-        self.params.append(Param(name, want, node.name, "input", idx))
+        self.params.append(Param(name, want, node.name, "input", idx, self._cur_tree()))
         self.param_decls.append("uniform {} {};".format(_GLTYPE[want], name))
         self._param_type[name] = want
         return name
@@ -212,9 +226,29 @@ class _Transpiler:
 
     # -- emit a NODE -------------------------------------------------------
     def emit_node(self, node, out_socket):
-        key = id(out_socket)
+        # Cache key includes the group-instance context so the same node inside a group
+        # instanced more than once resolves per-instance (its Group Input maps differently).
+        key = (id(out_socket), tuple(id(g) for g, _ in self._group_stack))
         if key in self._sock_var:
             return self._sock_var[key]
+        # Group Input node: its output sockets map to the ENCLOSING group node's external
+        # inputs -> resolve by transpiling the value fed into the group from outside. The
+        # external input must be evaluated in the PARENT context (pop this group's frame),
+        # or a nested group whose interface socket shares an identifier would alias it and
+        # recurse forever.
+        if node.type == 'GROUP_INPUT' and self._group_stack:
+            gnode, ext_map = self._group_stack[-1]
+            ext = ext_map.get(out_socket.identifier) or ext_map.get(out_socket.name)
+            if ext is not None:
+                frame = self._group_stack.pop()
+                try:
+                    expr = self.input_expr(gnode, ext, "vec4")
+                finally:
+                    self._group_stack.append(frame)
+            else:
+                expr = self._neutral_for(node, out_socket)
+            self._sock_var[key] = expr
+            return expr
         handler = getattr(self, "_n_" + node.type.lower(), None)
         if handler is None:
             # Unsupported node -> emit a TYPE-APPROPRIATE neutral and keep going.
@@ -274,6 +308,45 @@ class _Transpiler:
             self.notes.append("MAPPING vector_type=TEXTURE approximated as POINT")
         return "vec4({}, 1.0)".format(v)
 
+    def _n_group(self, node, out):
+        """Node group: trace into the group's internal tree. The group's Output node
+        input matching `out` is followed inward; any Group Input reference inside maps
+        back to this instance's external input (handled in emit_node via _group_stack)."""
+        grp = getattr(node, 'node_tree', None)
+        if grp is None:
+            return self._neutral_for(node, out)
+        gout = None
+        for n in grp.nodes:
+            if n.type == 'GROUP_OUTPUT':
+                gout = n
+                if getattr(n, 'is_active_output', False):
+                    break
+        if gout is None:
+            return self._neutral_for(node, out)
+        inner = None
+        for s in gout.inputs:
+            if s.identifier == out.identifier or s.name == out.name:
+                inner = s; break
+        if inner is None:
+            return self._neutral_for(node, out)
+        ext_map = {}
+        for inp in node.inputs:
+            ext_map[inp.identifier] = inp
+            ext_map.setdefault(inp.name, inp)
+        self._group_stack.append((node, ext_map))
+        try:
+            if inner.is_linked:
+                result = self.emit_node(inner.links[0].from_node, inner.links[0].from_socket)
+            else:
+                result = self._uniform_default(gout, inner, "vec4")
+        finally:
+            self._group_stack.pop()
+        return result
+
+    def _n_group_input(self, node, out):
+        # Fallback if reached outside a group context (shouldn't normally happen).
+        return self._neutral_for(node, out)
+
     def _n_tex_image(self, node, out):
         img = getattr(node, "image", None)
         vsock = node.inputs.get("Vector")
@@ -298,14 +371,14 @@ class _Transpiler:
 
     def _n_rgb(self, node, out):
         name = "uP_{}".format(len(self.params) + 1)
-        self.params.append(Param(name, "vec4", node.name, "rgb"))
+        self.params.append(Param(name, "vec4", node.name, "rgb", -1, self._cur_tree()))
         self.param_decls.append("uniform vec4 {};".format(name))
         self._param_type[name] = "vec4"
         return name
 
     def _n_value(self, node, out):
         name = "uP_{}".format(len(self.params) + 1)
-        self.params.append(Param(name, "float", node.name, "value"))
+        self.params.append(Param(name, "float", node.name, "value", -1, self._cur_tree()))
         self.param_decls.append("uniform float {};".format(name))
         self._param_type[name] = "float"
         return "vec4(vec3({0}), 1.0)".format(name) if out.type == "RGBA" else name
@@ -1073,17 +1146,35 @@ def topo_signature(mat):
     nt = getattr(mat, "node_tree", None)
     if not nt:
         return "NONODES"
-    parts = []
+    return _tree_sig(nt, set())
+
+
+def _tree_sig(nt, seen):
+    """Sorted (deterministic) structure signature for one node tree, recursing into
+    group node-trees so that editing a group's internals also invalidates the cache."""
+    if nt is None:
+        return "NONODES"
+    node_parts = []
     for n in nt.nodes:
-        parts.append(n.type + ":" + n.name + "|" + _variant(n))
+        node_parts.append(n.type + ":" + n.name + "|" + _variant(n))
+        if n.type == 'GROUP':
+            gt = getattr(n, "node_tree", None)
+            if gt is not None and gt.name not in seen:
+                seen.add(gt.name)
+                node_parts.append("GT[" + gt.name + "]{" + _tree_sig(gt, seen) + "}")
+    link_parts = []
     for l in nt.links:
         try:
-            parts.append("{}.{}>{}.{}".format(
+            link_parts.append("{}.{}>{}.{}".format(
                 l.from_node.name, l.from_socket.identifier,
                 l.to_node.name, l.to_socket.identifier))
         except Exception:
-            parts.append("link?")
-    return "\n".join(parts)
+            link_parts.append("link?")
+    # Sort both: Blender's node/link iteration order is not guaranteed stable, and an
+    # unstable signature would never match the cache -> recompile every single frame.
+    node_parts.sort()
+    link_parts.sort()
+    return "\n".join(node_parts) + "\n--\n" + "\n".join(link_parts)
 
 
 def _variant(n):

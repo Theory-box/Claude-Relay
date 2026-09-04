@@ -882,3 +882,26 @@ Suites green; ID + outline shaders compile.
 - AO QUALITY: ao_samples enum (16/32/64); SSAO kernel expanded to 64, loops uSamples and
   normalises by it. Fixed a GLSL name clash (loop count N vs normal N -> NS).
 UI: AO quality dropdown + AO/outline exclude toggles for the active object. Suites green.
+
+## v0.10.7 — NODE GROUPS supported (fixes "plank gen"/brick materials)
+Root cause of intermittent brick/plank materials: node GROUP was unhandled -> neutralised
+(white passthrough), and because the graph signature was built from Blender's unsorted
+node/link iteration, the signature was unstable -> the same material recompiled every frame
+with a varying number of neutralised-group notes.
+
+Fixes:
+- GROUP tracing: _n_group inlines the group's tree. The Group Output input matching the
+  requested output is followed inward; Group Input references resolve to the enclosing
+  instance's EXTERNAL inputs via a _group_stack. Nested groups supported.
+- Nested-group aliasing/recursion fix: a group's external input is resolved in the PARENT
+  context (pop the current frame first) — otherwise two groups sharing an interface socket
+  identifier (e.g. both "Socket_0") aliased and recursed forever (was the MemoryError).
+- Per-instance cache key: emit_node cache key now includes the group-stack ids so a group
+  instanced multiple times resolves per instance.
+- Param tree binding: Param gained tree_name; params created inside a group read their live
+  value from bpy.data.node_groups[tree_name] instead of the material tree (previously the
+  node lookup failed -> uniform defaulted to 0, e.g. Invert Fac 1->0 silently dropped the op).
+- Signature: _tree_sig recurses into group trees (editing a group now recompiles) AND sorts
+  node/link parts -> deterministic, so no more per-frame recompile churn.
+- Samplers already stored the image datablock directly, so group-internal image textures bind.
+New: tests/test_group.py (GPU-verified passthrough / invert / nested). 13 suites green.
