@@ -76,7 +76,7 @@ def render_material(mat, size=16, param_values=None, textures=None):
     param_decls = "".join(d + "\n" for d in res.param_decls)
     frag = ("#version 330 core\n"
             "in vec2 vUV;\nin vec3 vGenerated;\nin vec3 vObjPos;\nout vec4 fragColor;\n"
-            + sampler_decls + param_decls + _nt.HELPERS + "\n"
+            + sampler_decls + param_decls + res.helpers + "\n"
             + res.glsl + "\n"
             + "void main(){ fragColor = computeBaseColor(vUV); }\n")
     vert = ("#version 330 core\n"

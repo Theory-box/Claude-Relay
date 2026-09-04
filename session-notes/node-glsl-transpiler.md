@@ -493,3 +493,19 @@ GPL: ported code is GPL-2.0-or-later; addon is GPL. OK.
   not vUV. Image Texture still defaults to UV (correct).
 - Enables skybox-on-a-mesh procedural/Generated mapping.
 - CPU-verified Generated/Object/UV + procedural default; addon registers; 9 suites green.
+
+## v0.7.1 — modular GLSL library + on-demand inclusion + exact noise offsets
+STRUCTURE (modularity ask): moved all helper GLSL out of node_transpiler into
+glsl_lib.py as named CHUNKS (hsv/sdiv/blend/mathx/lut/hash/perlin/pcg/voronoi/
+intnoise/brick), each with the function names it provides. glsl_lib.collect(body)
+auto-includes ONLY the chunks a material's shader references, transitively, in
+dependency order. To edit a node's math: edit its chunk. To add: add chunk + handler.
+  - transpile_material sets res.helpers = collect(res.glsl); material_shader + harness
+    use res.helpers (not the whole library).
+  - BLOAT FIX verified: plain image material -> 0 bytes of helpers (was full ~8KB
+    library); Noise -> perlin+hash only; Voronoi -> voronoi+pcg only.
+  - node_transpiler import of glsl_lib works both as package and standalone-file (tests).
+EXACTNESS (task 1): Noise distortion + Color now use Blender's exact random offsets
+  (_b_rvec3 = random_vec3_offset, seeds in [100,200] via hash_vec2_to_float) instead
+  of the reconstructed offsets. Noise is now verbatim across Fac, distortion, and Color.
+All 9 suites green; addon registers.

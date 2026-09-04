@@ -39,7 +39,7 @@ def build_material_frag(mat, mode="VERTEX"):
     vert, head, main, light = _heads(mode)
     sampler_decls = "".join("uniform sampler2D {};\n".format(s.uniform) for s in res.samplers)
     param_decls = "".join(d + "\n" for d in res.param_decls)
-    frag = (head + sampler_decls + param_decls + light + _nt.HELPERS + "\n"
+    frag = (head + sampler_decls + param_decls + light + res.helpers + "\n"
             + res.glsl + "\n" + main)
     return vert, frag, res
 
