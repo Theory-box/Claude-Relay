@@ -726,8 +726,13 @@ class VertexLitEngine(bpy.types.RenderEngine):
     def _draw_batches(self, depsgraph, vls, view_proj, studio, ls_mat, sky, ground,
                       bstr, do_shad, s_bias, s_dark, shad_tex, lights, mode):
         legacy=_get_main_shader(mode)
-        use_live=True   # live material nodes are always on
         frame_done=set(); params_done=set()
+        # Progressive compile: sharpen at most ~40ms of new material shaders per frame,
+        # so the scene shows instantly (base-texture path) instead of freezing while
+        # every material compiles up front. Anything not ready draws with the fast path
+        # and upgrades on a later frame.
+        _compile_deadline = time.time() + 0.04
+        self._mat_pending = False
 
         def _ensure_frame(sh):
             sh.bind()
@@ -756,7 +761,14 @@ class VertexLitEngine(bpy.types.RenderEngine):
                 mat=bpy.data.materials.get(mat_name) if mat_name else None
                 prog=None
                 if mat is not None and getattr(mat,'use_nodes',False):
-                    p=material_shader.get_program(mat, mode)
+                    p=material_shader.get_program(mat, mode, may_compile=False)  # peek
+                    if p is None:
+                        # not compiled yet -> compile now only if within this frame's
+                        # time budget, else defer (draw base texture, retry next frame)
+                        if time.time() < _compile_deadline:
+                            p=material_shader.get_program(mat, mode, may_compile=True)
+                        else:
+                            self._mat_pending=True
                     if p and not p['failed'] and p['shader'] is not None:
                         prog=p
 
@@ -884,6 +896,10 @@ class VertexLitEngine(bpy.types.RenderEngine):
                 gpu.state.depth_test_set('NONE')
                 gpu.state.face_culling_set('NONE')
                 gpu.state.depth_mask_set(False)
+                if getattr(self, '_mat_pending', False):
+                    self.tag_redraw()
+                    try: context.region.tag_redraw()
+                    except Exception: pass
                 return
             except Exception as e:
                 global _post_err_shown
@@ -900,6 +916,11 @@ class VertexLitEngine(bpy.types.RenderEngine):
         gpu.state.depth_test_set('NONE')
         gpu.state.face_culling_set('NONE')
         gpu.state.depth_mask_set(False)
+        # Materials still compiling -> keep redrawing so they upgrade progressively.
+        if getattr(self, '_mat_pending', False):
+            self.tag_redraw()
+            try: context.region.tag_redraw()
+            except Exception: pass
 
 
 _ENGINE_ID = 'VERTEX_LIT'

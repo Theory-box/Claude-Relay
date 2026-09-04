@@ -659,3 +659,19 @@ AUDIT (every vector-output node): NONE collapse to a constant now. Handled(10) /
   pass-through(Bump/Displacement/Normal/VectorTransform/Bevel) / vGenerated-default
   (ObjectInfo/NewGeometry/etc.). The coordinate-collapse class is gone.
 11 suites green (+vrot check).
+
+## v0.8.9 — progressive (non-blocking) material shader compilation
+COMPLAINT: 20s "getting scene ready" freeze vs instant Workbench. Cause: the FIRST
+frame compiled EVERY visible material's GLSL shader synchronously (GPU driver compile
+~100-300ms each) before anything drew. Workbench uses one pre-compiled shader.
+FIX - budgeted progressive compile:
+- material_shader.get_program(mat, mode, may_compile=False) PEEKS (returns cached-or-
+  None, never blocks on a GPU compile).
+- Draw loop: peek first; only actually compile a material's shader if within this
+  frame's ~40ms time budget, else draw it with the fast base-texture path and set
+  self._mat_pending. Scene shows instantly; materials "pop in" over the next frames.
+- view_draw tags a redraw while _mat_pending -> keeps upgrading until caught up.
+So no up-front freeze: first frame ~instant (Workbench-like base textures), full
+node materials fill in progressively. Geometry extraction (numpy, already fast +
+incremental) is the only remaining first-load cost and is inherent.
+11 suites green.

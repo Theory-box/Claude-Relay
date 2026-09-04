@@ -90,7 +90,7 @@ def _compile(mat, mode):
     return ent
 
 
-def get_program(mat, mode="VERTEX"):
+def get_program(mat, mode="VERTEX", may_compile=True):
     if mat is None:
         return None
     name = mat.name
@@ -100,6 +100,20 @@ def get_program(mat, mode="VERTEX"):
 
     if ent is not None and not dirty:
         return ent
+
+    # If the caller only wants a ready program (progressive/budgeted compile), don't
+    # block on a GPU compile here — report "not ready yet" so it can draw the fast
+    # base-texture path this frame and try again next frame.
+    if not may_compile and (ent is None or dirty):
+        # a value-only edit can keep the existing compiled shader
+        if ent is not None and not ent["failed"] and ent["shader"] is not None:
+            try:
+                if ent["sig"] == _nt.topo_signature(mat):
+                    _dirty_mats.discard(name)
+                    return ent
+            except Exception:
+                pass
+        return None
 
     # Flagged dirty (or first build for this key). Distinguish a value-only edit
     # (params are uniforms read live -> keep the compiled shader) from a structural
