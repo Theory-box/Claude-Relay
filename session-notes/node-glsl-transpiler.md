@@ -1080,3 +1080,11 @@ Bake produced a fully transparent image (nothing rasterised). Added:
   to a point -> empty bake).
 - Console diagnostic line (slots/verts/uv-range/params/samplers) to pinpoint if still empty.
 Can't run the actual bake headless (Blender gpu can't draw in --background) -> user confirms.
+
+## v0.11.9 — Bake reworked: material on a flat 0-1 UV plane (not object UVs)
+Per user: don't bake to the object's UVs — evaluate the material as if on a default unwrapped
+plane. bake.py now draws ONE fullscreen triangle (PLANE_BAKE_VERT: uv = pos*0.5+0.5; Generated/
+Object synthesised for a unit plane) and runs computeBaseColor(uv) per texel into a GPUOffScreen.
+No mesh, no UV extraction, no _extract_mesh_data. Only vertex attribute is 'pos' (always used), so
+the attribute-optimisation mismatch that plagued the UV bake can't happen. Operator just needs the
+active object's active material. test_bake updated. 16 suites green. (Still needs on-GPU confirm.)

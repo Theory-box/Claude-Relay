@@ -296,3 +296,27 @@ void main(){
 BAKE_FRAG_HEAD = ("in vec2 vUV;\nin vec4 vColor;\nin vec3 vWpos;\nin vec3 vNrm;\n"
                   "in vec3 vGenerated;\nin vec3 vObjPos;\nout vec4 fragColor;\n")
 BAKE_FRAG_MAIN = "void main(){ fragColor = computeBaseColor(vUV); }\n"
+
+# Plane bake: evaluate the material across a flat 0-1 UV plane (as if on a default unwrapped
+# plane). A fullscreen triangle supplies UV 0..1; Generated/Object coords are synthesised to
+# match a unit plane so procedural (non-UV) graphs still bake sensibly. Only attribute is 'pos'
+# (always used), so nothing gets optimised out from under the batch.
+PLANE_BAKE_VERT = """
+in vec2 pos;
+out vec2 vUV;
+out vec4 vColor;
+out vec3 vWpos;
+out vec3 vNrm;
+out vec3 vGenerated;
+out vec3 vObjPos;
+void main(){
+    vec2 uv = pos * 0.5 + 0.5;
+    vUV        = uv;
+    vColor     = vec4(1.0);
+    vNrm       = vec3(0.0, 0.0, 1.0);
+    vWpos      = vec3(uv, 0.0);
+    vGenerated = vec3(uv, 0.0);
+    vObjPos    = vec3(pos, 0.0);
+    gl_Position = vec4(pos, 0.0, 1.0);
+}
+"""
