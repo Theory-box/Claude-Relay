@@ -223,6 +223,26 @@ float _vor_edge(vec3 coord, float rnd){
 }
 """
 
+# ---- Vector Rotate (axis-angle + Euler XYZ) ---------------------------------
+_VECROT = """
+vec3 _rot_axis(vec3 p, vec3 axis, float angle){
+    float c=cos(angle), s=sin(angle); float t=1.0-c;
+    vec3 r;
+    r.x = (c + t*axis.x*axis.x)*p.x + (t*axis.x*axis.y - axis.z*s)*p.y + (t*axis.x*axis.z + axis.y*s)*p.z;
+    r.y = (t*axis.x*axis.y + axis.z*s)*p.x + (c + t*axis.y*axis.y)*p.y + (t*axis.y*axis.z - axis.x*s)*p.z;
+    r.z = (t*axis.x*axis.z - axis.y*s)*p.x + (t*axis.y*axis.z + axis.x*s)*p.y + (c + t*axis.z*axis.z)*p.z;
+    return r;
+}
+mat3 _euler_xyz(vec3 e){
+    float ci=cos(e.x), cj=cos(e.y), ch=cos(e.z);
+    float si=sin(e.x), sj=sin(e.y), sh=sin(e.z);
+    float cc=ci*ch, cs=ci*sh, sc=si*ch, ss=si*sh;
+    return mat3(vec3(cj*ch, cj*sh, -sj),
+                vec3(sj*sc-cs, sj*ss+cc, cj*si),
+                vec3(sj*cc+ss, sj*cs-sc, cj*ci));
+}
+"""
+
 # ---- integer_noise (Brick) --------------------------------------------------
 _INTNOISE = """
 float integer_noise(int n){
@@ -274,11 +294,12 @@ CHUNKS = {
     "voronoi":   (_VORONOI,  ["_vor_dist", "_vor_f1", "_vor_smooth", "_vor_f2", "_vor_edge"]),
     "intnoise":  (_INTNOISE, ["integer_noise"]),
     "brick":     (_BRICK,    ["_b_brick"]),
+    "vecrot":    (_VECROT,   ["_rot_axis", "_euler_xyz"]),
 }
 
 # emission order: a chunk must come AFTER every chunk it depends on
 CHUNK_ORDER = ["sdiv", "lut", "mathx", "hsv", "blend",
-               "hash", "perlin", "pcg", "voronoi", "intnoise", "brick"]
+               "hash", "perlin", "pcg", "voronoi", "intnoise", "brick", "vecrot"]
 
 
 def collect(body_glsl):

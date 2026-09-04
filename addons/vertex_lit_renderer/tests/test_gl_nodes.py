@@ -138,4 +138,14 @@ def texco(outn):
     t.links.new(n.outputs[outn], bb.inputs['Base Color']); px,_=H.render_material(m,size=16); return px[...,0]
 check(all(texco(o)[0,-1]>texco(o)[0,0]+0.4 for o in ('Generated','Object','UV')), "Tex Coord Generated/Object/UV map coordinates")
 
+# --- Vector Rotate (identity at 0; transforms at 90deg) ---
+def vrot(angle):
+    m,t,bb=base('vr'); tc=t.nodes.new('ShaderNodeTexCoord'); r=t.nodes.new('ShaderNodeVectorRotate')
+    r.rotation_type='Z_AXIS'; r.inputs['Angle'].default_value=angle; gr=t.nodes.new('ShaderNodeTexGradient')
+    t.links.new(tc.outputs['UV'], r.inputs['Vector']); t.links.new(r.outputs['Vector'], gr.inputs['Vector'])
+    t.links.new(gr.outputs['Color'], bb.inputs['Base Color']); px,_=H.render_material(m,size=16); return px[...,0]
+_v0=vrot(0.0)
+check(abs(_v0[0,-1]-_v0[0,0])>0.4, "Vector Rotate angle 0 = identity (horizontal gradient)")
+check(abs(vrot(1.5708)[0,-1]-vrot(1.5708)[0,0]) < abs(_v0[0,-1]-_v0[0,0]), "Vector Rotate 90deg transforms coords")
+
 print("SUMMARY: " + ("FAILED "+", ".join(F) if F else "ALL CHECKS PASSED"))

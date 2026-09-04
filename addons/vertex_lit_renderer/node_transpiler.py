@@ -217,16 +217,31 @@ class _Transpiler:
             return self._sock_var[key]
         handler = getattr(self, "_n_" + node.type.lower(), None)
         if handler is None:
-            # Unsupported node -> emit a NEUTRAL white (1,1,1,1) and keep going, so the
-            # rest of the graph (brick, mixes, textures...) still renders instead of the
-            # whole material falling back to the base texture. White is a no-op for the
-            # common case where the node feeds a multiply/mix.
+            # Unsupported node -> emit a TYPE-APPROPRIATE neutral and keep going.
+            # Crucially, a VECTOR output passes its input coordinates THROUGH (identity)
+            # rather than becoming a constant white — otherwise an unhandled vector node
+            # (e.g. Vector Transform) silently collapses a whole coordinate chain and the
+            # texture downstream shows a single colour. Colour outputs -> white (no-op for
+            # a multiply); float outputs -> 1.0.
             self.notes.append("unhandled node neutralised: {} ({})".format(node.name, node.type))
-            self._sock_var[key] = "vec4(1.0)"
-            return "vec4(1.0)"
+            neutral = self._neutral_for(node, out_socket)
+            self._sock_var[key] = neutral
+            return neutral
         expr = handler(node, out_socket)
         self._sock_var[key] = expr
         return expr
+
+    def _neutral_for(self, node, out_socket):
+        ot = getattr(out_socket, "type", "RGBA")
+        if ot == "VECTOR":
+            # identity pass-through of a vector input, so coordinate chains survive
+            for inp in node.inputs:
+                if inp.type == "VECTOR":
+                    return self.input_expr(node, inp, "vec4")
+            return "vec4(vGenerated, 1.0)"
+        if ot == "VALUE":
+            return "1.0"
+        return "vec4(1.0)"
 
     # =================== node handlers ===================================
 
@@ -877,6 +892,34 @@ class _Transpiler:
             v=v, det=detail, r=rough, l=lac))
         return v
 
+    def _n_vector_rotate(self, node, out):
+        vin = self.input_expr(node, node.inputs.get("Vector"), "vec3")
+        center = self.input_expr(node, node.inputs.get("Center"), "vec3")
+        rtype = getattr(node, "rotation_type", "AXIS_ANGLE")
+        try:
+            inv = -1.0 if bool(node.inputs.get("Invert").default_value) else 1.0
+        except Exception:
+            inv = 1.0
+        v = self._new_var("vrot")
+        self._line("vec3 {v}p = ({vin}) - ({c});".format(v=v, vin=vin, c=center))
+        if rtype == "EULER_XYZ":
+            rot = self.input_expr(node, node.inputs.get("Rotation"), "vec3")
+            mat = "_euler_xyz({r})".format(r=rot)
+            if inv < 0:
+                mat = "transpose({m})".format(m=mat)
+            self._line("vec3 {v}r = {mat} * {v}p + ({c});".format(v=v, mat=mat, c=center))
+        else:
+            angle = self.input_expr(node, node.inputs.get("Angle"), "float")
+            if rtype == "X_AXIS":   axis = "vec3(1.0,0.0,0.0)"
+            elif rtype == "Y_AXIS": axis = "vec3(0.0,1.0,0.0)"
+            elif rtype == "Z_AXIS": axis = "vec3(0.0,0.0,1.0)"
+            else:
+                ax = self.input_expr(node, node.inputs.get("Axis"), "vec3")
+                axis = "((length({a})!=0.0)?normalize({a}):vec3(0.0,0.0,1.0))".format(a=ax)
+            self._line("vec3 {v}r = _rot_axis({v}p, {axis}, ({ang})*{inv}) + ({c});".format(
+                v=v, axis=axis, ang=angle, inv=inv, c=center))
+        return "vec4({v}r, 1.0)".format(v=v)
+
     def _n_combhsv(self, node, out):
         h = self.input_expr(node, node.inputs.get("H"), "float")
         s = self.input_expr(node, node.inputs.get("S"), "float")
@@ -1040,6 +1083,9 @@ def _variant(n):
     elif t == "MAPPING": v = [getattr(n, "vector_type", "POINT")]
     elif t == "CLAMP": v = [getattr(n, "clamp_type", "MINMAX")]
     elif t == "MAP_RANGE": v = [getattr(n, "interpolation_type", "LINEAR"), str(getattr(n, "clamp", True)), getattr(n, "data_type", "FLOAT")]
+    elif t == "VECTOR_ROTATE":
+        v = [getattr(n, "rotation_type", "AXIS_ANGLE"),
+             str(bool(n.inputs.get("Invert").default_value)) if n.inputs.get("Invert") else "F"]
     elif t in ("CURVE_RGB", "CURVE_FLOAT", "CURVE_VEC"):
         try:
             for cv in n.mapping.curves:

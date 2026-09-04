@@ -642,3 +642,20 @@ MULTI-MATERIAL: _extract_mesh_data now splits loop_triangles by material_index i
 - Removed _build_batch_from_cache; added _build_slot_batch + _build_object_slots.
 - GI apply + BVH still use whole-mesh vert_co_local/vi_map (unchanged); GI off by default.
 11 suites green (added test_multimat).
+
+## v0.8.8 — Vector Rotate + type-aware neutralize (coordinate-collapse class fix)
+USER FINDING: brick broke when a Vector Rotate fed its coords; removing it fixed brick.
+ROOT CAUSE: Vector Rotate was UNSUPPORTED -> neutralised to WHITE (1,1,1). For a
+VECTOR/coordinate node white is a constant -> collapses the whole coord chain ->
+downstream texture shows one colour. Silent + hard to diagnose (user's exact point).
+FIXES:
+- Implemented Vector Rotate (node type is VECTOR_ROTATE, not VECT_ROTATE): axis-angle,
+  X/Y/Z axis, Euler XYZ, center + invert. Exact port of rotate_around_axis + euler mat3.
+  New glsl_lib chunk 'vecrot'. Verified angle 0 = identity, 90deg transforms.
+- TYPE-AWARE NEUTRALIZE (_neutral_for): unsupported node's neutral now matches its
+  OUTPUT type: VECTOR -> pass through a vector input (identity) so coords survive, else
+  vGenerated; VALUE -> 1.0; RGBA -> white. Was: always white.
+AUDIT (every vector-output node): NONE collapse to a constant now. Handled(10) /
+  pass-through(Bump/Displacement/Normal/VectorTransform/Bevel) / vGenerated-default
+  (ObjectInfo/NewGeometry/etc.). The coordinate-collapse class is gone.
+11 suites green (+vrot check).
