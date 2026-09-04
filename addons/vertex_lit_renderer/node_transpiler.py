@@ -75,6 +75,7 @@ float _bwrapf(float v, float mx, float mn){ float r=mx-mn; return (r!=0.0)? v-r*
 vec3  _bwrap3(vec3 v, vec3 mx, vec3 mn){ return vec3(_bwrapf(v.x,mx.x,mn.x),_bwrapf(v.y,mx.y,mn.y),_bwrapf(v.z,mx.z,mn.z)); }
 float _bpingpong(float a, float s){ return (s!=0.0)? abs(fract((a-s)/(s*2.0))*s*2.0-s) : 0.0; }
 float _btmod(float a, float b){ return (b!=0.0)? a-b*trunc(a/b) : 0.0; }   /* truncated modulo (Blender MODULO) */
+float _lut65(float a[65], float x){ x=clamp(x,0.0,1.0)*64.0; int i=int(x); float f=x-float(i); return mix(a[i], a[min(i+1,64)], f); }
 
 /* ===== Blender-exact Perlin noise — ported from Blender's GPL GLSL
  * (gpu_shader_common_hash.glsl + gpu_shader_material_noise.glsl).
@@ -758,6 +759,58 @@ class _Transpiler:
                 v=var, r=_f(c1[0]), g=_f(c1[1]), b=_f(c1[2]), a=_f(c1[3]), w=w))
         return var
 
+    def _bake_curve(self, mapping, curve, post=None, n=64):
+        vals = []
+        for i in range(n + 1):
+            x = i / float(n)
+            y = mapping.evaluate(curve, x)
+            if post is not None:
+                y = mapping.evaluate(post, y)
+            vals.append(y)
+        return vals
+
+    def _emit_lut(self, v, name, vals):
+        arr = ", ".join(_f(x) for x in vals)
+        self._line("float {v}{n}[65] = float[]({arr});".format(v=v, n=name, arr=arr))
+
+    def _n_curve_rgb(self, node, out):
+        col = self.input_expr(node, node.inputs.get("Color"), "vec4")
+        fac = self.input_expr(node, node.inputs.get("Fac"), "float")
+        mp = node.mapping; mp.initialize()
+        C = mp.curves[3]
+        v = self._new_var("crv")
+        self._emit_lut(v, "R", self._bake_curve(mp, mp.curves[0], C))
+        self._emit_lut(v, "G", self._bake_curve(mp, mp.curves[1], C))
+        self._emit_lut(v, "B", self._bake_curve(mp, mp.curves[2], C))
+        self._line("vec3 {v}i = ({c}).rgb;".format(v=v, c=col))
+        self._line("vec3 {v}o = vec3(_lut65({v}R,{v}i.r), _lut65({v}G,{v}i.g), _lut65({v}B,{v}i.b));".format(v=v))
+        self._line("vec4 {v}c = vec4(mix(({c}).rgb, {v}o, clamp({f},0.0,1.0)), ({c}).a);".format(v=v, c=col, f=fac))
+        return v + "c"
+
+    def _n_curve_float(self, node, out):
+        val = self.input_expr(node, node.inputs.get("Value"), "float")
+        fac = self.input_expr(node, node.inputs.get("Factor"), "float") if node.inputs.get("Factor") else "1.0"
+        mp = node.mapping; mp.initialize()
+        v = self._new_var("crvf")
+        self._emit_lut(v, "L", self._bake_curve(mp, mp.curves[0]))
+        self._line("float {v}f = mix({val}, _lut65({v}L, {val}), clamp({fac},0.0,1.0));".format(v=v, val=val, fac=fac))
+        self._var_type[v + "f"] = "float"
+        return v + "f"
+
+    def _n_curve_vec(self, node, out):
+        vec = self.input_expr(node, node.inputs.get("Vector"), "vec3")
+        fac = self.input_expr(node, node.inputs.get("Fac"), "float") if node.inputs.get("Fac") else "1.0"
+        mp = node.mapping; mp.initialize()
+        v = self._new_var("crvv")
+        # Vector curves map roughly [-1,1]; _lut65 clamps to [0,1] (X mapped via 0.5+0.5x)
+        self._emit_lut(v, "X", self._bake_curve(mp, mp.curves[0]))
+        self._emit_lut(v, "Y", self._bake_curve(mp, mp.curves[1]))
+        self._emit_lut(v, "Z", self._bake_curve(mp, mp.curves[2]))
+        self._line("vec3 {v}i = ({vec})*0.5+0.5;".format(v=v, vec=vec))
+        self._line("vec3 {v}o = vec3(_lut65({v}X,{v}i.x),_lut65({v}Y,{v}i.y),_lut65({v}Z,{v}i.z))*2.0-1.0;".format(v=v))
+        self._line("vec3 {v}r = mix({vec}, {v}o, clamp({fac},0.0,1.0));".format(v=v, vec=vec, fac=fac))
+        return "vec4({v}r, 1.0)".format(v=v)
+
     def _n_tex_magic(self, node, out):
         vs = node.inputs.get("Vector")
         co = self.input_expr(node, vs, "vec3") if (vs and vs.is_linked) else "vec3(vUV, 0.0)"
@@ -1113,6 +1166,13 @@ def _variant(n):
     elif t == "MAPPING": v = [getattr(n, "vector_type", "POINT")]
     elif t == "CLAMP": v = [getattr(n, "clamp_type", "MINMAX")]
     elif t == "MAP_RANGE": v = [getattr(n, "interpolation_type", "LINEAR"), str(getattr(n, "clamp", True)), getattr(n, "data_type", "FLOAT")]
+    elif t in ("CURVE_RGB", "CURVE_FLOAT", "CURVE_VEC"):
+        try:
+            for cv in n.mapping.curves:
+                for pt in cv.points:
+                    v.append("{:.4f}:{:.4f}".format(pt.location[0], pt.location[1]))
+        except Exception:
+            pass
     elif t == "TEX_MAGIC": v = [str(getattr(n, "turbulence_depth", 2))]
     elif t == "TEX_BRICK": v = [str(getattr(n, "offset", 0.5)), str(getattr(n, "offset_frequency", 2)),
                                str(getattr(n, "squash", 1.0)), str(getattr(n, "squash_frequency", 2))]

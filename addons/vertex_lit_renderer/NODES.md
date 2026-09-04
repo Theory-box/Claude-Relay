@@ -22,8 +22,7 @@ darken a wall → Bright/Contrast / Mix / Hue-Sat ✅ · show the texture → Im
 - ✅ Math (all ops), Vector Math (core ops), Map Range (linear), Clamp,
   Mix (color, all 19 blend modes), Separate/Combine Color·RGB·XYZ, Color Ramp
 - ⏳ RGB to BW (luminance) — trivial
-- ⏳ Float Curve / RGB Curves / Vector Curves — sample the curve → bake LUT into a
-  uniform array (or a 1D texture); medium
+- ✅ RGB Curves, Float Curve, Vector Curves — curve baked to a 65-sample LUT at transpile time (edits recompile via signature)
 - ⏳ Blackbody (temp→RGB), Wavelength (nm→RGB) — small LUT/polynomial ports
 - 🚫 Shader to RGB (needs full lighting eval)
 

@@ -472,3 +472,12 @@ GPL: ported code is GPL-2.0-or-later; addon is GPL. OK.
   Normalize handled (divide by per-feature max_distance). detail>0 fractal = single
   octave for now (rare; noted).
 - CPU-verified: all 4 features + 4 metrics compile & vary. 9 suites green.
+
+## v0.6.4 — Curve nodes (RGB / Float / Vector) via baked LUT
+- RGB Curves, Float Curve, Vector Curves: bake each curve to a 65-sample LUT at
+  transpile time (mapping.evaluate), emit as GLSL float[65] + _lut65 linear lookup.
+  RGB applies combined(C) after per-channel R/G/B (Blender order). Vector maps via
+  [-1,1]->[0,1]. Curve edits recompile (control points in signature).
+- Directly useful for color grading (darken/brighten with control).
+- CPU-verified: identity passes through; darken curve halves output; array-param
+  GLSL compiles on llvmpipe. 9 suites green.

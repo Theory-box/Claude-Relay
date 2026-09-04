@@ -120,4 +120,16 @@ def vorf(feat, outn='Distance', metric='EUCLIDEAN'):
 check(all(vorf(f).std()>0.05 for f in ('F1','F2','SMOOTH_F1','DISTANCE_TO_EDGE')), "Voronoi F1/F2/Smooth/Edge all vary")
 check(all(vorf('F1','Distance',mm).std()>0.03 for mm in ('EUCLIDEAN','MANHATTAN','CHEBYCHEV','MINKOWSKI')), "Voronoi all 4 metrics work")
 
+# --- RGB Curves (identity passthrough + darken) ---
+def rgbcurve(dark=False):
+    m,t,bb=base('rc'); im=t.nodes.new('ShaderNodeTexImage'); im.image=bpy.data.images.new('gc',16,16)
+    cv=t.nodes.new('ShaderNodeRGBCurve'); cv.mapping.initialize()
+    if dark:
+        cv.mapping.curves[3].points[1].location=(1.0,0.5); cv.mapping.update()
+    t.links.new(im.outputs['Color'], cv.inputs['Color']); t.links.new(cv.outputs['Color'], bb.inputs['Base Color'])
+    px,_=H.render_material(m,size=16); return px[...,0]
+_id=rgbcurve(False); _dk=rgbcurve(True)
+check(abs(_id.mean()-0.5)<0.05, "RGB Curve identity passes gradient unchanged")
+check(_dk.mean() < _id.mean()-0.1, "RGB Curve darken lowers output")
+
 print("SUMMARY: " + ("FAILED "+", ".join(F) if F else "ALL CHECKS PASSED"))
