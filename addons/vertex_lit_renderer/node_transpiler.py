@@ -226,9 +226,16 @@ class _Transpiler:
 
     # -- emit a NODE -------------------------------------------------------
     def emit_node(self, node, out_socket):
-        # Cache key includes the group-instance context so the same node inside a group
-        # instanced more than once resolves per-instance (its Group Input maps differently).
-        key = (id(out_socket), tuple(id(g) for g, _ in self._group_stack))
+        # Cache key must use as_pointer() (stable C pointer), NOT id(): Blender socket
+        # wrappers are ephemeral, so after one is GC'd Python reuses its address for the
+        # next socket -> id() collisions silently return a cached value for the wrong
+        # socket (e.g. a group's Width resolving to Length). The group-instance context is
+        # part of the key so the same node inside a group instanced twice resolves per
+        # instance.
+        try:
+            key = (out_socket.as_pointer(), tuple(g.as_pointer() for g, _ in self._group_stack))
+        except Exception:
+            key = (id(out_socket), tuple(id(g) for g, _ in self._group_stack))
         if key in self._sock_var:
             return self._sock_var[key]
         # Group Input node: its output sockets map to the ENCLOSING group node's external

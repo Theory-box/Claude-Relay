@@ -8,7 +8,7 @@ import gpu
 from gpu_extras.batch import batch_for_shader
 from mathutils import Matrix, Vector
 
-from .shaders import SHADOW_VERT, SHADOW_FRAG, PHONG_VERT, PHONG_FRAG, WORKBENCH_FRAG, ID_VERT, ID_FRAG
+from .shaders import SHADOW_VERT, SHADOW_FRAG, PHONG_VERT, PHONG_FRAG, WORKBENCH_FRAG, ID_VERT, ID_FRAG, NORMAL_VERT, NORMAL_FRAG
 from . import material_shader
 from . import fx
 import ctypes as _ct
@@ -94,6 +94,13 @@ def _get_id_shader():
     if _id_shader is None:
         _id_shader = gpu.types.GPUShader(ID_VERT, ID_FRAG)
     return _id_shader
+
+_normal_shader = None
+def _get_normal_shader():
+    global _normal_shader
+    if _normal_shader is None:
+        _normal_shader = gpu.types.GPUShader(NORMAL_VERT, NORMAL_FRAG)
+    return _normal_shader
 
 def _get_main_shader(mode='PIXEL'):
     sh = _main_shader.get(mode)
@@ -963,9 +970,9 @@ class VertexLitEngine(bpy.types.RenderEngine):
                                 for b, _mn, _tx in sl:
                                     try: b.draw(sh)
                                     except Exception: pass
-                # Object-ID pass for the outline effect (each object a unique flat colour).
+                # Object-ID pass (outline + cavity both use it).
                 ids_cb = None
-                if vls and getattr(vls, 'use_outline', False):
+                if vls and (getattr(vls, 'use_outline', False) or getattr(vls, 'use_cavity', False)):
                     def ids_cb():
                         sh = _get_id_shader(); sh.bind()
                         try: sh.uniform_float('uViewProj', view_proj)
@@ -990,16 +997,45 @@ class VertexLitEngine(bpy.types.RenderEngine):
                                 try: b.draw(sh)
                                 except Exception: pass
                             idx += 1
+                # View-space normal pass for the Cavity (curvature) effect.
+                normals_cb = None
+                if vls and getattr(vls, 'use_cavity', False):
+                    view_mat3 = rv3d.view_matrix.to_3x3()
+                    def normals_cb():
+                        sh = _get_normal_shader(); sh.bind()
+                        try:
+                            sh.uniform_float('uViewProj', view_proj)
+                            sh.uniform_float('uViewMat3', view_mat3)
+                        except Exception: pass
+                        gpu.state.depth_test_set('LESS_EQUAL'); gpu.state.depth_mask_set(True)
+                        gpu.state.face_culling_set('BACK')
+                        for i in depsgraph.object_instances:
+                            o = i.object
+                            if o.type != 'MESH' or not i.show_self: continue
+                            sl = self._batch_dict.get(o.name)
+                            if not sl: continue
+                            try: nmat = i.matrix_world.to_3x3().inverted().transposed()
+                            except Exception: nmat = i.matrix_world.to_3x3()
+                            try:
+                                sh.uniform_float('uModel', i.matrix_world)
+                                sh.uniform_float('uNormalMat', nmat)
+                            except Exception: pass
+                            for b, _mn, _tx in sl:
+                                try: b.draw(sh)
+                                except Exception: pass
                 post_ctx = {
                     'proj': proj, 'inv_proj': proj.inverted(),
                     'texel': (1.0/max(rw,1), 1.0/max(rh,1)),
                     'clear_color': (wc[0],wc[1],wc[2],1.0) if wc else (0.08,0.08,0.08,1.0),
                     'draw_ao_occluders': ao_occluders,
                     'draw_object_ids': ids_cb,
+                    'draw_view_normals': normals_cb,
                     'ao_radius':   (vls.ao_radius   if vls else 0.5),
                     'ao_strength': (vls.ao_strength if vls else 1.0),
                     'ao_bias':     (vls.ao_bias     if vls else 0.02),
                     'ao_samples':  (int(vls.ao_samples) if vls else 16),
+                    'cavity_ridge':  (vls.cavity_ridge  if vls else 1.0),
+                    'cavity_valley': (vls.cavity_valley if vls else 1.0),
                     'outline_size':      (vls.outline_size      if vls else 1.5),
                     'outline_color':     (tuple(vls.outline_color) if vls else (0.0,0.0,0.0)),
                 }

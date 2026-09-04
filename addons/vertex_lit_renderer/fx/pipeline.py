@@ -25,6 +25,16 @@ class Pipeline:
         self._aod_w = self._aod_h = 0
         self._id = None; self._id_depth = None; self._id_fb = None
         self._id_w = self._id_h = 0
+        self._nrm = None; self._nrm_depth = None; self._nrm_fb = None
+        self._nrm_w = self._nrm_h = 0
+
+    def _ensure_normal(self, w, h):
+        if self._nrm_fb is not None and w == self._nrm_w and h == self._nrm_h:
+            return
+        self._nrm_w, self._nrm_h = w, h
+        self._nrm = gpu.types.GPUTexture((w, h), format='RGBA16F')
+        self._nrm_depth = gpu.types.GPUTexture((w, h), format='DEPTH_COMPONENT32F')
+        self._nrm_fb = gpu.types.GPUFrameBuffer(color_slots=(self._nrm,), depth_slot=self._nrm_depth)
 
     def any_enabled(self, vls):
         return any(e.enabled(vls) for e in self.effects)
@@ -80,6 +90,18 @@ class Pipeline:
                 self._id_fb.clear(color=(0.0, 0.0, 0.0, 1.0), depth=1.0)
                 idd()
             ctx['id_tex'] = self._id
+
+        # 1d) View-space normal pass for the Cavity (curvature) effect.
+        nrm = ctx.get('draw_view_normals')
+        if nrm is not None:
+            self._ensure_normal(w, h)
+            with self._nrm_fb.bind():
+                gpu.state.depth_test_set('LESS_EQUAL')
+                gpu.state.depth_mask_set(True)
+                # clear to the "flat toward camera" normal (0,0,1) encoded -> (0.5,0.5,1)
+                self._nrm_fb.clear(color=(0.5, 0.5, 1.0, 1.0), depth=1.0)
+                nrm()
+            ctx['normal_tex'] = self._nrm
 
         # 2) run enabled effects, bouncing between ping targets
         cur = self.gbuf.color

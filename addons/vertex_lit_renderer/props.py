@@ -9,6 +9,17 @@ class VertexLitSettings(bpy.types.PropertyGroup):
     ao_strength: bpy.props.FloatProperty(name="AO Strength", default=1.0, min=0.0, max=4.0)
     ao_radius: bpy.props.FloatProperty(name="AO Radius", default=0.5, min=0.01, max=5.0)
     ao_bias: bpy.props.FloatProperty(name="AO Bias", default=0.02, min=0.0, max=0.5)
+    # --- Cavity (Workbench-style curvature): valley darkens crevices, ridge brightens edges ---
+    use_cavity: bpy.props.BoolProperty(
+        name="Cavity", default=False,
+        description="Screen-space curvature shading: darken concave crevices (valley) and "
+                    "brighten convex edges (ridge), like Blender's Workbench cavity")
+    cavity_ridge: bpy.props.FloatProperty(
+        name="Ridge", default=1.0, min=0.0, max=4.0,
+        description="Strength of edge/corner highlighting on convex surfaces")
+    cavity_valley: bpy.props.FloatProperty(
+        name="Valley", default=1.0, min=0.0, max=4.0,
+        description="Strength of crevice darkening on concave surfaces")
     ao_samples: bpy.props.EnumProperty(
         name="AO Quality",
         items=[('16', "Low (16)", "16 samples"),

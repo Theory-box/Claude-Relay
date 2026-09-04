@@ -9,12 +9,13 @@ no changes.
 """
 from .pipeline import Pipeline
 from .ssao import SSAO
+from .cavity import Cavity
 from .outline import Outline
 
 
 def default_effects():
-    # order matters: AO darkens colour first, then outline draws lines on top.
-    return [SSAO(), Outline()]
+    # order matters: AO + cavity shade the colour first, then outline draws lines on top.
+    return [SSAO(), Cavity(), Outline()]
 
 
 def make_pipeline():

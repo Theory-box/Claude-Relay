@@ -42,6 +42,15 @@ class VERTEX_LIT_PT_settings(bpy.types.Panel):
             if ob is not None and ob.type == 'MESH':
                 box.prop(ob, 'vlr_ao_exclude', text="Exclude active object")
 
+        box = layout.box()
+        row = box.row()
+        row.label(text="Cavity", icon='MESH_ICOSPHERE')
+        row.prop(s, 'use_cavity', text="")
+        if s.use_cavity:
+            col = box.column(align=True)
+            col.prop(s, 'cavity_ridge')
+            col.prop(s, 'cavity_valley')
+
         # The rest only affect the Per-Pixel (lit) mode. In Solid (studio) mode they
         # do nothing, so hide them to avoid confusion.
         if s.shading_mode == 'WORKBENCH':

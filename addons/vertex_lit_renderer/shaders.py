@@ -181,3 +181,26 @@ uniform vec3 uId;
 out vec4 fragColor;
 void main(){ fragColor = vec4(uId, 1.0); }
 """
+
+# View-space normal prepass, used by the Cavity (curvature) effect. Encodes the view
+# normal into RGB (*0.5+0.5). Curvature needs view-space normals so the ridge/valley
+# derivative is screen-aligned, exactly like Workbench's cavity.
+NORMAL_VERT = """
+uniform mat4 uViewProj;
+uniform mat4 uModel;
+uniform mat3 uNormalMat;   /* model world-space normal matrix (per object) */
+uniform mat3 uViewMat3;    /* upper-left 3x3 of the view matrix (per frame)  */
+in vec3 position;
+in vec3 normal;
+out vec3 vVN;
+void main(){
+    vVN = uViewMat3 * (uNormalMat * normal);
+    gl_Position = uViewProj * uModel * vec4(position, 1.0);
+}
+"""
+
+NORMAL_FRAG = """
+in vec3 vVN;
+out vec4 fragColor;
+void main(){ fragColor = vec4(normalize(vVN) * 0.5 + 0.5, 1.0); }
+"""

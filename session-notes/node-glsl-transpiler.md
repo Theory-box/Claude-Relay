@@ -924,3 +924,21 @@ New: tests/test_reroute.py — structural proof (Length/Width become distinct fl
 feed the brick, bind live, no coercion artifact, compiles). 14 suites green.
 Note: the gl_harness llvmpipe multi-vec4-uniform caveat makes pixel-exact brick diffs flaky,
 so validation is structural, not pixel-based.
+
+## v0.10.9 — Cavity (Workbench curvature: ridge+valley) + as_pointer cache fix
+CAVITY effect (fx/cavity.py) — Blender Workbench-style screen-space curvature:
+- New view-space NORMAL prepass: shaders.py NORMAL_VERT/FRAG (encode view normal *0.5+0.5);
+  engine _get_normal_shader + normals_cb draws all geometry when cavity on; pipeline
+  _ensure_normal + normal pass -> ctx['normal_tex']. View normals via uViewMat3 (view 3x3) *
+  per-object normal matrix.
+- Curvature = (nUp.y-nDown.y)+(nRight.x-nLeft.x); >0 convex -> ridge (brighten), <0 concave ->
+  valley (darken); factor=clamp(1+curv*strength,0,4)*colour. Uses the object-id buffer to skip
+  inter-object boundaries (id pass now runs for outline OR cavity).
+- props: use_cavity, cavity_ridge, cavity_valley; UI cavity box; effect order SSAO->Cavity->Outline.
+- cavity.run always draws (passthrough factor 1 if no normal buffer) so it can never black out.
+
+CRITICAL FIX — emit_node cache used id(out_socket); Blender socket wrappers are ephemeral, so a
+GC'd wrapper's address gets reused and id() collides -> a group's Width could resolve to Length
+(uP_8,uP_8) non-deterministically (hash-seed/GC dependent). Now keys on as_pointer() (stable C
+pointer) for both sockets and group-stack nodes. Verified stable across PYTHONHASHSEED 0-7.
+14 suites green. (Discovered via flaky test_reroute — a real bug, not a test artifact.)
