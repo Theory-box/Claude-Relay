@@ -23,6 +23,7 @@ _DEBUG = True   # prints "[VertexLit] rebuild <- ..." naming what triggers a reb
 
 _gi_active = False
 _last_draw_time = 0.0   # updated every view_draw; timer stops when this goes stale
+_post_err_shown = False  # print the post-pipeline traceback only once
 
 def _gi_redraw_timer():
     # Only force viewport redraws while GI is active AND a rendered viewport is
@@ -778,7 +779,14 @@ class VertexLitEngine(bpy.types.RenderEngine):
                 gpu.state.depth_mask_set(False)
                 return
             except Exception as e:
-                if _DEBUG: print("[VertexLit] post pipeline failed -> direct draw:", e)
+                global _post_err_shown
+                if not _post_err_shown:
+                    _post_err_shown = True
+                    import traceback
+                    print("[VertexLit] post pipeline failed -> direct draw. First-time traceback:")
+                    traceback.print_exc()
+                elif _DEBUG:
+                    print("[VertexLit] post pipeline failed -> direct draw:", e)
 
         _draw_objects()
 

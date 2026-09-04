@@ -23,8 +23,7 @@ class GBuffer:
         self.w, self.h = w, h
         self.color = gpu.types.GPUTexture((w, h), format='RGBA16F')
         self.depth = gpu.types.GPUTexture((w, h), format='DEPTH_COMPONENT32F')
-        self.fb = gpu.types.GPUFrameBuffer(color_slots={"texture": self.color},
-                                           depth_slot=self.depth)
+        self.fb = gpu.types.GPUFrameBuffer(color_slots=(self.color,), depth_slot=self.depth)
 
     def free(self):
         self.color = None
@@ -47,7 +46,7 @@ class PingPong:
         self.w, self.h = w, h
         for i in range(2):
             self.tex[i] = gpu.types.GPUTexture((w, h), format='RGBA16F')
-            self.fb[i] = gpu.types.GPUFrameBuffer(color_slots={"texture": self.tex[i]})
+            self.fb[i] = gpu.types.GPUFrameBuffer(color_slots=(self.tex[i],))
 
     def free(self):
         self.tex = [None, None]

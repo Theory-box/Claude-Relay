@@ -528,3 +528,12 @@ VERIFIED HERE: SSAO shader compiles on software GL; addon registers; AO off by d
   node suites unaffected. NOT verifiable here (GPU-only): the offscreen plumbing,
   depth-texture sampling, and the AO look/sign-conventions — user tests on GPU.
   Radius/bias/strength + sign conventions likely need tuning on real hardware.
+
+## v0.8.1 — fix AO offscreen framebuffer construction
+- USER GPU error: "'GPUTexture' object cannot be interpreted as an integer" every
+  frame with AO on -> pipeline threw, fell back to direct draw, AO never showed.
+- Cause: GPUFrameBuffer color_slots was a single {"texture":tex} dict; the 4.4 API
+  wants a Tuple of textures/dicts. Switched to canonical color_slots=(tex,),
+  depth_slot=bare GPUTexture (per docs).
+- Added a ONE-TIME full traceback on post-pipeline failure (engine _post_err_shown)
+  so if anything still fails the console shows the exact line (no per-frame spam).
