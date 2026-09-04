@@ -905,3 +905,22 @@ Fixes:
   node/link parts -> deterministic, so no more per-frame recompile churn.
 - Samplers already stored the image datablock directly, so group-internal image textures bind.
 New: tests/test_group.py (GPU-verified passthrough / invert / nested). 13 suites green.
+
+## v0.10.8 — Reroute nodes + group-input types (fixes plank Width/Length/scale)
+Diagnosed from user's real Plank Gen: the ONLY unhandled node was NodeReroute. Length/Width
+route through long reroute chains into Brick Texture's Brick Width (socket 8) / Row Height
+(socket 9); every reroute was neutralised to a constant, so Width/Length did nothing and
+plank proportions ("scaling") were wrong.
+
+Fixes:
+- _n_reroute: pure passthrough (returns emit_node of its single input, no coercion) so the
+  value keeps its source type. Coercing per hop stacked conversions down a chain -> (((x).x).x).x.
+- Group input natural type: the GROUP_INPUT resolver was hardcoding want="vec4", turning a
+  float group input (e.g. Length) into a vec4 uniform. Now uses the external socket's natural
+  type via _socket_glsl(); Length/Width come through as distinct float uniforms.
+- Vector Math SCALE already reads its factor by socket name ("Scale"), so scaling itself was
+  never wrong — it was the frozen Brick Width/Row Height. No change needed there.
+New: tests/test_reroute.py — structural proof (Length/Width become distinct float uniforms,
+feed the brick, bind live, no coercion artifact, compiles). 14 suites green.
+Note: the gl_harness llvmpipe multi-vec4-uniform caveat makes pixel-exact brick diffs flaky,
+so validation is structural, not pixel-based.

@@ -240,9 +240,10 @@ class _Transpiler:
             gnode, ext_map = self._group_stack[-1]
             ext = ext_map.get(out_socket.identifier) or ext_map.get(out_socket.name)
             if ext is not None:
+                want = self._socket_glsl(ext)
                 frame = self._group_stack.pop()
                 try:
-                    expr = self.input_expr(gnode, ext, "vec4")
+                    expr = self.input_expr(gnode, ext, want)
                 finally:
                     self._group_stack.append(frame)
             else:
@@ -777,6 +778,22 @@ class _Transpiler:
             self._var_type[v + "f"] = "float"
             return v + "f"
         return v + "c"
+
+    def _socket_glsl(self, s):
+        """GLSL type for a Blender socket, from its .type."""
+        return {"VALUE": "float", "INT": "float", "BOOLEAN": "float",
+                "VECTOR": "vec3", "RGBA": "vec4"}.get(getattr(s, "type", "RGBA"), "vec4")
+
+    def _n_reroute(self, node, out):
+        """A reroute passes its single input straight through with no conversion, so the
+        value keeps the exact type the source produced. Coercing here (or per hop) would
+        stack conversions down a reroute chain, e.g. (((uP).x).x).x. These chain and fan
+        values around a graph; if neutralised, everything routed through them (plank
+        Length/Width -> Brick Width/Row Height) silently becomes a constant."""
+        if node.inputs and node.inputs[0].is_linked:
+            link = node.inputs[0].links[0]
+            return self.emit_node(link.from_node, link.from_socket)
+        return self._neutral_for(node, out)
 
     def _n_tex_brick(self, node, out):
         vs = node.inputs.get("Vector")
