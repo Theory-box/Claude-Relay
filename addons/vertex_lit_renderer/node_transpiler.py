@@ -139,20 +139,75 @@ float hash_uint4_to_float(uint kx,uint ky,uint kz,uint kw){ return float(hash_ui
 float hash_vec3_to_float(vec3 k){ return hash_uint3_to_float(floatBitsToUint(k.x),floatBitsToUint(k.y),floatBitsToUint(k.z)); }
 float hash_vec4_to_float(vec4 k){ return hash_uint4_to_float(floatBitsToUint(k.x),floatBitsToUint(k.y),floatBitsToUint(k.z),floatBitsToUint(k.w)); }
 vec3 hash_vec3_to_vec3(vec3 k){ return vec3(hash_vec3_to_float(k), hash_vec4_to_float(vec4(k,1.0)), hash_vec4_to_float(vec4(k,2.0))); }
-/* Blender Voronoi F1 (3D). Euclidean distance; returns nearest feature. */
-void _b_voronoi_f1(vec3 coord, float randomness, out float outDist, out vec3 outCol, out vec3 outPos){
-    vec3 cellPosition = floor(coord);
-    vec3 localPosition = coord - cellPosition;
-    float minDist = 8.0; vec3 targetOffset = vec3(0.0), targetPosition = vec3(0.0);
-    for(int k=-1;k<=1;k++) for(int j=-1;j<=1;j++) for(int i=-1;i<=1;i++){
-        vec3 cellOffset = vec3(float(i), float(j), float(k));
-        vec3 pointPosition = cellOffset + hash_vec3_to_vec3(cellPosition + cellOffset) * randomness;
-        float d = distance(pointPosition, localPosition);
-        if(d < minDist){ minDist = d; targetOffset = cellOffset; targetPosition = pointPosition; }
+/* PCG integer hash used by Voronoi (verbatim from Blender hash) */
+ivec3 _hash_pcg3d(ivec3 v){
+    v = v*1664525 + 1013904223;
+    v.x += v.y*v.z; v.y += v.z*v.x; v.z += v.x*v.y;
+    v = v ^ (v >> 16);
+    v.x += v.y*v.z; v.y += v.z*v.x; v.z += v.x*v.y;
+    return v;
+}
+vec3 hash_int3_to_vec3(ivec3 k){ ivec3 h=_hash_pcg3d(k); return vec3(h & 0x7fffffff) * (1.0/float(0x7fffffff)); }
+float _vor_dist(vec3 a, vec3 b, int m, float e){
+    if(m==0) return distance(a,b);
+    if(m==1) return abs(a.x-b.x)+abs(a.y-b.y)+abs(a.z-b.z);
+    if(m==2) return max(abs(a.x-b.x),max(abs(a.y-b.y),abs(a.z-b.z)));
+    if(m==3) return pow(pow(abs(a.x-b.x),e)+pow(abs(a.y-b.y),e)+pow(abs(a.z-b.z),e), 1.0/e);
+    return 0.0;
+}
+void _vor_f1(vec3 coord, float rnd, int m, float e, out float od, out vec3 oc, out vec3 op){
+    vec3 cpf=floor(coord); vec3 lp=coord-cpf; ivec3 cp=ivec3(cpf);
+    float mind=3.402823466e38; ivec3 toff=ivec3(0); vec3 tpos=vec3(0.0);
+    for(int k=-1;k<=1;k++)for(int j=-1;j<=1;j++)for(int i=-1;i<=1;i++){
+        ivec3 co=ivec3(i,j,k);
+        vec3 pp=vec3(co)+hash_int3_to_vec3(cp+co)*rnd;
+        float d=_vor_dist(pp,lp,m,e);
+        if(d<mind){ toff=co; mind=d; tpos=pp; }
     }
-    outDist = minDist;
-    outCol  = hash_vec3_to_vec3(cellPosition + targetOffset);
-    outPos  = targetPosition + cellPosition;
+    od=mind; oc=hash_int3_to_vec3(cp+toff); op=tpos+cpf;
+}
+void _vor_smooth(vec3 coord, float rnd, float sm, int m, float e, out float od, out vec3 oc, out vec3 op){
+    vec3 cpf=floor(coord); vec3 lp=coord-cpf; ivec3 cp=ivec3(cpf);
+    float sd=0.0; vec3 sc=vec3(0.0); vec3 sp=vec3(0.0); float h=-1.0;
+    for(int k=-2;k<=2;k++)for(int j=-2;j<=2;j++)for(int i=-2;i<=2;i++){
+        ivec3 co=ivec3(i,j,k);
+        vec3 pp=vec3(co)+hash_int3_to_vec3(cp+co)*rnd;
+        float d=_vor_dist(pp,lp,m,e);
+        h = (h==-1.0) ? 1.0 : smoothstep(0.0,1.0,0.5+0.5*(sd-d)/sm);
+        float cf = sm*h*(1.0-h);
+        sd = mix(sd,d,h)-cf; cf /= 1.0+3.0*sm;
+        vec3 cc=hash_int3_to_vec3(cp+co);
+        sc = mix(sc,cc,h)-cf; sp = mix(sp,pp,h)-cf;
+    }
+    od=sd; oc=sc; op=cpf+sp;
+}
+void _vor_f2(vec3 coord, float rnd, int m, float e, out float od, out vec3 oc, out vec3 op){
+    vec3 cpf=floor(coord); vec3 lp=coord-cpf; ivec3 cp=ivec3(cpf);
+    float d1=3.402823466e38, d2=3.402823466e38; ivec3 o1=ivec3(0),o2=ivec3(0); vec3 p1=vec3(0.0),p2=vec3(0.0);
+    for(int k=-1;k<=1;k++)for(int j=-1;j<=1;j++)for(int i=-1;i<=1;i++){
+        ivec3 co=ivec3(i,j,k);
+        vec3 pp=vec3(co)+hash_int3_to_vec3(cp+co)*rnd;
+        float d=_vor_dist(pp,lp,m,e);
+        if(d<d1){ d2=d1; d1=d; o2=o1; o1=co; p2=p1; p1=pp; }
+        else if(d<d2){ d2=d; o2=co; p2=pp; }
+    }
+    od=d2; oc=hash_int3_to_vec3(cp+o2); op=p2+cpf;
+}
+float _vor_edge(vec3 coord, float rnd){
+    vec3 cpf=floor(coord); vec3 lp=coord-cpf; ivec3 cp=ivec3(cpf);
+    vec3 vtc=vec3(0.0); float mind=3.402823466e38;
+    for(int k=-1;k<=1;k++)for(int j=-1;j<=1;j++)for(int i=-1;i<=1;i++){
+        vec3 vp=vec3(ivec3(i,j,k))+hash_int3_to_vec3(cp+ivec3(i,j,k))*rnd-lp;
+        float d=dot(vp,vp);
+        if(d<mind){ mind=d; vtc=vp; }
+    }
+    mind=3.402823466e38;
+    for(int k=-1;k<=1;k++)for(int j=-1;j<=1;j++)for(int i=-1;i<=1;i++){
+        vec3 vp=vec3(ivec3(i,j,k))+hash_int3_to_vec3(cp+ivec3(i,j,k))*rnd-lp;
+        vec3 pe=vp-vtc;
+        if(dot(pe,pe)>0.0001){ float de=dot((vtc+vp)/2.0, normalize(pe)); mind=min(mind,de); }
+    }
+    return mind;
 }
 /* integer_noise (verbatim from Blender hash) — used by Brick */
 float integer_noise(int n){
@@ -860,26 +915,47 @@ class _Transpiler:
         scale = self.input_expr(node, node.inputs.get("Scale"), "float")
         rnd = self.input_expr(node, node.inputs.get("Randomness"), "float") \
             if node.inputs.get("Randomness") else "1.0"
+        smooth = self.input_expr(node, node.inputs.get("Smoothness"), "float") \
+            if node.inputs.get("Smoothness") else "0.0"
+        expo = self.input_expr(node, node.inputs.get("Exponent"), "float") \
+            if node.inputs.get("Exponent") else "1.0"
         feat = getattr(node, "feature", "F1")
-        if feat != "F1":
-            self.notes.append("VORONOI feature '{}' approximated as F1".format(feat))
-        if getattr(node, "distance", "EUCLIDEAN") != "EUCLIDEAN":
-            self.notes.append("VORONOI distance approximated as EUCLIDEAN")
+        metric = {"EUCLIDEAN": 0, "MANHATTAN": 1, "CHEBYCHEV": 2, "MINKOWSKI": 3}.get(
+            getattr(node, "distance", "EUCLIDEAN"), 0)
+        norm = getattr(node, "normalize", True)
+        if getattr(node, "voronoi_dimensions", "3D") != "3D":
+            self.notes.append("VORONOI dimensions {} computed as 3D".format(getattr(node, "voronoi_dimensions", "?")))
+        detail = self.input_expr(node, node.inputs.get("Detail"), "float") if node.inputs.get("Detail") else "0.0"
         v = self._new_var("vor")
-        self._line("float {v}d; vec3 {v}c; vec3 {v}pos;".format(v=v))
-        # declared without '=', so record types for the coercer manually
-        self._var_type[v + "d"] = "float"
-        self._var_type[v + "c"] = "vec3"
-        self._var_type[v + "pos"] = "vec3"
-        self._line("_b_voronoi_f1(({co})*{s}, clamp({r},0.0,1.0), {v}d, {v}c, {v}pos);"
-                   .format(co=co, s=scale, r=rnd, v=v))
+        R = "clamp({},0.0,1.0)".format(rnd)
+        self._line("vec3 {v}co = ({c})*{s};".format(v=v, c=co, s=scale))
+        self._line("float {v}rnd = {R}; float {v}e = {e};".format(v=v, R=R, e=expo))
+        self._line("float {v}d; vec3 {v}c=vec3(0.0); vec3 {v}pos=vec3(0.0);".format(v=v))
+        self._var_type[v + "d"] = "float"; self._var_type[v + "c"] = "vec3"; self._var_type[v + "pos"] = "vec3"
+        if feat == "DISTANCE_TO_EDGE":
+            self._line("{v}d = _vor_edge({v}co, {v}rnd);".format(v=v))
+            maxd = "(0.5 + 0.5*{v}rnd)".format(v=v)
+        elif feat == "SMOOTH_F1":
+            sm = "clamp(({})/2.0, 0.0, 0.5)".format(smooth)
+            self._line("_vor_smooth({v}co, {v}rnd, max({sm},1e-5), {m}, {v}e, {v}d, {v}c, {v}pos);".format(
+                v=v, sm=sm, m=metric))
+            maxd = "_vor_dist(vec3(0.0), vec3(0.5+0.5*{v}rnd), {m}, {v}e)".format(v=v, m=metric)
+        elif feat == "F2":
+            self._line("_vor_f2({v}co, {v}rnd, {m}, {v}e, {v}d, {v}c, {v}pos);".format(v=v, m=metric))
+            maxd = "(_vor_dist(vec3(0.0), vec3(0.5+0.5*{v}rnd), {m}, {v}e)*2.0)".format(v=v, m=metric)
+        else:  # F1 (and N_SPHERE_RADIUS approx)
+            if feat == "N_SPHERE_RADIUS":
+                self.notes.append("VORONOI N_SPHERE_RADIUS approximated as F1 distance")
+            self._line("_vor_f1({v}co, {v}rnd, {m}, {v}e, {v}d, {v}c, {v}pos);".format(v=v, m=metric))
+            maxd = "_vor_dist(vec3(0.0), vec3(0.5+0.5*{v}rnd), {m}, {v}e)".format(v=v, m=metric)
+        if norm and metric != 3:  # Blender doesn't normalise Minkowski cleanly; match default behaviour otherwise
+            self._line("{v}d /= max({md}, 1e-8);".format(v=v, md=maxd))
         name = out.name
         if name == "Color":
             return "vec4({v}c, 1.0)".format(v=v)
         if name == "Position":
             return "vec4({v}pos, 1.0)".format(v=v)
-        # Distance (default), Radius, W -> the scalar distance
-        return "{v}d".format(v=v)
+        return v + "d"   # Distance / Radius / W
 
     def _n_tex_noise(self, node, out):
         vs = node.inputs.get("Vector")

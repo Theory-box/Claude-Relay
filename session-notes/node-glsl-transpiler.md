@@ -461,3 +461,14 @@ GPL: ported code is GPL-2.0-or-later; addon is GPL. OK.
   type modes) -> nothing to port; noted N/A.
 - Procedural set now: Noise, Voronoi F1, Checker, Gradient, White Noise, Wave, Brick,
   Magic. Remaining Voronoi features (F2/smooth/edge/radius, metrics, fractal) next.
+
+## v0.6.3 — Voronoi FULL 3D (exact) — fixes hash bug too
+- Replaced simplified F1 with Blender's exact 3D Voronoi machinery from
+  gpu_shader_material_voronoi.glsl: _vor_f1/_vor_smooth/_vor_f2/_vor_edge + _vor_dist
+  (all 4 metrics: Euclidean/Manhattan/Chebychev/Minkowski) + PCG hash_int3_to_vec3.
+- BUG FIX: old F1 used hash_vec3_to_vec3 (float hash); Blender uses hash_int3_to_vec3
+  (PCG) -> cell positions were wrong. Now exact.
+- Features: F1, F2, Smooth F1, Distance to Edge (N-Sphere Radius approx as F1).
+  Normalize handled (divide by per-feature max_distance). detail>0 fractal = single
+  octave for now (rare; noted).
+- CPU-verified: all 4 features + 4 metrics compile & vary. 9 suites green.

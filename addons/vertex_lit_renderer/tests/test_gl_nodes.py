@@ -112,4 +112,12 @@ def magic():
     t.links.new(n.outputs['Color'], bb.inputs['Base Color']); px,_=H.render_material(m,size=32); return px
 _mg=magic(); check(_mg[...,:3].std()>0.05 and abs(_mg[...,0].mean()-_mg[...,1].mean())>0.005, "Magic varies with distinct channels")
 
+# --- Voronoi: all features + metrics ---
+def vorf(feat, outn='Distance', metric='EUCLIDEAN'):
+    m,t,bb=base('vf'); n=t.nodes.new('ShaderNodeTexVoronoi'); n.feature=feat; n.distance=metric
+    n.inputs['Scale'].default_value=5.0; t.links.new(n.outputs[outn], bb.inputs['Base Color'])
+    px,_=H.render_material(m,size=32); return px[...,0]
+check(all(vorf(f).std()>0.05 for f in ('F1','F2','SMOOTH_F1','DISTANCE_TO_EDGE')), "Voronoi F1/F2/Smooth/Edge all vary")
+check(all(vorf('F1','Distance',mm).std()>0.03 for mm in ('EUCLIDEAN','MANHATTAN','CHEBYCHEV','MINKOWSKI')), "Voronoi all 4 metrics work")
+
 print("SUMMARY: " + ("FAILED "+", ".join(F) if F else "ALL CHECKS PASSED"))

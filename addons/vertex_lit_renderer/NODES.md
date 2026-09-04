@@ -53,7 +53,7 @@ darken a wall → Bright/Contrast / Mix / Hue-Sat ✅ · show the texture → Im
 - ✅ Image Texture (unconnected Vector → mesh UV, fixed)
 - ⏳ **Noise** — port `gpu_shader_material_tex_noise.glsl` (+ hash + base noise +
   fractal). FOUNDATION: pulls in the shared hash/noise files everything else uses.
-- ✅ **Voronoi** — F1 (Distance/Color/Position), 3D Euclidean, exact hash (F2/edge/other metrics todo)
+- ✅ **Voronoi** — F1/F2/Smooth-F1/Distance-to-Edge, 3D, all 4 metrics (Euclidean/Manhattan/Chebychev/Minkowski), exact PCG hash + normalize (fractal detail>0 = single octave)
 - ⏳ **Wave** — `_tex_wave.glsl` (depends on noise/fractal)
 - ✅ Checker, Gradient (all types), White Noise, Wave (bands/rings x sin/saw/tri), Brick · ⏳ Musgrave, Magic
 - ⏳ Environment Texture + Sky Texture — equirectangular/sky mapping; relevant to
