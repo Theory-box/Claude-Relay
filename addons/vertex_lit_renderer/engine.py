@@ -8,7 +8,7 @@ import gpu
 from gpu_extras.batch import batch_for_shader
 from mathutils import Matrix, Vector
 
-from .shaders import SHADOW_VERT, SHADOW_FRAG, PHONG_VERT, PHONG_FRAG, WORKBENCH_FRAG
+from .shaders import SHADOW_VERT, SHADOW_FRAG, PHONG_VERT, PHONG_FRAG, WORKBENCH_FRAG, ID_VERT, ID_FRAG
 from . import material_shader
 from . import fx
 import ctypes as _ct
@@ -81,12 +81,19 @@ _post_err_shown = False  # print the post-pipeline traceback only once
 
 _shadow_shader = None
 _main_shader   = {}   # shading mode -> GPUShader
+_id_shader     = None  # object-id pass shader (outline)
 
 def _get_shadow_shader():
     global _shadow_shader
     if _shadow_shader is None:
         _shadow_shader = gpu.types.GPUShader(SHADOW_VERT, SHADOW_FRAG)
     return _shadow_shader
+
+def _get_id_shader():
+    global _id_shader
+    if _id_shader is None:
+        _id_shader = gpu.types.GPUShader(ID_VERT, ID_FRAG)
+    return _id_shader
 
 def _get_main_shader(mode='PIXEL'):
     sh = _main_shader.get(mode)
@@ -808,8 +815,11 @@ class VertexLitEngine(bpy.types.RenderEngine):
             for batch, mat_name, tex in slots:
                 prog=_resolve_prog(mat_name)
                 mat=bpy.data.materials.get(mat_name) if mat_name else None
-                # Alpha-blended if the material's blend mode is 'BLEND'.
-                is_transp = mat is not None and getattr(mat, 'blend_method', 'OPAQUE') == 'BLEND'
+                # Alpha-blended if the material's render method is Blended (4.2+) or the
+                # legacy blend mode is BLEND.
+                is_transp = mat is not None and (
+                    getattr(mat, 'surface_render_method', '') == 'BLENDED'
+                    or getattr(mat, 'blend_method', 'OPAQUE') == 'BLEND')
                 if is_transp:
                     try:
                         c = model.translation; clip = view_proj @ c.to_4d()
@@ -946,16 +956,40 @@ class VertexLitEngine(bpy.types.RenderEngine):
                                 for b, _mn, _tx in sl:
                                     try: b.draw(sh)
                                     except Exception: pass
+                # Object-ID pass for the outline effect (each object a unique flat colour).
+                ids_cb = None
+                if vls and getattr(vls, 'use_outline', False):
+                    def ids_cb():
+                        sh = _get_id_shader(); sh.bind()
+                        try: sh.uniform_float('uViewProj', view_proj)
+                        except Exception: pass
+                        gpu.state.depth_test_set('LESS_EQUAL'); gpu.state.depth_mask_set(True)
+                        gpu.state.face_culling_set('BACK')
+                        idx = 1
+                        for i in depsgraph.object_instances:
+                            o = i.object
+                            if o.type != 'MESH' or not i.show_self: continue
+                            sl = self._batch_dict.get(o.name)
+                            if not sl: continue
+                            col = ((idx & 0xFF)/255.0, ((idx >> 8) & 0xFF)/255.0, ((idx >> 16) & 0xFF)/255.0)
+                            try:
+                                sh.uniform_float('uModel', i.matrix_world)
+                                sh.uniform_float('uId', col)
+                            except Exception: pass
+                            for b, _mn, _tx in sl:
+                                try: b.draw(sh)
+                                except Exception: pass
+                            idx += 1
                 post_ctx = {
                     'proj': proj, 'inv_proj': proj.inverted(),
                     'texel': (1.0/max(rw,1), 1.0/max(rh,1)),
                     'clear_color': (wc[0],wc[1],wc[2],1.0) if wc else (0.08,0.08,0.08,1.0),
                     'draw_ao_occluders': ao_occluders,
+                    'draw_object_ids': ids_cb,
                     'ao_radius':   (vls.ao_radius   if vls else 0.5),
                     'ao_strength': (vls.ao_strength if vls else 1.0),
                     'ao_bias':     (vls.ao_bias     if vls else 0.02),
                     'outline_size':      (vls.outline_size      if vls else 1.5),
-                    'outline_threshold': (vls.outline_threshold if vls else 0.15),
                     'outline_color':     (tuple(vls.outline_color) if vls else (0.0,0.0,0.0)),
                 }
                 post.render(rw, rh, _draw_objects, post_ctx, vls)
@@ -1028,6 +1062,8 @@ def _release_gpu_caches():
     global _shadow_shader, _shadow_map
     _main_shader.clear()
     _shadow_shader = None
+    global _id_shader
+    _id_shader = None
     _shadow_map = None
     _tex_cache.clear()
     # Persistent mesh/batch caches hold GPU batches tied to the (now gone) context.

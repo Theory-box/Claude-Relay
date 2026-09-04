@@ -17,9 +17,6 @@ class VertexLitSettings(bpy.types.PropertyGroup):
     outline_size: bpy.props.FloatProperty(
         name="Outline Width", default=1.5, min=0.5, max=10.0,
         description="Outline thickness in pixels")
-    outline_threshold: bpy.props.FloatProperty(
-        name="Edge Sensitivity", default=0.15, min=0.01, max=1.0,
-        description="Lower = more inner edges detected; higher = silhouettes only")
     outline_color: bpy.props.FloatVectorProperty(
         name="Outline Color", subtype='COLOR', default=(0.0, 0.0, 0.0),
         min=0.0, max=1.0)

@@ -23,6 +23,8 @@ class Pipeline:
         self.ping = PingPong()
         self._aod = None; self._aod_dummy = None; self._aod_fb = None
         self._aod_w = self._aod_h = 0
+        self._id = None; self._id_depth = None; self._id_fb = None
+        self._id_w = self._id_h = 0
 
     def any_enabled(self, vls):
         return any(e.enabled(vls) for e in self.effects)
@@ -35,6 +37,15 @@ class Pipeline:
         self._aod = gpu.types.GPUTexture((w, h), format='DEPTH_COMPONENT32F')
         self._aod_dummy = gpu.types.GPUTexture((w, h), format='RGBA8')
         self._aod_fb = gpu.types.GPUFrameBuffer(color_slots=(self._aod_dummy,), depth_slot=self._aod)
+
+    def _ensure_id(self, w, h):
+        w = max(int(w), 1); h = max(int(h), 1)
+        if self._id_fb is not None and w == self._id_w and h == self._id_h:
+            return
+        self._id_w, self._id_h = w, h
+        self._id = gpu.types.GPUTexture((w, h), format='RGBA8')
+        self._id_depth = gpu.types.GPUTexture((w, h), format='DEPTH_COMPONENT32F')
+        self._id_fb = gpu.types.GPUFrameBuffer(color_slots=(self._id,), depth_slot=self._id_depth)
 
     def render(self, w, h, draw_scene, ctx, vls):
         self.gbuf.ensure(w, h)
@@ -59,6 +70,17 @@ class Pipeline:
                 aod()
             ctx['ao_depth_tex'] = self._aod
 
+        # 1c) Object-ID pass for the outline effect (Workbench-style).
+        idd = ctx.get('draw_object_ids')
+        if idd is not None:
+            self._ensure_id(w, h)
+            with self._id_fb.bind():
+                gpu.state.depth_test_set('LESS_EQUAL')
+                gpu.state.depth_mask_set(True)
+                self._id_fb.clear(color=(0.0, 0.0, 0.0, 1.0), depth=1.0)
+                idd()
+            ctx['id_tex'] = self._id
+
         # 2) run enabled effects, bouncing between ping targets
         cur = self.gbuf.color
         idx = 0
@@ -82,5 +104,6 @@ class Pipeline:
         self.gbuf.free()
         self.ping.free()
         self._aod = self._aod_dummy = self._aod_fb = None
+        self._id = self._id_depth = self._id_fb = None
         for e in self.effects:
             e.free()

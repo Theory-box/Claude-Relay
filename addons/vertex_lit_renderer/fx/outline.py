@@ -1,72 +1,67 @@
 # vertex_lit_renderer/fx/outline.py
 """
-Freestyle-ish object outline (like Workbench's). Detects silhouette edges from the
-depth buffer — where a pixel's view-space depth jumps relative to its neighbours, or
-an object meets the background — and paints the outline colour there. The sample
-offset is the outline WIDTH in pixels (uSize).
+Object outline, matching Blender Workbench's approach: sample a per-object ID buffer
+and draw the outline where a pixel's object ID differs from its neighbours. Opacity is
+proportional to how many of the 4 neighbours differ (softer at corners), exactly like
+Workbench's workbench_effect_outline_frag. Every object gets outlined — including
+touching same-depth ones — unlike a depth-only silhouette.
 """
 from .effect import ScreenEffect
 
 _OUTLINE_FRAG = """
 uniform sampler2D uColor;
-uniform sampler2D uDepth;
-uniform mat4 uInvProj;
+uniform sampler2D uId;      /* per-object flat colour; background = (0,0,0) */
 uniform vec2 uTexel;
 uniform float uSize;        /* outline width in pixels */
-uniform float uThreshold;   /* depth-edge sensitivity (view-space, relative) */
 uniform vec3 uLineColor;
 in vec2 vUV;
 out vec4 fragColor;
 
-float view_z(vec2 uv){
-    float z = texture(uDepth, uv).r;
-    vec4 clip = vec4(uv * 2.0 - 1.0, z * 2.0 - 1.0, 1.0);
-    vec4 v = uInvProj * clip;
-    return v.z / v.w;   /* view-space z (negative in front of camera) */
-}
-
 void main(){
     vec4 col = texture(uColor, vUV);
-    float zc = texture(uDepth, vUV).r;
     vec2 o = uTexel * max(uSize, 1.0);
-
-    /* object -> background silhouette (a neighbour is at the far plane) */
-    float zl = texture(uDepth, vUV - vec2(o.x, 0.0)).r;
-    float zr = texture(uDepth, vUV + vec2(o.x, 0.0)).r;
-    float zd = texture(uDepth, vUV - vec2(0.0, o.y)).r;
-    float zu = texture(uDepth, vUV + vec2(0.0, o.y)).r;
-    float bg = (zc < 1.0 && (zl >= 1.0 || zr >= 1.0 || zd >= 1.0 || zu >= 1.0)) ? 1.0 : 0.0;
-
-    /* depth discontinuity between objects, measured in view space (scale-tolerant) */
-    float vz = view_z(vUV);
-    float md = 0.0;
-    md = max(md, abs(vz - view_z(vUV - vec2(o.x, 0.0))));
-    md = max(md, abs(vz - view_z(vUV + vec2(o.x, 0.0))));
-    md = max(md, abs(vz - view_z(vUV - vec2(0.0, o.y))));
-    md = max(md, abs(vz - view_z(vUV + vec2(0.0, o.y))));
-    float rel = md / max(abs(vz), 1e-3);
-    float disc = (zc < 1.0) ? smoothstep(uThreshold, uThreshold * 3.0, rel) : 0.0;
-
-    float edge = max(bg, disc);
-    fragColor = vec4(mix(col.rgb, uLineColor, edge), col.a);
+    vec3 c  = texture(uId, vUV).rgb;
+    vec3 a0 = texture(uId, vUV + vec2(0.0, o.y)).rgb;
+    vec3 a1 = texture(uId, vUV - vec2(0.0, o.y)).rgb;
+    vec3 a2 = texture(uId, vUV + vec2(o.x, 0.0)).rgb;
+    vec3 a3 = texture(uId, vUV - vec2(o.x, 0.0)).rgb;
+    /* Workbench: opacity = 1 - fraction of neighbours whose id == centre id */
+    float same = 0.0;
+    same += (a0 == c) ? 0.25 : 0.0;
+    same += (a1 == c) ? 0.25 : 0.0;
+    same += (a2 == c) ? 0.25 : 0.0;
+    same += (a3 == c) ? 0.25 : 0.0;
+    float op = 1.0 - same;
+    fragColor = vec4(mix(col.rgb, uLineColor, op), col.a);
 }
 """
 
 
 class Outline(ScreenEffect):
     name = "outline"
-    uses_depth = True
+    uses_depth = False
     frag = _OUTLINE_FRAG
 
     def enabled(self, vls):
         return bool(getattr(vls, "use_outline", False))
 
+    def run(self, color_tex, depth_tex, ctx):
+        # bind the object-id buffer instead of depth
+        sh = self.shader()
+        sh.bind()
+        try: sh.uniform_sampler('uColor', color_tex)
+        except Exception: pass
+        idt = ctx.get('id_tex')
+        if idt is not None:
+            try: sh.uniform_sampler('uId', idt)
+            except Exception: pass
+        self.set_uniforms(sh, ctx)
+        self._batch.draw(sh)
+
     def set_uniforms(self, sh, ctx):
         def sf(n, v):
             try: sh.uniform_float(n, v)
             except Exception: pass
-        sf('uInvProj', ctx['inv_proj'])
         sf('uTexel', ctx['texel'])
         sf('uSize', ctx.get('outline_size', 1.5))
-        sf('uThreshold', ctx.get('outline_threshold', 0.15))
         sf('uLineColor', ctx.get('outline_color', (0.0, 0.0, 0.0)))

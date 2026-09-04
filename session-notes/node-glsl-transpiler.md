@@ -854,3 +854,17 @@ KEPT: rasterised shadow MAP (that's item 3 to fix, not vertex-based), hemisphere
   transparent (materials with blend_method=='BLEND') sorted back-to-front, alpha-blended,
   depth-write off. Frags already output base.a.
 All GPU-side (visual) -> user tests. 13 checks + 12 suites green.
+
+## v0.10.4 — transparency detection fix + Workbench-style (object-ID) outline
+- TRANSPARENCY FIX: Blender 4.2+ moved the control — new materials default blend_method
+  ='HASHED'; the alpha-BLEND control is now surface_render_method=='BLENDED'. Was only
+  checking blend_method=='BLEND' -> never detected. Now checks surface_render_method
+  =='BLENDED' OR blend_method=='BLEND'. (User sets material Render Method = Blended.)
+- OUTLINE REWRITE to match Workbench: read the actual workbench_effect_outline_frag —
+  it samples a per-object ID buffer; opacity = 1 - fraction of 4 neighbours whose id ==
+  centre id. Replaced the depth-based silhouette with this: new ID_VERT/ID_FRAG flat-
+  colour shader, pipeline renders an object-ID buffer (each object a unique colour) when
+  outline on, Outline effect samples it with the exact Workbench edge formula. Now every
+  object is outlined (incl. touching same-depth), thin + soft at corners like Workbench.
+  Removed outline_threshold (unused).
+Suites green; ID + outline shaders compile.

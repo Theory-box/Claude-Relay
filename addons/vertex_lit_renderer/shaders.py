@@ -168,3 +168,16 @@ MAT_FRAG_MAIN_PIXEL = (
     "    outColor = vec4(lit * base.rgb, vColor.a * base.a);\n"
     "}\n"
 )
+
+# ---- Object-ID pass (flat per-object colour) for Workbench-style outline ------
+ID_VERT = """
+uniform mat4 uViewProj;
+uniform mat4 uModel;
+in vec3 position;
+void main(){ gl_Position = uViewProj * uModel * vec4(position, 1.0); }
+"""
+ID_FRAG = """
+uniform vec3 uId;
+out vec4 fragColor;
+void main(){ fragColor = vec4(uId, 1.0); }
+"""

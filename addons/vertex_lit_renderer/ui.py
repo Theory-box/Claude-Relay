@@ -19,7 +19,6 @@ class VERTEX_LIT_PT_settings(bpy.types.Panel):
         if s.use_outline:
             col = box.column(align=True)
             col.prop(s, 'outline_size')
-            col.prop(s, 'outline_threshold')
             col.prop(s, 'outline_color', text="")
 
         box = layout.box()
