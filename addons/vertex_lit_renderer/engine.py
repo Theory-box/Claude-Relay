@@ -1007,9 +1007,17 @@ class VertexLitEngine(bpy.types.RenderEngine):
                 mat=bpy.data.materials.get(mat_name) if mat_name else None
                 # Alpha-blended if the material's render method is Blended (4.2+) or the
                 # legacy blend mode is BLEND.
-                is_transp = mat is not None and (
-                    getattr(mat, 'surface_render_method', '') == 'BLENDED'
-                    or getattr(mat, 'blend_method', 'OPAQUE') == 'BLEND')
+                # Transparent (alpha-blended) if the material asks for it (Blended), or its
+                # graph actually produces opacity < 1 (Alpha set/linked) and it isn't Opaque.
+                _sr = getattr(mat, 'surface_render_method', None) if mat is not None else None
+                _ha = bool(prog is not None and prog.get('has_alpha', False))
+                if mat is None:
+                    is_transp = False
+                elif _sr is not None:
+                    is_transp = (_sr == 'BLENDED') or (_ha and _sr != 'OPAQUE')
+                else:
+                    _bm = getattr(mat, 'blend_method', 'OPAQUE')
+                    is_transp = (_bm == 'BLEND') or (_ha and _bm != 'OPAQUE')
                 if is_transp:
                     try:
                         c = model.translation; clip = view_proj @ c.to_4d()

@@ -1088,3 +1088,13 @@ Object synthesised for a unit plane) and runs computeBaseColor(uv) per texel int
 No mesh, no UV extraction, no _extract_mesh_data. Only vertex attribute is 'pos' (always used), so
 the attribute-optimisation mismatch that plagued the UV bake can't happen. Operator just needs the
 active object's active material. test_bake updated. 16 suites green. (Still needs on-GPU confirm.)
+
+## v0.11.10 — Principled Alpha slider works without Render Method = Blended
+User: image-alpha leaf works, but the Principled Alpha slider did nothing (default material).
+Cause: the alpha WAS folded correctly (n_bc.a *= uP), but the engine only alpha-blends materials
+whose Render Method is BLENDED (or legacy BLEND). A default material is DITHERED -> drawn opaque ->
+alpha ignored. (The leaf works because that material is set to Blended.)
+Fix: TranspileResult.has_alpha=True when the Alpha fold fires (Alpha set/linked); stored on the
+program. is_transp now also true when has_alpha and the material isn't explicitly Opaque (handles
+both surface_render_method 4.2+ and legacy blend_method). So the Alpha slider alpha-blends without
+having to switch Render Method. Verified has_alpha False@1.0 / True@0.5. 16 suites green.

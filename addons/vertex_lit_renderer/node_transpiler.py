@@ -117,6 +117,7 @@ class TranspileResult:
         self.param_decls = []
         self.ok = False
         self.needs_fallback = False   # True => engine should use the legacy texture path
+        self.has_alpha = False        # True => graph produces opacity < 1 (Alpha set/linked)
         self.helpers = ""          # exactly the GLSL helper chunks this material needs
         self.notes = []
 
@@ -1128,6 +1129,7 @@ def transpile_material(mat):
                 t._line("vec4 {v} = {be};".format(v=av, be=body_expr))
                 t._line("{v}.a *= {a};".format(v=av, a=a_expr))
                 body_expr = av
+                res.has_alpha = True   # graph opacity < 1 -> engine should alpha-blend it
         except Exception:
             pass
 
