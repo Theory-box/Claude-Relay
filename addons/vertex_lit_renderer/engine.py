@@ -195,15 +195,17 @@ def _build_light_space(light,center,radius):
 
 # ── Mesh extraction (one new_from_object call per object, everything derived from it) ──
 
-def _extract_mesh_data(obj, depsgraph):
+def _extract_mesh_data(obj, depsgraph, mesh=None):
     """
     Read the depsgraph-evaluated mesh DIRECTLY (no new_from_object copy, no
     create/remove -> no depsgraph churn -> no self-triggered rebuild loop, and far
     faster on large scenes). All reads are bulk foreach_get + numpy (no Python loops).
+    `mesh` overrides the geometry source (used for the edit-mode BMesh->temp-mesh path).
     """
     try:
         eval_obj = obj.evaluated_get(depsgraph)
-        mesh = getattr(eval_obj, 'data', None)
+        if mesh is None:
+            mesh = getattr(eval_obj, 'data', None)
         if mesh is None or not hasattr(mesh, 'loop_triangles'):
             return None
         mesh.calc_loop_triangles()
@@ -211,7 +213,7 @@ def _extract_mesh_data(obj, depsgraph):
         if n_tris == 0:
             return None
 
-        mat_slot = eval_obj.active_material
+        mat_slot = eval_obj.active_material or getattr(obj, 'active_material', None)
         tex = _get_gpu_tex(_find_base_texture(mat_slot))
         default = [1.0, 1.0, 1.0, 1.0]
         mat_diffuse = (0.8, 0.8, 0.8)
@@ -425,6 +427,7 @@ class VertexLitEngine(bpy.types.RenderEngine):
         self._dirty_objects    = set()   # names of objects to re-extract (incremental)
         self._force_full       = False   # force a full re-extract next rebuild
         self._geo_pending      = False   # geometry still streaming in (progressive load)
+        self._edit_tmp         = None    # reused temp mesh for live edit-mode extraction
         self._post             = fx.make_pipeline()   # screen-space effects (AO...)
         # After rebuild, skip N view_update cycles. new_from_object / remove
         # queue deferred depsgraph events that arrive after _rebuild returns.
@@ -520,6 +523,10 @@ class VertexLitEngine(bpy.types.RenderEngine):
             try: self._post.free()
             except Exception: pass
             self._post = None
+        if getattr(self, '_edit_tmp', None) is not None:
+            try: bpy.data.meshes.remove(self._edit_tmp)
+            except Exception: pass
+            self._edit_tmp = None
         # Drop per-instance references (batches/textures) so they can be GC'd.
         # Do NOT clear the shared shader/program caches here: the viewport GPU
         # context persists across enter/leave, so those stay valid — clearing them
@@ -859,18 +866,23 @@ class VertexLitEngine(bpy.types.RenderEngine):
         scene=depsgraph.scene
         vls=getattr(scene,'vertex_lit',None)
 
-        # Edit mode: re-extract ONLY the object being edited each frame (its evaluated
-        # mesh reflects live edit-cage changes) and keep redrawing, so geometry edits
-        # show in real time. Direct fast path — no full-scene sync, bounded to one object.
+        # Edit mode: the evaluated mesh is empty and obj.data is stale — the live
+        # geometry lives only in the edit BMesh. Write it to a reused temp mesh (~0.5ms)
+        # and extract from that, so geometry edits show in real time. One object only.
         eob = getattr(context, 'edit_object', None)
         if eob is not None and eob.type == 'MESH':
             try:
-                data = _extract_mesh_data(eob, depsgraph)
+                import bmesh
+                bm = bmesh.from_edit_mesh(eob.data)
+                if getattr(self, '_edit_tmp', None) is None:
+                    self._edit_tmp = bpy.data.meshes.new('_vlr_edit_tmp')
+                bm.to_mesh(self._edit_tmp)
+                data = _extract_mesh_data(eob, depsgraph, mesh=self._edit_tmp)
                 if data:
                     self._mesh_cache[eob.name] = data
                     self._batch_dict[eob.name] = _build_object_slots(data)
-            except Exception:
-                pass
+            except Exception as e:
+                if _DEBUG: print("[VertexLit] edit-mode extract:", e)
             self.tag_redraw()
             try: context.region.tag_redraw()
             except Exception: pass

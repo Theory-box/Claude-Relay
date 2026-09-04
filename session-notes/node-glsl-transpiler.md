@@ -778,3 +778,19 @@ Regression test test_extract_raw.py (raw == foreach, missing-attr -> None). 12 s
 CONCLUSION: the ctypes route gets ~2.2x with no build burden; a full compiled extension
   would add fragility + per-platform builds for little extra (GPU upload still main-thread,
   can't reuse Blender's cached batches). Not pursuing compiled unless this proves insufficient.
+
+## v0.9.5 — audit before test: fix broken edit-mode live update
+AUDIT (pre-test) findings:
+- Extraction edge cases (empty/no-uv/byte-color/float-point-color/subsurf/loose-verts):
+  ALL robust, no exceptions (raw path + foreach fallbacks + None on empty). GOOD.
+- Depsgraph update coverage: ADD object / ADD+TOGGLE+CHANGE modifier all fire
+  is_updated_geometry on the mesh object -> view_update catches them (re-extract).
+  MOVE fires transform only -> correctly NOT re-extracted (live matrix). GOOD.
+- BUG FOUND: live edit mode was BROKEN. In edit mode the EVALUATED mesh is empty
+  (0 verts) and obj.data is stale — the live geometry lives only in the edit BMesh.
+  So _extract_mesh_data returned None and the edit-mode feature did nothing.
+  FIX: write the edit BMesh to a reused temp mesh (bm.to_mesh, ~0.5ms) and extract from
+  that. Verified it reflects live vertex edits. _extract_mesh_data gained a `mesh=`
+  override; self._edit_tmp persistent temp mesh, freed on teardown; mat_slot falls back
+  to obj.active_material.
+12 suites green (+test_extract_raw).
