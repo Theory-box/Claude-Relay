@@ -61,7 +61,12 @@ class VertexLitSettings(bpy.types.PropertyGroup):
 def register():
     bpy.utils.register_class(VertexLitSettings)
     bpy.types.Scene.vertex_lit = bpy.props.PointerProperty(type=VertexLitSettings)
+    # Per-object: exclude from contributing to (casting) screen-space AO.
+    bpy.types.Object.vlr_ao_exclude = bpy.props.BoolProperty(
+        name="Exclude from AO", default=False,
+        description="This object won't cast or receive screen-space AO")
 
 def unregister():
+    del bpy.types.Object.vlr_ao_exclude
     del bpy.types.Scene.vertex_lit
     bpy.utils.unregister_class(VertexLitSettings)

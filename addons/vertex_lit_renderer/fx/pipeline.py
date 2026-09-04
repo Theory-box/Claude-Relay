@@ -21,13 +21,22 @@ class Pipeline:
         self.effects = effects
         self.gbuf = GBuffer()
         self.ping = PingPong()
+        self._aod = None; self._aod_dummy = None; self._aod_fb = None
+        self._aod_w = self._aod_h = 0
 
     def any_enabled(self, vls):
         return any(e.enabled(vls) for e in self.effects)
 
+    def _ensure_ao_depth(self, w, h):
+        w = max(int(w), 1); h = max(int(h), 1)
+        if self._aod_fb is not None and w == self._aod_w and h == self._aod_h:
+            return
+        self._aod_w, self._aod_h = w, h
+        self._aod = gpu.types.GPUTexture((w, h), format='DEPTH_COMPONENT32F')
+        self._aod_dummy = gpu.types.GPUTexture((w, h), format='RGBA8')
+        self._aod_fb = gpu.types.GPUFrameBuffer(color_slots=(self._aod_dummy,), depth_slot=self._aod)
+
     def render(self, w, h, draw_scene, ctx, vls):
-        """draw_scene: a zero-arg callable that draws the lit scene (opaque) with
-        depth into the currently-bound framebuffer."""
         self.gbuf.ensure(w, h)
         self.ping.ensure(w, h)
 
@@ -38,10 +47,21 @@ class Pipeline:
             self.gbuf.fb.clear(color=ctx.get('clear_color', (0.08, 0.08, 0.08, 1.0)), depth=1.0)
             draw_scene()
 
+        # 1b) AO exclusion: render only the non-excluded occluders into a separate depth
+        #     buffer; AO samples that so flagged objects don't cast (or receive) AO.
+        aod = ctx.get('draw_ao_occluders')
+        if aod is not None:
+            self._ensure_ao_depth(w, h)
+            with self._aod_fb.bind():
+                gpu.state.depth_test_set('LESS_EQUAL')
+                gpu.state.depth_mask_set(True)
+                self._aod_fb.clear(color=(0.0, 0.0, 0.0, 1.0), depth=1.0)
+                aod()
+            ctx['ao_depth_tex'] = self._aod
+
         # 2) run enabled effects, bouncing between ping targets
         cur = self.gbuf.color
         idx = 0
-        ran_any = False
         for e in self.effects:
             if not e.enabled(vls):
                 continue
@@ -51,16 +71,16 @@ class Pipeline:
                 e.run(cur, self.gbuf.depth, ctx)
             cur = self.ping.tex[idx]
             idx ^= 1
-            ran_any = True
 
         # 3) blit final colour to the viewport (already-bound default framebuffer)
         gpu.state.depth_test_set('NONE')
         gpu.state.blend_set('NONE')
         draw_texture_2d(cur, (0, 0), w, h)
-        return ran_any
+        return True
 
     def free(self):
         self.gbuf.free()
         self.ping.free()
+        self._aod = self._aod_dummy = self._aod_fb = None
         for e in self.effects:
             e.free()

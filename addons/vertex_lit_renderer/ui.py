@@ -35,7 +35,9 @@ class VERTEX_LIT_PT_settings(bpy.types.Panel):
             col.prop(s, 'ao_strength')
             col.prop(s, 'ao_radius')
             col.prop(s, 'ao_bias')
-            box.label(text="Screen-space (offscreen pipeline)", icon='INFO')
+            ob = context.active_object
+            if ob is not None and ob.type == 'MESH':
+                box.prop(ob, 'vlr_ao_exclude', text="Exclude active object")
 
         # The rest only affect the Per-Pixel (lit) mode. In Solid (studio) mode they
         # do nothing, so hide them to avoid confusion.

@@ -102,3 +102,8 @@ class SSAO(ScreenEffect):
         sf('uRadius', ctx.get('ao_radius', 0.5))
         sf('uStrength', ctx.get('ao_strength', 1.0))
         sf('uBias', ctx.get('ao_bias', 0.02))
+        # AO object exclusion: sample the occluder-only depth (flagged objects omitted)
+        aod = ctx.get('ao_depth_tex')
+        if aod is not None:
+            try: sh.uniform_sampler('uDepth', aod)
+            except Exception: pass

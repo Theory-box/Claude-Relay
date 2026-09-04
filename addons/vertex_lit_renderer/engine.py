@@ -900,10 +900,34 @@ class VertexLitEngine(bpy.types.RenderEngine):
             try:
                 proj = rv3d.window_matrix
                 wc = scene.world.color if scene.world else None
+                # AO object exclusion: only build the occluder-draw callback if AO is on
+                # AND at least one object is flagged (otherwise AO uses the gbuffer depth).
+                ao_occluders = None
+                if vls and getattr(vls, 'use_ao', False):
+                    any_excl = any(getattr(i.object, 'vlr_ao_exclude', False)
+                                   for i in depsgraph.object_instances if i.object.type == 'MESH')
+                    if any_excl:
+                        def ao_occluders():
+                            sh = _get_main_shader(mode); sh.bind()
+                            try: sh.uniform_float('uViewProj', view_proj)
+                            except Exception: pass
+                            gpu.state.face_culling_set('BACK')
+                            for i in depsgraph.object_instances:
+                                o = i.object
+                                if o.type != 'MESH' or not i.show_self: continue
+                                if getattr(o, 'vlr_ao_exclude', False): continue
+                                sl = self._batch_dict.get(o.name)
+                                if not sl: continue
+                                try: sh.uniform_float('uModel', i.matrix_world)
+                                except Exception: pass
+                                for b, _mn, _tx in sl:
+                                    try: b.draw(sh)
+                                    except Exception: pass
                 post_ctx = {
                     'proj': proj, 'inv_proj': proj.inverted(),
                     'texel': (1.0/max(rw,1), 1.0/max(rh,1)),
                     'clear_color': (wc[0],wc[1],wc[2],1.0) if wc else (0.08,0.08,0.08,1.0),
+                    'draw_ao_occluders': ao_occluders,
                     'ao_radius':   (vls.ao_radius   if vls else 0.5),
                     'ao_strength': (vls.ao_strength if vls else 1.0),
                     'ao_bias':     (vls.ao_bias     if vls else 0.02),
