@@ -693,3 +693,24 @@ STILL OPEN: intermittent Mix/Brick "whole material darkens, fiddle-to-fix" bug â
 the user's actual node graph to reproduce + read the generated GLSL (non-deterministic
 = likely a specific value issue; can't pinpoint blind).
 7 spot-checked suites green.
+
+## v0.9.1 â€” load speed: kill wasted per-object work; multicore analysis
+PROFILED extraction (why "simple" objects feel slow): a CUBE extracts in 0.17ms (fine);
+a 16k-vert mesh is ~27ms. So slow objects are just dense. Breakdown: Blender foreach_get
+on loop_triangles vertices(4ms)+loops(3ms) + per-corner numpy expansion(~6ms) dominate.
+BIGGEST WASTE FOUND: shadow batch was built for EVERY object even though shadows are OFF
+by default, and it used a PYTHON list-comp over every triangle = 6.6ms/dense-object on
+data nobody draws.
+FIXES:
+- Skip shadow batch entirely when shadows off (default) -> ~7ms/dense-object saved.
+- Shadow batch (when on) uses numpy reshape (0ms) not a python loop.
+- Drop vi_map.tolist() per object (keep numpy); GI/shadow consumers handle numpy.
+- Scheduling: while geometry is STREAMING, shader compile yields (0 budget) so the two
+  budgets don't stack (~80ms->~40ms/frame during load); materials compile once geo done.
+MULTICORE (user asked): limited fit. The dominant cost is Blender's foreach_get mesh
+reads + GPU batch upload, both MAIN-THREAD ONLY (bpy data + GPU context aren't thread
+safe). The parallelisable part (numpy expansion ~6ms) is already fast C. A worker-thread
+pipeline could overlap read+process for ~1.3-1.5x at real complexity/risk -> deferred.
+Bigger levers: the shadow skip (done) + mesh density (dense meshes are inherently slower
+to upload). Incremental rebuild already means each mesh extracts ONCE.
+Suites green.

@@ -286,7 +286,7 @@ def _extract_mesh_data(obj, depsgraph):
 
         return dict(
             slots=slots_out, gen_min=gen_min, gen_scale=gen_scale,
-            vi_map=vi_flat.tolist(), n_verts=n_verts,
+            vi_map=vi_flat, n_verts=n_verts,
             vert_co_local=vert_co_local, vert_no_local=vert_no_local,
             mat_diffuse=mat_diffuse,
         )
@@ -323,8 +323,7 @@ def _build_shadow_batch_from_cache(cached):
     shader=_get_shadow_shader()
     positions=cached['vert_co_local']
     vi_map=cached['vi_map']
-    n_tris=len(vi_map)//3
-    indices=[(vi_map[i*3],vi_map[i*3+1],vi_map[i*3+2]) for i in range(n_tris)]
+    indices=np.asarray(vi_map, dtype=np.int32).reshape(-1, 3)   # numpy, not a python loop
     return batch_for_shader(shader,'TRIS',{'position':positions},indices=indices)
 
 
@@ -345,9 +344,10 @@ def _build_bvh_from_cache(mesh_cache, objects):
         wv = (mat4 @ vc_h.T).T[:, :3]
         all_verts.extend(map(tuple, wv.tolist()))
         vi_map=data['vi_map']
+        vi_list = vi_map.tolist() if hasattr(vi_map, 'tolist') else vi_map
         alb=data['mat_diffuse']
-        for i in range(0,len(vi_map),3):
-            all_polys.append([vi_map[i]+v_offset,vi_map[i+1]+v_offset,vi_map[i+2]+v_offset])
+        for i in range(0,len(vi_list),3):
+            all_polys.append([vi_list[i]+v_offset,vi_list[i+1]+v_offset,vi_list[i+2]+v_offset])
             face_albedo.append(alb)
         v_offset+=len(data['vert_co_local'])
     if not all_verts: return None,[]
@@ -608,8 +608,9 @@ class VertexLitEngine(bpy.types.RenderEngine):
         else:
             to_do=(dirty & set(current.keys())) | {n for n in current if n not in self._mesh_cache}
 
-        # Stream extraction: spend at most ~40ms/frame reading meshes, defer the rest
-        # to the next frame(s). The scene builds up progressively instead of freezing.
+        # Shadow batches are only needed when shadows are on (off by default). Building
+        # them per object otherwise wastes ~7ms/dense-object on data nobody draws.
+        want_shadow = bool(vls and getattr(vls, 'use_shadows', False))
         budget_end = time.time() + 0.04
         remaining = []
         done = 0
@@ -623,8 +624,9 @@ class VertexLitEngine(bpy.types.RenderEngine):
             if data:
                 self._mesh_cache[name]=data
                 self._batch_dict[name]=_build_object_slots(data)
-                sb=_build_shadow_batch_from_cache(data)
-                if sb: self._shadow_dict[name]=sb
+                if want_shadow:
+                    sb=_build_shadow_batch_from_cache(data)
+                    if sb: self._shadow_dict[name]=sb
             done += 1
 
         if remaining:
@@ -748,9 +750,10 @@ class VertexLitEngine(bpy.types.RenderEngine):
         frame_done=set(); params_done=set()
         # Progressive compile: sharpen at most ~40ms of new material shaders per frame,
         # so the scene shows instantly (base-texture path) instead of freezing while
-        # every material compiles up front. Anything not ready draws with the fast path
-        # and upgrades on a later frame.
-        _compile_deadline = time.time() + 0.04
+        # every material compiles up front. While geometry is still STREAMING in, don't
+        # compile at all (draw base textures) so the two budgets don't stack — geometry
+        # loads first, materials sharpen once it's done.
+        _compile_deadline = time.time() + (0.0 if getattr(self, '_geo_pending', False) else 0.04)
         self._mat_pending = False
 
         def _ensure_frame(sh):
