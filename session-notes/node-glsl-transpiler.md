@@ -382,3 +382,14 @@ so those now take effect once edits reach the material. Suite green.
   white=1.0, red=0.213, green=0.715, blue=0.072 (test_gl_nodes.py).
 - Establishes the port workflow: add handler -> render on CPU harness -> assert
   pixel values. Next: Noise foundation (hash+noise+fractal from Eevee GLSL).
+
+## v0.5.5 — Noise texture node (procedural foundation)
+- _n_tex_noise: coherent value-noise + fbm (self-contained; scale/detail/roughness/
+  lacunarity/distortion mapped; Fac + Color outputs). Unconnected Vector -> UV plane
+  (vec3(vUV,0)); connected Vector (Mapping/TexCoord) resolves normally.
+  NOT bit-exact Blender (approximation — fine for the AI-feed use case); can be
+  swapped for Blender's exact hash-noise later if needed.
+- Helpers _hash3/_vnoise/_fbm3 added. CPU-verified (test_gl_nodes): varies across
+  surface, in 0..1, higher scale -> higher spatial frequency; Color channels differ.
+- Fallback tests switched from Noise (now supported) to Wireframe (out-of-scope).
+- All 9 suites green.

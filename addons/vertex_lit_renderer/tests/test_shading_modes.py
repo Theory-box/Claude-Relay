@@ -65,7 +65,7 @@ check(fragV != fragP, "VERTEX and PIXEL produce different fragments")
 print("=== graceful fallback on unsupported node ===")
 mm = bpy.data.materials.new("noisey"); mm.use_nodes=True; tt=mm.node_tree; tt.nodes.clear()
 o=tt.nodes.new("ShaderNodeOutputMaterial"); bb=tt.nodes.new("ShaderNodeBsdfPrincipled")
-noise=tt.nodes.new("ShaderNodeTexNoise")
+noise=tt.nodes.new("ShaderNodeWireframe")
 tt.links.new(bb.outputs["BSDF"], o.inputs["Surface"])
 tt.links.new(noise.outputs["Fac"], bb.inputs["Base Color"])
 ent = ms._compile(mm, "VERTEX")   # returns before GPU compile for unsupported nodes

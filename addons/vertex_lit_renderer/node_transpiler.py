@@ -67,6 +67,34 @@ vec3 _bl_hue(vec3 a, vec3 b){ vec3 x=_rgb2hsv(a), y=_rgb2hsv(b); return _hsv2rgb
 vec3 _bl_sat(vec3 a, vec3 b){ vec3 x=_rgb2hsv(a), y=_rgb2hsv(b); return _hsv2rgb(vec3(x.x, y.y, x.z)); }
 vec3 _bl_col(vec3 a, vec3 b){ vec3 x=_rgb2hsv(a), y=_rgb2hsv(b); return _hsv2rgb(vec3(y.x, y.y, x.z)); }
 vec3 _bl_val(vec3 a, vec3 b){ vec3 x=_rgb2hsv(a), y=_rgb2hsv(b); return _hsv2rgb(vec3(x.x, x.y, y.z)); }
+
+/* ---- coherent value noise + fbm (procedural textures) ---- */
+float _hash3(vec3 p){
+    p = fract(p * 0.3183099 + vec3(0.1, 0.2, 0.3));
+    p *= 17.0;
+    return fract(p.x * p.y * p.z * (p.x + p.y + p.z));
+}
+float _vnoise(vec3 x){
+    vec3 i = floor(x); vec3 f = fract(x);
+    f = f * f * (3.0 - 2.0 * f);
+    float n000=_hash3(i), n100=_hash3(i+vec3(1,0,0));
+    float n010=_hash3(i+vec3(0,1,0)), n110=_hash3(i+vec3(1,1,0));
+    float n001=_hash3(i+vec3(0,0,1)), n101=_hash3(i+vec3(1,0,1));
+    float n011=_hash3(i+vec3(0,1,1)), n111=_hash3(i+vec3(1,1,1));
+    float x00=mix(n000,n100,f.x), x10=mix(n010,n110,f.x);
+    float x01=mix(n001,n101,f.x), x11=mix(n011,n111,f.x);
+    return mix(mix(x00,x10,f.y), mix(x01,x11,f.y), f.z);
+}
+float _fbm3(vec3 p, float detail, float roughness, float lacunarity){
+    float amp=1.0, freq=1.0, sum=0.0, maxamp=0.0;
+    int oct = int(clamp(detail, 0.0, 7.0)) + 1;
+    for(int i=0;i<8;i++){
+        if(i>=oct) break;
+        sum += amp * _vnoise(p*freq);
+        maxamp += amp; amp *= roughness; freq *= max(lacunarity, 1e-4);
+    }
+    return sum / max(maxamp, 1e-6);
+}
 """
 
 
@@ -571,6 +599,33 @@ class _Transpiler:
             self._line("{v} = mix({v}, vec4({r},{g},{b},{a}), {w});".format(
                 v=var, r=_f(c1[0]), g=_f(c1[1]), b=_f(c1[2]), a=_f(c1[3]), w=w))
         return var
+
+    def _n_tex_noise(self, node, out):
+        vs = node.inputs.get("Vector")
+        if vs is not None and vs.is_linked:
+            co = self.input_expr(node, vs, "vec3")
+        else:
+            co = "vec3(vUV, 0.0)"   # unconnected: noise over the UV plane
+        scale = self.input_expr(node, node.inputs.get("Scale"), "float")
+        detail = self.input_expr(node, node.inputs.get("Detail"), "float")
+        rough = self.input_expr(node, node.inputs.get("Roughness"), "float")
+        lac = self.input_expr(node, node.inputs.get("Lacunarity"), "float") \
+            if node.inputs.get("Lacunarity") else "2.0"
+        dist = self.input_expr(node, node.inputs.get("Distortion"), "float")
+        v = self._new_var("noise")
+        self._line("vec3 {v}p = ({co}) * {s};".format(v=v, co=co, s=scale))
+        # distortion: perturb the coordinate by noise of itself
+        self._line("{v}p += {d} * vec3(_vnoise({v}p+vec3(0.0)), _vnoise({v}p+vec3(13.5)), "
+                   "_vnoise({v}p+vec3(27.1)));".format(v=v, d=dist))
+        if out.name == "Color":
+            self._line("vec3 {v}c = vec3(_fbm3({v}p,{det},{r},{l}), "
+                       "_fbm3({v}p+vec3(41.0),{det},{r},{l}), "
+                       "_fbm3({v}p+vec3(97.0),{det},{r},{l}));".format(
+                           v=v, det=detail, r=rough, l=lac))
+            return "vec4({v}c, 1.0)".format(v=v)
+        self._line("float {v} = _fbm3({v}p, {det}, {r}, {l});".format(
+            v=v, det=detail, r=rough, l=lac))
+        return v
 
     def _n_rgbtobw(self, node, out):
         col = self.input_expr(node, node.inputs.get("Color"), "vec4")

@@ -102,7 +102,7 @@ mat2 = bpy.data.materials.new("wire2"); mat2.use_nodes = True
 nt2 = mat2.node_tree; nt2.nodes.clear()
 out2 = nt2.nodes.new("ShaderNodeOutputMaterial")
 bsdf2 = nt2.nodes.new("ShaderNodeBsdfPrincipled")
-noise = nt2.nodes.new("ShaderNodeTexNoise")  # unsupported in spike
+noise = nt2.nodes.new("ShaderNodeWireframe")  # unsupported in spike
 nt2.links.new(bsdf2.outputs["BSDF"], out2.inputs["Surface"])
 nt2.links.new(noise.outputs["Fac"], bsdf2.inputs["Base Color"])
 _, frag2, res2 = ms.build_material_frag(mat2, "VERTEX")
