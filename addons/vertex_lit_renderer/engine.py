@@ -13,6 +13,34 @@ from .shaders import SHADOW_VERT, SHADOW_FRAG, MAIN_VERT, MAIN_FRAG, PHONG_VERT,
 from .gi import ProgressiveGI
 from . import material_shader
 from . import fx
+import ctypes as _ct
+
+
+def _raw_attr(mesh, name, ctype, ncomp, count):
+    """Read a mesh attribute as a numpy array DIRECTLY from Blender's contiguous
+    memory (via the layer's pointer) — ~5x faster than foreach_get on the hot arrays.
+    Returns an (count, ncomp) view or None (caller then uses the foreach_get fallback).
+    Version-tolerant: any layout surprise -> None -> safe slow path."""
+    try:
+        a = mesh.attributes.get(name)
+        if a is None: return None
+        data = a.data
+        if len(data) != count or count == 0: return None
+        addr = data[0].as_pointer()
+        arr = np.ctypeslib.as_array((ctype * (count * ncomp)).from_address(addr))
+        return arr.reshape(count, ncomp) if ncomp > 1 else arr
+    except Exception:
+        return None
+
+
+def _raw_corner_tris(mesh, n_tris):
+    """Triangle -> 3 corner indices, read straight from the runtime corner-tris array."""
+    try:
+        if n_tris == 0: return None
+        addr = mesh.loop_triangles[0].as_pointer()
+        return np.ctypeslib.as_array((_ct.c_int * (n_tris * 3)).from_address(addr))
+    except Exception:
+        return None
 
 MAX_LIGHTS = 8
 _DEBUG = True   # prints "[VertexLit] rebuild <- ..." naming what triggers a rebuild
@@ -196,12 +224,20 @@ def _extract_mesh_data(obj, depsgraph):
         n_loops = len(mesh.loops)
         n_flat = n_tris * 3
 
-        tv = np.empty(n_flat, dtype=np.int32); mesh.loop_triangles.foreach_get('vertices', tv)
-        tl = np.empty(n_flat, dtype=np.int32); mesh.loop_triangles.foreach_get('loops', tl)
-        vi_flat = tv; li_flat = tl
+        # --- Triangle corner/vertex indices: raw memory (fast) with foreach fallback ---
+        li_flat = _raw_corner_tris(mesh, n_tris)          # tri -> corner indices
+        corner_vert = _raw_attr(mesh, '.corner_vert', _ct.c_int, 1, n_loops)
+        if li_flat is not None and corner_vert is not None:
+            vi_flat = corner_vert[li_flat]                # vertex per corner
+        else:
+            li_flat = np.empty(n_flat, dtype=np.int32); mesh.loop_triangles.foreach_get('loops', li_flat)
+            vi_flat = np.empty(n_flat, dtype=np.int32); mesh.loop_triangles.foreach_get('vertices', vi_flat)
 
-        vc = np.empty(n_verts * 3, dtype=np.float32); mesh.vertices.foreach_get('co', vc)
-        vc = vc.reshape(n_verts, 3)
+        # --- Vertex positions: raw with fallback ---
+        vc = _raw_attr(mesh, 'position', _ct.c_float, 3, n_verts)
+        if vc is None:
+            vc = np.empty(n_verts * 3, dtype=np.float32); mesh.vertices.foreach_get('co', vc)
+            vc = vc.reshape(n_verts, 3)
         positions = vc[vi_flat]
 
         # Per-VERTEX normals for GI/BVH (averaged); per-CORNER normals for the draw
@@ -215,13 +251,17 @@ def _extract_mesh_data(obj, depsgraph):
             normals = cn.reshape(n_loops, 3)[li_flat]
         except Exception:
             normals = vn[vi_flat]
-        vert_co_local = vc
+        vert_co_local = vc.copy()   # stored in cache -> must not alias Blender memory
         vert_no_local = vn
 
+        # --- UVs: raw from the active UV attribute, with fallback ---
         uv_layer = mesh.uv_layers.active
         if uv_layer:
-            uv_raw = np.empty(n_loops * 2, dtype=np.float32); uv_layer.data.foreach_get('uv', uv_raw)
-            uvs = uv_raw.reshape(n_loops, 2)[li_flat]
+            uv = _raw_attr(mesh, uv_layer.name, _ct.c_float, 2, n_loops)
+            if uv is None:
+                uv = np.empty(n_loops * 2, dtype=np.float32); uv_layer.data.foreach_get('uv', uv)
+                uv = uv.reshape(n_loops, 2)
+            uvs = uv[li_flat]
         else:
             uvs = np.zeros((n_flat, 2), dtype=np.float32)
 
@@ -260,30 +300,35 @@ def _extract_mesh_data(obj, depsgraph):
         mi = np.zeros(n_tris, dtype=np.int32)
         try: mesh.loop_triangles.foreach_get('material_index', mi)
         except Exception: pass
-        mi_corner = np.repeat(mi, 3)                      # (n_flat,)
         has_vcol = (colors.shape[0] == n_flat and not np.all(colors == colors[0]))
-        slots_out = []
-        for idx in np.unique(mi):
-            m = (mi_corner == idx)
+        uniq = np.unique(mi)
+
+        def _slot(slot_idx, P, N, U, C_arr):
             slot_mat = None
             try:
                 ms = obj.material_slots
-                if idx < len(ms): slot_mat = ms[idx].material
+                if slot_idx < len(ms): slot_mat = ms[slot_idx].material
             except Exception:
                 pass
-            if slot_mat is None:
-                slot_mat = mat_slot
+            if slot_mat is None: slot_mat = mat_slot
             stex = _get_gpu_tex(_find_base_texture(slot_mat))
             sdefault = [1.0, 1.0, 1.0, 1.0]
             if slot_mat is not None:
                 dc = slot_mat.diffuse_color; sdefault = [dc[0], dc[1], dc[2], 1.0]
-            scolors = colors[m] if has_vcol else \
-                np.tile(np.array(sdefault, dtype=np.float32), (int(m.sum()), 1))
-            slots_out.append(dict(
-                positions=positions[m], normals=normals[m], uvs=uvs[m], colors=scolors,
-                material_name=(slot_mat.name if slot_mat else None), texture=stex,
-            ))
+            scolors = C_arr if has_vcol else np.tile(np.array(sdefault, dtype=np.float32), (len(P), 1))
+            return dict(positions=P, normals=N, uvs=U, colors=scolors,
+                        material_name=(slot_mat.name if slot_mat else None), texture=stex)
 
+        slots_out = []
+        if len(uniq) <= 1:
+            # Single material (the common case): one slot, NO per-corner masking/copies.
+            slots_out.append(_slot(int(uniq[0]) if len(uniq) else 0, positions, normals, uvs, colors))
+        else:
+            mi_corner = np.repeat(mi, 3)                  # (n_flat,)
+            for idx in uniq:
+                m = (mi_corner == idx)
+                slots_out.append(_slot(int(idx), positions[m], normals[m], uvs[m],
+                                       colors[m] if has_vcol else None))
         return dict(
             slots=slots_out, gen_min=gen_min, gen_scale=gen_scale,
             vi_map=vi_flat, n_verts=n_verts,

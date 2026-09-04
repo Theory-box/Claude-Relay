@@ -758,3 +758,23 @@ LIVE EDIT MODE: view_draw re-extracts ONLY context.edit_object each frame (its e
 Removed dead _view_update_OLD (62 lines). Suites green.
 CAVEAT (user to test): edit-mode re-extract is per-frame for the edited object; a very
   dense edited mesh (~16k+ verts = ~27ms) will edit at ~15-30fps. Fine for typical meshes.
+
+## v0.9.4 — raw-memory extraction (ctypes) — ~2.2x faster, no build
+PROTOTYPED + MEASURED the ctypes raw-memory read vs foreach_get (user's ask before
+committing to a compiled route):
+- Core geometry (positions+uvs+tri indices): foreach 11.6ms vs RAW 2.4ms = ~5x, bit-exact.
+- Full _extract_mesh_data: 24ms -> 10.7ms = ~2.2x.
+HOW: Blender stores mesh data as contiguous CustomData attribute arrays. mesh.attributes
+  ['position'/'.corner_vert'/UVMap].data[0].as_pointer() + mesh.loop_triangles[0].as_pointer()
+  give the raw addresses; np.ctypeslib.as_array reads them with ZERO copy. Eliminates the
+  slow loop_triangles.foreach_get('vertices'/'loops') (~7ms). Pure Python, NO compiled
+  extension, NO cross-platform build.
+SAFETY: every raw read has a foreach_get FALLBACK (returns None on any layout surprise ->
+  slow path). So a future Blender that changes the layout stays CORRECT, just slower.
+  Stored arrays (vert_co_local) are .copy()'d so they never alias freed Blender memory.
+ALSO: single-material fast path — was masking+copying every corner array 4x even for 1
+  material; now one slot with no masking (big chunk of the remaining time). Dead code removed.
+Regression test test_extract_raw.py (raw == foreach, missing-attr -> None). 12 suites green.
+CONCLUSION: the ctypes route gets ~2.2x with no build burden; a full compiled extension
+  would add fragility + per-platform builds for little extra (GPU upload still main-thread,
+  can't reuse Blender's cached batches). Not pursuing compiled unless this proves insufficient.
