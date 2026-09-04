@@ -39,9 +39,7 @@ darken a wall → Bright/Contrast / Mix / Hue-Sat ✅ · show the texture → Im
 
 ## INPUT
 - ✅ Texture Coordinate (UV), UV Map, RGB, Value
-- 🟡 Tex Coord other outputs (Generated/Object/Normal/Camera/Window/Reflection)
-  currently approximated as UV — need world/object pos + normal (we already pass
-  vWpos/vNrm in Workbench/Phong) → medium, unlocks skybox mapping
+- ✅ Tex Coord UV/Generated/Object (Generated = object bbox-normalised pos via per-object uniforms; procedurals now default to Generated like Blender). Normal/Camera/Window/Reflection approx as Generated.
 - ⏳ Attribute, Color Attribute, Vertex Color (read a named mesh attribute → bind
   as a vertex attribute) — medium, ties into the GN-attribute idea
 - 🟡 Fresnel, Layer Weight (view-dependent; doable with normal + view dir) — medium

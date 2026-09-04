@@ -481,3 +481,15 @@ GPL: ported code is GPL-2.0-or-later; addon is GPL. OK.
 - Directly useful for color grading (darken/brighten with control).
 - CPU-verified: identity passes through; darken curve halves output; array-param
   GLSL compiles on llvmpipe. 9 suites green.
+
+## v0.7.0 — Texture Coordinate (Generated/Object/UV) + procedural default fix (engine change)
+- ENGINE CHANGE: vertex shaders now output vGenerated (object bbox-normalised pos)
+  and vObjPos (object-space pos); uGenMin/uGenScale set per-object from obj.bound_box.
+  Frag heads (all 3 material modes) declare them. Harness provides synthetic values.
+- Tex Coord: UV -> vUV, Generated -> vGenerated, Object -> vObjPos. Normal/Camera/
+  Window/Reflection approx as Generated (need data not in every frag).
+- EXACTNESS FIX: procedural textures (Noise/Voronoi/Wave/Brick/Magic/Checker/Gradient/
+  White Noise) with an UNCONNECTED Vector now default to Generated (as Blender does),
+  not vUV. Image Texture still defaults to UV (correct).
+- Enables skybox-on-a-mesh procedural/Generated mapping.
+- CPU-verified Generated/Object/UV + procedural default; addon registers; 9 suites green.

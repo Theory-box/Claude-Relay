@@ -75,11 +75,15 @@ _VERT_HEADER = """
 uniform mat4 uViewProj;
 uniform mat4 uModel;
 uniform mat3 uNormalMat;
+uniform vec3 uGenMin;
+uniform vec3 uGenScale;
 in vec3 position;
 in vec3 normal;
 in vec4 vertColor;
 in vec2 texCoord;
 in vec3 bounceColor;   /* one-bounce GI baked at rebuild time */
+out vec3 vGenerated;   /* object bbox-normalised position (Tex Coord: Generated) */
+out vec3 vObjPos;      /* object-space position (Tex Coord: Object) */
 """
 
 # ---- Per-vertex (Gouraud): lighting in the vertex shader -> vLight ----------
@@ -93,6 +97,8 @@ void main() {
     float sh   = vlr_shadow(wPos4.xyz);
     vLight      = vec4(clamp(light, 0.0, 12.0) * sh * vertColor.rgb, vertColor.a);
     vUV         = texCoord;
+    vObjPos     = position;
+    vGenerated  = (position - uGenMin) * uGenScale;
     gl_Position = uViewProj * wPos4;
 }
 """
@@ -123,6 +129,8 @@ void main() {
     vColor  = vertColor;
     vBounce = bounceColor;
     vUV     = texCoord;
+    vObjPos = position;
+    vGenerated = (position - uGenMin) * uGenScale;
     gl_Position = uViewProj * wPos4;
 }
 """
@@ -170,7 +178,7 @@ void main(){
 }
 """
 
-MAT_FRAG_HEAD_WORKBENCH = ("in vec2 vUV;\nin vec4 vColor;\nin vec3 vNrm;\n"
+MAT_FRAG_HEAD_WORKBENCH = ("in vec2 vUV;\nin vec4 vColor;\nin vec3 vNrm;\nin vec3 vGenerated;\nin vec3 vObjPos;\n"
                            "uniform vec3 uKeyDir;\nuniform vec3 uKeyCol;\n"
                            "uniform float uAmbient;\nout vec4 outColor;\n")
 MAT_FRAG_MAIN_WORKBENCH = (
@@ -182,7 +190,7 @@ MAT_FRAG_MAIN_WORKBENCH = (
     "    outColor = vec4(lit * base.rgb, base.a);\n"
     "}\n"
 )
-MAT_FRAG_HEAD_VERTEX = "in vec4 vLight;\nin vec2 vUV;\nout vec4 outColor;\n"
+MAT_FRAG_HEAD_VERTEX = "in vec4 vLight;\nin vec2 vUV;\nin vec3 vGenerated;\nin vec3 vObjPos;\nout vec4 outColor;\n"
 MAT_FRAG_MAIN_VERTEX = (
     "void main() {\n"
     "    vec4 base = computeBaseColor(vUV);\n"
@@ -190,7 +198,7 @@ MAT_FRAG_MAIN_VERTEX = (
     "}\n"
 )
 
-MAT_FRAG_HEAD_PIXEL = ("in vec2 vUV;\nin vec4 vColor;\nin vec3 vWpos;\n"
+MAT_FRAG_HEAD_PIXEL = ("in vec2 vUV;\nin vec4 vColor;\nin vec3 vWpos;\nin vec3 vGenerated;\nin vec3 vObjPos;\n"
                        "in vec3 vNrm;\nin vec3 vBounce;\nout vec4 outColor;\n")
 MAT_FRAG_MAIN_PIXEL = (
     "void main() {\n"

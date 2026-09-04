@@ -132,4 +132,10 @@ _id=rgbcurve(False); _dk=rgbcurve(True)
 check(abs(_id.mean()-0.5)<0.05, "RGB Curve identity passes gradient unchanged")
 check(_dk.mean() < _id.mean()-0.1, "RGB Curve darken lowers output")
 
+# --- Texture Coordinate Generated/Object/UV ---
+def texco(outn):
+    m,t,bb=base('tc'); n=t.nodes.new('ShaderNodeTexCoord')
+    t.links.new(n.outputs[outn], bb.inputs['Base Color']); px,_=H.render_material(m,size=16); return px[...,0]
+check(all(texco(o)[0,-1]>texco(o)[0,0]+0.4 for o in ('Generated','Object','UV')), "Tex Coord Generated/Object/UV map coordinates")
+
 print("SUMMARY: " + ("FAILED "+", ".join(F) if F else "ALL CHECKS PASSED"))

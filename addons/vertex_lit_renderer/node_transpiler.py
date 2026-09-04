@@ -414,9 +414,14 @@ class _Transpiler:
     # =================== node handlers ===================================
 
     def _n_tex_coord(self, node, out):
-        if out.name not in ("UV",):
-            self.notes.append("TEX_COORD.{} approximated as UV".format(out.name))
-        return "vec4(vUV, 0.0, 1.0)"
+        name = out.name
+        if name == "UV":        return "vec4(vUV, 0.0, 1.0)"
+        if name == "Generated": return "vec4(vGenerated, 1.0)"
+        if name == "Object":    return "vec4(vObjPos, 1.0)"
+        # Normal/Camera/Window/Reflection need view/normal data not available in
+        # every material fragment -> approximate as Generated (visible, non-fatal).
+        self.notes.append("TEX_COORD.{} approximated as Generated".format(name))
+        return "vec4(vGenerated, 1.0)"
 
     def _n_uvmap(self, node, out):
         return "vec4(vUV, 0.0, 1.0)"
@@ -813,7 +818,7 @@ class _Transpiler:
 
     def _n_tex_magic(self, node, out):
         vs = node.inputs.get("Vector")
-        co = self.input_expr(node, vs, "vec3") if (vs and vs.is_linked) else "vec3(vUV, 0.0)"
+        co = self.input_expr(node, vs, "vec3") if (vs and vs.is_linked) else "vGenerated"
         scale = self.input_expr(node, node.inputs.get("Scale"), "float")
         dist = self.input_expr(node, node.inputs.get("Distortion"), "float")
         depth = int(getattr(node, "turbulence_depth", 2))
@@ -853,7 +858,7 @@ class _Transpiler:
 
     def _n_tex_brick(self, node, out):
         vs = node.inputs.get("Vector")
-        co = self.input_expr(node, vs, "vec3") if (vs and vs.is_linked) else "vec3(vUV, 0.0)"
+        co = self.input_expr(node, vs, "vec3") if (vs and vs.is_linked) else "vGenerated"
         scale = self.input_expr(node, node.inputs.get("Scale"), "float")
         c1 = self.input_expr(node, node.inputs.get("Color1"), "vec4")
         c2 = self.input_expr(node, node.inputs.get("Color2"), "vec4")
@@ -882,7 +887,7 @@ class _Transpiler:
 
     def _n_tex_wave(self, node, out):
         vs = node.inputs.get("Vector")
-        co = self.input_expr(node, vs, "vec3") if (vs and vs.is_linked) else "vec3(vUV, 0.0)"
+        co = self.input_expr(node, vs, "vec3") if (vs and vs.is_linked) else "vGenerated"
         scale = self.input_expr(node, node.inputs.get("Scale"), "float")
         dist = self.input_expr(node, node.inputs.get("Distortion"), "float")
         detail = self.input_expr(node, node.inputs.get("Detail"), "float")
@@ -918,7 +923,7 @@ class _Transpiler:
 
     def _n_tex_white_noise(self, node, out):
         vs = node.inputs.get("Vector")
-        co = self.input_expr(node, vs, "vec3") if (vs and vs.is_linked) else "vec3(vUV, 0.0)"
+        co = self.input_expr(node, vs, "vec3") if (vs and vs.is_linked) else "vGenerated"
         if out.name == "Color":
             return "vec4(hash_vec3_to_vec3({co}), 1.0)".format(co=co)
         v = self._new_var("wn")
@@ -927,7 +932,7 @@ class _Transpiler:
 
     def _n_tex_checker(self, node, out):
         vs = node.inputs.get("Vector")
-        co = self.input_expr(node, vs, "vec3") if (vs and vs.is_linked) else "vec3(vUV, 0.0)"
+        co = self.input_expr(node, vs, "vec3") if (vs and vs.is_linked) else "vGenerated"
         scale = self.input_expr(node, node.inputs.get("Scale"), "float")
         c1 = self.input_expr(node, node.inputs.get("Color1"), "vec4")
         c2 = self.input_expr(node, node.inputs.get("Color2"), "vec4")
@@ -943,7 +948,7 @@ class _Transpiler:
 
     def _n_tex_gradient(self, node, out):
         vs = node.inputs.get("Vector")
-        co = self.input_expr(node, vs, "vec3") if (vs and vs.is_linked) else "vec3(vUV, 0.0)"
+        co = self.input_expr(node, vs, "vec3") if (vs and vs.is_linked) else "vGenerated"
         gt = getattr(node, "gradient_type", "LINEAR")
         v = self._new_var("grad")
         self._line("vec3 {v}p = {co};".format(v=v, co=co))
@@ -964,7 +969,7 @@ class _Transpiler:
 
     def _n_tex_voronoi(self, node, out):
         vs = node.inputs.get("Vector")
-        co = self.input_expr(node, vs, "vec3") if (vs and vs.is_linked) else "vec3(vUV, 0.0)"
+        co = self.input_expr(node, vs, "vec3") if (vs and vs.is_linked) else "vGenerated"
         scale = self.input_expr(node, node.inputs.get("Scale"), "float")
         rnd = self.input_expr(node, node.inputs.get("Randomness"), "float") \
             if node.inputs.get("Randomness") else "1.0"
@@ -1015,7 +1020,7 @@ class _Transpiler:
         if vs is not None and vs.is_linked:
             co = self.input_expr(node, vs, "vec3")
         else:
-            co = "vec3(vUV, 0.0)"   # unconnected: noise over the UV plane
+            co = "vGenerated"   # unconnected: noise over the UV plane
         scale = self.input_expr(node, node.inputs.get("Scale"), "float")
         detail = self.input_expr(node, node.inputs.get("Detail"), "float")
         rough = self.input_expr(node, node.inputs.get("Roughness"), "float")

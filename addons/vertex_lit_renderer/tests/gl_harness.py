@@ -75,13 +75,14 @@ def render_material(mat, size=16, param_values=None, textures=None):
     sampler_decls = "".join("uniform sampler2D {};\n".format(s.uniform) for s in res.samplers)
     param_decls = "".join(d + "\n" for d in res.param_decls)
     frag = ("#version 330 core\n"
-            "in vec2 vUV;\nout vec4 fragColor;\n"
+            "in vec2 vUV;\nin vec3 vGenerated;\nin vec3 vObjPos;\nout vec4 fragColor;\n"
             + sampler_decls + param_decls + _nt.HELPERS + "\n"
             + res.glsl + "\n"
             + "void main(){ fragColor = computeBaseColor(vUV); }\n")
     vert = ("#version 330 core\n"
-            "in vec2 p; out vec2 vUV;\n"
-            "void main(){ vUV = p*0.5+0.5; gl_Position = vec4(p,0.0,1.0); }\n")
+            "in vec2 p; out vec2 vUV; out vec3 vGenerated; out vec3 vObjPos;\n"
+            "void main(){ vUV = p*0.5+0.5; vGenerated = vec3(vUV,0.0); vObjPos = vec3(vUV,0.0);"
+            " gl_Position = vec4(p,0.0,1.0); }\n")
     try:
         prog = ctx.program(vertex_shader=vert, fragment_shader=frag)
     except Exception as e:

@@ -698,6 +698,18 @@ class VertexLitEngine(bpy.types.RenderEngine):
             try:   normal_mat=inst.matrix_world.to_3x3().inverted().transposed()
             except Exception: normal_mat=inst.matrix_world.to_3x3()
 
+            # Object bounding box -> Generated texture coords (uGenMin, uGenScale).
+            try:
+                bb=obj.bound_box
+                gmnx=min(c[0] for c in bb); gmny=min(c[1] for c in bb); gmnz=min(c[2] for c in bb)
+                gmxx=max(c[0] for c in bb); gmxy=max(c[1] for c in bb); gmxz=max(c[2] for c in bb)
+                gmin=(gmnx,gmny,gmnz)
+                gsc=(1.0/(gmxx-gmnx) if gmxx-gmnx>1e-9 else 0.0,
+                     1.0/(gmxy-gmny) if gmxy-gmny>1e-9 else 0.0,
+                     1.0/(gmxz-gmnz) if gmxz-gmnz>1e-9 else 0.0)
+            except Exception:
+                gmin=(0.0,0.0,0.0); gsc=(1.0,1.0,1.0)
+
             prog=None
             if use_live:
                 mat=getattr(obj,'active_material',None)
@@ -721,6 +733,8 @@ class VertexLitEngine(bpy.types.RenderEngine):
                     params_done.add(id(sh))
                 sh.uniform_float('uModel',inst.matrix_world)
                 sh.uniform_float('uNormalMat',normal_mat)
+                try: sh.uniform_float('uGenMin',gmin); sh.uniform_float('uGenScale',gsc)
+                except Exception: pass
                 for uni,image in prog['samplers']:
                     gtex=_get_gpu_tex(image)
                     if gtex is not None:
@@ -731,6 +745,8 @@ class VertexLitEngine(bpy.types.RenderEngine):
                 _ensure_frame(legacy)
                 legacy.uniform_float('uModel',inst.matrix_world)
                 legacy.uniform_float('uNormalMat',normal_mat)
+                try: legacy.uniform_float('uGenMin',gmin); legacy.uniform_float('uGenScale',gsc)
+                except Exception: pass
                 legacy.uniform_sampler('uAlbedo',  tex if tex is not None else self._white_tex)
                 legacy.uniform_int('uHasTexture',  1 if tex is not None else 0)
                 batch.draw(legacy)
