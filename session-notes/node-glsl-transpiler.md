@@ -1098,3 +1098,16 @@ Fix: TranspileResult.has_alpha=True when the Alpha fold fires (Alpha set/linked)
 program. is_transp now also true when has_alpha and the material isn't explicitly Opaque (handles
 both surface_render_method 4.2+ and legacy blend_method). So the Alpha slider alpha-blends without
 having to switch Render Method. Verified has_alpha False@1.0 / True@0.5. 16 suites green.
+
+## v0.11.11 — Share batches across linked duplicates (identical geometry)
+User: linked-duplicate objects load one by one though they share geometry.
+- True instances (geo-nodes/particles/collection) were ALREADY shared (dedup by inst.object name
+  in `current`, drawn per-instance). Linked duplicates (Alt+D, same mesh data, different object
+  names) were extracted + uploaded separately because the cache keys on object name.
+- Added _share_sig(obj, mesh, view_attr) = _geo_sig (mesh data name + counts + modifiers + sampled
+  verts) + material assignment + active colour attribute. Extraction loop keeps self._geo_share
+  {ssig -> (data, slots, shadow)}: an object whose ssig is already present REUSES the same GPU
+  batch (no re-extract/upload) and is drawn per-instance with its own matrix. Reuses are instant so
+  they don't consume the extraction budget -> N linked dups = 1 extraction + N-1 instant reuses.
+  Position-dependent geo-nodes get different sampled verts -> different sig -> not wrongly merged.
+  Only same-mesh-data objects share (data name in the key). Cleared on full rebuild. 16 suites green.

@@ -74,6 +74,18 @@ def _geo_sig(obj, mesh):
         return None
 
 
+def _share_sig(obj, mesh, view_attr):
+    """Key for geometry that can be SHARED across objects (e.g. linked duplicates): the
+    geometry signature + material assignment + active colour attribute. Objects with the
+    same key have identical evaluated geometry and materials, so one extraction + one GPU
+    batch serves them all (drawn per-instance with their own matrices)."""
+    try:
+        mats = tuple((s.material.name if s.material else '') for s in obj.material_slots)
+    except Exception:
+        mats = ()
+    return (_geo_sig(obj, mesh), mats, view_attr or '')
+
+
 def _raw_attr(mesh, name, ctype, ncomp, count):
     """Read a mesh attribute as a numpy array DIRECTLY from Blender's contiguous
     memory (via the layer's pointer) — ~5x faster than foreach_get on the hot arrays.
@@ -736,24 +748,44 @@ class VertexLitEngine(bpy.types.RenderEngine):
         budget_end = time.time() + budget
         remaining = []
         done = 0
+        if full or not hasattr(self, '_geo_share'):
+            self._geo_share = {}   # share sig -> (data, slots, shadow_batch)
+        va = getattr(self, '_view_attr', '')
         for name in to_do:
             if done > 0 and time.time() > budget_end:
                 remaining.append(name)
                 continue
             obj=current.get(name)
             if obj is None: continue
-            data=_extract_mesh_data(obj,depsgraph,attr_name=getattr(self,'_view_attr',''))
+            try:
+                eo=obj.evaluated_get(depsgraph); me=getattr(eo,'data',None)
+            except Exception:
+                me=None
+            gsig = _geo_sig(obj, me) if me is not None else None
+            ssig = _share_sig(obj, me, va) if me is not None else None
+            shared = self._geo_share.get(ssig) if ssig is not None else None
+            if shared is not None:
+                # Identical geometry+materials already extracted (e.g. a linked duplicate) ->
+                # reuse the SAME batch, no re-extract or re-upload. Instant, so it doesn't
+                # count against the extraction budget; the draw loop draws it per-instance.
+                self._mesh_cache[name]=shared[0]
+                self._batch_dict[name]=shared[1]
+                if want_shadow and shared[2] is not None:
+                    self._shadow_dict[name]=shared[2]
+                _PERSIST_SIG[name]=gsig
+                continue
+            data=_extract_mesh_data(obj,depsgraph,attr_name=va)
             if data:
+                slots=_build_object_slots(data)
                 self._mesh_cache[name]=data
-                self._batch_dict[name]=_build_object_slots(data)
-                try:
-                    eo=obj.evaluated_get(depsgraph); me=getattr(eo,'data',None)
-                    _PERSIST_SIG[name]=_geo_sig(obj, me) if me else None
-                except Exception:
-                    pass
+                self._batch_dict[name]=slots
+                sb=None
                 if want_shadow:
                     sb=_build_shadow_batch_from_cache(data)
                     if sb: self._shadow_dict[name]=sb
+                if ssig is not None:
+                    self._geo_share[ssig]=(data, slots, sb)
+                _PERSIST_SIG[name]=gsig
             done += 1
 
         if remaining:
