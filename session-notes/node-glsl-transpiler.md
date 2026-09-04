@@ -675,3 +675,21 @@ So no up-front freeze: first frame ~instant (Workbench-like base textures), full
 node materials fill in progressively. Geometry extraction (numpy, already fast +
 incremental) is the only remaining first-load cost and is inherent.
 11 suites green.
+
+## v0.9.0 — progressive geometry streaming (no first-load freeze)
+The "how do game engines do it" answer: persistent GPU buffers (we have via incremental
+rebuild) + stream work over frames (never block). Added the last piece:
+- _rebuild_inner now extracts at most ~40ms of meshes per frame; remaining objects go
+  back into _dirty_objects and are extracted next frame(s). self._geo_pending keeps
+  view_draw redrawing until the scene is fully loaded. Objects pop in progressively.
+- GI (off by default) only starts once streaming completes.
+- Console: "loaded 40/2000 objs (0.04s) [full] (+1960 streaming)".
+Now the full pipeline is non-blocking: incremental rebuild (only changed objects) +
+progressive geometry (stream in) + progressive shader compile (~40ms/frame). No 20-30s
+freezes; entering the mode / big edits build up over ~1s instead of hanging.
+Rejected the "second Blender instance" idea: huge IPC/sync complexity for what a
+per-frame budget solves.
+STILL OPEN: intermittent Mix/Brick "whole material darkens, fiddle-to-fix" bug — needs
+the user's actual node graph to reproduce + read the generated GLSL (non-deterministic
+= likely a specific value issue; can't pinpoint blind).
+7 spot-checked suites green.

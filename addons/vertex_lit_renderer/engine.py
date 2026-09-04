@@ -379,6 +379,7 @@ class VertexLitEngine(bpy.types.RenderEngine):
         self._shadow_tex_cache = None
         self._dirty_objects    = set()   # names of objects to re-extract (incremental)
         self._force_full       = False   # force a full re-extract next rebuild
+        self._geo_pending      = False   # geometry still streaming in (progressive load)
         self._post             = fx.make_pipeline()   # screen-space effects (AO...)
         # After rebuild, skip N view_update cycles. new_from_object / remove
         # queue deferred depsgraph events that arrive after _rebuild returns.
@@ -607,7 +608,15 @@ class VertexLitEngine(bpy.types.RenderEngine):
         else:
             to_do=(dirty & set(current.keys())) | {n for n in current if n not in self._mesh_cache}
 
+        # Stream extraction: spend at most ~40ms/frame reading meshes, defer the rest
+        # to the next frame(s). The scene builds up progressively instead of freezing.
+        budget_end = time.time() + 0.04
+        remaining = []
+        done = 0
         for name in to_do:
+            if done > 0 and time.time() > budget_end:
+                remaining.append(name)
+                continue
             obj=current.get(name)
             if obj is None: continue
             data=_extract_mesh_data(obj,depsgraph)   # reads eval mesh directly (no copy)
@@ -616,15 +625,25 @@ class VertexLitEngine(bpy.types.RenderEngine):
                 self._batch_dict[name]=_build_object_slots(data)
                 sb=_build_shadow_batch_from_cache(data)
                 if sb: self._shadow_dict[name]=sb
+            done += 1
 
-        self._dirty=False
-        self._force_full=False
-        if hasattr(self,'_dirty_objects'): self._dirty_objects.clear()
+        if remaining:
+            # more to load -> keep them pending and rebuild again next frame
+            self._dirty_objects = set(remaining)
+            self._dirty = True
+            self._geo_pending = True
+        else:
+            self._dirty=False
+            self._force_full=False
+            if hasattr(self,'_dirty_objects'): self._dirty_objects.clear()
+            self._geo_pending = False
         self._shadow_dirty=True
-        print("[VertexLit] rebuilt {}/{} objs ({:.2f}s){}".format(
-            len(to_do), len(current), time.time()-t0, " [full]" if full else " [incremental]"))
+        print("[VertexLit] loaded {}/{} objs ({:.2f}s){}{}".format(
+            done, len(current), time.time()-t0,
+            " [full]" if full else " [incremental]",
+            " (+{} streaming)".format(len(remaining)) if remaining else ""))
 
-        if use_gi:
+        if use_gi and not remaining:
             self._gi.cancel()
             bpy_objects={name:bpy.data.objects.get(name) for name in self._mesh_cache}
             bvh,face_albedo=_build_bvh_from_cache(self._mesh_cache,bpy_objects)
@@ -896,7 +915,7 @@ class VertexLitEngine(bpy.types.RenderEngine):
                 gpu.state.depth_test_set('NONE')
                 gpu.state.face_culling_set('NONE')
                 gpu.state.depth_mask_set(False)
-                if getattr(self, '_mat_pending', False):
+                if getattr(self, '_mat_pending', False) or getattr(self, '_geo_pending', False):
                     self.tag_redraw()
                     try: context.region.tag_redraw()
                     except Exception: pass
@@ -917,7 +936,7 @@ class VertexLitEngine(bpy.types.RenderEngine):
         gpu.state.face_culling_set('NONE')
         gpu.state.depth_mask_set(False)
         # Materials still compiling -> keep redrawing so they upgrade progressively.
-        if getattr(self, '_mat_pending', False):
+        if getattr(self, '_mat_pending', False) or getattr(self, '_geo_pending', False):
             self.tag_redraw()
             try: context.region.tag_redraw()
             except Exception: pass
