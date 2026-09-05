@@ -99,6 +99,20 @@ void main(){ float g=exp(-4.5*dot(vC,vC)); float al=vOp*g; if(al<0.003) discard;
 # ------------------------------------------------------------------ viewer state
 _state = {}
 
+def _mkbuf(arr):
+    """float32 numpy -> gpu Buffer via buffer protocol (no python list). 3-tier, never crashes."""
+    n = len(arr)
+    try:
+        buf = Buffer('FLOAT', n)
+        np.frombuffer(buf, dtype=np.float32)[:] = arr      # fast: memcpy via buffer protocol
+        return buf
+    except Exception:
+        pass
+    try:
+        return Buffer('FLOAT', n, arr)                     # numpy direct
+    except Exception:
+        return Buffer('FLOAT', n, arr.tolist())            # last resort (slow but always works)
+
 def _pack_data(d):
     N=d['count']; xyz=d['xyz']; sc=d['scale']; q=d['quat']; cl=d['color']; op=d['opacity']
     tex=np.zeros((N*4,4),'f4')
@@ -121,21 +135,30 @@ def _draw():
     cam=vm.inverted().translation
     fx=0.5*W*pm[0][0]; fy=0.5*H*pm[1][1]
     d=st['data']
-    t0=time.perf_counter()
-    # per-frame depth sort -> sorted index texture
-    depth=(d['xyz']-np.array(cam,'f4')) @ np.array(fwd,'f4')
-    order=np.argsort(-depth).astype('f4')
-    itw=st['itw']; ith=(len(order)+itw-1)//itw
-    ibuf=np.zeros(itw*ith,'f4'); ibuf[:len(order)]=order
-    t_sort=(time.perf_counter()-t0)*1000
-    t1=time.perf_counter()
-    idxtex=GPUTexture((itw,ith),format='R32F',data=Buffer('FLOAT',itw*ith,ibuf.tolist()))
-    t_idx=(time.perf_counter()-t1)*1000
+    fwd_np=np.array(fwd,'f4'); cam_np=np.array(cam,'f4')
+    # throttle: only re-sort when the camera moved enough (order is forgiving of small moves)
+    need = ('idxtex' not in st)
+    if not need:
+        need = (float(np.dot(fwd_np, st['last_fwd'])) < 0.9994          # ~2 deg rotation
+                or float(np.linalg.norm(cam_np - st['last_cam'])) > st['move_eps'])
+    t_sort=0.0
+    if need:
+        t0=time.perf_counter()
+        depth=(d['xyz']-cam_np) @ fwd_np
+        lo=float(depth.min()); hi=float(depth.max())
+        q=65535-((depth-lo)*(65535.0/(hi-lo+1e-9))).astype(np.uint16)   # far-first key
+        order=np.argsort(q, kind='stable').astype(np.float32)           # ~2x faster than float argsort
+        itw=st['itw']; ith=(len(order)+itw-1)//itw
+        ibuf=np.zeros(itw*ith,'f4'); ibuf[:len(order)]=order
+        st['idxtex']=GPUTexture((itw,ith),format='R32F',data=_mkbuf(ibuf))
+        st['last_fwd']=fwd_np; st['last_cam']=cam_np
+        t_sort=(time.perf_counter()-t0)*1000
+    itw=st['itw']
     t2=time.perf_counter()
     sh=st['shader']
     gpu.state.blend_set('ALPHA_PREMULT'); gpu.state.depth_test_set('NONE')
     sh.bind()
-    sh.uniform_sampler('uData', st['datatex']); sh.uniform_sampler('uIndex', idxtex)
+    sh.uniform_sampler('uData', st['datatex']); sh.uniform_sampler('uIndex', st['idxtex'])
     sh.uniform_int('uTW', TW); sh.uniform_int('uITW', itw)
     sh.uniform_float('uRow0', right); sh.uniform_float('uRow1', up); sh.uniform_float('uRow2', fwd)
     sh.uniform_float('uCam', cam); sh.uniform_float('uF', (fx,fy)); sh.uniform_float('uVP', (float(W),float(H)))
@@ -143,10 +166,11 @@ def _draw():
     st['batch'].draw_instanced(sh, instance_count=d['count'])
     gpu.state.blend_set('NONE')
     t_draw=(time.perf_counter()-t2)*1000
-    dt=t_sort+t_idx+t_draw
+    dt=t_sort+t_draw
     st['ema']=dt if st.get('ema') is None else st['ema']*0.9+dt*0.1
-    ctx.area.header_text_set("SPLATS %d | %.1f ms (~%.0f fps) | sort %.1f  idxtex %.1f  draw %.1f" %
-                             (d['count'], st['ema'], 1000.0/max(st['ema'],0.01), t_sort, t_idx, t_draw))
+    tag = ("sort %.1f"%t_sort) if need else "cached "
+    ctx.area.header_text_set("SPLATS %d | %.1f ms (~%.0f fps) | %s  draw %.1f" %
+                             (d['count'], st['ema'], 1000.0/max(st['ema'],0.01), tag, t_draw))
 
 class SPLAT_OT_toggle(bpy.types.Operator):
     bl_idname="splat.toggle"; bl_label="Toggle Splat Viewer"
@@ -159,8 +183,11 @@ class SPLAT_OT_toggle(bpy.types.Operator):
         t=time.perf_counter(); d=load_ply(PLY_PATH); print("loaded %d splats in %.0f ms"%(d['count'],(time.perf_counter()-t)*1000))
         texdata,TH=_pack_data(d)
         st['data']=d
-        st['datatex']=GPUTexture((TW,TH),format='RGBA32F',data=Buffer('FLOAT',TW*TH*4,texdata.ravel().tolist()))
+        st['datatex']=GPUTexture((TW,TH),format='RGBA32F',data=_mkbuf(texdata.ravel()))
         st['itw']=4096
+        ext=float(np.linalg.norm(d['xyz'].max(0)-d['xyz'].min(0)))
+        st['move_eps']=ext*0.02      # re-sort if camera translates >2% of extent
+        st.pop('idxtex',None)        # force first-frame sort
         st['shader']=GPUShader(VERT,FRAG)
         st['batch']=batch_for_shader(st['shader'],'TRI_FAN',{"corner":[(-1,-1),(1,-1),(1,1),(-1,1)]})
         st['ema']=None; st['on']=True
