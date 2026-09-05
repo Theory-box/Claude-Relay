@@ -25,9 +25,44 @@ class VERTEX_LIT_PT_lighting(_Base, bpy.types.Panel):
 
     def draw(self, context):
         s = context.scene.vertex_lit
+        self.layout.prop(s, 'key_intensity')   # camera headlamp
+
+
+class VERTEX_LIT_PT_skyground(_Base, bpy.types.Panel):
+    bl_label = "Sky / Ground"
+    bl_parent_id = "VERTEX_LIT_PT_lighting"
+
+    def draw(self, context):
+        s = context.scene.vertex_lit
         col = self.layout.column(align=True)
-        col.prop(s, 'sky_color')
-        col.prop(s, 'ground_color')
+        col.prop(s, 'hemi_intensity')
+        row = col.row(align=True)
+        row.prop(s, 'sky_color')
+        row.prop(s, 'ground_color')
+
+
+class VERTEX_LIT_PT_sun(_Base, bpy.types.Panel):
+    bl_label = "Sun"
+    bl_parent_id = "VERTEX_LIT_PT_lighting"
+
+    def draw(self, context):
+        s = context.scene.vertex_lit
+        layout = self.layout
+        col = layout.column(align=True)
+        col.prop(s, 'sun_intensity')
+        col.prop(s, 'sun_color', text="")
+        col.prop(s, 'sun_elevation')
+        col.prop(s, 'sun_azimuth')
+
+        col = layout.column(align=True)
+        col.prop(s, 'use_shadows')
+        if s.use_shadows:
+            sub = col.column(align=True)
+            sub.active = s.sun_intensity > 0.0
+            sub.prop(s, 'shadow_distance')
+            sub.prop(s, 'shadow_resolution')
+            sub.prop(s, 'shadow_softness')
+            sub.prop(s, 'shadow_bias')
 
 
 class VERTEX_LIT_PT_viewmode(_Base, bpy.types.Panel):
@@ -76,7 +111,6 @@ class VERTEX_LIT_PT_shading(_Base, bpy.types.Panel):
         s = context.scene.vertex_lit
         col = self.layout.column(align=True)
         col.prop(s, 'backface_cull')
-        col.prop(s, 'key_intensity')
 
 
 class VERTEX_LIT_PT_outline(_Base, bpy.types.Panel):
@@ -174,6 +208,8 @@ class VERTEX_LIT_PT_bake(_Base, bpy.types.Panel):
 _CLASSES = (
     VERTEX_LIT_PT_settings,
     VERTEX_LIT_PT_lighting,
+    VERTEX_LIT_PT_skyground,
+    VERTEX_LIT_PT_sun,
     VERTEX_LIT_PT_viewmode,
     VERTEX_LIT_PT_background,
     VERTEX_LIT_PT_shading,

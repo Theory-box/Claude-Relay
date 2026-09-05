@@ -1122,3 +1122,62 @@ Fix: _material_transparent(mat) decides transparency from the material's CURRENT
 No recompile needed -> tweaking Alpha is instant; truly opaque materials stay opaque. has_alpha flag
 left in place but no longer used for routing. Verified incl. 0.5->1.0 flips to opaque with no
 recompile. 16 suites green.
+
+## v0.11.13 — Directional sun (no object) + stackable lighting intensities
+Objectless sun: Height (elevation) + Angle (azimuth) -> dir; Sun intensity (0=off) + colour.
+- _compute_sun(vls) -> (dir_to_sun, colour, intensity, hemi_intensity); set on self._sun each frame
+  (view_draw + render); uniforms uSunDir/uSunColor/uSunIntensity/uHemiIntensity set in
+  _apply_frame_uniforms. vlr_light: hemisphere*uHemiIntensity + sun (max(dot(N,sunDir),0)*intensity)
+  + key light + scene lights -> all stack. Hemisphere gains hemi_intensity (0=off).
+- Cost: one dot product per fragment, no geometry/passes -> free on dense geo (fragment-bound).
+- UI Lighting panel: Sky/Ground intensity + colours, then Sun intensity/colour/Height/Angle.
+- Matcaps slot (its own intensity) still pending. 16 suites green.
+
+## v0.11.14 — Sun shadows (directional shadow map, objectless sun)
+Retargeted the old (buggy, object-tied) shadow system to the objectless sun + made it shadow the
+SUN ONLY so ambient/hemisphere fills the shadow (not the whole lighting darkened).
+- Shader: vlr_shadow rewritten -> 3x3 PCF, returns lit fraction 0..1 (soft edges). Forward-declared
+  so vlr_light can call it. vlr_light applies it to the sun term only. Mains no longer multiply all
+  lighting by shadow. uShadowDark -> uShadowSoft (PCF spread).
+- Engine: _build_light_space_dir(sun_dir,center,radius) (ortho from the sun direction, not a light
+  object). do_shad = use_shadows AND sun_intensity>0. self._sun computed before the shadow logic.
+  Shadow pass builds position-only shadow batches lazily (enabling shadows after load works).
+  _shadow_dirty re-flagged on enable + sun-direction change (+ existing geometry-change path).
+- Props: use_shadows "Sun Shadows", shadow_resolution 1024/2048/4096, shadow_bias, shadow_softness.
+  Removed shadow_darkness. UI: shadow controls under the Sun in the Lighting panel.
+- Cost: one shadow-map render pass (position-only) + a PCF lookup per fragment. F12 shadows still
+  off (viewport only for now). 16 suites green.
+
+## v0.11.15 — Fix sun shadows not showing + move Key Light to Lighting
+- SHADOW BUG: the viewport always routes through the post pipeline (since colour management,
+  v0.11.5), and _make_post_ctx's _draw_objects hardcoded do_shad=False + dummy depth. So the shadow
+  map rendered but was never sampled -> no shadows, no errors. Fixed: _make_post_ctx now takes
+  do_shad/s_bias/s_soft/shad_tex and forwards them to _draw_batches; viewport call passes the real
+  shadow params. (Fallback direct-draw path already passed them.) F12 still off (defaults).
+- Moved Key Light intensity from the Shading panel to the Lighting panel (with hemisphere + sun),
+  so all stackable lights live together. 16 suites green.
+
+## v0.11.16 — Shadow quality (normal-offset + slope bias) + Lighting sub-panels
+- SHADOW ACNE/BANDING: added normal-offset shadows — vlr_shadow(wPos, N) pushes the sample off the
+  surface along N by uShadowTexelWorld*(1.5+3*slope) (auto-scaled to shadow texel world size =
+  2*radius*1.6/res), plus slope-scaled depth bias (uShadowBias*(1+4*slope)). Removes self-shadow
+  banding without the detachment a big constant bias caused. Default bias lowered 0.0015 -> 0.0004
+  (normal-offset does the work now). uShadowTexelWorld uniform set per frame.
+- UI: Lighting is now a container (Key Light value input) with collapsible sub-panels Sky/Ground
+  and Sun (sun params + shadow controls under Sun). 16 suites green.
+
+## v0.11.17 — Shadow quality: view-fitted shadow map + Shadow Distance (the real fix)
+Root cause of low-quality shadows: the shadow map covered the WHOLE scene bounds, so texels were
+huge (worse the bigger the scene) -> blocky shadows + a big normal-offset (scaled by texel size) ->
+detachment/banding. 4096 didn't help because the map was spread too thin.
+Fix — _build_light_space_fit(sun_dir, view_proj, cam_pos, shadow_distance, res, scene_radius):
+- Fits the ortho to the CAMERA view frustum clamped to shadow_distance (the "min/max distance"), via
+  the frustum's bounding sphere (rotation-stable). Texel size auto-drops (measured ~9x smaller on a
+  100u scene -> ~9x sharper) and the normal-offset (texel-scaled) shrinks with it -> clean contact.
+- Texel-snapping the sphere centre in light space -> no frame-to-frame shimmer.
+- Near plane extended toward the sun by scene_radius so off-frustum casters still cast in.
+- Returns texel_world for uShadowTexelWorld (normal offset now correctly small).
+- Re-renders the shadow map only when the fit MATRIX changes (view/sun/distance) via _prev_ls_key;
+  static view -> cached, orbit -> re-fit. Replaces the old sun-only dirty trigger.
+- New prop shadow_distance (default 25) + UI under Sun shadows.
+Known: single map (no cascades) so beyond shadow_distance = no shadows; F12 shadows still off. 16 green.

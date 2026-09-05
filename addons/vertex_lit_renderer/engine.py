@@ -56,6 +56,20 @@ def _area_resize(arr, W, H):
     return arr
 
 
+def _compute_sun(vls):
+    """Sun params from Height (elevation) + Angle (azimuth): returns
+    (dir_to_sun, colour, intensity, hemisphere_intensity)."""
+    import math
+    if vls is None:
+        return ((0.0, 0.0, 1.0), (1.0, 1.0, 1.0), 0.0, 1.0)
+    el = getattr(vls, 'sun_elevation', 0.785398)
+    az = getattr(vls, 'sun_azimuth', 0.785398)
+    ce = math.cos(el)
+    d = (ce * math.sin(az), ce * math.cos(az), math.sin(el))   # direction TO the sun
+    return (d, tuple(vls.sun_color), float(vls.sun_intensity),
+            float(getattr(vls, 'hemi_intensity', 1.0)))
+
+
 def _material_transparent(mat):
     """Decide at DRAW time whether a material is alpha-blended, from its CURRENT state (not a
     cached compile-time flag, which goes stale when the Alpha value is tweaked without a
@@ -312,6 +326,80 @@ def _build_light_space(light,center,radius):
     s=radius*1.6; n=0.1; f=radius*6.0
     ortho=Matrix([[1/s,0,0,0],[0,1/s,0,0],[0,0,-2/(f-n),-(f+n)/(f-n)],[0,0,0,1]])
     return ortho@view
+
+
+def _build_light_space_dir(sun_dir, center, radius):
+    """Ortho light-space matrix for the objectless directional sun. sun_dir is the direction
+    TO the sun; the light shines along -sun_dir, covering the scene bounds."""
+    ldir = -Vector(sun_dir)
+    if ldir.length < 1e-6:
+        ldir = Vector((0.0, 0.0, -1.0))
+    ldir = ldir.normalized()
+    eye = center - ldir * radius * 2.5
+    fwd = (center - eye).normalized()
+    up = Vector((0, 1, 0))
+    if abs(fwd.dot(up)) > .99:
+        up = Vector((1, 0, 0))
+    r_v = fwd.cross(up).normalized(); u_v = r_v.cross(fwd)
+    view = Matrix([[r_v.x, r_v.y, r_v.z, -r_v.dot(eye)],
+                   [u_v.x, u_v.y, u_v.z, -u_v.dot(eye)],
+                   [-fwd.x, -fwd.y, -fwd.z, fwd.dot(eye)], [0, 0, 0, 1]])
+    s = radius * 1.6; n = 0.1; f = radius * 6.0
+    ortho = Matrix([[1/s, 0, 0, 0], [0, 1/s, 0, 0],
+                    [0, 0, -2/(f-n), -(f+n)/(f-n)], [0, 0, 0, 1]])
+    return ortho @ view
+
+
+def _build_light_space_fit(sun_dir, view_proj, cam_pos, shadow_distance, res, scene_radius):
+    """Fit the sun's shadow ortho tightly to the CAMERA view frustum (clamped to
+    shadow_distance), instead of the whole scene — so texels are small and shadows are
+    sharp. Uses the frustum's bounding sphere (rotation-stable) with texel snapping (no
+    shimmer) and extends the near plane toward the sun so off-frustum casters still cast.
+    Returns (light_space_matrix, texel_world_size)."""
+    inv = view_proj.inverted()
+    ndc = [(-1,-1,-1),(1,-1,-1),(1,1,-1),(-1,1,-1),(-1,-1,1),(1,-1,1),(1,1,1),(-1,1,1)]
+    corners = []
+    for c in ndc:
+        p = inv @ Vector((c[0], c[1], c[2], 1.0))
+        w = p.w if abs(p.w) > 1e-9 else 1.0
+        corners.append(Vector((p.x/w, p.y/w, p.z/w)))
+    # Clamp the far corners to shadow_distance from the camera (limits the shadowed range).
+    cam = Vector(cam_pos)
+    for i in range(4):
+        ray = corners[i+4] - cam
+        L = ray.length
+        if L > shadow_distance and L > 1e-6:
+            corners[i+4] = cam + ray * (shadow_distance / L)
+
+    center = Vector((0.0, 0.0, 0.0))
+    for c in corners: center += c
+    center /= 8.0
+    radius = 0.01
+    for c in corners: radius = max(radius, (c - center).length)
+
+    ldir = -Vector(sun_dir)
+    if ldir.length < 1e-6: ldir = Vector((0.0, 0.0, -1.0))
+    fwd = ldir.normalized()
+    up = Vector((0, 1, 0))
+    if abs(fwd.dot(up)) > 0.99: up = Vector((1, 0, 0))
+    r_v = fwd.cross(up).normalized(); u_v = r_v.cross(fwd)
+
+    # Texel-snap the sphere centre in light space so the map doesn't swim frame-to-frame.
+    texel = (2.0 * radius) / max(res, 1)
+    cx = round(r_v.dot(center) / texel) * texel
+    cy = round(u_v.dot(center) / texel) * texel
+    cz = fwd.dot(center)
+    center = r_v * cx + u_v * cy + fwd * cz
+
+    margin = max(scene_radius, radius)   # include casters behind the visible region
+    eye = center - fwd * (radius + margin)
+    view = Matrix([[r_v.x, r_v.y, r_v.z, -r_v.dot(eye)],
+                   [u_v.x, u_v.y, u_v.z, -u_v.dot(eye)],
+                   [-fwd.x, -fwd.y, -fwd.z, fwd.dot(eye)], [0, 0, 0, 1]])
+    s = radius; n = 0.0; f = 2.0 * radius + margin
+    ortho = Matrix([[1/s, 0, 0, 0], [0, 1/s, 0, 0],
+                    [0, 0, -2/(f-n), -(f+n)/(f-n)], [0, 0, 0, 1]])
+    return ortho @ view, texel
 
 # ── Mesh extraction (one new_from_object call per object, everything derived from it) ──
 
@@ -585,6 +673,7 @@ class VertexLitEngine(bpy.types.RenderEngine):
             proj = cam_eval.calc_matrix_camera(depsgraph, x=w, y=h)
             view_proj = proj @ view
             self._film_transparent = getattr(scene.render, 'film_transparent', False)
+            self._sun = _compute_sun(vls)
             try: self._cam_pos = tuple(cam_eval.matrix_world.translation)
             except Exception: self._cam_pos = (0.0, 0.0, 0.0)
             try:
@@ -853,6 +942,14 @@ class VertexLitEngine(bpy.types.RenderEngine):
                 obj = inst.object
                 if obj.type != 'MESH': continue
                 batch = self._shadow_dict.get(obj.name)
+                if batch is None:
+                    # Shadows were just enabled after the geometry loaded -> build the
+                    # (position-only) shadow batch on demand from the cached mesh data.
+                    cached = self._mesh_cache.get(obj.name)
+                    if cached is not None:
+                        batch = _build_shadow_batch_from_cache(cached)
+                        if batch is not None:
+                            self._shadow_dict[obj.name] = batch
                 if batch is None: continue
                 shader.uniform_float('uModel', inst.matrix_world)
                 batch.draw(shader)
@@ -883,8 +980,13 @@ class VertexLitEngine(bpy.types.RenderEngine):
         sf('uKeyDir', key_dir); sf('uKeyCol', key_col); sf('uKeyIntensity', key_int)
         # Scene-light / shadow uniforms (present only in the PIXEL program)
         sf('uLightSpace', ls_mat); sf('uSkyColor', sky); sf('uGroundColor', ground)
+        # Sun + hemisphere intensity (stacked lighting), from self._sun set each frame.
+        _sd, _sc, _si, _hi = getattr(self, '_sun', ((0.0, 0.0, 1.0), (1.0, 1.0, 1.0), 0.0, 1.0))
+        sf('uSunDir', _sd); sf('uSunColor', _sc); sf('uSunIntensity', _si)
+        sf('uHemiIntensity', _hi)
         si('uUseShadow', 1 if do_shad else 0)
-        sf('uShadowBias', s_bias); sf('uShadowDark', s_dark); ss('uShadowMap', shad_tex)
+        sf('uShadowBias', s_bias); sf('uShadowSoft', s_dark); ss('uShadowMap', shad_tex)
+        sf('uShadowTexelWorld', getattr(self, '_shadow_texel', 0.0))
         si('uNumLights', len(lights))
         for i in range(8):
             l=lights[i] if i<len(lights) else None
@@ -1108,14 +1210,17 @@ class VertexLitEngine(bpy.types.RenderEngine):
     # ── Main draw ─────────────────────────────────────────────────────────
 
     def _make_post_ctx(self, depsgraph, vls, view_proj, view_mat3, proj, rw, rh, wc,
-                       studio, ls_mat, sky, ground, bstr, lights):
+                       studio, ls_mat, sky, ground, bstr, lights,
+                       do_shad=False, s_bias=0.0015, s_soft=1.5, shad_tex=None):
         """Build the draw-scene callback + post_ctx (AO occluders, ID pass, normal pass,
         effect params). Shared by the viewport and the F12 render so both get effects."""
         cull = getattr(self, '_cull', 'BACK')
 
         def _draw_objects():
             self._draw_batches(depsgraph, vls, view_proj, studio, ls_mat, sky, ground,
-                               bstr, False, 0.005, 0.25, self._dummy_depth, lights, 'PIXEL')
+                               bstr, do_shad, s_bias, s_soft,
+                               shad_tex if shad_tex is not None else self._dummy_depth,
+                               lights, 'PIXEL')
 
         ao_occluders = None
         if vls and getattr(vls, 'use_ao', False):
@@ -1254,26 +1359,43 @@ class VertexLitEngine(bpy.types.RenderEngine):
         u_shad=vls.use_shadows        if vls else False
         s_res =int(vls.shadow_resolution) if vls else 1024
         s_bias=vls.shadow_bias        if vls else 0.005
-        s_dark=vls.shadow_darkness    if vls else 0.25
+        s_dark=getattr(vls,'shadow_softness',1.5) if vls else 1.5   # PCF softness now
 
         lights=self._lights_cache
-        sun=next((l for l in lights if l['is_sun']),None)
-        do_shad=u_shad and sun is not None
-        # Shadows off -> clear any stale shadow-dirty so it can't force endless idle
-        # redraws (the shadow pass that clears it only runs when shadows are on).
+        # Objectless sun: cast shadows when the sun-shadow toggle is on AND the sun contributes.
+        self._sun = _compute_sun(vls)
+        sun_dir = self._sun[0]; sun_int = self._sun[2]
+        do_shad = bool(u_shad) and sun_int > 0.0
         if not do_shad:
-            self._shadow_dirty=False
+            self._shadow_dirty = False
+
+        region=context.region; rv3d=context.region_data
+        center,radius=self._bounds_cache
+        if do_shad:
+            sdist = getattr(vls, 'shadow_distance', 25.0) if vls else 25.0
+            try: cam_pos = tuple(rv3d.view_matrix.inverted().translation)
+            except Exception: cam_pos = (0.0, 0.0, 0.0)
+            vproj = rv3d.window_matrix @ rv3d.view_matrix
+            ls_mat, self._shadow_texel = _build_light_space_fit(
+                sun_dir, vproj, cam_pos, sdist, s_res, radius)
+            # Re-render the shadow map only when the fit changes (view / sun / distance).
+            # Static view -> cached; orbiting -> re-fits. Geometry changes already flag dirty.
+            _key = tuple(round(x, 4) for row in ls_mat for x in row)
+            if _key != getattr(self, '_prev_ls_key', None):
+                self._shadow_dirty = True
+            self._prev_ls_key = _key
+        else:
+            self._shadow_texel = 0.0
+            ls_mat = Matrix.Identity(4)
+            self._prev_ls_key = None
 
         # Shadows pending -> one redraw so the shadow map re-renders this frame.
         if self._shadow_dirty and do_shad:
             self.tag_redraw()
             try: context.region.tag_redraw()
             except Exception: pass
-        center,radius=self._bounds_cache
-        ls_mat=_build_light_space(sun,center,radius) if do_shad else Matrix.Identity(4)
         shad_tex=self._shadow_pass(ls_mat,s_res,depsgraph) if do_shad else self._dummy_depth
 
-        region=context.region; rv3d=context.region_data
         gpu.state.viewport_set(0,0,region.width,region.height)
         try:
             fb=gpu.state.active_framebuffer_get()
@@ -1314,7 +1436,8 @@ class VertexLitEngine(bpy.types.RenderEngine):
                 wc = scene.world.color if scene.world else None
                 draw_scene, post_ctx = self._make_post_ctx(
                     depsgraph, vls, view_proj, rv3d.view_matrix.to_3x3(), proj,
-                    rw, rh, wc, studio, ls_mat, sky, ground, bstr, lights)
+                    rw, rh, wc, studio, ls_mat, sky, ground, bstr, lights,
+                    do_shad=do_shad, s_bias=s_bias, s_soft=s_dark, shad_tex=shad_tex)
                 final_tex, sw, sh = post.render(rw, rh, draw_scene, post_ctx, vls, blit=False)
                 # Blit to the viewport THROUGH the scene's colour management (view transform,
                 # look, exposure, gamma) so the viewport matches the F12 render.

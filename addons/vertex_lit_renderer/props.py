@@ -20,12 +20,48 @@ class VertexLitSettings(bpy.types.PropertyGroup):
 
     # ── Lighting ────────────────────────────────────────────────────────────
     # Hemisphere fill: low-frequency sky/ground ambient. (Matcaps land here later.)
+    hemi_intensity: bpy.props.FloatProperty(
+        name="Sky/Ground", default=1.0, min=0.0, max=4.0,
+        description="Hemisphere (sky/ground) intensity — 0 turns it off")
     sky_color: bpy.props.FloatVectorProperty(
         name="Sky", subtype='COLOR', default=(0.60, 0.68, 0.78),
         min=0.0, max=1.0, description="Hemisphere sky colour (upper)")
     ground_color: bpy.props.FloatVectorProperty(
         name="Ground", subtype='COLOR', default=(0.20, 0.18, 0.16),
         min=0.0, max=1.0, description="Hemisphere ground colour (lower)")
+
+    # Directional sun — no object, no shadows. Height (elevation) + Angle (azimuth).
+    sun_intensity: bpy.props.FloatProperty(
+        name="Sun", default=1.0, min=0.0, max=10.0,
+        description="Sun brightness — 0 turns it off")
+    sun_color: bpy.props.FloatVectorProperty(
+        name="Sun Color", subtype='COLOR', default=(1.0, 0.96, 0.90),
+        min=0.0, max=1.0, description="Sun colour")
+    sun_elevation: bpy.props.FloatProperty(
+        name="Height", subtype='ANGLE', default=0.785398,  # 45 deg
+        min=-1.5708, max=1.5708, description="Sun elevation above the horizon")
+    sun_azimuth: bpy.props.FloatProperty(
+        name="Angle", subtype='ANGLE', default=0.785398,  # 45 deg
+        description="Sun compass direction (rotation around up)")
+    # Sun shadows (directional shadow map, no light object)
+    use_shadows: bpy.props.BoolProperty(
+        name="Sun Shadows", default=False,
+        description="Cast shadows from the sun (directional shadow map)")
+    shadow_resolution: bpy.props.EnumProperty(
+        name="Shadow Res",
+        items=[('1024', '1024', ''), ('2048', '2048', ''), ('4096', '4096', '')],
+        default='2048')
+    shadow_bias: bpy.props.FloatProperty(
+        name="Bias", default=0.0004, min=0.0, max=0.02, precision=4,
+        description="Depth bias to avoid shadow acne (normal-offset handles most of it, so "
+                    "this can stay small)")
+    shadow_softness: bpy.props.FloatProperty(
+        name="Softness", default=1.5, min=0.0, max=8.0,
+        description="Soft-edge width (PCF kernel spread)")
+    shadow_distance: bpy.props.FloatProperty(
+        name="Distance", default=25.0, min=1.0, max=1000.0,
+        description="How far from the view shadows are drawn. Smaller = sharper shadows "
+                    "(the shadow map fits this range)")
 
     # ── View Mode (Blender's "Color") ───────────────────────────────────────
     view_mode: bpy.props.EnumProperty(
@@ -140,13 +176,6 @@ class VertexLitSettings(bpy.types.PropertyGroup):
     # ── Hidden (kept for engine wiring; no UI) ──────────────────────────────
     energy_scale: bpy.props.FloatProperty(
         name="Light Energy Scale", default=0.01, min=0.0001, max=10.0)
-    use_shadows: bpy.props.BoolProperty(name="Shadows", default=False)
-    shadow_resolution: bpy.props.EnumProperty(
-        name="Shadow Resolution",
-        items=[('512', '512', ''), ('1024', '1024', ''), ('2048', '2048', '')],
-        default='1024')
-    shadow_bias: bpy.props.FloatProperty(name="Bias", default=0.005, min=0.0, max=0.1)
-    shadow_darkness: bpy.props.FloatProperty(name="Darkness", default=0.25, min=0.0, max=1.0)
 
 
 def register():
