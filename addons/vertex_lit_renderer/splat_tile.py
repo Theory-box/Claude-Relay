@@ -139,8 +139,15 @@ class TileRasterizer:
             mp = 1
             while mp < N*8: mp <<= 1
             self.MAXP = mp
-            # ---- image buffers ----
-            sw, sh = _bufdims(N*4); self.uSData = _tex(sw, sh, 'RGBA32F')
+            # ---- static splat data packed into uSData at construction (no .write() in gpu module) ----
+            d = self.c.d
+            sd = np.concatenate([d['xyz'], d['scale'], d['quat'], d['color'], d['opacity'][:,None]], 1).astype('f4')
+            pad = np.zeros((N, 2), 'f4'); sd = np.concatenate([sd, pad], 1)   # 14 -> 16 (4 texels)
+            sw, sh = _bufdims(N*4)
+            flat = np.zeros((sw*sh, 4), 'f4'); flat[:N*4] = sd.reshape(N*4, 4)
+            sbuf = gpu.types.Buffer('FLOAT', sw*sh*4, flat.reshape(-1))
+            self.uSData = gpu.types.GPUTexture((sw, sh), format='RGBA32F', data=sbuf)
+            # ---- compute-only buffers ----
             pw, ph = _bufdims(N*3); self.uProj = _tex(pw, ph, 'RGBA32F')
             bw, bh = _bufdims(mp)
             self.uKHi = _tex(bw, bh, 'R32UI'); self.uKLo = _tex(bw, bh, 'R32UI'); self.uVal = _tex(bw, bh, 'R32UI')
@@ -148,12 +155,6 @@ class TileRasterizer:
             self.numTiles = ((W+15)//16)*((H+15)//16)
             ow, oh = _bufdims(self.numTiles+2); self.uOff = _tex(ow, oh, 'R32I')
             self.uOut = _tex(W, H, 'RGBA32F')
-            # ---- upload static splat data (once) ----
-            d = self.c.d
-            sd = np.concatenate([d['xyz'], d['scale'], d['quat'], d['color'], d['opacity'][:,None]], 1).astype('f4')
-            pad = np.zeros((N, 2), 'f4'); sd = np.concatenate([sd, pad], 1)   # 14 -> 16 (4 texels)
-            flat = np.zeros((sw*sh, 4), 'f4'); flat[:N*4] = sd.reshape(N*4, 4)
-            self.uSData.clear(); self._upload(self.uSData, flat, sw, sh)
             # ---- shaders ----
             self.shaders['project'] = self._mk_project()
             self.shaders['sort'] = self._mk_sort()
@@ -164,13 +165,6 @@ class TileRasterizer:
         except Exception as e:
             _log("build failed -> fallback:", e); self.ok = False
         return self.ok
-
-    def _upload(self, tex, flat, w, h):
-        buf = gpu.types.Buffer('FLOAT', w*h*4, flat.reshape(-1))
-        try: tex.write(buf)
-        except Exception:
-            # some builds only allow write via from_image; fall back to a fresh texture
-            pass
 
     def _mk_project(self):
         info = gpu.types.GPUShaderCreateInfo(); info.local_group_size(64, 1, 1)
@@ -224,8 +218,10 @@ class TileRasterizer:
         try:
             right=Vector(vm[0][:3]); up=Vector(vm[1][:3]); fwd=-Vector(vm[2][:3]); cam=vm.inverted().translation
             f=0.5*H*pm[1][1]; TX=(W+15)//16; TY=(H+15)//16
-            # clear per-frame buffers
-            self.uCtr.clear(); self.uOut.clear()
+            # clear per-frame buffers (KHi -> UINT_MAX so unused pairs sort to the end)
+            self.uCtr.clear(format='UINT', value=(0, 0, 0, 0))
+            self.uKHi.clear(format='UINT', value=(0xFFFFFFFF, 0, 0, 0))
+            self.uOut.clear(format='FLOAT', value=(0.0, 0.0, 0.0, 0.0))
             # 1) project + emit
             s=self.shaders['project']; s.bind()
             s.image('uSData',self.uSData); s.image('uProj',self.uProj); s.image('uKHi',self.uKHi)
