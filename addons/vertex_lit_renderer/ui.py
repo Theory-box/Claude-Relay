@@ -210,6 +210,21 @@ class VERTEX_LIT_PT_bake(_Base, bpy.types.Panel):
             layout.label(text="Active material: {}".format(mat.name), icon='MATERIAL')
 
 
+class VERTEX_LIT_PT_splats(_Base, bpy.types.Panel):
+    bl_label = "Splats (experimental)"
+    bl_parent_id = "VERTEX_LIT_PT_settings"
+    bl_options = {'DEFAULT_CLOSED'}
+
+    def draw(self, context):
+        s = context.scene.vertex_lit
+        layout = self.layout
+        col = layout.column(align=True)
+        col.prop(s, 'splat_ply')
+        col.prop(s, 'splat_sigma')
+        if getattr(s, 'splat_ply', ''):
+            layout.label(text="Composited with scene depth", icon='INFO')
+
+
 _CLASSES = (
     VERTEX_LIT_PT_settings,
     VERTEX_LIT_PT_lighting,
@@ -223,6 +238,7 @@ _CLASSES = (
     VERTEX_LIT_PT_cavity_screen,
     VERTEX_LIT_PT_render_settings,
     VERTEX_LIT_PT_bake,
+    VERTEX_LIT_PT_splats,
 )
 
 

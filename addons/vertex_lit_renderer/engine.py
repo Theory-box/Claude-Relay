@@ -2,6 +2,7 @@
 
 import time
 import threading
+import os
 import numpy as np
 import bpy
 import gpu
@@ -1275,6 +1276,42 @@ class VertexLitEngine(bpy.types.RenderEngine):
 
     # ── Main draw ─────────────────────────────────────────────────────────
 
+    def _ensure_splats(self, vls):
+        """Load/cache the scene's splat cloud from vls.splat_ply (experimental). Guarded."""
+        path = getattr(vls, 'splat_ply', '') if vls else ''
+        try:
+            ap = bpy.path.abspath(path) if path else ''
+        except Exception:
+            ap = ''
+        if ap == getattr(self, '_splat_path', None):
+            return
+        self._splat_path = ap
+        self._splat_clouds = []
+        if ap and os.path.exists(ap):
+            try:
+                from . import splat_render
+                data = splat_render.load_ply(ap)
+                sig = getattr(vls, 'splat_sigma', 2.2) if vls else 2.2
+                self._splat_clouds = [splat_render.SplatCloud(data, sigma=sig)]
+                if _DEBUG: print("[VertexLit] loaded splat cloud:", data['count'])
+            except Exception as e:
+                print("[VertexLit] splat load failed:", e)
+
+    def _draw_splats(self):
+        """Draw cached splat clouds into the current framebuffer (composited via depth test)."""
+        clouds = getattr(self, '_splat_clouds', None)
+        if not clouds:
+            return
+        vm = getattr(self, '_splat_vm', None); pm = getattr(self, '_splat_pm', None)
+        wh = getattr(self, '_splat_wh', None)
+        if vm is None or pm is None or wh is None:
+            return
+        for c in clouds:
+            try:
+                c.draw(vm, pm, wh[0], wh[1])
+            except Exception as e:
+                if _DEBUG: print("[VertexLit] splat draw:", e)
+
     def _make_post_ctx(self, depsgraph, vls, view_proj, view_mat3, proj, rw, rh, wc,
                        studio, ls_mat, sky, ground, bstr, lights,
                        do_shad=False, s_bias=0.0015, s_soft=1.5, shad_tex=None):
@@ -1287,6 +1324,7 @@ class VertexLitEngine(bpy.types.RenderEngine):
                                bstr, do_shad, s_bias, s_soft,
                                shad_tex if shad_tex is not None else self._dummy_depth,
                                lights, 'PIXEL')
+            self._draw_splats()
 
         ao_occluders = None
         if vls and getattr(vls, 'use_ao', False):
@@ -1489,9 +1527,14 @@ class VertexLitEngine(bpy.types.RenderEngine):
         except Exception:
             key_dir=(0.3,0.4,0.86)
         studio=(key_dir, (1.0,1.0,1.0), (vls.key_intensity if vls else 0.8))
+        # experimental splat cloud: cache matrices for the draw, (re)load on path change
+        self._splat_vm = rv3d.view_matrix; self._splat_pm = rv3d.window_matrix
+        self._splat_wh = (region.width, region.height)
+        self._ensure_splats(vls)
         def _draw_objects():
             self._draw_batches(depsgraph, vls, view_proj, studio, ls_mat, sky, ground,
                                bstr, do_shad, s_bias, s_dark, shad_tex, lights, mode)
+            self._draw_splats()
 
         # Route through the screen-space post pipeline if any effect is enabled;
         # otherwise draw straight to the viewport (default path, unchanged). Any

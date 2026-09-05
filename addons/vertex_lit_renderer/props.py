@@ -104,6 +104,10 @@ class VertexLitSettings(bpy.types.PropertyGroup):
         update=_view_mode_update)
     vm_prev: bpy.props.StringProperty(default='TEXTURED')
     vm_memory: bpy.props.StringProperty(default='')
+    splat_ply: bpy.props.StringProperty(
+        name="Splat File", subtype='FILE_PATH', default='',
+        description="A 3DGS .ply to render as a splat cloud in the scene (experimental)")
+    splat_sigma: bpy.props.FloatProperty(name="Splat Softness", default=2.2, min=1.0, max=4.0)
     normal_space: bpy.props.EnumProperty(
         name="Normal Space",
         items=[('WORLD', "World", "World-space normals"),
