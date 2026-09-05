@@ -21,10 +21,23 @@ ivec2 atD(int i){ return ivec2(i % uTW, i / uTW); }
 ivec2 atK(int i){ return ivec2(i % IW, i / IW); }
 void main(){
   int id=int(gl_GlobalInvocationID.x); if(id>=uMax) return;
-  if(id>=uN){ imageStore(uKey,atK(id),vec4(1e30)); imageStore(uVal,atK(id),vec4(0.0)); return; }
-  vec3 c=texelFetch(uData, atD(id*4), 0).xyz;
-  float depth=dot(c-uCam, uFwd);
-  imageStore(uKey, atK(id), vec4(-depth));   // ascending sort on -depth => far first
+  if(id>=uN){ imageStore(uKey,atK(id),vec4(1e30)); imageStore(uVal,atK(id),vec4(float(uN))); return; }
+  vec4 t0=texelFetch(uData,atD(id*4),0), t1=texelFetch(uData,atD(id*4+1),0), t2=texelFetch(uData,atD(id*4+2),0);
+  vec3 c=t0.xyz; float depth=dot(c-uCam, uFwd);
+  bool vis = depth > 0.0;                                   // in front
+  if(vis){ vec4 cl=uViewProj*vec4(c,1.0); vis = cl.w>1e-4;  // frustum
+           if(vis){ vec2 n=cl.xy/cl.w; vis = abs(n.x)<1.3 && abs(n.y)<1.3; } }
+  if(vis && uBackface==1){                                  // backface (keep silhouette)
+    vec3 s=vec3(t0.w,t1.x,t1.y); vec4 q=vec4(t1.z,t1.w,t2.x,t2.y);
+    float w=q.x,x=q.y,y=q.z,z=q.w;
+    vec3 a0=vec3(1.0-2.0*(y*y+z*z),2.0*(x*y+w*z),2.0*(x*z-w*y));
+    vec3 a1=vec3(2.0*(x*y-w*z),1.0-2.0*(x*x+z*z),2.0*(y*z+w*x));
+    vec3 a2=vec3(2.0*(x*z+w*y),2.0*(y*z-w*x),1.0-2.0*(x*x+y*y));
+    vec3 nrm=(s.x<=s.y&&s.x<=s.z)?a0:((s.y<=s.z)?a1:a2);
+    vis = dot(normalize(nrm), normalize(uCam-c)) > -0.2;
+  }
+  if(!vis){ imageStore(uKey,atK(id),vec4(1e30)); imageStore(uVal,atK(id),vec4(float(uN))); return; }
+  imageStore(uKey, atK(id), vec4(-depth));                  // ascending on -depth => far first
   imageStore(uVal, atK(id), vec4(float(id)));
 }"""
 
@@ -62,8 +75,8 @@ class GPUSorter:
             self.uVal = gpu.types.GPUTexture((_IW, h), format='R32F')
             # keygen shader
             ik = gpu.types.GPUShaderCreateInfo(); ik.local_group_size(64,1,1); ik.define("IW", str(_IW))
-            ik.push_constant('VEC3','uCam'); ik.push_constant('VEC3','uFwd')
-            for nm in ('uN','uMax','uTW'): ik.push_constant('INT', nm)
+            ik.push_constant('VEC3','uCam'); ik.push_constant('VEC3','uFwd'); ik.push_constant('MAT4','uViewProj')
+            for nm in ('uN','uMax','uTW','uBackface'): ik.push_constant('INT', nm)
             ik.sampler(0,'FLOAT_2D','uData')
             ik.image(0,'R32F','FLOAT_2D','uKey',qualifiers={'WRITE'})
             ik.image(1,'R32F','FLOAT_2D','uVal',qualifiers={'WRITE'})
@@ -82,15 +95,18 @@ class GPUSorter:
             if _DBG: print("[VertexLit gpusort] build failed -> CPU sort:", e); self.ok = False
         return self.ok
 
-    def run(self, datatex, data_w, cam, fwd, N):
-        """Return an R32F index texture (width _IW) of splat ids sorted far->near, or None on failure."""
+    def run(self, datatex, data_w, cam, fwd, N, view_proj=None, backface=False):
+        """Return an R32F index texture (width _IW) of splat ids sorted far->near, culled ids -> sentinel N."""
         if not self.build(N):
             return None
         try:
             s=self.keygen; s.bind()
             s.image('uKey',self.uKey); s.image('uVal',self.uVal); s.uniform_sampler('uData',datatex)
             s.uniform_float('uCam',Vector(cam)); s.uniform_float('uFwd',Vector(fwd))
+            if view_proj is not None:
+                s.uniform_float('uViewProj', view_proj)
             s.uniform_int('uN',N); s.uniform_int('uMax',self.MAXN); s.uniform_int('uTW',data_w)
+            s.uniform_int('uBackface', 1 if backface else 0)
             gpu.compute.dispatch(s,(self.MAXN+63)//64,1,1)
             s=self.sort; s.bind(); s.image('uKey',self.uKey); s.image('uVal',self.uVal); s.uniform_int('uN',self.MAXN)
             g=(self.MAXN+255)//256; k=2

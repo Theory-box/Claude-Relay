@@ -67,7 +67,7 @@ def load_ply(path):
 
 # EWA vertex shader (validated). Milestone-1 fragment: premultiplied colour only.
 _VERT = """
-uniform sampler2D uData; uniform sampler2D uIndex; uniform int uTW; uniform int uITW;
+uniform sampler2D uData; uniform sampler2D uIndex; uniform int uTW; uniform int uITW; uniform int uN;
 uniform vec3 uRow0,uRow1,uRow2; uniform vec3 uCam; uniform vec2 uF; uniform vec2 uVP; uniform float uSigma;
 uniform mat4 uViewProj;
 // scene lighting (matches the engine's vlr_light: hemisphere + sun + camera key)
@@ -85,7 +85,7 @@ vec3 splat_light(vec3 N){
   return L;
 }
 void main(){
-  int sid=int(texelFetch(uIndex,at(gl_InstanceID,uITW),0).r+0.5); int base=sid*4;
+  int sid=int(texelFetch(uIndex,at(gl_InstanceID,uITW),0).r+0.5); if(sid>=uN){gl_Position=vec4(2.0,2.0,2.0,1.0);return;} int base=sid*4;
   vec4 d0=texelFetch(uData,at(base,uTW),0); vec4 d1=texelFetch(uData,at(base+1,uTW),0);
   vec4 d2=texelFetch(uData,at(base+2,uTW),0); vec4 d3=texelFetch(uData,at(base+3,uTW),0);
   vec3 ic=d0.xyz; vec3 is=vec3(d0.w,d1.x,d1.y); vec4 iq=vec4(d1.z,d1.w,d2.x,d2.y);
@@ -123,13 +123,13 @@ void main(){ float g=exp(-4.5*dot(vC,vC)); float al=vOp*g; if(al<uDepthCut) disc
 # depth-tested + core-only, matching the engine's mesh normal buffer. The splat normal = the THINNEST
 # axis of its gaussian (min-scale rotation column).
 _NRM_VERT = """
-uniform sampler2D uData; uniform sampler2D uIndex; uniform int uTW; uniform int uITW;
+uniform sampler2D uData; uniform sampler2D uIndex; uniform int uTW; uniform int uITW; uniform int uN;
 uniform vec3 uRow0,uRow1,uRow2; uniform vec3 uCam; uniform vec2 uF; uniform vec2 uVP; uniform float uSigma;
 uniform mat4 uViewProj; uniform mat3 uViewMat3;
 in vec2 corner; out vec2 vC; out float vOp; out vec3 vVN;
 ivec2 at(int lin,int w){ return ivec2(lin % w, lin / w); }
 void main(){
-  int sid=int(texelFetch(uIndex,at(gl_InstanceID,uITW),0).r+0.5); int base=sid*4;
+  int sid=int(texelFetch(uIndex,at(gl_InstanceID,uITW),0).r+0.5); if(sid>=uN){gl_Position=vec4(2.0,2.0,2.0,1.0);return;} int base=sid*4;
   vec4 d0=texelFetch(uData,at(base,uTW),0); vec4 d1=texelFetch(uData,at(base+1,uTW),0);
   vec4 d2=texelFetch(uData,at(base+2,uTW),0); vec4 d3=texelFetch(uData,at(base+3,uTW),0);
   vec3 ic=d0.xyz; vec3 is=vec3(d0.w,d1.x,d1.y); vec4 iq=vec4(d1.z,d1.w,d2.x,d2.y); vC=corner; vOp=d3.y;
@@ -242,22 +242,22 @@ void main(){
 
 # read-from-projected vertex shaders (colour/depth share; normal separate)
 _VERT_READ = """
-uniform sampler2D uProj; uniform sampler2D uIndex; uniform int uOTW; uniform int uITW;
+uniform sampler2D uProj; uniform sampler2D uIndex; uniform int uOTW; uniform int uITW; uniform int uN;
 in vec2 corner; out vec2 vC; out vec3 vCol; out float vOp;
 ivec2 at(int lin,int w){ return ivec2(lin%w, lin/w); }
 void main(){
-  int sid=int(texelFetch(uIndex,at(gl_InstanceID,uITW),0).r+0.5); int ob=sid*4;
+  int sid=int(texelFetch(uIndex,at(gl_InstanceID,uITW),0).r+0.5); if(sid>=uN){gl_Position=vec4(2.0,2.0,2.0,1.0);return;} int ob=sid*4;
   vec4 p0=texelFetch(uProj,at(ob,uOTW),0),p1=texelFetch(uProj,at(ob+1,uOTW),0),p2=texelFetch(uProj,at(ob+2,uOTW),0),p3=texelFetch(uProj,at(ob+3,uOTW),0);
   vC=corner; vCol=p2.rgb; vOp=p2.w;
   if(p3.w>0.5){ gl_Position=vec4(2,2,2,1); return; }
   gl_Position=vec4(p0.xy+(corner.x*p1.xy+corner.y*p1.zw)*p0.w, p0.z, p0.w);
 }"""
 _VERT_READ_NRM = """
-uniform sampler2D uProj; uniform sampler2D uIndex; uniform int uOTW; uniform int uITW;
+uniform sampler2D uProj; uniform sampler2D uIndex; uniform int uOTW; uniform int uITW; uniform int uN;
 in vec2 corner; out vec2 vC; out float vOp; out vec3 vVN;
 ivec2 at(int lin,int w){ return ivec2(lin%w, lin/w); }
 void main(){
-  int sid=int(texelFetch(uIndex,at(gl_InstanceID,uITW),0).r+0.5); int ob=sid*4;
+  int sid=int(texelFetch(uIndex,at(gl_InstanceID,uITW),0).r+0.5); if(sid>=uN){gl_Position=vec4(2.0,2.0,2.0,1.0);return;} int ob=sid*4;
   vec4 p0=texelFetch(uProj,at(ob,uOTW),0),p1=texelFetch(uProj,at(ob+1,uOTW),0),p2=texelFetch(uProj,at(ob+2,uOTW),0),p3=texelFetch(uProj,at(ob+3,uOTW),0);
   vC=corner; vOp=p2.w; vVN=p3.xyz;
   if(p3.w>0.5){ gl_Position=vec4(2,2,2,1); return; }
@@ -303,7 +303,7 @@ class SplatCloud:
                 from . import splat_gpusort
                 if getattr(self, '_gsort', None) is None:
                     self._gsort = splat_gpusort.GPUSorter()
-                gidx = self._gsort.run(self.datatex, _TW, cam_np, fwd_np, int(self.d['count']))
+                gidx = self._gsort.run(self.datatex, _TW, cam_np, fwd_np, int(self.d['count']), view_proj, backface)
                 if gidx is not None:
                     self._idxtex = gidx
                     self._draw_count = int(self.d['count'])   # GPU sort v1: draw all (no cull yet)
@@ -353,7 +353,7 @@ class SplatCloud:
         idxtex=self._sorted_index(np.array(cam,'f4'), np.array(fwd,'f4'), view_proj, backface)
         sh=self.shader; sh.bind()
         sh.uniform_sampler('uData', self.datatex); sh.uniform_sampler('uIndex', idxtex)
-        sh.uniform_int('uTW', _TW); sh.uniform_int('uITW', self.itw)
+        sh.uniform_int('uTW', _TW); sh.uniform_int('uITW', self.itw); sh.uniform_int('uN', int(self.d['count']))
         sh.uniform_float('uRow0', right); sh.uniform_float('uRow1', up); sh.uniform_float('uRow2', fwd)
         sh.uniform_float('uCam', cam); sh.uniform_float('uF', (fx,fy)); sh.uniform_float('uVP', (float(w),float(h)))
         sh.uniform_float('uSigma', self.sigma); sh.uniform_float('uViewProj', view_proj)
@@ -402,7 +402,7 @@ class SplatCloud:
                 idxtex=self._sorted_index(np.array(cam,'f4'), np.array(fwd,'f4'), window_matrix@view_matrix, backface)
                 sh=self.rnshader; sh.bind()
                 sh.uniform_sampler('uProj', self.projtex); sh.uniform_sampler('uIndex', idxtex)
-                sh.uniform_int('uOTW', _OTW); sh.uniform_int('uITW', self.itw); sh.uniform_float('uDepthCut', 0.35)
+                sh.uniform_int('uOTW', _OTW); sh.uniform_int('uITW', self.itw); sh.uniform_int('uN', int(self.d['count'])); sh.uniform_float('uDepthCut', 0.35)
                 gpu.state.blend_set('NONE'); gpu.state.depth_test_set('LESS_EQUAL'); gpu.state.depth_mask_set(True)
                 self.rbatch.draw_instanced(sh, instance_count=self._draw_count)
                 return
@@ -416,7 +416,7 @@ class SplatCloud:
         idxtex=self._sorted_index(np.array(cam,'f4'), np.array(fwd,'f4'), view_proj, backface)
         sh=self.normal_shader; sh.bind()
         sh.uniform_sampler('uData', self.datatex); sh.uniform_sampler('uIndex', idxtex)
-        sh.uniform_int('uTW', _TW); sh.uniform_int('uITW', self.itw)
+        sh.uniform_int('uTW', _TW); sh.uniform_int('uITW', self.itw); sh.uniform_int('uN', int(self.d['count']))
         sh.uniform_float('uRow0', right); sh.uniform_float('uRow1', up); sh.uniform_float('uRow2', fwd)
         sh.uniform_float('uCam', cam); sh.uniform_float('uF', (fx,fy)); sh.uniform_float('uVP', (float(w),float(h)))
         sh.uniform_float('uSigma', self.sigma); sh.uniform_float('uViewProj', view_proj)
@@ -478,7 +478,7 @@ class SplatCloud:
         self._dispatch(light, right, up, fwd, cam, fx, fy, w, h, view_proj)
         sh=self.rshader; sh.bind()
         sh.uniform_sampler('uProj', self.projtex); sh.uniform_sampler('uIndex', idxtex)
-        sh.uniform_int('uOTW', _OTW); sh.uniform_int('uITW', self.itw)
+        sh.uniform_int('uOTW', _OTW); sh.uniform_int('uITW', self.itw); sh.uniform_int('uN', int(self.d['count']))
         gpu.state.blend_set('ALPHA_PREMULT'); gpu.state.depth_test_set('LESS_EQUAL'); gpu.state.depth_mask_set(False)
         sh.uniform_float('uDepthCut', 0.004)
         self.rbatch.draw_instanced(sh, instance_count=self._draw_count)
