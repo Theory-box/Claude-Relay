@@ -152,7 +152,7 @@ def _surfels_grid(pts,nrm,colors,spacing,cover,thin_ratio,opacity):
     s_long=cover*np.sqrt(np.maximum(Wp[:,2],1e-12)); s_mid=cover*np.sqrt(np.maximum(Wp[:,1],1e-12))
     few=counts[inv]<4; iso=cover*float(spacing)*0.6
     s_long=np.where(few,iso,s_long); s_mid=np.where(few,iso,s_mid); thin=thin_ratio*np.maximum(s_long,s_mid)
-    R=np.stack([n,midv,longv],axis=2); det=np.linalg.det(R); R[det<0,:,0]*=-1
+    R=np.stack([n,midv,longv],axis=2); det=np.linalg.det(R); R[det<0,:,1]*=-1   # flip a TANGENT, keep normal outward
     scale=np.stack([thin,s_mid,s_long],1).astype(np.float32)
     return dict(count=N,xyz=P.astype(np.float32),color=np.clip(colors,0,1).astype(np.float32),
                 opacity=np.full(N,opacity,np.float32),scale=scale,quat=_batch_quat(R.astype(np.float32)))
@@ -163,7 +163,10 @@ def _tri_splats(V,F,face_colors,face_normals,cover,thin_ratio,opacity,bake):
     e1=b-a; e2=c-a; centroid=(a+b+c)/3.0; C11=1.0/18.0; C12=-1.0/36.0
     def outer(x,y): return np.einsum('ni,nj->nij',x,y)
     Sig=C11*(outer(e1,e1)+outer(e2,e2))+C12*(outer(e1,e2)+outer(e2,e1))
-    w,Vec=np.linalg.eigh(Sig); det=np.linalg.det(Vec); Vec[det<0,:,0]*=-1.0
+    w,Vec=np.linalg.eigh(Sig)
+    # orient the normal axis (smallest eigenvalue, column 0) outward to match the face normal
+    fl=np.sign(np.einsum('ni,ni->n',Vec[:,:,0],face_normals)); fl[fl==0]=1; Vec[:,:,0]*=fl[:,None]
+    det=np.linalg.det(Vec); Vec[det<0,:,1]*=-1.0     # fix handedness via a tangent, keep normal outward
     std=np.sqrt(np.maximum(w,0.0)); sc=(cover*std); inplane=np.maximum(sc[:,1],sc[:,2]); sc[:,0]=np.maximum(sc[:,0],thin_ratio*inplane)
     n=len(F); col=np.clip(face_colors,0,1).astype(np.float32)
     if bake:
