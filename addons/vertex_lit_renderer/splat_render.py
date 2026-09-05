@@ -299,6 +299,17 @@ class SplatCloud:
             need = (float(np.dot(fwd_np, self._last[1])) < 0.9994
                     or float(np.linalg.norm(cam_np - self._last[0])) > self.move_eps)
         if need:
+            if getattr(self, '_gpu_sort', False):
+                from . import splat_gpusort
+                if getattr(self, '_gsort', None) is None:
+                    self._gsort = splat_gpusort.GPUSorter()
+                gidx = self._gsort.run(self.datatex, _TW, cam_np, fwd_np, int(self.d['count']))
+                if gidx is not None:
+                    self._idxtex = gidx
+                    self._draw_count = int(self.d['count'])   # GPU sort v1: draw all (no cull yet)
+                    self._last = (cam_np, fwd_np)
+                    return self._idxtex
+                # else: fall through to CPU sort
             xyz=self.d['xyz']; depth=(xyz-cam_np)@fwd_np
             vis=np.ones(len(xyz), bool)
             if view_proj is not None:                          # frustum cull (free, no quality loss)

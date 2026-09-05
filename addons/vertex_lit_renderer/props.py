@@ -127,6 +127,8 @@ class VertexLitSettings(bpy.types.PropertyGroup):
         description="Skip splats facing away from the camera (~2x fewer on solid objects; may cause see-through on thin/double-sided foliage)")
     splat_tile: bpy.props.BoolProperty(name="Tile Rasterizer (experimental, full-GPU)", default=False,
         description="Render splats with a full-GPU tile rasterizer + early-termination (much less overdraw). Falls back to billboards if unsupported")
+    splat_gpu_sort: bpy.props.BoolProperty(name="GPU Sort (experimental)", default=False,
+        description="Sort splats on the GPU instead of the CPU (no CPU cost while orbiting). Keeps the fast hardware blend. Falls back to CPU sort if unsupported")
     splat_seed: bpy.props.IntProperty(name="Seed", default=0, min=0)
     splat_sigma: bpy.props.FloatProperty(name="Splat Softness", default=2.2, min=1.0, max=4.0)
     normal_space: bpy.props.EnumProperty(

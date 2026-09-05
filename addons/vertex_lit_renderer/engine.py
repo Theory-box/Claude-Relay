@@ -1289,6 +1289,9 @@ class VertexLitEngine(bpy.types.RenderEngine):
         light = getattr(self, '_splat_light', None)
         wd = getattr(self, '_splat_need_depth', True)
         uc = getattr(self, '_splat_use_compute', False)
+        gs = bool(getattr(self, '_splat_gpu_sort', False))
+        for c in clouds:
+            c._gpu_sort = gs
         if getattr(self, '_splat_tile', False):
             from . import splat_tile as ST
             any_ok = False
@@ -1554,6 +1557,7 @@ class VertexLitEngine(bpy.types.RenderEngine):
         self._splat_need_depth = bool(vls and getattr(vls, 'use_ao', False))
         self._splat_use_compute = bool(vls and getattr(vls, 'splat_compute', False))
         self._splat_tile = bool(vls and getattr(vls, "splat_tile", False))
+        self._splat_gpu_sort = bool(vls and getattr(vls, "splat_gpu_sort", False))
         self._splat_backface = bool(vls and getattr(vls, "splat_backface", False))
         def _draw_objects():
             self._draw_batches(depsgraph, vls, view_proj, studio, ls_mat, sky, ground,
