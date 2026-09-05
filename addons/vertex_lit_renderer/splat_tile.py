@@ -25,6 +25,16 @@ _AT = "ivec2 at(int i){ return ivec2(i % BW, i / BW); }\n"
 
 # 1) project each splat to conic+centre+depth (uProj), and emit its (tileHi, depthLo, id) pairs.
 _PROJECT = _AT + """
+vec3 pl(int i){ return imageLoad(uLight, ivec2(i,0)).xyz; }
+float pw(int i){ return imageLoad(uLight, ivec2(i,0)).w; }
+vec3 splat_light(vec3 N){
+  if(pw(0) < 0.5) return vec3(1.0);                       // texel0.w = lit flag
+  float h=dot(N,vec3(0.0,0.0,1.0))*0.5+0.5;
+  vec3 L=mix(pl(1),pl(0),h)*pw(1);                         // mix(ground,sky,h)*hemiI
+  L+=pl(3)*(max(dot(N,normalize(pl(2))),0.0)*pw(2));       // sunCol*(N.sunDir)*sunI
+  L+=pl(5)*(max(dot(N,normalize(pl(4))),0.0)*pw(4));       // keyCol*(N.keyDir)*keyI
+  return L;
+}
 void main(){
   int id=int(gl_GlobalInvocationID.x); if(id>=uN) return;
   vec4 d0=imageLoad(uSData,at(id*4)), d1=imageLoad(uSData,at(id*4+1)),
@@ -48,8 +58,10 @@ void main(){
   float cx=((uF*t.x*iz)/(uVP.x*0.5))*0.5+0.5; cx*=uVP.x;
   float cy=((uF*t.y*iz)/(uVP.y*0.5))*0.5+0.5; cy*=uVP.y;
   float tr=a+cc,disc=sqrt(max(tr*tr/4.0-det,0.0)); float lam=tr/2.0+disc; float rad=3.0*sqrt(max(lam,1e-6));
+  vec3 nrm=(is.x<=is.y && is.x<=is.z)? c0 : ((is.y<=is.z)? c1 : c2); nrm=normalize(nrm);
+  vec3 lit=col*splat_light(nrm);
   imageStore(uProj,at(pb),  vec4(cx,cy,conA,conB));
-  imageStore(uProj,at(pb+1),vec4(conC,col.r,col.g,col.b));
+  imageStore(uProj,at(pb+1),vec4(conC,lit.r,lit.g,lit.b));
   imageStore(uProj,at(pb+2),vec4(op,0.0,0.0,0.0));
   if(rad>=uVP.x) return;
   int tx0=clamp(int((cx-rad)/16.0),0,uTX-1), tx1=clamp(int((cx+rad)/16.0),0,uTX-1);
@@ -178,6 +190,7 @@ class TileRasterizer:
         info.image(3,'R32UI','UINT_2D','uKLo',qualifiers={'WRITE'})
         info.image(4,'R32UI','UINT_2D','uVal',qualifiers={'WRITE'})
         info.image(5,'R32UI','UINT_2D','uCtr',qualifiers={'READ','WRITE'})
+        info.image(6,'RGBA32F','FLOAT_2D','uLight',qualifiers={'READ'})
         info.compute_source(_PROJECT)
         return gpu.shader.create_from_info(info)
 
@@ -211,13 +224,23 @@ class TileRasterizer:
         info.compute_source(_BLEND)
         return gpu.shader.create_from_info(info)
 
-    def render(self, vm, pm, W, H):
+    def render(self, vm, pm, W, H, light=None):
         """Run the 5-stage pipeline; returns the output GPUTexture (RGBA premultiplied) or None."""
         if not self.build(W, H):
             return None
         try:
             right=Vector(vm[0][:3]); up=Vector(vm[1][:3]); fwd=-Vector(vm[2][:3]); cam=vm.inverted().translation
             f=0.5*H*pm[1][1]; TX=(W+15)//16; TY=(H+15)//16
+            # pack scene lighting into a tiny image (recreated per frame; light may change)
+            L=np.zeros((6,4),np.float32)
+            if light is not None:
+                L[0,:3]=light['sky'];     L[0,3]=1.0
+                L[1,:3]=light['ground'];  L[1,3]=float(light['hemi'])
+                L[2,:3]=light['sun_dir']; L[2,3]=float(light['sun_int'])
+                L[3,:3]=light['sun_col']
+                L[4,:3]=light['key_dir']; L[4,3]=float(light['key_int'])
+                L[5,:3]=light['key_col']
+            self.uLight=gpu.types.GPUTexture((6,1),format='RGBA32F',data=gpu.types.Buffer('FLOAT',24,L.reshape(-1)))
             # clear per-frame buffers (KHi -> a value above any tile id so unused pairs sort to the end;
             # 0x7FFFFFFF fits a signed int, which clear() requires, and still exceeds numTiles)
             self.uCtr.clear(format='UINT', value=(0, 0, 0, 0))
@@ -226,7 +249,7 @@ class TileRasterizer:
             # 1) project + emit
             s=self.shaders['project']; s.bind()
             s.image('uSData',self.uSData); s.image('uProj',self.uProj); s.image('uKHi',self.uKHi)
-            s.image('uKLo',self.uKLo); s.image('uVal',self.uVal); s.image('uCtr',self.uCtr)
+            s.image('uKLo',self.uKLo); s.image('uVal',self.uVal); s.image('uCtr',self.uCtr); s.image('uLight',self.uLight)
             s.uniform_float('uR0',right); s.uniform_float('uR1',up); s.uniform_float('uR2',fwd); s.uniform_float('uCam',cam)
             s.uniform_float('uF',f); s.uniform_float('uVP',(float(W),float(H)))
             s.uniform_int('uN',self.N); s.uniform_int('uTX',TX); s.uniform_int('uTY',TY); s.uniform_int('uMaxPairs',self.MAXP)

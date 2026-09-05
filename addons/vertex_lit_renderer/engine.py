@@ -1296,7 +1296,7 @@ class VertexLitEngine(bpy.types.RenderEngine):
                 try:
                     if getattr(c, '_tile', None) is None:
                         c._tile = ST.TileRasterizer(c)
-                    out = c._tile.render(vm, pm, wh[0], wh[1])
+                    out = c._tile.render(vm, pm, wh[0], wh[1], light=getattr(self,'_splat_light',None))
                     if out is not None:
                         ST.composite(out); any_ok = True
                 except Exception as e:
