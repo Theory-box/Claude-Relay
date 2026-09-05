@@ -218,9 +218,10 @@ class TileRasterizer:
         try:
             right=Vector(vm[0][:3]); up=Vector(vm[1][:3]); fwd=-Vector(vm[2][:3]); cam=vm.inverted().translation
             f=0.5*H*pm[1][1]; TX=(W+15)//16; TY=(H+15)//16
-            # clear per-frame buffers (KHi -> UINT_MAX so unused pairs sort to the end)
+            # clear per-frame buffers (KHi -> a value above any tile id so unused pairs sort to the end;
+            # 0x7FFFFFFF fits a signed int, which clear() requires, and still exceeds numTiles)
             self.uCtr.clear(format='UINT', value=(0, 0, 0, 0))
-            self.uKHi.clear(format='UINT', value=(0xFFFFFFFF, 0, 0, 0))
+            self.uKHi.clear(format='UINT', value=(0x7FFFFFFF, 0, 0, 0))
             self.uOut.clear(format='FLOAT', value=(0.0, 0.0, 0.0, 0.0))
             # 1) project + emit
             s=self.shaders['project']; s.bind()
