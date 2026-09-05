@@ -59,3 +59,33 @@ def surfels_from_points(pts, nrm, colors, k=12, cover=2.2, thin_ratio=0.12, reje
     quat = _R_to_quat(R.astype(np.float32))
     return dict(count=N, xyz=pts.astype(np.float32), color=np.clip(colors,0,1).astype(np.float32),
                 opacity=np.full(N, opacity, np.float32), scale=scale, quat=quat)
+
+# ---- dependency-free variant (grid-cell PCA; no scipy/KNN, for Blender) ----
+def _any_perp(n):
+    ref=np.tile(np.array([0,0,1.0]),(len(n),1)); bad=np.abs((n*ref).sum(1))>0.9
+    ref[bad]=np.array([1,0,0.0]); p=np.cross(n,ref); return p/(np.linalg.norm(p,axis=1,keepdims=True)+1e-12)
+
+def surfels_grid(pts, nrm, colors, spacing, cover=2.2, thin_ratio=0.12, opacity=0.9, cell_mult=2.2):
+    """No-dependency surfels: mesh normal for orientation, per-grid-cell covariance for in-plane
+    anisotropy + size. Fully vectorised (np.add.at + batched eigh). spacing = sqrt(area/N)."""
+    N=len(pts); pts=pts.astype(np.float64); n=nrm.astype(np.float64)
+    n/=(np.linalg.norm(n,axis=1,keepdims=True)+1e-12)
+    mn=pts.min(0); h=max(float(spacing)*cell_mult,1e-6)
+    ci=np.floor((pts-mn)/h).astype(np.int64); dims=ci.max(0)+2
+    cid=ci[:,0]+ci[:,1]*dims[0]+ci[:,2]*dims[0]*dims[1]
+    uniq,inv,counts=np.unique(cid,return_inverse=True,return_counts=True); nc=len(uniq)
+    sp=np.zeros((nc,3)); np.add.at(sp,inv,pts); mean=sp/counts[:,None]
+    so=np.zeros((nc,3,3)); np.add.at(so,inv,np.einsum('ni,nj->nij',pts,pts))
+    cov=so/counts[:,None,None]-np.einsum('ci,cj->cij',mean,mean)
+    w,V=np.linalg.eigh(cov); Wp=w[inv]; Vp=V[inv]
+    longv=Vp[:,:,2]; longv=longv-(np.einsum('ni,ni->n',longv,n))[:,None]*n
+    ln=np.linalg.norm(longv,axis=1,keepdims=True)
+    longv=np.where(ln>1e-6, longv/np.maximum(ln,1e-12), _any_perp(n)); midv=np.cross(n,longv)
+    s_long=cover*np.sqrt(np.maximum(Wp[:,2],1e-12)); s_mid=cover*np.sqrt(np.maximum(Wp[:,1],1e-12))
+    few=counts[inv]<4; iso=cover*float(spacing)*0.6
+    s_long=np.where(few,iso,s_long); s_mid=np.where(few,iso,s_mid)
+    thin=thin_ratio*np.maximum(s_long,s_mid)
+    R=np.stack([n,midv,longv],axis=2); det=np.linalg.det(R); R[det<0,:,0]*=-1
+    scale=np.stack([thin,s_mid,s_long],1).astype(np.float32)
+    return dict(count=N,xyz=pts.astype(np.float32),color=np.clip(colors,0,1).astype(np.float32),
+                opacity=np.full(N,opacity,np.float32),scale=scale,quat=_R_to_quat(R.astype(np.float32)))

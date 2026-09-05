@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Mesh to Splat",
     "author": "Claude Relay",
-    "version": (0, 2, 0),
+    "version": (0, 3, 0),
     "blender": (4, 2, 0),
     "location": "View3D > Sidebar (N) > Splat",
     "description": "Convert the active mesh into a 3D gaussian-splat cloud (sampled from its texture) and view it live.",
@@ -202,21 +202,51 @@ def _extract_samples(obj, count, color_source, seed):
     ev.to_mesh_clear()
     return pts.astype(np.float32), nrm.astype(np.float32), np.clip(color,0,1).astype(np.float32), area, diag
 
-def _make_cloud(obj, s):
+def _any_perp(n):
+    ref=np.tile(np.array([0,0,1.0]),(len(n),1)); bad=np.abs((n*ref).sum(1))>0.9
+    ref[bad]=np.array([1,0,0.0]); p=np.cross(n,ref); return p/(np.linalg.norm(p,axis=1,keepdims=True)+1e-12)
+
+def _surfels_grid(pts, nrm, colors, spacing, cover, thin_ratio, opacity):
+    """Dependency-free anisotropic surfels: mesh normal for orientation, per-grid-cell covariance for
+    in-plane anisotropy + size. Fully vectorised (np.add.at + batched eigh). No scipy, no decimation."""
+    N=len(pts); P=pts.astype(np.float64); n=nrm.astype(np.float64)
+    n/=(np.linalg.norm(n,axis=1,keepdims=True)+1e-12)
+    mn=P.min(0); h=max(float(spacing)*2.2,1e-6)
+    ci=np.floor((P-mn)/h).astype(np.int64); dims=ci.max(0)+2
+    cid=ci[:,0]+ci[:,1]*dims[0]+ci[:,2]*dims[0]*dims[1]
+    uniq,inv,counts=np.unique(cid,return_inverse=True,return_counts=True); nc=len(uniq)
+    sp=np.zeros((nc,3)); np.add.at(sp,inv,P); mean=sp/counts[:,None]
+    so=np.zeros((nc,3,3)); np.add.at(so,inv,np.einsum('ni,nj->nij',P,P))
+    cov=so/counts[:,None,None]-np.einsum('ci,cj->cij',mean,mean)
+    w,V=np.linalg.eigh(cov); Wp=w[inv]; Vp=V[inv]
+    longv=Vp[:,:,2]; longv=longv-(np.einsum('ni,ni->n',longv,n))[:,None]*n
+    ln=np.linalg.norm(longv,axis=1,keepdims=True)
+    longv=np.where(ln>1e-6, longv/np.maximum(ln,1e-12), _any_perp(n)); midv=np.cross(n,longv)
+    s_long=cover*np.sqrt(np.maximum(Wp[:,2],1e-12)); s_mid=cover*np.sqrt(np.maximum(Wp[:,1],1e-12))
+    few=counts[inv]<4; iso=cover*float(spacing)*0.6
+    s_long=np.where(few,iso,s_long); s_mid=np.where(few,iso,s_mid)
+    thin=thin_ratio*np.maximum(s_long,s_mid)
+    R=np.stack([n,midv,longv],axis=2); det=np.linalg.det(R); R[det<0,:,0]*=-1
+    scale=np.stack([thin,s_mid,s_long],1).astype(np.float32)
+    return dict(count=N,xyz=P.astype(np.float32),color=np.clip(colors,0,1).astype(np.float32),
+                opacity=np.full(N,opacity,np.float32),scale=scale,quat=_batch_quat(R.astype(np.float32)))
+
+def _make_cloud(obj, s, surfel=True):
     res = _extract_samples(obj, s.splat_count, s.color_source, s.seed)
     if res is None: return None, None
     pts, nrm, color, area, diag = res
-    N = len(pts)
-    spacing = float(np.sqrt(area/max(N,1)))
-    r = spacing * s.size_scale
-    scale = np.tile(np.array([r, r, r*s.flatness], np.float32), (N,1))
-    quat = _frames_to_quat(nrm)
+    N = len(pts); spacing = float(np.sqrt(area/max(N,1)))
     if s.bake_lighting:
         key = np.array([0.4,0.5,0.8],np.float32); key/=np.linalg.norm(key)
         ndl = np.clip(nrm@key,0,1); hemi = 0.4+0.25*(nrm[:,2]*0.5+0.5)
         color = np.clip(color*(hemi[:,None]+0.7*ndl[:,None]),0,1).astype(np.float32)
+    if surfel:
+        return _surfels_grid(pts, nrm, color, spacing, cover=s.size_scale*2.6,
+                             thin_ratio=s.flatness, opacity=s.opacity), diag
+    r = spacing * s.size_scale
+    scale = np.tile(np.array([r, r, r*s.flatness], np.float32), (N,1))
     return dict(count=N, xyz=pts, color=color,
-                opacity=np.full(N, s.opacity, np.float32), scale=scale.astype(np.float32), quat=quat), diag
+                opacity=np.full(N, s.opacity, np.float32), scale=scale.astype(np.float32), quat=_frames_to_quat(nrm)), diag
 
 def _extract_triangles(obj, s):
     """Per-triangle Steiner-inellipse surfels. Decimates via a temp Blender modifier (UV-preserving)
@@ -391,9 +421,10 @@ def _redraw():
 # properties / operators / panel
 # =====================================================================================
 class Mesh2SplatSettings(bpy.types.PropertyGroup):
-    gen_mode: bpy.props.EnumProperty(name="Method", default='TRIANGLE',
-        items=[('TRIANGLE',"Per-Triangle","One anisotropic surfel per triangle (fast, clean, surface-aligned). Uses decimation for count."),
-               ('UNIFORM',"Uniform","Random surface sampling (good for fuzzy/spiky organic where detail is everywhere)")])
+    gen_mode: bpy.props.EnumProperty(name="Method", default='SURFEL',
+        items=[('SURFEL',"Surfel","Uniform sampling + local anisotropy (robust default; no decimation, topology-independent)"),
+               ('TRIANGLE',"Per-Triangle","One surfel per triangle; exact but decimation-based & topology-dependent (best on clean native-density meshes)"),
+               ('UNIFORM',"Uniform","Round splats from surface sampling (simplest; good for fuzzy/spiky organic)")])
     splat_count: bpy.props.IntProperty(name="Splat Count", default=200000, min=1000, max=5000000,
         description="Target splats. Per-Triangle: decimates the mesh to ~this many triangles. Uniform: number of samples")
     size_scale: bpy.props.FloatProperty(name="Splat Size", default=0.9, min=0.1, max=4.0,
@@ -420,7 +451,10 @@ class MESH2SPLAT_OT_convert(bpy.types.Operator):
             self.report({'ERROR'},"Select a mesh object first"); return {'CANCELLED'}
         s=context.scene.mesh2splat
         t=time.perf_counter()
-        cloud, diag = (_extract_triangles(obj, s) if s.gen_mode=='TRIANGLE' else _make_cloud(obj, s))
+        if s.gen_mode=='TRIANGLE':
+            cloud, diag = _extract_triangles(obj, s)
+        else:
+            cloud, diag = _make_cloud(obj, s, surfel=(s.gen_mode=='SURFEL'))
         if cloud is None:
             self.report({'ERROR'},"Mesh has no faces to sample"); return {'CANCELLED'}
         print("[Mesh2Splat] %s (%s) diagnostics:" % (obj.name, s.gen_mode))
