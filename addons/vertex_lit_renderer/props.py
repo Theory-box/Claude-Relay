@@ -123,6 +123,8 @@ class VertexLitSettings(bpy.types.PropertyGroup):
         description="Light the splats with the scene sun / sky-ground / key light (vs raw albedo)")
     splat_compute: bpy.props.BoolProperty(name="Compute Pre-pass (experimental)", default=False,
         description="Project splats once per frame in a compute shader (faster; falls back automatically if unsupported)")
+    splat_backface: bpy.props.BoolProperty(name="Backface Cull", default=False,
+        description="Skip splats facing away from the camera (~2x fewer on solid objects; may cause see-through on thin/double-sided foliage)")
     splat_seed: bpy.props.IntProperty(name="Seed", default=0, min=0)
     splat_sigma: bpy.props.FloatProperty(name="Splat Softness", default=2.2, min=1.0, max=4.0)
     normal_space: bpy.props.EnumProperty(

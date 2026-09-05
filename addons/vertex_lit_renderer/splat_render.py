@@ -169,6 +169,16 @@ def _mkbuf(arr):
     try: return Buffer('FLOAT', n, arr)
     except Exception: return Buffer('FLOAT', n, arr.tolist())
 
+def _splat_normals(quat, scale):
+    """Per-splat world normal = the thinnest gaussian axis (min-scale rotation column). For culling."""
+    w,x,y,z=quat[:,0],quat[:,1],quat[:,2],quat[:,3]
+    R=np.empty((len(quat),3,3),np.float32)
+    R[:,0,0]=1-2*(y*y+z*z); R[:,1,0]=2*(x*y+w*z); R[:,2,0]=2*(x*z-w*y)
+    R[:,0,1]=2*(x*y-w*z); R[:,1,1]=1-2*(x*x+z*z); R[:,2,1]=2*(y*z+w*x)
+    R[:,0,2]=2*(x*z+w*y); R[:,1,2]=2*(y*z-w*x); R[:,2,2]=1-2*(x*x+y*y)
+    ni=np.argmin(scale,axis=1)
+    return R[np.arange(len(R)), :, ni].astype(np.float32)
+
 
 # ============================ compute pre-pass (opt-in) ============================
 # Computes the per-splat projection (ellipse axes, depth, lit colour, view normal) ONCE per frame
@@ -279,24 +289,39 @@ class SplatCloud:
         self.itw = 4096
         ext = float(np.linalg.norm(self.d['xyz'].max(0)-self.d['xyz'].min(0)))
         self.move_eps = ext*0.02
+        self._normals = _splat_normals(self.d['quat'], self.d['scale'])
+        self._draw_count = self.d['count']
         self._gpu = True
 
-    def _sorted_index(self, cam_np, fwd_np):
+    def _sorted_index(self, cam_np, fwd_np, view_proj=None, backface=False):
         need = self._idxtex is None
         if not need:
             need = (float(np.dot(fwd_np, self._last[1])) < 0.9994
                     or float(np.linalg.norm(cam_np - self._last[0])) > self.move_eps)
         if need:
-            depth=(self.d['xyz']-cam_np)@fwd_np; lo=float(depth.min()); hi=float(depth.max())
-            q=65535-((depth-lo)*(65535.0/(hi-lo+1e-9))).astype(np.uint16)
-            order=np.argsort(q,kind='stable').astype(np.float32)
+            xyz=self.d['xyz']; depth=(xyz-cam_np)@fwd_np
+            vis=np.ones(len(xyz), bool)
+            if view_proj is not None:                          # frustum cull (free, no quality loss)
+                vp=np.array(view_proj, np.float32)
+                hc=np.column_stack([xyz, np.ones(len(xyz),np.float32)]) @ vp.T
+                w=hc[:,3]; safe=np.where(np.abs(w)>1e-6, w, 1e-6)
+                nx=hc[:,0]/safe; ny=hc[:,1]/safe
+                vis &= (w>1e-4) & (np.abs(nx)<1.3) & (np.abs(ny)<1.3)
+            if backface and self._normals is not None:         # backface cull (solid objects ~2x)
+                vis &= np.einsum('ni,ni->n', self._normals, (cam_np-xyz)) > -0.2   # keep silhouette
+            idx=np.nonzero(vis)[0]
+            if len(idx)==0: idx=np.arange(len(xyz))
+            dv=depth[idx]; lo=float(dv.min()); hi=float(dv.max())
+            qv=65535-((dv-lo)*(65535.0/(hi-lo+1e-9))).astype(np.uint16)
+            order=idx[np.argsort(qv,kind='stable')].astype(np.float32)
+            self._draw_count=len(order)
             ith=(len(order)+self.itw-1)//self.itw
             ibuf=np.zeros(self.itw*ith,'f4'); ibuf[:len(order)]=order
             self._idxtex=GPUTexture((self.itw,ith),format='R32F',data=_mkbuf(ibuf))
             self._last=(cam_np, fwd_np)
         return self._idxtex
 
-    def draw(self, view_matrix, window_matrix, w, h, write_depth=True, light=None, use_compute=False):
+    def draw(self, view_matrix, window_matrix, w, h, write_depth=True, light=None, use_compute=False, backface=False):
         """Pass 1: colour over-blend; Pass 2: opaque-core depth (M2). Optional compute pre-pass."""
         self.ensure_gpu()
         self._proj_valid = False
@@ -304,7 +329,7 @@ class SplatCloud:
             self._ensure_compute()
             if getattr(self, '_compute_ok', False):
                 try:
-                    if self._draw_compute(view_matrix, window_matrix, w, h, write_depth, light):
+                    if self._draw_compute(view_matrix, window_matrix, w, h, write_depth, light, backface):
                         return
                 except Exception as e:
                     print("[VertexLit] splat compute draw failed -> per-vertex:", e)
@@ -313,8 +338,8 @@ class SplatCloud:
         right=Vector(vm[0][:3]); up=Vector(vm[1][:3]); fwd=-Vector(vm[2][:3])
         cam=vm.inverted().translation
         fx=0.5*w*pm[0][0]; fy=0.5*h*pm[1][1]
-        idxtex=self._sorted_index(np.array(cam,'f4'), np.array(fwd,'f4'))
         view_proj = pm @ vm
+        idxtex=self._sorted_index(np.array(cam,'f4'), np.array(fwd,'f4'), view_proj, backface)
         sh=self.shader; sh.bind()
         sh.uniform_sampler('uData', self.datatex); sh.uniform_sampler('uIndex', idxtex)
         sh.uniform_int('uTW', _TW); sh.uniform_int('uITW', self.itw)
@@ -338,7 +363,7 @@ class SplatCloud:
         gpu.state.depth_test_set('LESS_EQUAL')
         gpu.state.depth_mask_set(False)
         sh.uniform_float('uDepthCut', 0.004)
-        self.batch.draw_instanced(sh, instance_count=self.d['count'])
+        self.batch.draw_instanced(sh, instance_count=self._draw_count)
 
         # Pass 2 — opaque-core depth only (feeds screen-space effects)
         if write_depth:
@@ -347,7 +372,7 @@ class SplatCloud:
                 gpu.state.blend_set('NONE')
                 gpu.state.depth_mask_set(True)
                 sh.uniform_float('uDepthCut', 0.35)     # only near-opaque cores write depth
-                self.batch.draw_instanced(sh, instance_count=self.d['count'])
+                self.batch.draw_instanced(sh, instance_count=self._draw_count)
             except Exception:
                 pass
             finally:
@@ -356,19 +381,19 @@ class SplatCloud:
         gpu.state.blend_set('NONE')
         gpu.state.depth_mask_set(True)
 
-    def draw_normals(self, view_matrix, window_matrix, view_mat3, w, h, use_compute=False):
+    def draw_normals(self, view_matrix, window_matrix, view_mat3, w, h, use_compute=False, backface=False):
         """Render splat view-space normals (core-only, depth-tested) into the current normal FBO."""
         self.ensure_gpu()
         if use_compute and getattr(self, '_compute_ok', False) and getattr(self, '_proj_valid', False):
             try:
                 right=Vector(view_matrix[0][:3]); up=Vector(view_matrix[1][:3]); fwd=-Vector(view_matrix[2][:3])
                 cam=view_matrix.inverted().translation
-                idxtex=self._sorted_index(np.array(cam,'f4'), np.array(fwd,'f4'))
+                idxtex=self._sorted_index(np.array(cam,'f4'), np.array(fwd,'f4'), window_matrix@view_matrix, backface)
                 sh=self.rnshader; sh.bind()
                 sh.uniform_sampler('uProj', self.projtex); sh.uniform_sampler('uIndex', idxtex)
                 sh.uniform_int('uOTW', _OTW); sh.uniform_int('uITW', self.itw); sh.uniform_float('uDepthCut', 0.35)
                 gpu.state.blend_set('NONE'); gpu.state.depth_test_set('LESS_EQUAL'); gpu.state.depth_mask_set(True)
-                self.rbatch.draw_instanced(sh, instance_count=self.d['count'])
+                self.rbatch.draw_instanced(sh, instance_count=self._draw_count)
                 return
             except Exception as e:
                 print("[VertexLit] splat compute normals failed -> per-vertex:", e)
@@ -376,8 +401,8 @@ class SplatCloud:
         right=Vector(vm[0][:3]); up=Vector(vm[1][:3]); fwd=-Vector(vm[2][:3])
         cam=vm.inverted().translation
         fx=0.5*w*pm[0][0]; fy=0.5*h*pm[1][1]
-        idxtex=self._sorted_index(np.array(cam,'f4'), np.array(fwd,'f4'))
         view_proj = pm @ vm
+        idxtex=self._sorted_index(np.array(cam,'f4'), np.array(fwd,'f4'), view_proj, backface)
         sh=self.normal_shader; sh.bind()
         sh.uniform_sampler('uData', self.datatex); sh.uniform_sampler('uIndex', idxtex)
         sh.uniform_int('uTW', _TW); sh.uniform_int('uITW', self.itw)
@@ -388,7 +413,7 @@ class SplatCloud:
         gpu.state.blend_set('NONE')
         gpu.state.depth_test_set('LESS_EQUAL')
         gpu.state.depth_mask_set(True)
-        self.batch.draw_instanced(sh, instance_count=self.d['count'])
+        self.batch.draw_instanced(sh, instance_count=self._draw_count)
 
     # ---------------- compute pre-pass (opt-in) ----------------
     def _ensure_compute(self):
@@ -434,22 +459,22 @@ class SplatCloud:
         sh.uniform_int('uTW', _TW); sh.uniform_int('uOTW', _OTW); sh.uniform_int('uCount', int(self.d['count']))
         gpu.compute.dispatch(sh, (self.d['count']+63)//64, 1, 1)
 
-    def _draw_compute(self, vm, pm, w, h, write_depth, light):
+    def _draw_compute(self, vm, pm, w, h, write_depth, light, backface):
         """Compute path: project once, then read-and-place in each pass. Returns True on success."""
         right=Vector(vm[0][:3]); up=Vector(vm[1][:3]); fwd=-Vector(vm[2][:3]); cam=vm.inverted().translation
         fx=0.5*w*pm[0][0]; fy=0.5*h*pm[1][1]; view_proj=pm@vm
-        idxtex=self._sorted_index(np.array(cam,'f4'), np.array(fwd,'f4'))
+        idxtex=self._sorted_index(np.array(cam,'f4'), np.array(fwd,'f4'), view_proj, backface)
         self._dispatch(light, right, up, fwd, cam, fx, fy, w, h, view_proj)
         sh=self.rshader; sh.bind()
         sh.uniform_sampler('uProj', self.projtex); sh.uniform_sampler('uIndex', idxtex)
         sh.uniform_int('uOTW', _OTW); sh.uniform_int('uITW', self.itw)
         gpu.state.blend_set('ALPHA_PREMULT'); gpu.state.depth_test_set('LESS_EQUAL'); gpu.state.depth_mask_set(False)
         sh.uniform_float('uDepthCut', 0.004)
-        self.rbatch.draw_instanced(sh, instance_count=self.d['count'])
+        self.rbatch.draw_instanced(sh, instance_count=self._draw_count)
         if write_depth:
             try:
                 gpu.state.color_mask_set(False,False,False,False); gpu.state.blend_set('NONE'); gpu.state.depth_mask_set(True)
-                sh.uniform_float('uDepthCut', 0.35); self.rbatch.draw_instanced(sh, instance_count=self.d['count'])
+                sh.uniform_float('uDepthCut', 0.35); self.rbatch.draw_instanced(sh, instance_count=self._draw_count)
             except Exception: pass
             finally: gpu.state.color_mask_set(True,True,True,True)
         gpu.state.blend_set('NONE'); gpu.state.depth_mask_set(True)
