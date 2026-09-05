@@ -62,10 +62,18 @@ def load_ply(path):
             data = {nm: raw[:, i].astype(np.float32) for i, nm in enumerate(names)}
         else:
             little = (fmt == 'binary_little_endian')
-            dt = np.dtype([(nm, ('<' if little else '>') + _PLY_T[t]) for nm, t in props])
-            buf = f.read(n * dt.itemsize)
-            arr = np.frombuffer(buf, dtype=dt, count=n)
-            data = {nm: arr[nm].astype(np.float32) for nm in names}
+            types = [t for _, t in props]
+            # Fast path: all properties same float type -> one contiguous read + column views
+            # (avoids 60+ strided structured-array copies; ~30x faster on standard splat plys).
+            if len(set(types)) == 1 and _PLY_T[types[0]] in ('f4', 'f8'):
+                fdt = ('<' if little else '>') + _PLY_T[types[0]]
+                raw = np.frombuffer(f.read(n * len(props) * np.dtype(fdt).itemsize),
+                                    dtype=fdt).reshape(n, len(props)).astype(np.float32, copy=False)
+                data = {nm: raw[:, i] for i, nm in enumerate(names)}
+            else:
+                dt = np.dtype([(nm, ('<' if little else '>') + _PLY_T[t]) for nm, t in props])
+                arr = np.frombuffer(f.read(n * dt.itemsize), dtype=dt, count=n)
+                data = {nm: arr[nm].astype(np.float32) for nm in names}
 
     def col(*keys):
         return np.stack([data[k] for k in keys], axis=1)
