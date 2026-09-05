@@ -1252,3 +1252,25 @@ from the binary, not from memory) to harden transpiler coverage.
   VectorTransform. All explicitly allow-listed with rationale.
 - Not yet done: cross-check exact transpiler socket reads against the scanner's
   `compat_db_4.4_to_4.2.json` to *prove* no read lands on a changed socket (4.2↔4.4).
+
+## Brainstorm / deferred — POM + self-shadowing (discussed, no code)
+- **Parallax Occlusion Mapping (POM):** tangent-space heightfield ray-march that
+  offsets UVs for fake interior depth. Prereqs: TBN varying (mesh.calc_tangents +
+  bitangent sign), and wiring the currently-neutralised Bump/Displacement/Normal-Map
+  nodes as the HEIGHT source. Interior depth only — silhouettes stay flat. ~90% fit.
+- **Heightfield self-shadowing (in-material):** after the POM march, march a 2nd ray
+  toward the light through the same heightmap; blocker-above-ray = shadowed. Soft
+  penumbra by tracking rise/distance. Self-contained, cheap, "bricks shadow their own
+  mortar". ~90% fit. This is the preferred first rung.
+- **Key subtlety:** POM only offsets UVs — the geometry stays a flat quad, so the
+  DEPTH BUFFER (and thus SSAO/cavity/any screen-space shadow) is blind to the relief.
+  Fix = have the POM shader write reconstructed `gl_FragDepth` from the marched height,
+  making the relief "real" to the whole screen-space stack + to other geometry. Cost:
+  disables early-Z. Ambition ladder: (1) in-material self-shadow → (2) +gl_FragDepth so
+  SSAO/screen-space shadows see it → (3) full screen-space contact shadows on top.
+- **Cheap alt:** horizon mapping via BAKE — precompute per-texel horizon angles from the
+  height input (our bake system fits), self-shadow becomes a near-free lookup. Static to
+  the baked light-relative horizon; live march for fully dynamic light.
+- **Relight-pipeline decision:** the self-shadow is *lighting* info. For the AI-relight
+  north star, keep it as a SEPARATE height/occlusion output rather than burned into base
+  colour, so the relighter can use or discard it. Decide before building.
