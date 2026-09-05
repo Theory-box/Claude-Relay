@@ -1428,3 +1428,19 @@ Headless CPU profiling on the real cactus (139410 splats) + handler analysis:
 - **Queued optimisations (low-risk, untested-on-GPU):** reuse a persistent index texture + only
   re-sort past a camera-move threshold; drop `.tolist()` (feed Buffer from numpy). Expected <10ms,
   and reveals the true GPU floor. Bigger later: GPU radix sort via compute (compute is available).
+
+## Splat viewer OPTIMISED — 86ms -> 0.1ms static (~860x)
+Applied the browser-viewer CPU tricks (GPU was never the bottleneck: draw 0.0 both before & after).
+- **Result (700k fir-tree splats, user GPU):** static frame 86.2ms → **0.1ms (~10000fps)**, header shows
+  `cached  draw 0.0`. ~860x on static frames.
+- **What did it:** (1) THROTTLE — only re-sort when camera moves >~2deg or >2% pan (reuse cached index
+  texture otherwise); (2) uint16 quantised sort (~2x vs float argsort); (3) buffer-protocol upload via
+  np.frombuffer memcpy — kills the `.tolist()` which measured 88x slower (19.3ms→0.22ms); (4) same fix
+  removed the ~300ms load hitch. `_mkbuf` has a 3-tier fallback (frombuffer→numpy-direct→tolist) so the
+  draw handler can't crash on the buffer path.
+- **Diagnosis confirmed:** `draw 0.0` throughout ⇒ our GPU splat path already matches browsers; the whole
+  cost was synchronous/eager CPU sort + Python-list upload. Now async-lazy like a browser.
+- **Remaining lever (only for smooth ORBITING):** while actively dragging it still sorts each ~2deg
+  (uint16, ~2x faster, but on the main thread). Final step = move the sort to a BACKGROUND THREAD
+  (numpy releases the GIL) so rendering never waits — the browser's "sort in a web worker" trick.
+  Higher-risk (threading, untestable headless); do only if orbiting isn't smooth enough.
