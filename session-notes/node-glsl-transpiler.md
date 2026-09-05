@@ -1165,3 +1165,19 @@ SUN ONLY so ambient/hemisphere fills the shadow (not the whole lighting darkened
   (normal-offset does the work now). uShadowTexelWorld uniform set per frame.
 - UI: Lighting is now a container (Key Light value input) with collapsible sub-panels Sky/Ground
   and Sun (sun params + shadow controls under Sun). 16 suites green.
+
+## v0.11.17 — Shadow quality: view-fitted shadow map + Shadow Distance (the real fix)
+Root cause of low-quality shadows: the shadow map covered the WHOLE scene bounds, so texels were
+huge (worse the bigger the scene) -> blocky shadows + a big normal-offset (scaled by texel size) ->
+detachment/banding. 4096 didn't help because the map was spread too thin.
+Fix — _build_light_space_fit(sun_dir, view_proj, cam_pos, shadow_distance, res, scene_radius):
+- Fits the ortho to the CAMERA view frustum clamped to shadow_distance (the "min/max distance"), via
+  the frustum's bounding sphere (rotation-stable). Texel size auto-drops (measured ~9x smaller on a
+  100u scene -> ~9x sharper) and the normal-offset (texel-scaled) shrinks with it -> clean contact.
+- Texel-snapping the sphere centre in light space -> no frame-to-frame shimmer.
+- Near plane extended toward the sun by scene_radius so off-frustum casters still cast in.
+- Returns texel_world for uShadowTexelWorld (normal offset now correctly small).
+- Re-renders the shadow map only when the fit MATRIX changes (view/sun/distance) via _prev_ls_key;
+  static view -> cached, orbit -> re-fit. Replaces the old sun-only dirty trigger.
+- New prop shadow_distance (default 25) + UI under Sun shadows.
+Known: single map (no cascades) so beyond shadow_distance = no shadows; F12 shadows still off. 16 green.

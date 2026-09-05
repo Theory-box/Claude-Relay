@@ -58,6 +58,10 @@ class VertexLitSettings(bpy.types.PropertyGroup):
     shadow_softness: bpy.props.FloatProperty(
         name="Softness", default=1.5, min=0.0, max=8.0,
         description="Soft-edge width (PCF kernel spread)")
+    shadow_distance: bpy.props.FloatProperty(
+        name="Distance", default=25.0, min=1.0, max=1000.0,
+        description="How far from the view shadows are drawn. Smaller = sharper shadows "
+                    "(the shadow map fits this range)")
 
     # ── View Mode (Blender's "Color") ───────────────────────────────────────
     view_mode: bpy.props.EnumProperty(

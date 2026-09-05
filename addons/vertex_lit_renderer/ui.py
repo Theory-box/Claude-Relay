@@ -59,6 +59,7 @@ class VERTEX_LIT_PT_sun(_Base, bpy.types.Panel):
         if s.use_shadows:
             sub = col.column(align=True)
             sub.active = s.sun_intensity > 0.0
+            sub.prop(s, 'shadow_distance')
             sub.prop(s, 'shadow_resolution')
             sub.prop(s, 'shadow_softness')
             sub.prop(s, 'shadow_bias')
