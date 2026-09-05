@@ -11,8 +11,11 @@ import bpy, numpy as np
 SH_C0 = 0.28209479177387814
 
 # ---------------------------------------------------------------- helpers
-def _lin2srgb(c):
-    c = np.clip(c, 0, 1); return np.where(c <= 0.0031308, c*12.92, 1.055*np.power(c, 1/2.4)-0.055)
+# The engine's G-buffer is LINEAR and the view transform is applied on blit (like meshes), so splat
+# colours must be linear. sRGB textures -> linearise; Principled Base Color / vertex colours are
+# already linear -> keep as-is.
+def _srgb2lin(c):
+    c = np.clip(c, 0, 1); return np.where(c <= 0.04045, c/12.92, np.power((c+0.055)/1.055, 2.4))
 
 def _bilinear(img, uv):
     h, w = img.shape[:2]
@@ -79,7 +82,12 @@ def _material_color(mat):
     if img is not None and tuple(img.size)!=(0,0):
         w,h=img.size
         try:
-            px=np.empty(w*h*4,np.float32); img.pixels.foreach_get(px); return px.reshape(h,w,4),base
+            px=np.empty(w*h*4,np.float32); img.pixels.foreach_get(px); a=px.reshape(h,w,4)
+            # sRGB texture -> linearise (Non-Color/Raw/Linear stay as stored)
+            cs=getattr(getattr(img,'colorspace_settings',None),'name','sRGB')
+            if cs not in ('Non-Color','Raw','Linear','Linear Rec.709','Linear FilmLight E-Gamut'):
+                a=a.copy(); a[...,:3]=_srgb2lin(a[...,:3])
+            return a, base
         except Exception: pass
     return None, base
 
@@ -124,8 +132,8 @@ def _extract_samples(obj, count, color_source, seed):
     for si,(img,base) in enumerate(slot_data):
         mask=(smi==si)
         if not mask.any(): continue
-        if color_source=='TEXTURE' and img is not None and uv is not None: color[mask]=_lin2srgb(_bilinear(img,uv[mask]))
-        else: color[mask]=_lin2srgb(base)
+        if color_source=='TEXTURE' and img is not None and uv is not None: color[mask]=_bilinear(img,uv[mask])
+        else: color[mask]=base
     ev.to_mesh_clear()
     return pts.astype(np.float32),nrm.astype(np.float32),np.clip(color,0,1).astype(np.float32),area,diag
 
@@ -198,8 +206,8 @@ def _extract_triangles(obj,count,color_source,size,flatness,opacity,bake):
     for si,(img,base) in enumerate(slot_data):
         mask=(tmat==si)
         if not mask.any(): continue
-        if color_source=='TEXTURE' and img is not None and uv_ok: color[mask]=_lin2srgb(_bilinear(img,cuv[mask]))
-        else: color[mask]=_lin2srgb(base)
+        if color_source=='TEXTURE' and img is not None and uv_ok: color[mask]=_bilinear(img,cuv[mask])
+        else: color[mask]=base
     cloud=_tri_splats(verts_w,tv,color,fn,size*2.6,flatness,opacity,bake)
     ev.to_mesh_clear()
     if added: obj.modifiers.remove(added)
