@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Mesh to Splat",
     "author": "Claude Relay",
-    "version": (0, 1, 1),
+    "version": (0, 2, 0),
     "blender": (4, 2, 0),
     "location": "View3D > Sidebar (N) > Splat",
     "description": "Convert the active mesh into a 3D gaussian-splat cloud (sampled from its texture) and view it live.",
@@ -41,14 +41,8 @@ def _lin2srgb(c):
     c = np.clip(c, 0, 1)
     return np.where(c <= 0.0031308, c*12.92, 1.055*np.power(c, 1/2.4)-0.055)
 
-def _frames_to_quat(n):
-    n = n/(np.linalg.norm(n,axis=1,keepdims=True)+1e-9)
-    up = np.tile(np.array([0,0,1],np.float32),(len(n),1))
-    bad = np.abs((n*up).sum(1)) > 0.99
-    up[bad] = np.array([1,0,0],np.float32)
-    t = np.cross(up,n); t/=(np.linalg.norm(t,axis=1,keepdims=True)+1e-9)
-    b = np.cross(n,t)
-    R = np.stack([t,b,n],axis=2)                 # columns [t,b,n]
+def _batch_quat(R):
+    """(N,3,3) rotation matrices -> (N,4) quaternions (w,x,y,z). Columns of R are the axes."""
     m=R; N=len(m); tr=m[:,0,0]+m[:,1,1]+m[:,2,2]; q=np.zeros((N,4),np.float32)
     s0=tr>0; S=np.sqrt(np.maximum(tr[s0]+1,1e-9))*2
     q[s0,0]=0.25*S; q[s0,1]=(m[s0,2,1]-m[s0,1,2])/S; q[s0,2]=(m[s0,0,2]-m[s0,2,0])/S; q[s0,3]=(m[s0,1,0]-m[s0,0,1])/S
@@ -66,6 +60,35 @@ def _frames_to_quat(n):
         if c2.any(): fill(c2,2,0,1)
     q/=(np.linalg.norm(q,axis=1,keepdims=True)+1e-9)
     return q.astype(np.float32)
+
+def _frames_to_quat(n):
+    n = n/(np.linalg.norm(n,axis=1,keepdims=True)+1e-9)
+    up = np.tile(np.array([0,0,1],np.float32),(len(n),1))
+    bad = np.abs((n*up).sum(1)) > 0.99
+    up[bad] = np.array([1,0,0],np.float32)
+    t = np.cross(up,n); t/=(np.linalg.norm(t,axis=1,keepdims=True)+1e-9)
+    b = np.cross(n,t)
+    R = np.stack([t,b,n],axis=2)                 # columns [t,b,n]
+    return _batch_quat(R)
+
+def _tri_splats(V, F, face_colors, face_normals, cover, thin_ratio, opacity, s):
+    """One anisotropic surfel per triangle from the uniform-triangle covariance (Steiner inellipse)."""
+    V=V.astype(np.float64); tri=V[F]; a,b,c=tri[:,0],tri[:,1],tri[:,2]
+    e1=b-a; e2=c-a; centroid=(a+b+c)/3.0
+    C11=1.0/18.0; C12=-1.0/36.0
+    def outer(x,y): return np.einsum('ni,nj->nij',x,y)
+    Sig=C11*(outer(e1,e1)+outer(e2,e2))+C12*(outer(e1,e2)+outer(e2,e1))
+    w,Vec=np.linalg.eigh(Sig)
+    det=np.linalg.det(Vec); Vec[det<0,:,0]*=-1.0
+    std=np.sqrt(np.maximum(w,0.0)); sc=(cover*std)
+    inplane=np.maximum(sc[:,1],sc[:,2]); sc[:,0]=np.maximum(sc[:,0],thin_ratio*inplane)
+    n=len(F); col=np.clip(face_colors,0,1).astype(np.float32)
+    if s.bake_lighting:
+        key=np.array([0.4,0.5,0.8],np.float32); key/=np.linalg.norm(key)
+        ndl=np.clip(np.abs(face_normals@key),0,1); hemi=0.4+0.25*(np.abs(face_normals[:,2])*0.5+0.5)
+        col=np.clip(col*(hemi[:,None]+0.7*ndl[:,None]),0,1).astype(np.float32)
+    return dict(count=n, xyz=centroid.astype(np.float32), color=col,
+                opacity=np.full(n,opacity,np.float32), scale=sc.astype(np.float32), quat=_batch_quat(Vec.astype(np.float32)))
 
 # =====================================================================================
 # bpy extraction
@@ -195,6 +218,56 @@ def _make_cloud(obj, s):
     return dict(count=N, xyz=pts, color=color,
                 opacity=np.full(N, s.opacity, np.float32), scale=scale.astype(np.float32), quat=quat), diag
 
+def _extract_triangles(obj, s):
+    """Per-triangle Steiner-inellipse surfels. Decimates via a temp Blender modifier (UV-preserving)
+    to hit ~splat_count triangles, then one anisotropic splat per triangle coloured from the texture."""
+    added=None
+    base_faces=max(len(obj.data.polygons),1)
+    if s.splat_count < base_faces:
+        added=obj.modifiers.new('_m2s_dec','DECIMATE'); added.decimate_type='COLLAPSE'
+        added.ratio=max(min(s.splat_count/base_faces,1.0),0.0005)
+    deps=bpy.context.evaluated_depsgraph_get(); ev=obj.evaluated_get(deps); me=ev.to_mesh()
+    me.calc_loop_triangles()
+    nt=len(me.loop_triangles)
+    if nt==0:
+        ev.to_mesh_clear()
+        if added: obj.modifiers.remove(added)
+        return None, None
+    nv=len(me.vertices); verts=np.empty(nv*3,np.float32); me.vertices.foreach_get('co',verts); verts=verts.reshape(-1,3)
+    tv=np.empty(nt*3,np.int32); me.loop_triangles.foreach_get('vertices',tv); tv=tv.reshape(-1,3)
+    tl=np.empty(nt*3,np.int32); me.loop_triangles.foreach_get('loops',tl); tl=tl.reshape(-1,3)
+    tmat=np.empty(nt,np.int32); me.loop_triangles.foreach_get('material_index',tmat)
+    uv_ok=me.uv_layers.active is not None
+    if uv_ok:
+        nl=len(me.loops); uvf=np.empty(nl*2,np.float32); me.uv_layers.active.data.foreach_get('uv',uvf); loop_uv=uvf.reshape(-1,2)
+        cuv=loop_uv[tl].mean(1)
+    mw=np.array(obj.matrix_world,np.float32); verts_w=verts@mw[:3,:3].T+mw[:3,3]
+    tri=verts_w[tv]; fn=np.cross(tri[:,1]-tri[:,0],tri[:,2]-tri[:,0]); fn/=(np.linalg.norm(fn,axis=1,keepdims=True)+1e-9)
+
+    slots=list(obj.material_slots); diag=[]
+    if not slots:
+        slot_data=[(None,np.array([0.6,0.6,0.6],np.float32))]; diag=["no material slots -> grey"]
+    else:
+        slot_data=[]
+        for si,sl in enumerate(slots):
+            img,base=_material_color(sl.material); slot_data.append((img,base))
+            mn=sl.material.name if sl.material else "None"
+            diag.append("slot%d '%s': %s"%(si,mn,("texture %dx%d"%(img.shape[1],img.shape[0])) if img is not None else "flat base %.2f,%.2f,%.2f"%tuple(base)))
+    diag.append("uv=%s tris=%d mode=TRIANGLE"%(uv_ok,nt))
+    color=np.full((nt,3),0.6,np.float32)
+    for si,(img,base) in enumerate(slot_data):
+        mask=(tmat==si)
+        if not mask.any(): continue
+        if s.color_source=='TEXTURE' and img is not None and uv_ok:
+            color[mask]=_lin2srgb(_bilinear(img,cuv[mask]))
+        else:
+            color[mask]=_lin2srgb(base)
+    cover=s.size_scale*2.6
+    cloud=_tri_splats(verts_w, tv, color, fn, cover, s.flatness, s.opacity, s)
+    ev.to_mesh_clear()
+    if added: obj.modifiers.remove(added)
+    return cloud, diag
+
 # =====================================================================================
 # GL viewer (validated EWA shader + optimised draw handler)
 # =====================================================================================
@@ -318,8 +391,11 @@ def _redraw():
 # properties / operators / panel
 # =====================================================================================
 class Mesh2SplatSettings(bpy.types.PropertyGroup):
+    gen_mode: bpy.props.EnumProperty(name="Method", default='TRIANGLE',
+        items=[('TRIANGLE',"Per-Triangle","One anisotropic surfel per triangle (fast, clean, surface-aligned). Uses decimation for count."),
+               ('UNIFORM',"Uniform","Random surface sampling (good for fuzzy/spiky organic where detail is everywhere)")])
     splat_count: bpy.props.IntProperty(name="Splat Count", default=200000, min=1000, max=5000000,
-        description="Number of splats to sample from the mesh surface")
+        description="Target splats. Per-Triangle: decimates the mesh to ~this many triangles. Uniform: number of samples")
     size_scale: bpy.props.FloatProperty(name="Splat Size", default=0.9, min=0.1, max=4.0,
         description="Disk radius relative to mean sample spacing (bigger = smoother/blobbier)")
     flatness: bpy.props.FloatProperty(name="Flatness", default=0.15, min=0.02, max=1.0,
@@ -344,10 +420,10 @@ class MESH2SPLAT_OT_convert(bpy.types.Operator):
             self.report({'ERROR'},"Select a mesh object first"); return {'CANCELLED'}
         s=context.scene.mesh2splat
         t=time.perf_counter()
-        cloud, diag=_make_cloud(obj, s)
+        cloud, diag = (_extract_triangles(obj, s) if s.gen_mode=='TRIANGLE' else _make_cloud(obj, s))
         if cloud is None:
             self.report({'ERROR'},"Mesh has no faces to sample"); return {'CANCELLED'}
-        print("[Mesh2Splat] %s color diagnostics:" % obj.name)
+        print("[Mesh2Splat] %s (%s) diagnostics:" % (obj.name, s.gen_mode))
         for line in diag: print("   ", line)
         _S["clouds"].append(cloud); _rebuild(); _ensure_handler()
         if s.hide_original: obj.hide_set(True)
@@ -367,6 +443,7 @@ class MESH2SPLAT_PT_panel(bpy.types.Panel):
     bl_space_type='VIEW_3D'; bl_region_type='UI'; bl_category="Splat"
     def draw(self, context):
         s=context.scene.mesh2splat; L=self.layout
+        L.prop(s,"gen_mode", expand=True)
         col=L.column(align=True)
         col.prop(s,"splat_count"); col.prop(s,"color_source")
         box=L.box(); box.label(text="Splat shape")
