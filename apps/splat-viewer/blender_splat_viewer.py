@@ -127,7 +127,11 @@ def _draw():
     order=np.argsort(-depth).astype('f4')
     itw=st['itw']; ith=(len(order)+itw-1)//itw
     ibuf=np.zeros(itw*ith,'f4'); ibuf[:len(order)]=order
+    t_sort=(time.perf_counter()-t0)*1000
+    t1=time.perf_counter()
     idxtex=GPUTexture((itw,ith),format='R32F',data=Buffer('FLOAT',itw*ith,ibuf.tolist()))
+    t_idx=(time.perf_counter()-t1)*1000
+    t2=time.perf_counter()
     sh=st['shader']
     gpu.state.blend_set('ALPHA_PREMULT'); gpu.state.depth_test_set('NONE')
     sh.bind()
@@ -138,10 +142,11 @@ def _draw():
     sh.uniform_float('uSigma', SIGMA)
     st['batch'].draw_instanced(sh, instance_count=d['count'])
     gpu.state.blend_set('NONE')
-    dt=(time.perf_counter()-t0)*1000.0
+    t_draw=(time.perf_counter()-t2)*1000
+    dt=t_sort+t_idx+t_draw
     st['ema']=dt if st.get('ema') is None else st['ema']*0.9+dt*0.1
-    ctx.area.header_text_set("SPLATS %d | frame %.1f ms (~%.0f fps) | sort+draw" %
-                             (d['count'], st['ema'], 1000.0/max(st['ema'],0.01)))
+    ctx.area.header_text_set("SPLATS %d | %.1f ms (~%.0f fps) | sort %.1f  idxtex %.1f  draw %.1f" %
+                             (d['count'], st['ema'], 1000.0/max(st['ema'],0.01), t_sort, t_idx, t_draw))
 
 class SPLAT_OT_toggle(bpy.types.Operator):
     bl_idname="splat.toggle"; bl_label="Toggle Splat Viewer"
