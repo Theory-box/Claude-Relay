@@ -1390,3 +1390,29 @@ that breaks pre-4.4 splat/render addons). Checked `VertexLitEngine`: it defines 
 `RenderEngine.__init__` cleanly and is unaffected. Suite already green on 4.4.3 confirms it
 instantiates. NOTE for future: if anyone ever adds an `__init__` to VertexLitEngine, it MUST
 call `super().__init__(*args, **kwargs)`.
+
+## ✅ SPLAT VIEWER WORKING IN BLENDER — first perf data point
+Real-time 3DGS viewer running as a viewport overlay (apps/splat-viewer/blender_splat_viewer.py).
+Built almost entirely from HEADLESS-validated code (loader + EWA render + vertex-shader port +
+texture-fed 2D-tiled packing all pixel-identical to a CPU reference before touching Blender).
+- **Result on real cactus (cactus_splat3, 139,410 splats):** 15.7 ms/frame (~64 fps), SMOOTH,
+  no errors, correct alignment from all angles, no distortion. First-run success on user's GPU.
+- **Crucially:** that 15.7ms INCLUDES the per-frame CPU depth-sort + an UNOPTIMISED `.tolist()`
+  index-texture rebuild+upload every frame. So there's known easy headroom before we optimise.
+- **Pipeline validated end-to-end:** dependency-free .ply loader (fast all-float path) → static
+  2D-tiled RGBA32F data texture (4 texels/splat, dodges 16384 limit) → per-frame sorted-index
+  texture → EWA covariance projection in the vertex shader → gaussian falloff + premultiplied
+  alpha, depth-test off. gl_InstanceID indirection (Blender has no instance-attr divisors).
+- **Still SH degree-0 (view-independent colour)** — looks great already; view-dependent SH is a
+  deferred polish, not needed for the perf question.
+
+### Open questions the number raises (next when we resume)
+- WHERE does the 15.7ms go? fillrate (frag blending overlap) vs CPU (sort + `.tolist()` upload).
+  Determines scaling: fillrate-bound ~ scales with screen coverage (good for dense); CPU-bound ~
+  linear in splat count (1M ≈ 7x). Measure by: (a) time the numpy sort/pack alone, (b) shrink the
+  window / zoom out to cut coverage and see if ms drops.
+- **Easy optimisations queued (untouched so far):** kill per-frame `.tolist()` (feed Buffer from
+  numpy directly / reuse a persistent GPUTexture), move the depth-sort to a background thread
+  (numpy releases the GIL) and only re-sort past a camera-angle threshold. Expected: well under 10ms.
+- **Then:** scale test toward 500k–1M splats (INRIA scenes) for the real overdraw curve; optional
+  view-dependent SH; decide integration (standalone viewer vs a path in the engine).
