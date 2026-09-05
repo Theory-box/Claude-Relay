@@ -52,8 +52,9 @@ class VertexLitSettings(bpy.types.PropertyGroup):
         items=[('1024', '1024', ''), ('2048', '2048', ''), ('4096', '4096', '')],
         default='2048')
     shadow_bias: bpy.props.FloatProperty(
-        name="Bias", default=0.0015, min=0.0, max=0.05, precision=4,
-        description="Depth bias to avoid shadow acne")
+        name="Bias", default=0.0004, min=0.0, max=0.02, precision=4,
+        description="Depth bias to avoid shadow acne (normal-offset handles most of it, so "
+                    "this can stay small)")
     shadow_softness: bpy.props.FloatProperty(
         name="Softness", default=1.5, min=0.0, max=8.0,
         description="Soft-edge width (PCF kernel spread)")

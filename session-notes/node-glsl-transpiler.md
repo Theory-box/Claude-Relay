@@ -1156,3 +1156,12 @@ SUN ONLY so ambient/hemisphere fills the shadow (not the whole lighting darkened
   shadow params. (Fallback direct-draw path already passed them.) F12 still off (defaults).
 - Moved Key Light intensity from the Shading panel to the Lighting panel (with hemisphere + sun),
   so all stackable lights live together. 16 suites green.
+
+## v0.11.16 — Shadow quality (normal-offset + slope bias) + Lighting sub-panels
+- SHADOW ACNE/BANDING: added normal-offset shadows — vlr_shadow(wPos, N) pushes the sample off the
+  surface along N by uShadowTexelWorld*(1.5+3*slope) (auto-scaled to shadow texel world size =
+  2*radius*1.6/res), plus slope-scaled depth bias (uShadowBias*(1+4*slope)). Removes self-shadow
+  banding without the detachment a big constant bias caused. Default bias lowered 0.0015 -> 0.0004
+  (normal-offset does the work now). uShadowTexelWorld uniform set per frame.
+- UI: Lighting is now a container (Key Light value input) with collapsible sub-panels Sky/Ground
+  and Sun (sun params + shadow controls under Sun). 16 suites green.

@@ -37,16 +37,17 @@ uniform sampler2D uShadowMap;
 uniform int       uUseShadow;
 uniform float     uShadowBias;
 uniform float     uShadowSoft;   /* PCF kernel spread (soft-edge width) */
+uniform float     uShadowTexelWorld;  /* world size of one shadow texel (for normal offset) */
 """
 
 LIGHT_FUNCS = """
-float vlr_shadow(vec3 wPos);   /* forward decl: vlr_light shadows the sun with it */
+float vlr_shadow(vec3 wPos, vec3 N);   /* forward decl: vlr_light shadows the sun with it */
 vec3 vlr_light(vec3 wPos, vec3 N) {
     float hemi = dot(N, vec3(0.0, 0.0, 1.0)) * 0.5 + 0.5;
     vec3 light = mix(uGroundColor, uSkyColor, hemi) * uHemiIntensity;
     /* directional sun (no object): shadowed by the sun's shadow map, so ambient/hemisphere
        still fills the shadow. One dot product + a PCF lookup -> free on dense geo. */
-    light += uSunColor * (max(dot(N, normalize(uSunDir)), 0.0) * uSunIntensity) * vlr_shadow(wPos);
+    light += uSunColor * (max(dot(N, normalize(uSunDir)), 0.0) * uSunIntensity) * vlr_shadow(wPos, N);
     /* camera key light (headlamp) — follows the view, added on top of the hemisphere */
     light += uKeyCol * (max(dot(N, normalize(uKeyDir)), 0.0) * uKeyIntensity);
     for (int i = 0; i < 8; i++) {
@@ -67,18 +68,25 @@ vec3 vlr_light(vec3 wPos, vec3 N) {
     return light;
 }
 
-float vlr_shadow(vec3 wPos) {
+float vlr_shadow(vec3 wPos, vec3 N) {
     if (uUseShadow == 0) return 1.0;
-    vec4 lsPos = uLightSpace * vec4(wPos, 1.0);
+    float ndl = max(dot(N, normalize(uSunDir)), 0.0);
+    float slope = clamp(1.0 - ndl, 0.0, 1.0);
+    /* Normal-offset: push the sample off the surface along its normal (scaled by shadow
+       texel size, more at grazing angles). This removes self-shadow "acne"/banding without
+       the detachment a big depth bias causes. */
+    vec3 wp = wPos + N * (uShadowTexelWorld * (1.5 + 3.0 * slope));
+    vec4 lsPos = uLightSpace * vec4(wp, 1.0);
     vec3 proj  = lsPos.xyz / lsPos.w * 0.5 + 0.5;
     if (proj.x < 0.0 || proj.x > 1.0 || proj.y < 0.0 || proj.y > 1.0 || proj.z > 1.0)
         return 1.0;                                  /* outside the sun's frustum -> lit */
+    float bias = uShadowBias * (1.0 + 4.0 * slope);  /* slope-scaled depth bias */
     vec2 texel = (1.0 / vec2(textureSize(uShadowMap, 0))) * max(uShadowSoft, 1.0);
     float lit = 0.0;
     for (int x = -1; x <= 1; x++)
         for (int y = -1; y <= 1; y++) {
             float d = textureLod(uShadowMap, proj.xy + vec2(x, y) * texel, 0.0).r;
-            lit += (proj.z - uShadowBias > d) ? 0.0 : 1.0;   /* 1 = lit, 0 = occluded */
+            lit += (proj.z - bias > d) ? 0.0 : 1.0;   /* 1 = lit, 0 = occluded */
         }
     return lit / 9.0;                                /* 3x3 PCF -> soft edges */
 }

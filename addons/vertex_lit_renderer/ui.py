@@ -25,15 +25,29 @@ class VERTEX_LIT_PT_lighting(_Base, bpy.types.Panel):
 
     def draw(self, context):
         s = context.scene.vertex_lit
-        layout = self.layout
+        self.layout.prop(s, 'key_intensity')   # camera headlamp
 
-        col = layout.column(align=True)
+
+class VERTEX_LIT_PT_skyground(_Base, bpy.types.Panel):
+    bl_label = "Sky / Ground"
+    bl_parent_id = "VERTEX_LIT_PT_lighting"
+
+    def draw(self, context):
+        s = context.scene.vertex_lit
+        col = self.layout.column(align=True)
         col.prop(s, 'hemi_intensity')
         row = col.row(align=True)
         row.prop(s, 'sky_color')
         row.prop(s, 'ground_color')
 
-        layout.separator()
+
+class VERTEX_LIT_PT_sun(_Base, bpy.types.Panel):
+    bl_label = "Sun"
+    bl_parent_id = "VERTEX_LIT_PT_lighting"
+
+    def draw(self, context):
+        s = context.scene.vertex_lit
+        layout = self.layout
         col = layout.column(align=True)
         col.prop(s, 'sun_intensity')
         col.prop(s, 'sun_color', text="")
@@ -48,9 +62,6 @@ class VERTEX_LIT_PT_lighting(_Base, bpy.types.Panel):
             sub.prop(s, 'shadow_resolution')
             sub.prop(s, 'shadow_softness')
             sub.prop(s, 'shadow_bias')
-
-        layout.separator()
-        layout.prop(s, 'key_intensity')
 
 
 class VERTEX_LIT_PT_viewmode(_Base, bpy.types.Panel):
@@ -196,6 +207,8 @@ class VERTEX_LIT_PT_bake(_Base, bpy.types.Panel):
 _CLASSES = (
     VERTEX_LIT_PT_settings,
     VERTEX_LIT_PT_lighting,
+    VERTEX_LIT_PT_skyground,
+    VERTEX_LIT_PT_sun,
     VERTEX_LIT_PT_viewmode,
     VERTEX_LIT_PT_background,
     VERTEX_LIT_PT_shading,

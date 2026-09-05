@@ -934,6 +934,7 @@ class VertexLitEngine(bpy.types.RenderEngine):
         sf('uHemiIntensity', _hi)
         si('uUseShadow', 1 if do_shad else 0)
         sf('uShadowBias', s_bias); sf('uShadowSoft', s_dark); ss('uShadowMap', shad_tex)
+        sf('uShadowTexelWorld', getattr(self, '_shadow_texel', 0.0))
         si('uNumLights', len(lights))
         for i in range(8):
             l=lights[i] if i<len(lights) else None
@@ -1332,6 +1333,9 @@ class VertexLitEngine(bpy.types.RenderEngine):
             try: context.region.tag_redraw()
             except Exception: pass
         center,radius=self._bounds_cache
+        # World size of one shadow texel (ortho half-width = radius*1.6) -> drives the
+        # normal-offset that removes acne. Auto-scales with resolution + scene size.
+        self._shadow_texel = (2.0 * radius * 1.6 / max(s_res, 1)) if do_shad else 0.0
         ls_mat=_build_light_space_dir(sun_dir,center,radius) if do_shad else Matrix.Identity(4)
         shad_tex=self._shadow_pass(ls_mat,s_res,depsgraph) if do_shad else self._dummy_depth
 
