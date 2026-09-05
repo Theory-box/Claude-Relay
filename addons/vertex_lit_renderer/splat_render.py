@@ -170,6 +170,91 @@ def _mkbuf(arr):
     except Exception: return Buffer('FLOAT', n, arr.tolist())
 
 
+# ============================ compute pre-pass (opt-in) ============================
+# Computes the per-splat projection (ellipse axes, depth, lit colour, view normal) ONCE per frame
+# in a compute shader, into a 2D-tiled output texture (4 texels/splat). The colour/depth/normal
+# passes then just READ it and place the quad — no projection per vertex/pass. Validated pixel-
+# identical to the per-vertex path (moderngl). Uniforms come via a small params texture (avoids
+# push-constant limits). Any failure -> _compute_ok=False -> per-vertex fallback.
+_OTW = 4096
+
+# params texture layout (flat float index -> read via pf()); packed on the CPU in _pack_params.
+#  0..15 viewProj(colmajor) 16..18 row0 19..21 row1 22..24 row2 25..27 cam 28..29 F 30..31 VP
+#  32 sigma 33 lit 34..36 sky 37..39 ground 40 hemi 41..43 sunDir 44..46 sunCol 47 sunInt
+#  48..50 keyDir 51..53 keyCol 54 keyInt
+_PARAM_FLOATS = 56
+
+_COMPUTE_SRC = """
+float pf(int i){ return texelFetch(uParams, ivec2(i/4, 0), 0)[i%4]; }
+vec3 pv3(int i){ return vec3(pf(i),pf(i+1),pf(i+2)); }
+ivec2 at(int lin,int w){ return ivec2(lin % w, lin / w); }
+vec3 splat_light(vec3 N){
+  if(pf(33) < 0.5) return vec3(1.0);
+  float hemi=dot(N,vec3(0.0,0.0,1.0))*0.5+0.5;
+  vec3 L=mix(pv3(37),pv3(34),hemi)*pf(40);
+  L+=pv3(44)*(max(dot(N,normalize(pv3(41))),0.0)*pf(47));
+  L+=pv3(51)*(max(dot(N,normalize(pv3(48))),0.0)*pf(54));
+  return L;
+}
+void main(){
+  int id=int(gl_GlobalInvocationID.x); if(id>=uCount) return; int base=id*4;
+  vec4 d0=texelFetch(uData,at(base,uTW),0),d1=texelFetch(uData,at(base+1,uTW),0),
+       d2=texelFetch(uData,at(base+2,uTW),0),d3=texelFetch(uData,at(base+3,uTW),0);
+  mat4 uViewProj=mat4(pf(0),pf(1),pf(2),pf(3),pf(4),pf(5),pf(6),pf(7),pf(8),pf(9),pf(10),pf(11),pf(12),pf(13),pf(14),pf(15));
+  vec3 uR0=pv3(16),uR1=pv3(19),uR2=pv3(22),uCam=pv3(25); vec2 uF=vec2(pf(28),pf(29)),uVP=vec2(pf(30),pf(31)); float uSigma=pf(32);
+  vec3 ic=d0.xyz; vec3 is=vec3(d0.w,d1.x,d1.y); vec4 iq=vec4(d1.z,d1.w,d2.x,d2.y); vec3 icol=vec3(d2.z,d2.w,d3.x); float iop=d3.y;
+  vec3 dp=ic-uCam; vec3 t=vec3(dot(uR0,dp),dot(uR1,dp),dot(uR2,dp));
+  vec4 clipC=uViewProj*vec4(ic,1.0);
+  float cull=(t.z<0.02 || clipC.w<=0.0)?1.0:0.0;
+  float w=iq.x,x=iq.y,y=iq.z,z=iq.w;
+  vec3 c0=vec3(1.0-2.0*(y*y+z*z),2.0*(x*y+w*z),2.0*(x*z-w*y));
+  vec3 c1=vec3(2.0*(x*y-w*z),1.0-2.0*(x*x+z*z),2.0*(y*z+w*x));
+  vec3 c2=vec3(2.0*(x*z+w*y),2.0*(y*z-w*x),1.0-2.0*(x*x+y*y));
+  vec3 nrm=(is.x<=is.y && is.x<=is.z)? c0 : ((is.y<=is.z)? c1 : c2); nrm=normalize(nrm);
+  vec3 lc = icol * splat_light(nrm);
+  vec3 vn = nrm;   // (cavity normal pass stays per-vertex for now; this output is unused there)
+  float iz=1.0/max(t.z,1e-6);
+  mat3 J=mat3(vec3(uF.x*iz,0,0),vec3(0,uF.y*iz,0),vec3(-uF.x*t.x*iz*iz,-uF.y*t.y*iz*iz,0));
+  mat3 Rv=mat3(vec3(uR0.x,uR1.x,uR2.x),vec3(uR0.y,uR1.y,uR2.y),vec3(uR0.z,uR1.z,uR2.z));
+  mat3 M=mat3(c0*is.x,c1*is.y,c2*is.z); mat3 Sig=M*transpose(M);
+  mat3 cov=(J*Rv)*Sig*transpose(J*Rv);
+  float ca=cov[0][0]+0.3,cb=cov[0][1],cc=cov[1][1]+0.3;
+  float tr=ca+cc,det=ca*cc-cb*cb,mid=0.5*tr,disc=sqrt(max(mid*mid-det,0.0));
+  float l1=mid+disc,l2=max(mid-disc,1e-9); float r1=uSigma*sqrt(max(l1,0.0)),r2=uSigma*sqrt(l2);
+  vec2 e1=vec2(cb,l1-ca); e1=(length(e1)<1e-6)?vec2(1,0):normalize(e1); vec2 e2=vec2(-e1.y,e1.x);
+  vec2 p2n=vec2(2.0/uVP.x,2.0/uVP.y); vec2 A1=e1*r1*p2n,A2=e2*r2*p2n;
+  int ob=id*4;
+  imageStore(uOut,at(ob+0,uOTW),vec4(clipC.xy,clipC.z,clipC.w));
+  imageStore(uOut,at(ob+1,uOTW),vec4(A1,A2));
+  imageStore(uOut,at(ob+2,uOTW),vec4(lc,iop));
+  imageStore(uOut,at(ob+3,uOTW),vec4(vn,cull));
+}"""
+
+# read-from-projected vertex shaders (colour/depth share; normal separate)
+_VERT_READ = """
+uniform sampler2D uProj; uniform sampler2D uIndex; uniform int uOTW; uniform int uITW;
+in vec2 corner; out vec2 vC; out vec3 vCol; out float vOp;
+ivec2 at(int lin,int w){ return ivec2(lin%w, lin/w); }
+void main(){
+  int sid=int(texelFetch(uIndex,at(gl_InstanceID,uITW),0).r+0.5); int ob=sid*4;
+  vec4 p0=texelFetch(uProj,at(ob,uOTW),0),p1=texelFetch(uProj,at(ob+1,uOTW),0),p2=texelFetch(uProj,at(ob+2,uOTW),0),p3=texelFetch(uProj,at(ob+3,uOTW),0);
+  vC=corner; vCol=p2.rgb; vOp=p2.w;
+  if(p3.w>0.5){ gl_Position=vec4(2,2,2,1); return; }
+  gl_Position=vec4(p0.xy+(corner.x*p1.xy+corner.y*p1.zw)*p0.w, p0.z, p0.w);
+}"""
+_VERT_READ_NRM = """
+uniform sampler2D uProj; uniform sampler2D uIndex; uniform int uOTW; uniform int uITW;
+in vec2 corner; out vec2 vC; out float vOp; out vec3 vVN;
+ivec2 at(int lin,int w){ return ivec2(lin%w, lin/w); }
+void main(){
+  int sid=int(texelFetch(uIndex,at(gl_InstanceID,uITW),0).r+0.5); int ob=sid*4;
+  vec4 p0=texelFetch(uProj,at(ob,uOTW),0),p1=texelFetch(uProj,at(ob+1,uOTW),0),p2=texelFetch(uProj,at(ob+2,uOTW),0),p3=texelFetch(uProj,at(ob+3,uOTW),0);
+  vC=corner; vOp=p2.w; vVN=p3.xyz;
+  if(p3.w>0.5){ gl_Position=vec4(2,2,2,1); return; }
+  gl_Position=vec4(p0.xy+(corner.x*p1.xy+corner.y*p1.zw)*p0.w, p0.z, p0.w);
+}"""
+
+
 class SplatCloud:
     """One splat cloud: owns its GPU data texture + shader, sorts + draws into the current FBO."""
     def __init__(self, data, sigma=2.2):
@@ -211,11 +296,19 @@ class SplatCloud:
             self._last=(cam_np, fwd_np)
         return self._idxtex
 
-    def draw(self, view_matrix, window_matrix, w, h, write_depth=True, light=None):
-        """Draw into the currently-bound framebuffer.
-        Pass 1: colour over-blend (optionally scene-lit), depth-tested, NO depth write.
-        Pass 2 (M2): opaque-core depth write into the G-buffer depth for AO/cavity."""
+    def draw(self, view_matrix, window_matrix, w, h, write_depth=True, light=None, use_compute=False):
+        """Pass 1: colour over-blend; Pass 2: opaque-core depth (M2). Optional compute pre-pass."""
         self.ensure_gpu()
+        self._proj_valid = False
+        if use_compute:
+            self._ensure_compute()
+            if getattr(self, '_compute_ok', False):
+                try:
+                    if self._draw_compute(view_matrix, window_matrix, w, h, write_depth, light):
+                        return
+                except Exception as e:
+                    print("[VertexLit] splat compute draw failed -> per-vertex:", e)
+                    self._compute_ok = False
         vm=view_matrix; pm=window_matrix
         right=Vector(vm[0][:3]); up=Vector(vm[1][:3]); fwd=-Vector(vm[2][:3])
         cam=vm.inverted().translation
@@ -263,10 +356,22 @@ class SplatCloud:
         gpu.state.blend_set('NONE')
         gpu.state.depth_mask_set(True)
 
-    def draw_normals(self, view_matrix, window_matrix, view_mat3, w, h):
-        """Render splat view-space normals (core-only, depth-tested) into the current normal FBO,
-        matching the engine's mesh normal buffer so the cavity effect includes splats."""
+    def draw_normals(self, view_matrix, window_matrix, view_mat3, w, h, use_compute=False):
+        """Render splat view-space normals (core-only, depth-tested) into the current normal FBO."""
         self.ensure_gpu()
+        if use_compute and getattr(self, '_compute_ok', False) and getattr(self, '_proj_valid', False):
+            try:
+                right=Vector(view_matrix[0][:3]); up=Vector(view_matrix[1][:3]); fwd=-Vector(view_matrix[2][:3])
+                cam=view_matrix.inverted().translation
+                idxtex=self._sorted_index(np.array(cam,'f4'), np.array(fwd,'f4'))
+                sh=self.rnshader; sh.bind()
+                sh.uniform_sampler('uProj', self.projtex); sh.uniform_sampler('uIndex', idxtex)
+                sh.uniform_int('uOTW', _OTW); sh.uniform_int('uITW', self.itw); sh.uniform_float('uDepthCut', 0.35)
+                gpu.state.blend_set('NONE'); gpu.state.depth_test_set('LESS_EQUAL'); gpu.state.depth_mask_set(True)
+                self.rbatch.draw_instanced(sh, instance_count=self.d['count'])
+                return
+            except Exception as e:
+                print("[VertexLit] splat compute normals failed -> per-vertex:", e)
         vm=view_matrix; pm=window_matrix
         right=Vector(vm[0][:3]); up=Vector(vm[1][:3]); fwd=-Vector(vm[2][:3])
         cam=vm.inverted().translation
@@ -284,6 +389,72 @@ class SplatCloud:
         gpu.state.depth_test_set('LESS_EQUAL')
         gpu.state.depth_mask_set(True)
         self.batch.draw_instanced(sh, instance_count=self.d['count'])
+
+    # ---------------- compute pre-pass (opt-in) ----------------
+    def _ensure_compute(self):
+        if getattr(self, '_compute_tried', False):
+            return
+        self._compute_tried = True; self._compute_ok = False
+        try:
+            info = gpu.types.GPUShaderCreateInfo()
+            info.local_group_size(64, 1, 1)
+            info.sampler(0, 'FLOAT_2D', 'uData')
+            info.sampler(1, 'FLOAT_2D', 'uParams')
+            info.push_constant('INT', 'uTW'); info.push_constant('INT', 'uOTW'); info.push_constant('INT', 'uCount')
+            info.image(0, 'RGBA32F', 'FLOAT_2D', 'uOut', qualifiers={'WRITE'})
+            info.compute_source(_COMPUTE_SRC)
+            self.cshader = gpu.shader.create_from_info(info)
+            self.rshader = GPUShader(_VERT_READ, _FRAG)
+            self.rnshader = GPUShader(_VERT_READ_NRM, _NRM_FRAG)
+            self.rbatch = batch_for_shader(self.rshader, 'TRI_FAN', {"corner": [(-1,-1),(1,-1),(1,1),(-1,1)]})
+            oth = (self.d['count']*4 + _OTW - 1)//_OTW
+            self.projtex = GPUTexture((_OTW, oth), format='RGBA32F')
+            self._compute_ok = True
+        except Exception as e:
+            print("[VertexLit] splat compute unavailable -> per-vertex path:", e)
+            self._compute_ok = False
+
+    def _pack_params(self, light, right, up, fwd, cam, fx, fy, w, h, view_proj):
+        P = np.zeros(_PARAM_FLOATS, np.float32)
+        P[0:16] = np.array(view_proj, np.float32).T.reshape(-1)   # column-major for mat4()
+        P[16:19] = list(right); P[19:22] = list(up); P[22:25] = list(fwd); P[25:28] = list(cam)
+        P[28:30] = (fx, fy); P[30:32] = (float(w), float(h)); P[32] = self.sigma
+        if light is not None:
+            P[33]=1.0; P[34:37]=light['sky']; P[37:40]=light['ground']; P[40]=float(light['hemi'])
+            P[41:44]=light['sun_dir']; P[44:47]=light['sun_col']; P[47]=float(light['sun_int'])
+            P[48:51]=light['key_dir']; P[51:54]=light['key_col']; P[54]=float(light['key_int'])
+        return P
+
+    def _dispatch(self, light, right, up, fwd, cam, fx, fy, w, h, view_proj):
+        P = self._pack_params(light, right, up, fwd, cam, fx, fy, w, h, view_proj)
+        ptex = GPUTexture((_PARAM_FLOATS//4, 1), format='RGBA32F', data=_mkbuf(P))
+        sh = self.cshader; sh.bind()
+        sh.image('uOut', self.projtex)
+        sh.uniform_sampler('uData', self.datatex); sh.uniform_sampler('uParams', ptex)
+        sh.uniform_int('uTW', _TW); sh.uniform_int('uOTW', _OTW); sh.uniform_int('uCount', int(self.d['count']))
+        gpu.compute.dispatch(sh, (self.d['count']+63)//64, 1, 1)
+
+    def _draw_compute(self, vm, pm, w, h, write_depth, light):
+        """Compute path: project once, then read-and-place in each pass. Returns True on success."""
+        right=Vector(vm[0][:3]); up=Vector(vm[1][:3]); fwd=-Vector(vm[2][:3]); cam=vm.inverted().translation
+        fx=0.5*w*pm[0][0]; fy=0.5*h*pm[1][1]; view_proj=pm@vm
+        idxtex=self._sorted_index(np.array(cam,'f4'), np.array(fwd,'f4'))
+        self._dispatch(light, right, up, fwd, cam, fx, fy, w, h, view_proj)
+        sh=self.rshader; sh.bind()
+        sh.uniform_sampler('uProj', self.projtex); sh.uniform_sampler('uIndex', idxtex)
+        sh.uniform_int('uOTW', _OTW); sh.uniform_int('uITW', self.itw)
+        gpu.state.blend_set('ALPHA_PREMULT'); gpu.state.depth_test_set('LESS_EQUAL'); gpu.state.depth_mask_set(False)
+        sh.uniform_float('uDepthCut', 0.004)
+        self.rbatch.draw_instanced(sh, instance_count=self.d['count'])
+        if write_depth:
+            try:
+                gpu.state.color_mask_set(False,False,False,False); gpu.state.blend_set('NONE'); gpu.state.depth_mask_set(True)
+                sh.uniform_float('uDepthCut', 0.35); self.rbatch.draw_instanced(sh, instance_count=self.d['count'])
+            except Exception: pass
+            finally: gpu.state.color_mask_set(True,True,True,True)
+        gpu.state.blend_set('NONE'); gpu.state.depth_mask_set(True)
+        self._proj_valid = True
+        return True
 
     def free(self):
         self._gpu=False; self._idxtex=None; self.datatex=None

@@ -1288,9 +1288,10 @@ class VertexLitEngine(bpy.types.RenderEngine):
             return
         light = getattr(self, '_splat_light', None)
         wd = getattr(self, '_splat_need_depth', True)
+        uc = getattr(self, '_splat_use_compute', False)
         for c in clouds:
             try:
-                c.draw(vm, pm, wh[0], wh[1], write_depth=wd, light=light)
+                c.draw(vm, pm, wh[0], wh[1], write_depth=wd, light=light, use_compute=uc)
             except Exception as e:
                 if _DEBUG: print("[VertexLit] splat draw:", e)
 
@@ -1537,6 +1538,7 @@ class VertexLitEngine(bpy.types.RenderEngine):
         } if (vls is None or getattr(vls, 'splat_lit', True)) else None)
         # depth pass (M2) only needed to FEED AO; compositing uses the depth TEST in the colour pass.
         self._splat_need_depth = bool(vls and getattr(vls, 'use_ao', False))
+        self._splat_use_compute = bool(vls and getattr(vls, 'splat_compute', False))
         def _draw_objects():
             self._draw_batches(depsgraph, vls, view_proj, studio, ls_mat, sky, ground,
                                bstr, do_shad, s_bias, s_dark, shad_tex, lights, mode)
