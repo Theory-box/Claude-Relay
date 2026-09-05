@@ -1289,6 +1289,20 @@ class VertexLitEngine(bpy.types.RenderEngine):
         light = getattr(self, '_splat_light', None)
         wd = getattr(self, '_splat_need_depth', True)
         uc = getattr(self, '_splat_use_compute', False)
+        if getattr(self, '_splat_tile', False):
+            from . import splat_tile as ST
+            any_ok = False
+            for c in clouds:
+                try:
+                    if getattr(c, '_tile', None) is None:
+                        c._tile = ST.TileRasterizer(c)
+                    out = c._tile.render(vm, pm, wh[0], wh[1])
+                    if out is not None:
+                        ST.composite(out); any_ok = True
+                except Exception as e:
+                    if _DEBUG: print("[VertexLit] tile raster -> fallback:", e)
+            if any_ok:
+                return   # tile path handled the splats
         for c in clouds:
             try:
                 c.draw(vm, pm, wh[0], wh[1], write_depth=wd, light=light, use_compute=uc, backface=getattr(self,'_splat_backface',False))
@@ -1539,6 +1553,7 @@ class VertexLitEngine(bpy.types.RenderEngine):
         # depth pass (M2) only needed to FEED AO; compositing uses the depth TEST in the colour pass.
         self._splat_need_depth = bool(vls and getattr(vls, 'use_ao', False))
         self._splat_use_compute = bool(vls and getattr(vls, 'splat_compute', False))
+        self._splat_tile = bool(vls and getattr(vls, "splat_tile", False))
         self._splat_backface = bool(vls and getattr(vls, "splat_backface", False))
         def _draw_objects():
             self._draw_batches(depsgraph, vls, view_proj, studio, ls_mat, sky, ground,
