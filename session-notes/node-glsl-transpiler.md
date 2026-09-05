@@ -1230,3 +1230,25 @@ _extract_mesh_data was calling evaluated_get() again on the already-evaluated in
 COULD return the realized whole in some setups. Switched instance extraction to pass mesh=obj.data
 directly (the instance element), immune to that. Verified identical (one leaf) + tests green on 4.2+4.4.
 If over-density persists it's likely a specific node setup (nested/Realize) -> need a repro .blend.
+
+## v0.11.22 — compat-scanner cross-pollination + easy wins
+Reused the `apps/blend-compat-scanner` methodology (enumerate every node's schema
+from the binary, not from memory) to harden transpiler coverage.
+- **Auto coverage audit** → `tests/test_node_coverage.py`: enumerates all shader
+  node types from the running Blender, asserts each is HANDLED or in an explicit
+  out-of-scope allow-list (grouped by reason). Fails on any unclassified node, so
+  new node types in future Blender versions surface as a red test instead of a
+  silent neutralise. Passes 4.4 (101 types: 47 handled / 54 oos) and 4.2 (99
+  types; BsdfMetallic + TexGabor correctly absent, tolerated).
+- **New handlers** (the only "should-handle-but-didn't" colour nodes the audit
+  flagged): `_n_vertex_color` and `_n_attribute` → bind to the extracted colour
+  attribute (`vColor`). Attribute supports Color/Alpha/Vector/Fac; reflects the
+  active/selected colour layer (arbitrary named non-colour attributes remain
+  unavailable in-shader by design).
+- GL harness gained a `vColor` varying (= vec4(u,0.25,0.75,0.5)); added pixel
+  asserts to `test_gl_nodes.py` for both nodes. Green on 4.2.9 + 4.4.3.
+- Deferred candidates the audit surfaced: Bump/Normal/Displacement (→ future POM),
+  TexEnvironment (→ image-background idea), Blackbody/Wavelength (need spectrum LUT),
+  VectorTransform. All explicitly allow-listed with rationale.
+- Not yet done: cross-check exact transpiler socket reads against the scanner's
+  `compat_db_4.4_to_4.2.json` to *prove* no read lands on a changed socket (4.2↔4.4).

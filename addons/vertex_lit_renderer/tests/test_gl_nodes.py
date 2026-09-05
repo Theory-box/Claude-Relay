@@ -157,4 +157,24 @@ def palpha(a):
 check(abs(palpha(0.4)-0.4)<0.05, "Principled Alpha 0.4 -> output alpha 0.4")
 check(abs(palpha(1.0)-1.0)<0.05, "Principled Alpha 1.0 -> opaque")
 
+# --- Vertex Colour + Attribute nodes (harness sets vColor = (u, 0.25, 0.75, 0.5)) ---
+def _vc(node_type, out_name):
+    m,t,bb=base('vc'); s=t.nodes.new(node_type)
+    t.links.new(s.outputs[out_name], bb.inputs['Base Color'])
+    px,_=H.render_material(m,size=16); return px
+# Vertex Colour: Color output routes the colour attribute straight through.
+_p=_vc('ShaderNodeVertexColor','Color')
+check(abs(_p[...,1].mean()-0.25)<0.03 and abs(_p[...,2].mean()-0.75)<0.03, "VertexColor Color -> vColor.gb = (0.25,0.75)")
+check(_p[...,0].std()>0.1, "VertexColor Color -> R varies with vColor.r")
+# Vertex Colour: Alpha output broadcasts the 0.5 alpha to all channels.
+_pa=_vc('ShaderNodeVertexColor','Alpha')
+check(abs(_pa[...,0].mean()-0.5)<0.03 and _pa[...,0].std()<0.02, "VertexColor Alpha -> 0.5 flat")
+# Attribute: Vector output = vColor.rgb.
+_av=_vc('ShaderNodeAttribute','Vector')
+check(abs(_av[...,1].mean()-0.25)<0.03 and abs(_av[...,2].mean()-0.75)<0.03, "Attribute Vector -> vColor.gb")
+# Attribute: Fac output = Rec.709 luminance of vColor.rgb (mean over u in [0,1]).
+_af=_vc('ShaderNodeAttribute','Fac')
+_exp=0.2126*0.5+0.7152*0.25+0.0722*0.75
+check(abs(_af[...,0].mean()-_exp)<0.03, "Attribute Fac -> luminance %.3f"%_exp)
+
 print("SUMMARY: " + ("FAILED "+", ".join(F) if F else "ALL CHECKS PASSED"))

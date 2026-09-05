@@ -1049,6 +1049,24 @@ class _Transpiler:
     def _n_bsdf_diffuse(self, node, out):
         return self._n_bsdf_principled(node, out)
 
+    def _n_vertex_color(self, node, out):
+        """Vertex Colour node -> the mesh colour attribute we extract into vColor."""
+        if out.name == 'Alpha':
+            return "float(vColor.a)"
+        return "vColor"
+
+    def _n_attribute(self, node, out):
+        """Attribute node -> the extracted colour attribute (vColor). Non-colour attributes
+        aren't available in the shader, so this reflects the active/selected colour layer."""
+        nm = out.name
+        if nm == 'Vector':
+            return "vec3(vColor.rgb)"
+        if nm == 'Fac':
+            return "float(dot(vColor.rgb, vec3(0.2126, 0.7152, 0.0722)))"
+        if nm == 'Alpha':
+            return "float(vColor.a)"
+        return "vColor"
+
 
 # ---------------------------------------------------------------------------
 def _trace_base(node, depth=0):

@@ -75,13 +75,16 @@ def render_material(mat, size=16, param_values=None, textures=None):
     sampler_decls = "".join("uniform sampler2D {};\n".format(s.uniform) for s in res.samplers)
     param_decls = "".join(d + "\n" for d in res.param_decls)
     frag = ("#version 330 core\n"
-            "in vec2 vUV;\nin vec3 vGenerated;\nin vec3 vObjPos;\nout vec4 fragColor;\n"
+            "in vec2 vUV;\nin vec3 vGenerated;\nin vec3 vObjPos;\nin vec4 vColor;\nout vec4 fragColor;\n"
             + sampler_decls + param_decls + res.helpers + "\n"
             + res.glsl + "\n"
             + "void main(){ fragColor = computeBaseColor(vUV); }\n")
+    # vColor test value: a known colour attribute so Vertex-Colour / Attribute nodes
+    # can be asserted on. R from u, G=0.25, B=0.75, A=0.5.
     vert = ("#version 330 core\n"
-            "in vec2 p; out vec2 vUV; out vec3 vGenerated; out vec3 vObjPos;\n"
+            "in vec2 p; out vec2 vUV; out vec3 vGenerated; out vec3 vObjPos; out vec4 vColor;\n"
             "void main(){ vUV = p*0.5+0.5; vGenerated = vec3(vUV,0.0); vObjPos = vec3(vUV,0.0);"
+            " vColor = vec4(vUV.x, 0.25, 0.75, 0.5);"
             " gl_Position = vec4(p,0.0,1.0); }\n")
     try:
         prog = ctx.program(vertex_shader=vert, fragment_shader=frag)

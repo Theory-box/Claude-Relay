@@ -1,5 +1,10 @@
 # Shader Node Coverage Map & Porting Plan
 
+> Coverage is machine-verified by `tests/test_node_coverage.py`, which enumerates
+> every shader node from the Blender binary and fails on any type that is neither
+> handled nor explicitly listed as out-of-scope. Current: **47 handled / 54
+> out-of-scope of 101** (4.4). This map is the human-readable companion to it.
+
 Goal: a Workbench-style engine that shows **live node-graph edits** (no baking),
 feeding clean texture/albedo info to an AI relighter. Exactness is a bonus, not a
 requirement — but where we port Blender's own GLSL we get it for free.
@@ -40,8 +45,10 @@ darken a wall → Bright/Contrast / Mix / Hue-Sat ✅ · show the texture → Im
 ## INPUT
 - ✅ Texture Coordinate (UV), UV Map, RGB, Value
 - ✅ Tex Coord UV/Generated/Object (Generated = object bbox-normalised pos via per-object uniforms; procedurals now default to Generated like Blender). Normal/Camera/Window/Reflection approx as Generated.
-- ⏳ Attribute, Color Attribute, Vertex Color (read a named mesh attribute → bind
-  as a vertex attribute) — medium, ties into the GN-attribute idea
+- ✅ Vertex Color, Attribute (bound to the extracted colour attribute → `vColor`).
+  Attribute Color/Alpha/Vector/Fac supported; reflects the active/selected colour
+  layer (non-colour attributes aren't available in the shader).
+- ⏳ Color Attribute by arbitrary name (would need per-name attribute extraction)
 - 🟡 Fresnel, Layer Weight (view-dependent; doable with normal + view dir) — medium
 - 🚫 Geometry, Object/Particle/Point Info, Tangent, Wireframe, Bevel, AO node,
   Light Path (either need scene data we don't pass, or are ray/screen-space)
