@@ -1292,6 +1292,22 @@ class VertexLitEngine(bpy.types.RenderEngine):
             except Exception as e:
                 if _DEBUG: print("[VertexLit] splat draw:", e)
 
+    def _draw_splat_normals(self, view_mat3):
+        """Render splat normals into the cavity normal buffer (so the cavity effect includes splats)."""
+        from . import splat_render
+        clouds = splat_render.SCENE_CLOUDS
+        if not clouds or view_mat3 is None:
+            return
+        vm = getattr(self, '_splat_vm', None); pm = getattr(self, '_splat_pm', None)
+        wh = getattr(self, '_splat_wh', None)
+        if vm is None or pm is None or wh is None:
+            return
+        for c in clouds:
+            try:
+                c.draw_normals(vm, pm, view_mat3, wh[0], wh[1])
+            except Exception as e:
+                if _DEBUG: print("[VertexLit] splat normals:", e)
+
     def _make_post_ctx(self, depsgraph, vls, view_proj, view_mat3, proj, rw, rh, wc,
                        studio, ls_mat, sky, ground, bstr, lights,
                        do_shad=False, s_bias=0.0015, s_soft=1.5, shad_tex=None):
@@ -1379,6 +1395,7 @@ class VertexLitEngine(bpy.types.RenderEngine):
                     for b, _mn, _tx in sl:
                         try: b.draw(sh)
                         except Exception: pass
+                self._draw_splat_normals(view_mat3)
 
         post_ctx = {
             'proj': proj, 'inv_proj': proj.inverted(),
