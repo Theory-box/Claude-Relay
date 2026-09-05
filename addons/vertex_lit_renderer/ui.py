@@ -77,10 +77,15 @@ class VERTEX_LIT_PT_viewmode(_Base, bpy.types.Panel):
             layout.prop(s, 'solid_color', text="")
         elif s.view_mode == 'RANDOM':
             layout.prop(s, 'random_mode', text="")
+        elif s.view_mode == 'NORMAL':
+            layout.prop(s, 'normal_space', text="")
         elif s.view_mode == 'DEPTH':
             col = layout.column(align=True)
-            col.prop(s, 'depth_min')
-            col.prop(s, 'depth_max')
+            col.prop(s, 'depth_auto')
+            sub = col.column(align=True)
+            sub.active = not s.depth_auto
+            sub.prop(s, 'depth_min')
+            sub.prop(s, 'depth_max')
         elif s.view_mode == 'ATTRIBUTE':
             ob = context.active_object
             me = ob.data if (ob is not None and ob.type == 'MESH') else None
