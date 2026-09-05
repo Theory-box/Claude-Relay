@@ -1122,3 +1122,13 @@ Fix: _material_transparent(mat) decides transparency from the material's CURRENT
 No recompile needed -> tweaking Alpha is instant; truly opaque materials stay opaque. has_alpha flag
 left in place but no longer used for routing. Verified incl. 0.5->1.0 flips to opaque with no
 recompile. 16 suites green.
+
+## v0.11.13 — Directional sun (no object) + stackable lighting intensities
+Objectless sun: Height (elevation) + Angle (azimuth) -> dir; Sun intensity (0=off) + colour.
+- _compute_sun(vls) -> (dir_to_sun, colour, intensity, hemi_intensity); set on self._sun each frame
+  (view_draw + render); uniforms uSunDir/uSunColor/uSunIntensity/uHemiIntensity set in
+  _apply_frame_uniforms. vlr_light: hemisphere*uHemiIntensity + sun (max(dot(N,sunDir),0)*intensity)
+  + key light + scene lights -> all stack. Hemisphere gains hemi_intensity (0=off).
+- Cost: one dot product per fragment, no geometry/passes -> free on dense geo (fragment-bound).
+- UI Lighting panel: Sky/Ground intensity + colours, then Sun intensity/colour/Height/Angle.
+- Matcaps slot (its own intensity) still pending. 16 suites green.

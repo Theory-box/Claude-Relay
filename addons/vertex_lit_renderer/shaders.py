@@ -26,6 +26,10 @@ uniform float uLRadius[8];
 uniform int   uNumLights;
 uniform vec3  uSkyColor;
 uniform vec3  uGroundColor;
+uniform float uHemiIntensity;
+uniform vec3  uSunDir;       /* direction TO the sun (world space) */
+uniform vec3  uSunColor;
+uniform float uSunIntensity;
 uniform vec3  uKeyDir;       /* camera-following key light (world space) */
 uniform vec3  uKeyCol;
 uniform float uKeyIntensity;
@@ -38,7 +42,9 @@ uniform float     uShadowDark;
 LIGHT_FUNCS = """
 vec3 vlr_light(vec3 wPos, vec3 N) {
     float hemi = dot(N, vec3(0.0, 0.0, 1.0)) * 0.5 + 0.5;
-    vec3 light = mix(uGroundColor, uSkyColor, hemi);
+    vec3 light = mix(uGroundColor, uSkyColor, hemi) * uHemiIntensity;
+    /* directional sun (no object, no shadow): one dot product, free on dense geo */
+    light += uSunColor * (max(dot(N, normalize(uSunDir)), 0.0) * uSunIntensity);
     /* camera key light (headlamp) — follows the view, added on top of the hemisphere */
     light += uKeyCol * (max(dot(N, normalize(uKeyDir)), 0.0) * uKeyIntensity);
     for (int i = 0; i < 8; i++) {

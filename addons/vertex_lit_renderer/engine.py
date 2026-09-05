@@ -56,6 +56,20 @@ def _area_resize(arr, W, H):
     return arr
 
 
+def _compute_sun(vls):
+    """Sun params from Height (elevation) + Angle (azimuth): returns
+    (dir_to_sun, colour, intensity, hemisphere_intensity)."""
+    import math
+    if vls is None:
+        return ((0.0, 0.0, 1.0), (1.0, 1.0, 1.0), 0.0, 1.0)
+    el = getattr(vls, 'sun_elevation', 0.785398)
+    az = getattr(vls, 'sun_azimuth', 0.785398)
+    ce = math.cos(el)
+    d = (ce * math.sin(az), ce * math.cos(az), math.sin(el))   # direction TO the sun
+    return (d, tuple(vls.sun_color), float(vls.sun_intensity),
+            float(getattr(vls, 'hemi_intensity', 1.0)))
+
+
 def _material_transparent(mat):
     """Decide at DRAW time whether a material is alpha-blended, from its CURRENT state (not a
     cached compile-time flag, which goes stale when the Alpha value is tweaked without a
@@ -585,6 +599,7 @@ class VertexLitEngine(bpy.types.RenderEngine):
             proj = cam_eval.calc_matrix_camera(depsgraph, x=w, y=h)
             view_proj = proj @ view
             self._film_transparent = getattr(scene.render, 'film_transparent', False)
+            self._sun = _compute_sun(vls)
             try: self._cam_pos = tuple(cam_eval.matrix_world.translation)
             except Exception: self._cam_pos = (0.0, 0.0, 0.0)
             try:
@@ -883,6 +898,10 @@ class VertexLitEngine(bpy.types.RenderEngine):
         sf('uKeyDir', key_dir); sf('uKeyCol', key_col); sf('uKeyIntensity', key_int)
         # Scene-light / shadow uniforms (present only in the PIXEL program)
         sf('uLightSpace', ls_mat); sf('uSkyColor', sky); sf('uGroundColor', ground)
+        # Sun + hemisphere intensity (stacked lighting), from self._sun set each frame.
+        _sd, _sc, _si, _hi = getattr(self, '_sun', ((0.0, 0.0, 1.0), (1.0, 1.0, 1.0), 0.0, 1.0))
+        sf('uSunDir', _sd); sf('uSunColor', _sc); sf('uSunIntensity', _si)
+        sf('uHemiIntensity', _hi)
         si('uUseShadow', 1 if do_shad else 0)
         sf('uShadowBias', s_bias); sf('uShadowDark', s_dark); ss('uShadowMap', shad_tex)
         si('uNumLights', len(lights))
@@ -1288,6 +1307,7 @@ class VertexLitEngine(bpy.types.RenderEngine):
 
         view_proj=rv3d.window_matrix@rv3d.view_matrix
         self._film_transparent = False
+        self._sun = _compute_sun(vls)
         try: self._cam_pos = tuple(rv3d.view_matrix.inverted().translation)
         except Exception: self._cam_pos = (0.0, 0.0, 0.0)
         mode='PIXEL'

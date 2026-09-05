@@ -25,9 +25,20 @@ class VERTEX_LIT_PT_lighting(_Base, bpy.types.Panel):
 
     def draw(self, context):
         s = context.scene.vertex_lit
-        col = self.layout.column(align=True)
-        col.prop(s, 'sky_color')
-        col.prop(s, 'ground_color')
+        layout = self.layout
+
+        col = layout.column(align=True)
+        col.prop(s, 'hemi_intensity')
+        row = col.row(align=True)
+        row.prop(s, 'sky_color')
+        row.prop(s, 'ground_color')
+
+        layout.separator()
+        col = layout.column(align=True)
+        col.prop(s, 'sun_intensity')
+        col.prop(s, 'sun_color', text="")
+        col.prop(s, 'sun_elevation')
+        col.prop(s, 'sun_azimuth')
 
 
 class VERTEX_LIT_PT_viewmode(_Base, bpy.types.Panel):

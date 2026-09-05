@@ -20,12 +20,29 @@ class VertexLitSettings(bpy.types.PropertyGroup):
 
     # ── Lighting ────────────────────────────────────────────────────────────
     # Hemisphere fill: low-frequency sky/ground ambient. (Matcaps land here later.)
+    hemi_intensity: bpy.props.FloatProperty(
+        name="Sky/Ground", default=1.0, min=0.0, max=4.0,
+        description="Hemisphere (sky/ground) intensity — 0 turns it off")
     sky_color: bpy.props.FloatVectorProperty(
         name="Sky", subtype='COLOR', default=(0.60, 0.68, 0.78),
         min=0.0, max=1.0, description="Hemisphere sky colour (upper)")
     ground_color: bpy.props.FloatVectorProperty(
         name="Ground", subtype='COLOR', default=(0.20, 0.18, 0.16),
         min=0.0, max=1.0, description="Hemisphere ground colour (lower)")
+
+    # Directional sun — no object, no shadows. Height (elevation) + Angle (azimuth).
+    sun_intensity: bpy.props.FloatProperty(
+        name="Sun", default=1.0, min=0.0, max=10.0,
+        description="Sun brightness — 0 turns it off")
+    sun_color: bpy.props.FloatVectorProperty(
+        name="Sun Color", subtype='COLOR', default=(1.0, 0.96, 0.90),
+        min=0.0, max=1.0, description="Sun colour")
+    sun_elevation: bpy.props.FloatProperty(
+        name="Height", subtype='ANGLE', default=0.785398,  # 45 deg
+        min=-1.5708, max=1.5708, description="Sun elevation above the horizon")
+    sun_azimuth: bpy.props.FloatProperty(
+        name="Angle", subtype='ANGLE', default=0.785398,  # 45 deg
+        description="Sun compass direction (rotation around up)")
 
     # ── View Mode (Blender's "Color") ───────────────────────────────────────
     view_mode: bpy.props.EnumProperty(
