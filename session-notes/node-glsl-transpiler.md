@@ -1504,3 +1504,19 @@ gap-bridging; anisotropy from real local surface; gap rejection via distance thr
   already-well-tessellated native-density meshes; ROUND-UNIFORM simplest fallback.
 - Tradeoff: surfel anisotropic stretch can slightly over-smooth very fine detail (tunable via cover/k).
 - TODO: swap addon default from decimate+per-triangle to surfel; keep per-triangle as an option.
+
+## Route 1 (splats -> depth buffer -> screen-space FX) — PROVEN headless
+Research (Andrew Chan lit-splat / depth-diff-gaussian-rasterization / Hybrid Transparency 2410.08129 /
+MeshSplats family) confirmed depth-blending is the established technique. Built + validated (render_depth.py):
+- **Depth-over-blending:** MRT render — colour target accumulates (c*a, a); depth target accumulates
+  (d*a, ., ., a). Same premultiplied over-blend on both -> expected_depth = depth.r / colour.a =
+  Σ d_i a_i T_i / Σ a_i T_i. Fuzzy gaussians -> ONE coherent per-pixel depth buffer.
+- **SSAO on that buffer:** range-based screen-space AO reads the blended depth -> darkens splat creases
+  (cactus nubs, pot interior, base). Proven on real cactus: colour / depth / AO / colour*AO all correct.
+- **Engine integration plan (Workbench 2.0, needs GPU):** render splats to offscreen with MRT depth-accum;
+  compute expected depth; feed the engine's EXISTING SSAO/cavity/shadow passes (they already read a depth
+  buffer). Endgame: splats write into the SAME depth buffer as meshes -> mesh+splat AO/occlusion/compositing
+  together, all screen-space FX for free.
+- Refinement: Hybrid Transparency for colour-blend stability under motion (our global sort is already OK-ish);
+  not blocking. Depth buffer itself is stable (global-sorted).
+- AO tuning (strength/bias/blur) is cosmetic; mechanism is the result.
