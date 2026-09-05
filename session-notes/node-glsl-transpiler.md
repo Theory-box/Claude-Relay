@@ -1491,3 +1491,16 @@ per-triangle placement over clustering. Built it:
 - **Verdict:** replace clustering fitter with per-triangle as the DEFAULT generator (clustering kept
   only for raw point clouds with no clean triangles). Research-validated best-practice init.
 - Possible speed win later: skip 3x3 eigh (normal=cross(e1,e2), in-plane 2x2 eigen is closed-form).
+
+## Generator redesign — surfel sampling (topology-independent) is the new default
+User critique of per-triangle (valid): decimating heavy meshes is costly + makes sliver triangles, and
+one-splat-per-triangle ties distribution to TOPOLOGY (uneven mesh -> chaotic splats). Fixed with
+surfel_sample.py: sample surface uniformly (density = sample count, no decimation, ms even on 7M tris)
+-> orient/size each splat from local-KNN PCA in the tangent plane (normal from mesh = accurate/no
+gap-bridging; anisotropy from real local surface; gap rejection via distance threshold).
+- **Comparison (mixed rock, 40k):** surfel = cleanest coverage; round-uniform = noisiest; per-triangle =
+  crisp but topology-dependent+decimation. surfel 0.36s incl. KDTree+KNN.
+- **Default policy:** SURFEL default (robust, topology-free, anisotropic); PER-TRIANGLE only for
+  already-well-tessellated native-density meshes; ROUND-UNIFORM simplest fallback.
+- Tradeoff: surfel anisotropic stretch can slightly over-smooth very fine detail (tunable via cover/k).
+- TODO: swap addon default from decimate+per-triangle to surfel; keep per-triangle as an option.
