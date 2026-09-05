@@ -1196,3 +1196,12 @@ Known: single map (no cascades) so beyond shadow_distance = no shadows; F12 shad
 - UI: normal_space under Normal; depth_auto + (greyed manual range) under Depth.
 DEFERRED (moderate, next session): per-object sun-shadow cast/receive/both dropdown; per-object AO
 send/receive/both (receive needs object-ID masking in screen-space). 16 suites green.
+
+## v0.11.19 — Blender 4.2 compatibility (min-version fix)
+Verified the addon FULLY works on Blender 4.2.9 LTS (downloaded + ran the full 16-suite -> 16/16;
+all version-sensitive APIs present: color_mask_set, bl_use_gpu_context, from_image,
+surface_render_method + legacy blend_method, bind_display_space_shader). Install on 4.2 crashed with
+"unsupported format string passed to tuple.__format__" — a Blender 4.2 bug in its legacy-addon
+version-mismatch warning, triggered because bl_info["blender"] was (4,4,0) > running version. Fixed:
+lowered bl_info["blender"] to (4,2,0). Registers clean on 4.2 + 4.4. (moderngl is a TEST-only dep,
+not used by the addon.)
