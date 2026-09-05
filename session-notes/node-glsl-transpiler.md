@@ -1459,3 +1459,17 @@ Applied the browser-viewer CPU tricks (GPU was never the bottleneck: draw 0.0 bo
   (captured splats can't — their colour is baked light, normals are mush). Requires splats as an ENGINE
   PRIMITIVE (not the standalone overlay): also unlocks depth-compositing with meshes + shadows + FX,
   gated on the transparency-vs-zbuffer (OIT) problem. This is the bridge between the viewer and the engine.
+
+## Adaptive fitting — built + tested (content-dependent, NOT universal)
+3D PCA-per-patch surface fitter (adaptive_fit.py): dense-sample surface -> priority-queue error-driven
+subdivision (split worst-fitting patch until target count) -> PCA gaussian per patch. No images, no AI,
+no training. Deterministic; keeps albedo+normals clean (relightable), unlike image-fitting.
+- **Works:** synthetic flat+bump test -> 4.5x more splats on detail, 3x bigger disks on flat; rippled
+  sphere at 10k adaptive visibly cleaner in smooth regions than 10k uniform (approaches 40k).
+- **Caps added:** aspect_max + size_cap prevent over-elongated splats bridging gaps in thin geometry.
+- **FAILS on thin/spiky/fuzzy organic:** tested on user's cactus-plant glb (601k faces, textured). Without
+  caps -> white streaks (gaussians bridge gaps between spines). With caps -> artifacts gone BUT detail
+  blobbed away (spiny silhouette -> smooth green sausage). Uniform preserves the fuzz; adaptive can't.
+- **VERDICT:** adaptive wins on smooth/flat/solid (architecture, terrain, panels, leaf faces); loses on
+  high-frequency thin detail (fuzz/spines/hair/fine foliage) where detail IS the content. Content-specific,
+  like splats-vs-mesh. Speed: ~15s for 600k->60k (offline bake; Python heapq loop, would need vectorising).
