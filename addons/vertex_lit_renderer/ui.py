@@ -40,6 +40,15 @@ class VERTEX_LIT_PT_lighting(_Base, bpy.types.Panel):
         col.prop(s, 'sun_elevation')
         col.prop(s, 'sun_azimuth')
 
+        col = layout.column(align=True)
+        col.prop(s, 'use_shadows')
+        if s.use_shadows:
+            sub = col.column(align=True)
+            sub.active = s.sun_intensity > 0.0
+            sub.prop(s, 'shadow_resolution')
+            sub.prop(s, 'shadow_softness')
+            sub.prop(s, 'shadow_bias')
+
 
 class VERTEX_LIT_PT_viewmode(_Base, bpy.types.Panel):
     bl_label = "View Mode"

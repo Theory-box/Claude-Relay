@@ -36,15 +36,17 @@ uniform float uKeyIntensity;
 uniform sampler2D uShadowMap;
 uniform int       uUseShadow;
 uniform float     uShadowBias;
-uniform float     uShadowDark;
+uniform float     uShadowSoft;   /* PCF kernel spread (soft-edge width) */
 """
 
 LIGHT_FUNCS = """
+float vlr_shadow(vec3 wPos);   /* forward decl: vlr_light shadows the sun with it */
 vec3 vlr_light(vec3 wPos, vec3 N) {
     float hemi = dot(N, vec3(0.0, 0.0, 1.0)) * 0.5 + 0.5;
     vec3 light = mix(uGroundColor, uSkyColor, hemi) * uHemiIntensity;
-    /* directional sun (no object, no shadow): one dot product, free on dense geo */
-    light += uSunColor * (max(dot(N, normalize(uSunDir)), 0.0) * uSunIntensity);
+    /* directional sun (no object): shadowed by the sun's shadow map, so ambient/hemisphere
+       still fills the shadow. One dot product + a PCF lookup -> free on dense geo. */
+    light += uSunColor * (max(dot(N, normalize(uSunDir)), 0.0) * uSunIntensity) * vlr_shadow(wPos);
     /* camera key light (headlamp) — follows the view, added on top of the hemisphere */
     light += uKeyCol * (max(dot(N, normalize(uKeyDir)), 0.0) * uKeyIntensity);
     for (int i = 0; i < 8; i++) {
@@ -69,12 +71,16 @@ float vlr_shadow(vec3 wPos) {
     if (uUseShadow == 0) return 1.0;
     vec4 lsPos = uLightSpace * vec4(wPos, 1.0);
     vec3 proj  = lsPos.xyz / lsPos.w * 0.5 + 0.5;
-    if (proj.x >= 0.0 && proj.x <= 1.0 &&
-        proj.y >= 0.0 && proj.y <= 1.0 && proj.z <= 1.0) {
-        float d = textureLod(uShadowMap, proj.xy, 0.0).r;
-        return (proj.z - uShadowBias > d) ? uShadowDark : 1.0;
-    }
-    return 1.0;
+    if (proj.x < 0.0 || proj.x > 1.0 || proj.y < 0.0 || proj.y > 1.0 || proj.z > 1.0)
+        return 1.0;                                  /* outside the sun's frustum -> lit */
+    vec2 texel = (1.0 / vec2(textureSize(uShadowMap, 0))) * max(uShadowSoft, 1.0);
+    float lit = 0.0;
+    for (int x = -1; x <= 1; x++)
+        for (int y = -1; y <= 1; y++) {
+            float d = textureLod(uShadowMap, proj.xy + vec2(x, y) * texel, 0.0).r;
+            lit += (proj.z - uShadowBias > d) ? 0.0 : 1.0;   /* 1 = lit, 0 = occluded */
+        }
+    return lit / 9.0;                                /* 3x3 PCF -> soft edges */
 }
 """
 
@@ -124,8 +130,7 @@ out vec4 outColor;
 void main() {
     vec3 N     = normalize(vNrm);
     vec3 light = vlr_light(vWpos, N);
-    float sh   = vlr_shadow(vWpos);
-    vec3 lit   = clamp(light, 0.0, 12.0) * sh * vColor.rgb;
+    vec3 lit   = clamp(light, 0.0, 12.0) * vColor.rgb;
     vec4 albedo = (uHasTexture != 0) ? texture(uAlbedo, vUV) : vec4(1.0);
     outColor = vec4(lit * albedo.rgb, vColor.a * albedo.a);
 }
@@ -173,8 +178,7 @@ MAT_FRAG_MAIN_PIXEL = (
     "void main() {\n"
     "    vec3 N     = normalize(vNrm);\n"
     "    vec3 light = vlr_light(vWpos, N);\n"
-    "    float sh   = vlr_shadow(vWpos);\n"
-    "    vec3 lit   = clamp(light, 0.0, 12.0) * sh * vColor.rgb;\n"
+    "    vec3 lit   = clamp(light, 0.0, 12.0) * vColor.rgb;\n"
     "    vec4 base  = computeBaseColor(vUV);\n"
     "    outColor = vec4(lit * base.rgb, vColor.a * base.a);\n"
     "}\n"
@@ -241,7 +245,7 @@ VIEWMODE_FRAG = ("in vec2 vUV;\nin vec4 vColor;\nin vec3 vWpos;\nin vec3 vNrm;\n
                  "    if(uViewMode == 1) albedo = uSolidColor;\n"
                  "    else if(uViewMode == 2) albedo = uObjColor;\n"
                  "    else albedo = vColor.rgb;\n"
-                 "    vec3 light = clamp(vlr_light(vWpos, N), 0.0, 12.0) * vlr_shadow(vWpos);\n"
+                 "    vec3 light = clamp(vlr_light(vWpos, N), 0.0, 12.0);\n"
                  "    outColor = vec4(light * albedo, 1.0);\n"
                  "}\n")
 

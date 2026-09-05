@@ -327,6 +327,28 @@ def _build_light_space(light,center,radius):
     ortho=Matrix([[1/s,0,0,0],[0,1/s,0,0],[0,0,-2/(f-n),-(f+n)/(f-n)],[0,0,0,1]])
     return ortho@view
 
+
+def _build_light_space_dir(sun_dir, center, radius):
+    """Ortho light-space matrix for the objectless directional sun. sun_dir is the direction
+    TO the sun; the light shines along -sun_dir, covering the scene bounds."""
+    ldir = -Vector(sun_dir)
+    if ldir.length < 1e-6:
+        ldir = Vector((0.0, 0.0, -1.0))
+    ldir = ldir.normalized()
+    eye = center - ldir * radius * 2.5
+    fwd = (center - eye).normalized()
+    up = Vector((0, 1, 0))
+    if abs(fwd.dot(up)) > .99:
+        up = Vector((1, 0, 0))
+    r_v = fwd.cross(up).normalized(); u_v = r_v.cross(fwd)
+    view = Matrix([[r_v.x, r_v.y, r_v.z, -r_v.dot(eye)],
+                   [u_v.x, u_v.y, u_v.z, -u_v.dot(eye)],
+                   [-fwd.x, -fwd.y, -fwd.z, fwd.dot(eye)], [0, 0, 0, 1]])
+    s = radius * 1.6; n = 0.1; f = radius * 6.0
+    ortho = Matrix([[1/s, 0, 0, 0], [0, 1/s, 0, 0],
+                    [0, 0, -2/(f-n), -(f+n)/(f-n)], [0, 0, 0, 1]])
+    return ortho @ view
+
 # ── Mesh extraction (one new_from_object call per object, everything derived from it) ──
 
 def _extract_mesh_data(obj, depsgraph, mesh=None, attr_name=""):
@@ -868,6 +890,14 @@ class VertexLitEngine(bpy.types.RenderEngine):
                 obj = inst.object
                 if obj.type != 'MESH': continue
                 batch = self._shadow_dict.get(obj.name)
+                if batch is None:
+                    # Shadows were just enabled after the geometry loaded -> build the
+                    # (position-only) shadow batch on demand from the cached mesh data.
+                    cached = self._mesh_cache.get(obj.name)
+                    if cached is not None:
+                        batch = _build_shadow_batch_from_cache(cached)
+                        if batch is not None:
+                            self._shadow_dict[obj.name] = batch
                 if batch is None: continue
                 shader.uniform_float('uModel', inst.matrix_world)
                 batch.draw(shader)
@@ -903,7 +933,7 @@ class VertexLitEngine(bpy.types.RenderEngine):
         sf('uSunDir', _sd); sf('uSunColor', _sc); sf('uSunIntensity', _si)
         sf('uHemiIntensity', _hi)
         si('uUseShadow', 1 if do_shad else 0)
-        sf('uShadowBias', s_bias); sf('uShadowDark', s_dark); ss('uShadowMap', shad_tex)
+        sf('uShadowBias', s_bias); sf('uShadowSoft', s_dark); ss('uShadowMap', shad_tex)
         si('uNumLights', len(lights))
         for i in range(8):
             l=lights[i] if i<len(lights) else None
@@ -1273,11 +1303,21 @@ class VertexLitEngine(bpy.types.RenderEngine):
         u_shad=vls.use_shadows        if vls else False
         s_res =int(vls.shadow_resolution) if vls else 1024
         s_bias=vls.shadow_bias        if vls else 0.005
-        s_dark=vls.shadow_darkness    if vls else 0.25
+        s_dark=getattr(vls,'shadow_softness',1.5) if vls else 1.5   # PCF softness now
 
         lights=self._lights_cache
-        sun=next((l for l in lights if l['is_sun']),None)
-        do_shad=u_shad and sun is not None
+        # Objectless sun: cast shadows when the sun-shadow toggle is on AND the sun contributes.
+        self._sun = _compute_sun(vls)
+        sun_dir = self._sun[0]; sun_int = self._sun[2]
+        do_shad = bool(u_shad) and sun_int > 0.0
+        # Re-render the shadow map when shadows are (re)enabled or the sun direction moves;
+        # geometry changes already flag _shadow_dirty via the rebuild.
+        if do_shad:
+            if (not getattr(self, '_prev_do_shad', False)
+                    or getattr(self, '_prev_sun_dir', None) != sun_dir):
+                self._shadow_dirty = True
+            self._prev_sun_dir = sun_dir
+        self._prev_do_shad = do_shad
         # Shadows off -> clear any stale shadow-dirty so it can't force endless idle
         # redraws (the shadow pass that clears it only runs when shadows are on).
         if not do_shad:
@@ -1289,7 +1329,7 @@ class VertexLitEngine(bpy.types.RenderEngine):
             try: context.region.tag_redraw()
             except Exception: pass
         center,radius=self._bounds_cache
-        ls_mat=_build_light_space(sun,center,radius) if do_shad else Matrix.Identity(4)
+        ls_mat=_build_light_space_dir(sun_dir,center,radius) if do_shad else Matrix.Identity(4)
         shad_tex=self._shadow_pass(ls_mat,s_res,depsgraph) if do_shad else self._dummy_depth
 
         region=context.region; rv3d=context.region_data
@@ -1307,7 +1347,6 @@ class VertexLitEngine(bpy.types.RenderEngine):
 
         view_proj=rv3d.window_matrix@rv3d.view_matrix
         self._film_transparent = False
-        self._sun = _compute_sun(vls)
         try: self._cam_pos = tuple(rv3d.view_matrix.inverted().translation)
         except Exception: self._cam_pos = (0.0, 0.0, 0.0)
         mode='PIXEL'

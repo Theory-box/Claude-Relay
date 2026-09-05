@@ -43,6 +43,20 @@ class VertexLitSettings(bpy.types.PropertyGroup):
     sun_azimuth: bpy.props.FloatProperty(
         name="Angle", subtype='ANGLE', default=0.785398,  # 45 deg
         description="Sun compass direction (rotation around up)")
+    # Sun shadows (directional shadow map, no light object)
+    use_shadows: bpy.props.BoolProperty(
+        name="Sun Shadows", default=False,
+        description="Cast shadows from the sun (directional shadow map)")
+    shadow_resolution: bpy.props.EnumProperty(
+        name="Shadow Res",
+        items=[('1024', '1024', ''), ('2048', '2048', ''), ('4096', '4096', '')],
+        default='2048')
+    shadow_bias: bpy.props.FloatProperty(
+        name="Bias", default=0.0015, min=0.0, max=0.05, precision=4,
+        description="Depth bias to avoid shadow acne")
+    shadow_softness: bpy.props.FloatProperty(
+        name="Softness", default=1.5, min=0.0, max=8.0,
+        description="Soft-edge width (PCF kernel spread)")
 
     # ── View Mode (Blender's "Color") ───────────────────────────────────────
     view_mode: bpy.props.EnumProperty(
@@ -157,13 +171,6 @@ class VertexLitSettings(bpy.types.PropertyGroup):
     # ── Hidden (kept for engine wiring; no UI) ──────────────────────────────
     energy_scale: bpy.props.FloatProperty(
         name="Light Energy Scale", default=0.01, min=0.0001, max=10.0)
-    use_shadows: bpy.props.BoolProperty(name="Shadows", default=False)
-    shadow_resolution: bpy.props.EnumProperty(
-        name="Shadow Resolution",
-        items=[('512', '512', ''), ('1024', '1024', ''), ('2048', '2048', '')],
-        default='1024')
-    shadow_bias: bpy.props.FloatProperty(name="Bias", default=0.005, min=0.0, max=0.1)
-    shadow_darkness: bpy.props.FloatProperty(name="Darkness", default=0.25, min=0.0, max=1.0)
 
 
 def register():

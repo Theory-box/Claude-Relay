@@ -1132,3 +1132,18 @@ Objectless sun: Height (elevation) + Angle (azimuth) -> dir; Sun intensity (0=of
 - Cost: one dot product per fragment, no geometry/passes -> free on dense geo (fragment-bound).
 - UI Lighting panel: Sky/Ground intensity + colours, then Sun intensity/colour/Height/Angle.
 - Matcaps slot (its own intensity) still pending. 16 suites green.
+
+## v0.11.14 — Sun shadows (directional shadow map, objectless sun)
+Retargeted the old (buggy, object-tied) shadow system to the objectless sun + made it shadow the
+SUN ONLY so ambient/hemisphere fills the shadow (not the whole lighting darkened).
+- Shader: vlr_shadow rewritten -> 3x3 PCF, returns lit fraction 0..1 (soft edges). Forward-declared
+  so vlr_light can call it. vlr_light applies it to the sun term only. Mains no longer multiply all
+  lighting by shadow. uShadowDark -> uShadowSoft (PCF spread).
+- Engine: _build_light_space_dir(sun_dir,center,radius) (ortho from the sun direction, not a light
+  object). do_shad = use_shadows AND sun_intensity>0. self._sun computed before the shadow logic.
+  Shadow pass builds position-only shadow batches lazily (enabling shadows after load works).
+  _shadow_dirty re-flagged on enable + sun-direction change (+ existing geometry-change path).
+- Props: use_shadows "Sun Shadows", shadow_resolution 1024/2048/4096, shadow_bias, shadow_softness.
+  Removed shadow_darkness. UI: shadow controls under the Sun in the Lighting panel.
+- Cost: one shadow-map render pass (position-only) + a PCF lookup per fragment. F12 shadows still
+  off (viewport only for now). 16 suites green.
