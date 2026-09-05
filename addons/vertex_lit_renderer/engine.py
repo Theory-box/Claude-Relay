@@ -861,7 +861,7 @@ class VertexLitEngine(bpy.types.RenderEngine):
                 if _inst_done > 0 and time.time() > _inst_budget_end:
                     self._geo_pending = True; self._dirty = True
                     continue              # over budget -> finish next frame (re-iterated)
-                data = _extract_mesh_data(obj, depsgraph, attr_name=_va)
+                data = _extract_mesh_data(obj, depsgraph, mesh=getattr(obj, 'data', None), attr_name=_va)
                 if data:
                     self._mesh_cache[key] = data
                     self._batch_dict[key] = _build_object_slots(data)

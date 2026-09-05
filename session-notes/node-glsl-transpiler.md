@@ -1222,3 +1222,11 @@ Fix:
   (_draw_key returns obj.name).
 Verified: 50 GN instances -> 1 extracted geometry (12 tris), 50/50 resolve to a batch. Very efficient
 (extract once, draw many). tests/test_instancing.py. 17 suites green on 4.2.9 + 4.4.3.
+
+## v0.11.21 — Instance extraction reads the instance mesh directly (over-draw safety)
+User reported earlier over-density ("every instance duplicated"). Repro of a standard GN scatter
+shows 0.11.20 is CORRECT: each instance extracts ONE element (80 tris) and draws once (75/75). But
+_extract_mesh_data was calling evaluated_get() again on the already-evaluated instance object, which
+COULD return the realized whole in some setups. Switched instance extraction to pass mesh=obj.data
+directly (the instance element), immune to that. Verified identical (one leaf) + tests green on 4.2+4.4.
+If over-density persists it's likely a specific node setup (nested/Realize) -> need a repro .blend.
