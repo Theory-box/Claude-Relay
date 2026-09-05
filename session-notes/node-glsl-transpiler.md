@@ -1416,3 +1416,15 @@ texture-fed 2D-tiled packing all pixel-identical to a CPU reference before touch
   (numpy releases the GIL) and only re-sort past a camera-angle threshold. Expected: well under 10ms.
 - **Then:** scale test toward 500k–1M splats (INRIA scenes) for the real overdraw curve; optional
   view-dependent SH; decide integration (standalone viewer vs a path in the engine).
+
+## Splat viewer — 15.7ms PROFILED (CPU/upload-bound, not fillrate)
+Headless CPU profiling on the real cactus (139410 splats) + handler analysis:
+- **~5.4ms per-frame CPU sort** (measured): argsort 2.3ms + `.tolist()` 2.0ms (waste) + depth 1.1ms.
+- **~10ms per-frame GPUTexture creation** (inferred): a NEW index GPUTexture is allocated+uploaded
+  every frame — the heavy bit. (Instrumented build 99ff0a6 prints sort/idxtex/draw split to confirm.)
+- **GPU fillrate ≈ free/hidden**: rasterisation is async, not in the 15.7ms; smooth@64fps ⇒ headroom.
+  ⇒ **CPU/upload-bound, NOT fillrate-bound** — good for scaling to dense scenes.
+- One-time load cost: data-tex `.tolist()` ~295ms (load hitch only).
+- **Queued optimisations (low-risk, untested-on-GPU):** reuse a persistent index texture + only
+  re-sort past a camera-move threshold; drop `.tolist()` (feed Buffer from numpy). Expected <10ms,
+  and reveals the true GPU floor. Bigger later: GPU radix sort via compute (compute is available).
