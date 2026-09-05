@@ -23,15 +23,13 @@ def _get_gpu_image_tex(image):
         return None
 
 
-def bake_material_to_image(mat, res=1024):
-    """Render mat's node graph across a 0-1 UV plane into a new Blender image. Returns it."""
+def bake_material_to_array(mat, res=1024):
+    """Render mat's node graph across a 0-1 UV plane and return the (res,res,4) float32 array
+    (or None on failure). This is computeBaseColor evaluated per texel = the FULL graph
+    (Hue/Sat, mixes, ramps, ...), matching what the engine draws on meshes. GPU required."""
     _vert_unused, frag_src, tr = material_shader.build_bake_frag(mat)
     shader = gpu.types.GPUShader(_sh.PLANE_BAKE_VERT, frag_src)
     batch = batch_for_shader(shader, 'TRIS', {"pos": [(-1.0, -1.0), (3.0, -1.0), (-1.0, 3.0)]})
-
-    print("[VertexLit] bake '{}': {} params, {} samplers, {}x{}".format(
-        mat.name, len(tr.params), len(tr.samplers), res, res))
-
     offscreen = gpu.types.GPUOffScreen(res, res)
     arr = None
     try:
@@ -39,9 +37,7 @@ def bake_material_to_image(mat, res=1024):
             gpu.state.viewport_set(0, 0, res, res)
             fb = gpu.state.active_framebuffer_get()
             fb.clear(color=(0.0, 0.0, 0.0, 1.0))
-            gpu.state.blend_set('NONE')
-            gpu.state.depth_test_set('NONE')
-            gpu.state.face_culling_set('NONE')
+            gpu.state.blend_set('NONE'); gpu.state.depth_test_set('NONE'); gpu.state.face_culling_set('NONE')
             shader.bind()
             nt = mat.node_tree
             for p in tr.params:
@@ -58,10 +54,15 @@ def bake_material_to_image(mat, res=1024):
         arr = np.array(buf, dtype=np.float32).reshape(res, res, 4)
     finally:
         offscreen.free()
+    return arr
 
+
+def bake_material_to_image(mat, res=1024):
+    """Render mat's node graph across a 0-1 UV plane into a new Blender image. Returns it."""
+    print("[VertexLit] bake '{}': {}x{}".format(mat.name, res, res))
+    arr = bake_material_to_array(mat, res)
     if arr is None:
         return None
-
     img = bpy.data.images.new("{}_baked".format(mat.name), res, res, alpha=True, float_buffer=False)
     # read_color is bottom-up; Blender image pixels are bottom-up too -> no flip.
     img.pixels = arr.reshape(-1).tolist()

@@ -67,9 +67,11 @@ def _find_basecolor_image(bsdf):
             if inp.is_linked: stack.append(inp.links[0].from_node)
     return None
 
-def _material_color(mat):
-    # The engine tints meshes by mat.diffuse_color (used as the vertex-colour fallback), so a mesh
-    # renders light * diffuse_color * base. Fold diffuse_color into the splat albedo to match exactly.
+def _material_color(mat, use_bake=True):
+    # The engine tints meshes by mat.diffuse_color (vertex-colour fallback), so a mesh renders
+    # light * diffuse_color * computeBaseColor. We match by folding diffuse_color in, and by BAKING
+    # the full node graph (computeBaseColor) so Hue/Sat, mixes, ramps etc. are captured — not just
+    # the raw Base Color texture. Falls back to the raw texture if the bake is unavailable.
     dcol = np.array(mat.diffuse_color[:3], np.float32) if mat is not None else np.ones(3, np.float32)
     base = np.array([0.8, 0.8, 0.8], np.float32)
     if mat is None:
@@ -83,17 +85,26 @@ def _material_color(mat):
     if bc is not None:
         base = np.array(bc.default_value[:3], np.float32)
     base = (base * dcol).astype(np.float32)
+    if use_bake:
+        try:
+            from . import bake as _bk
+            arr = _bk.bake_material_to_array(mat, res=1024)
+            if arr is not None and np.isfinite(arr).all():
+                a = arr.copy(); a[..., :3] *= dcol   # baked graph is linear (like the mesh) + diffuse tint
+                return a, base
+        except Exception:
+            pass
+    # fallback: raw Base Color texture (sRGB -> linear)
     img = _find_basecolor_image(bsdf)
     if img is not None and tuple(img.size) != (0, 0):
         w, h = img.size
         try:
             px = np.empty(w*h*4, np.float32); img.pixels.foreach_get(px); a = px.reshape(h, w, 4)
             cs = getattr(getattr(img, 'colorspace_settings', None), 'name', 'sRGB')
+            a = a.copy()
             if cs not in ('Non-Color', 'Raw', 'Linear', 'Linear Rec.709', 'Linear FilmLight E-Gamut'):
-                a = a.copy(); a[..., :3] = _srgb2lin(a[..., :3])
-            else:
-                a = a.copy()
-            a[..., :3] *= dcol            # tint texture by diffuse_color too (matches mesh)
+                a[..., :3] = _srgb2lin(a[..., :3])
+            a[..., :3] *= dcol
             return a, base
         except Exception:
             pass
@@ -132,7 +143,7 @@ def _extract_samples(obj, count, color_source, seed):
     else:
         slot_data=[]
         for si,sl in enumerate(slots):
-            img,base=_material_color(sl.material); slot_data.append((img,base))
+            img,base=_material_color(sl.material, color_source=='TEXTURE'); slot_data.append((img,base))
             mn=sl.material.name if sl.material else "None"
             diag.append("slot%d '%s': %s"%(si,mn,("texture %dx%d"%(img.shape[1],img.shape[0])) if img is not None else "flat %.2f,%.2f,%.2f"%tuple(base)))
     diag.append("uv=%s samples=%d"%(uv_ok,len(pts)))
@@ -209,7 +220,7 @@ def _extract_triangles(obj,count,color_source,size,flatness,opacity,bake):
     else:
         slot_data=[]
         for si,sl in enumerate(slots):
-            img,base=_material_color(sl.material); slot_data.append((img,base))
+            img,base=_material_color(sl.material, color_source=='TEXTURE'); slot_data.append((img,base))
             mn=sl.material.name if sl.material else "None"
             diag.append("slot%d '%s': %s"%(si,mn,("texture %dx%d"%(img.shape[1],img.shape[0])) if img is not None else "flat %.2f,%.2f,%.2f"%tuple(base)))
     diag.append("uv=%s tris=%d"%(uv_ok,nt))
