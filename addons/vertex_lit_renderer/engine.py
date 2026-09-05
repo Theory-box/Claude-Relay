@@ -56,6 +56,35 @@ def _area_resize(arr, W, H):
     return arr
 
 
+def _material_transparent(mat):
+    """Decide at DRAW time whether a material is alpha-blended, from its CURRENT state (not a
+    cached compile-time flag, which goes stale when the Alpha value is tweaked without a
+    structural change). Blended -> yes; Opaque -> no; otherwise transparent only if the
+    Principled Alpha is actually linked or < 1."""
+    if mat is None:
+        return False
+    sr = getattr(mat, 'surface_render_method', None)
+    bm = getattr(mat, 'blend_method', 'OPAQUE')
+    if sr == 'BLENDED' or bm == 'BLEND':
+        return True
+    if sr == 'OPAQUE':
+        return False
+    nt = getattr(mat, 'node_tree', None)
+    if nt is not None:
+        for n in nt.nodes:
+            if n.type == 'BSDF_PRINCIPLED':
+                a = n.inputs.get('Alpha')
+                if a is not None:
+                    if a.is_linked:
+                        return True
+                    try:
+                        if float(a.default_value) < 0.999:
+                            return True
+                    except Exception:
+                        pass
+    return False
+
+
 def _geo_sig(obj, mesh):
     """Cheap signature to detect whether an object's geometry changed while we weren't
     watching. Uses the ORIGINAL mesh name (stable across evaluations, unlike the temp
@@ -72,6 +101,18 @@ def _geo_sig(obj, mesh):
         return (base, nv, len(mesh.polygons), mods, round(s, 3))
     except Exception:
         return None
+
+
+def _share_sig(obj, mesh, view_attr):
+    """Key for geometry that can be SHARED across objects (e.g. linked duplicates): the
+    geometry signature + material assignment + active colour attribute. Objects with the
+    same key have identical evaluated geometry and materials, so one extraction + one GPU
+    batch serves them all (drawn per-instance with their own matrices)."""
+    try:
+        mats = tuple((s.material.name if s.material else '') for s in obj.material_slots)
+    except Exception:
+        mats = ()
+    return (_geo_sig(obj, mesh), mats, view_attr or '')
 
 
 def _raw_attr(mesh, name, ctype, ncomp, count):
@@ -736,24 +777,44 @@ class VertexLitEngine(bpy.types.RenderEngine):
         budget_end = time.time() + budget
         remaining = []
         done = 0
+        if full or not hasattr(self, '_geo_share'):
+            self._geo_share = {}   # share sig -> (data, slots, shadow_batch)
+        va = getattr(self, '_view_attr', '')
         for name in to_do:
             if done > 0 and time.time() > budget_end:
                 remaining.append(name)
                 continue
             obj=current.get(name)
             if obj is None: continue
-            data=_extract_mesh_data(obj,depsgraph,attr_name=getattr(self,'_view_attr',''))
+            try:
+                eo=obj.evaluated_get(depsgraph); me=getattr(eo,'data',None)
+            except Exception:
+                me=None
+            gsig = _geo_sig(obj, me) if me is not None else None
+            ssig = _share_sig(obj, me, va) if me is not None else None
+            shared = self._geo_share.get(ssig) if ssig is not None else None
+            if shared is not None:
+                # Identical geometry+materials already extracted (e.g. a linked duplicate) ->
+                # reuse the SAME batch, no re-extract or re-upload. Instant, so it doesn't
+                # count against the extraction budget; the draw loop draws it per-instance.
+                self._mesh_cache[name]=shared[0]
+                self._batch_dict[name]=shared[1]
+                if want_shadow and shared[2] is not None:
+                    self._shadow_dict[name]=shared[2]
+                _PERSIST_SIG[name]=gsig
+                continue
+            data=_extract_mesh_data(obj,depsgraph,attr_name=va)
             if data:
+                slots=_build_object_slots(data)
                 self._mesh_cache[name]=data
-                self._batch_dict[name]=_build_object_slots(data)
-                try:
-                    eo=obj.evaluated_get(depsgraph); me=getattr(eo,'data',None)
-                    _PERSIST_SIG[name]=_geo_sig(obj, me) if me else None
-                except Exception:
-                    pass
+                self._batch_dict[name]=slots
+                sb=None
                 if want_shadow:
                     sb=_build_shadow_batch_from_cache(data)
                     if sb: self._shadow_dict[name]=sb
+                if ssig is not None:
+                    self._geo_share[ssig]=(data, slots, sb)
+                _PERSIST_SIG[name]=gsig
             done += 1
 
         if remaining:
@@ -935,6 +996,7 @@ class VertexLitEngine(bpy.types.RenderEngine):
         # across many objects; the peek can run topo_signature for dirty materials, so
         # doing it per-object per-frame is a real cost while editing).
         frame_progs = {}
+        frame_transp = {}   # mat name -> bool (transparent), computed once per frame
         def _resolve_prog(mat_name):
             if mat_name in frame_progs:
                 return frame_progs[mat_name]
@@ -1007,9 +1069,14 @@ class VertexLitEngine(bpy.types.RenderEngine):
                 mat=bpy.data.materials.get(mat_name) if mat_name else None
                 # Alpha-blended if the material's render method is Blended (4.2+) or the
                 # legacy blend mode is BLEND.
-                is_transp = mat is not None and (
-                    getattr(mat, 'surface_render_method', '') == 'BLENDED'
-                    or getattr(mat, 'blend_method', 'OPAQUE') == 'BLEND')
+                # Transparent (alpha-blended) determined from the material's CURRENT state,
+                # cached once per frame. Never uses a stale compiled flag -> tweaking Alpha
+                # takes effect immediately, and a truly opaque material stays in the opaque
+                # pass (no depth-sort artifacts).
+                is_transp = frame_transp.get(mat_name)
+                if is_transp is None:
+                    is_transp = _material_transparent(mat)
+                    frame_transp[mat_name] = is_transp
                 if is_transp:
                     try:
                         c = model.translation; clip = view_proj @ c.to_4d()

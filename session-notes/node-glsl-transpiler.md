@@ -1088,3 +1088,37 @@ Object synthesised for a unit plane) and runs computeBaseColor(uv) per texel int
 No mesh, no UV extraction, no _extract_mesh_data. Only vertex attribute is 'pos' (always used), so
 the attribute-optimisation mismatch that plagued the UV bake can't happen. Operator just needs the
 active object's active material. test_bake updated. 16 suites green. (Still needs on-GPU confirm.)
+
+## v0.11.10 — Principled Alpha slider works without Render Method = Blended
+User: image-alpha leaf works, but the Principled Alpha slider did nothing (default material).
+Cause: the alpha WAS folded correctly (n_bc.a *= uP), but the engine only alpha-blends materials
+whose Render Method is BLENDED (or legacy BLEND). A default material is DITHERED -> drawn opaque ->
+alpha ignored. (The leaf works because that material is set to Blended.)
+Fix: TranspileResult.has_alpha=True when the Alpha fold fires (Alpha set/linked); stored on the
+program. is_transp now also true when has_alpha and the material isn't explicitly Opaque (handles
+both surface_render_method 4.2+ and legacy blend_method). So the Alpha slider alpha-blends without
+having to switch Render Method. Verified has_alpha False@1.0 / True@0.5. 16 suites green.
+
+## v0.11.11 — Share batches across linked duplicates (identical geometry)
+User: linked-duplicate objects load one by one though they share geometry.
+- True instances (geo-nodes/particles/collection) were ALREADY shared (dedup by inst.object name
+  in `current`, drawn per-instance). Linked duplicates (Alt+D, same mesh data, different object
+  names) were extracted + uploaded separately because the cache keys on object name.
+- Added _share_sig(obj, mesh, view_attr) = _geo_sig (mesh data name + counts + modifiers + sampled
+  verts) + material assignment + active colour attribute. Extraction loop keeps self._geo_share
+  {ssig -> (data, slots, shadow)}: an object whose ssig is already present REUSES the same GPU
+  batch (no re-extract/upload) and is drawn per-instance with its own matrix. Reuses are instant so
+  they don't consume the extraction budget -> N linked dups = 1 extraction + N-1 instant reuses.
+  Position-dependent geo-nodes get different sampled verts -> different sig -> not wrongly merged.
+  Only same-mesh-data objects share (data name in the key). Cleared on full rebuild. 16 suites green.
+
+## v0.11.12 — Transparency decided at draw time (fixes finicky glass + opaque-as-transparent)
+The v0.11.10 has_alpha flag was baked into the compiled program, but the Alpha value is a tweakable
+not in the topo signature -> changing Alpha didn't recompile -> stale flag. Symptoms: opaque object
+stuck in the alpha-blend pass (no depth write -> inverted-face sorting artifact); alpha only "took"
+after a structural edit forced a recompile.
+Fix: _material_transparent(mat) decides transparency from the material's CURRENT state at draw time
+(Blended->yes, Opaque->no, else Principled Alpha linked or <1). Cached once per frame (frame_transp).
+No recompile needed -> tweaking Alpha is instant; truly opaque materials stay opaque. has_alpha flag
+left in place but no longer used for routing. Verified incl. 0.5->1.0 flips to opaque with no
+recompile. 16 suites green.

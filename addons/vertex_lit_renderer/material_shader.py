@@ -90,6 +90,7 @@ def _compile(mat, mode):
         ent["shader"] = gpu.types.GPUShader(vert, frag)
         ent["samplers"] = [(s.uniform, s.image) for s in res.samplers]
         ent["params"] = res.params
+        ent["has_alpha"] = res.has_alpha
         ent["frag"] = frag
     except Exception as e:                      # pragma: no cover (GPU-side)
         ent["failed"] = True
