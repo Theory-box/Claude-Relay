@@ -1147,3 +1147,12 @@ SUN ONLY so ambient/hemisphere fills the shadow (not the whole lighting darkened
   Removed shadow_darkness. UI: shadow controls under the Sun in the Lighting panel.
 - Cost: one shadow-map render pass (position-only) + a PCF lookup per fragment. F12 shadows still
   off (viewport only for now). 16 suites green.
+
+## v0.11.15 — Fix sun shadows not showing + move Key Light to Lighting
+- SHADOW BUG: the viewport always routes through the post pipeline (since colour management,
+  v0.11.5), and _make_post_ctx's _draw_objects hardcoded do_shad=False + dummy depth. So the shadow
+  map rendered but was never sampled -> no shadows, no errors. Fixed: _make_post_ctx now takes
+  do_shad/s_bias/s_soft/shad_tex and forwards them to _draw_batches; viewport call passes the real
+  shadow params. (Fallback direct-draw path already passed them.) F12 still off (defaults).
+- Moved Key Light intensity from the Shading panel to the Lighting panel (with hemisphere + sun),
+  so all stackable lights live together. 16 suites green.

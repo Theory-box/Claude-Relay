@@ -49,6 +49,9 @@ class VERTEX_LIT_PT_lighting(_Base, bpy.types.Panel):
             sub.prop(s, 'shadow_softness')
             sub.prop(s, 'shadow_bias')
 
+        layout.separator()
+        layout.prop(s, 'key_intensity')
+
 
 class VERTEX_LIT_PT_viewmode(_Base, bpy.types.Panel):
     bl_label = "View Mode"
@@ -96,7 +99,6 @@ class VERTEX_LIT_PT_shading(_Base, bpy.types.Panel):
         s = context.scene.vertex_lit
         col = self.layout.column(align=True)
         col.prop(s, 'backface_cull')
-        col.prop(s, 'key_intensity')
 
 
 class VERTEX_LIT_PT_outline(_Base, bpy.types.Panel):

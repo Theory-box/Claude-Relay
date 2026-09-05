@@ -1157,14 +1157,17 @@ class VertexLitEngine(bpy.types.RenderEngine):
     # ── Main draw ─────────────────────────────────────────────────────────
 
     def _make_post_ctx(self, depsgraph, vls, view_proj, view_mat3, proj, rw, rh, wc,
-                       studio, ls_mat, sky, ground, bstr, lights):
+                       studio, ls_mat, sky, ground, bstr, lights,
+                       do_shad=False, s_bias=0.0015, s_soft=1.5, shad_tex=None):
         """Build the draw-scene callback + post_ctx (AO occluders, ID pass, normal pass,
         effect params). Shared by the viewport and the F12 render so both get effects."""
         cull = getattr(self, '_cull', 'BACK')
 
         def _draw_objects():
             self._draw_batches(depsgraph, vls, view_proj, studio, ls_mat, sky, ground,
-                               bstr, False, 0.005, 0.25, self._dummy_depth, lights, 'PIXEL')
+                               bstr, do_shad, s_bias, s_soft,
+                               shad_tex if shad_tex is not None else self._dummy_depth,
+                               lights, 'PIXEL')
 
         ao_occluders = None
         if vls and getattr(vls, 'use_ao', False):
@@ -1373,7 +1376,8 @@ class VertexLitEngine(bpy.types.RenderEngine):
                 wc = scene.world.color if scene.world else None
                 draw_scene, post_ctx = self._make_post_ctx(
                     depsgraph, vls, view_proj, rv3d.view_matrix.to_3x3(), proj,
-                    rw, rh, wc, studio, ls_mat, sky, ground, bstr, lights)
+                    rw, rh, wc, studio, ls_mat, sky, ground, bstr, lights,
+                    do_shad=do_shad, s_bias=s_bias, s_soft=s_dark, shad_tex=shad_tex)
                 final_tex, sw, sh = post.render(rw, rh, draw_scene, post_ctx, vls, blit=False)
                 # Blit to the viewport THROUGH the scene's colour management (view transform,
                 # look, exposure, gamma) so the viewport matches the F12 render.
