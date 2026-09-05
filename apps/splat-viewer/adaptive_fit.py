@@ -26,8 +26,10 @@ def _cell(P, C):
     err = len(P) * (3.0*np.sqrt(w[0]) + 1.2*cstd + 0.35*np.sqrt(w[2]))
     return err, (mean, w, V, C.mean(0))
 
-def adaptive_fit(P, C, target, min_points=8, cover=2.0, thin_min=0.15):
-    """P:(M,3) points, C:(M,3) colours. -> splat dict of ~`target` anisotropic gaussians."""
+def adaptive_fit(P, C, target, min_points=8, cover=2.0, thin_min=0.15, aspect_max=2.5, size_cap=None):
+    """P:(M,3) points, C:(M,3) colours. -> splat dict of ~`target` anisotropic gaussians.
+    aspect_max caps in-plane elongation; size_cap caps absolute splat radius (both prevent splats
+    from bridging gaps in thin/spiky geometry)."""
     P = P.astype(np.float64); cnt = itertools.count()
     heap = []
     def push(idx):
@@ -50,6 +52,9 @@ def adaptive_fit(P, C, target, min_points=8, cover=2.0, thin_min=0.15):
 
     # build gaussians from each patch's covariance
     n = len(cells)
+    if size_cap is None:
+        ext = float(np.linalg.norm(P.max(0)-P.min(0)))
+        size_cap = ext / max(np.cbrt(target), 1) * 2.5      # ~a few uniform-spacings
     xyz = np.empty((n,3),np.float32); col = np.empty((n,3),np.float32)
     scale = np.empty((n,3),np.float32); quat = np.empty((n,4),np.float32)
     for i,(idx,fit) in enumerate(cells):
@@ -57,8 +62,10 @@ def adaptive_fit(P, C, target, min_points=8, cover=2.0, thin_min=0.15):
         R = V.copy()
         if np.linalg.det(R) < 0: R[:,0] = -R[:,0]        # ensure proper rotation
         std = np.sqrt(np.maximum(w,1e-12))
-        s = cover*std
-        s[0] = max(s[0], thin_min*max(s[1],s[2]))        # keep a minimum thickness (normal axis)
+        s = cover*std                                    # [thin(normal), mid, long] in-plane
+        s[1] = min(s[1], size_cap); s[2] = min(s[2], size_cap)   # cap absolute in-plane size
+        s[2] = min(s[2], aspect_max*max(s[1],1e-9))      # cap in-plane elongation (no gap-bridging)
+        s[0] = min(max(s[0], thin_min*max(s[1],s[2])), max(s[1],s[2]))   # keep a sane thickness
         xyz[i]=mean; col[i]=np.clip(c,0,1); scale[i]=s
         quat[i]=_R_to_quat(R)
     return dict(count=n, xyz=xyz, color=col, opacity=np.full(n,0.9,np.float32),
