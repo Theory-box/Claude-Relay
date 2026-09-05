@@ -225,6 +225,7 @@ class VERTEX_LIT_PT_splats(_Base, bpy.types.Panel):
         box.prop(s, 'splat_size'); box.prop(s, 'splat_flatness')
         box.prop(s, 'splat_opacity'); box.prop(s, 'splat_sigma')
         row = layout.row(); row.prop(s, 'splat_bake'); row.prop(s, 'splat_hide_src')
+        layout.prop(s, 'splat_lit')
         layout.prop(s, 'splat_seed')
         ob = context.active_object
         r = layout.row(); r.enabled = (ob is not None and ob.type == 'MESH')

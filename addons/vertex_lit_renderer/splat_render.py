@@ -70,21 +70,38 @@ _VERT = """
 uniform sampler2D uData; uniform sampler2D uIndex; uniform int uTW; uniform int uITW;
 uniform vec3 uRow0,uRow1,uRow2; uniform vec3 uCam; uniform vec2 uF; uniform vec2 uVP; uniform float uSigma;
 uniform mat4 uViewProj;
+// scene lighting (matches the engine's vlr_light: hemisphere + sun + camera key)
+uniform int  uLit;
+uniform vec3 uSkyColor, uGroundColor; uniform float uHemiIntensity;
+uniform vec3 uSunDir, uSunColor; uniform float uSunIntensity;
+uniform vec3 uKeyDir, uKeyCol; uniform float uKeyIntensity;
 in vec2 corner; out vec2 vC; out vec3 vCol; out float vOp;
 ivec2 at(int lin,int w){ return ivec2(lin % w, lin / w); }
+vec3 splat_light(vec3 N){
+  float hemi = dot(N, vec3(0.0,0.0,1.0))*0.5+0.5;
+  vec3 L = mix(uGroundColor, uSkyColor, hemi) * uHemiIntensity;
+  L += uSunColor * (max(dot(N, normalize(uSunDir)),0.0) * uSunIntensity);
+  L += uKeyCol  * (max(dot(N, normalize(uKeyDir)),0.0) * uKeyIntensity);
+  return L;
+}
 void main(){
   int sid=int(texelFetch(uIndex,at(gl_InstanceID,uITW),0).r+0.5); int base=sid*4;
   vec4 d0=texelFetch(uData,at(base,uTW),0); vec4 d1=texelFetch(uData,at(base+1,uTW),0);
   vec4 d2=texelFetch(uData,at(base+2,uTW),0); vec4 d3=texelFetch(uData,at(base+3,uTW),0);
   vec3 ic=d0.xyz; vec3 is=vec3(d0.w,d1.x,d1.y); vec4 iq=vec4(d1.z,d1.w,d2.x,d2.y);
-  vec3 icol=vec3(d2.z,d2.w,d3.x); float iop=d3.y; vC=corner; vCol=icol; vOp=iop;
+  vec3 icol=vec3(d2.z,d2.w,d3.x); float iop=d3.y; vC=corner; vOp=iop;
   vec3 dp=ic-uCam; vec3 t=vec3(dot(uRow0,dp),dot(uRow1,dp),dot(uRow2,dp));
-  vec4 clipC = uViewProj * vec4(ic, 1.0);           // real clip pos (for centre + DEPTH)
+  vec4 clipC = uViewProj * vec4(ic, 1.0);
   if(t.z<0.02 || clipC.w<=0.0){ gl_Position=vec4(2.0,2.0,2.0,1.0); return; }
   float w=iq.x,x=iq.y,y=iq.z,z=iq.w;
   vec3 c0=vec3(1.0-2.0*(y*y+z*z),2.0*(x*y+w*z),2.0*(x*z-w*y));
   vec3 c1=vec3(2.0*(x*y-w*z),1.0-2.0*(x*x+z*z),2.0*(y*z+w*x));
   vec3 c2=vec3(2.0*(x*z+w*y),2.0*(y*z-w*x),1.0-2.0*(x*x+y*y));
+  // scene lighting (per-splat, using the surfel normal = thinnest axis)
+  if(uLit==1){
+    vec3 nrm=(is.x<=is.y && is.x<=is.z)? c0 : ((is.y<=is.z)? c1 : c2);
+    vCol = icol * splat_light(normalize(nrm));
+  } else { vCol = icol; }
   mat3 M=mat3(c0*is.x,c1*is.y,c2*is.z); mat3 Sig=M*transpose(M);
   float iz=1.0/t.z;
   mat3 J=mat3(vec3(uF.x*iz,0,0),vec3(0,uF.y*iz,0),vec3(-uF.x*t.x*iz*iz,-uF.y*t.y*iz*iz,0));
@@ -94,9 +111,7 @@ void main(){
   float tr=a+c,det=a*c-b*b,mid=0.5*tr,disc=sqrt(max(mid*mid-det,0.0));
   float l1=mid+disc,l2=max(mid-disc,1e-9); float r1=uSigma*sqrt(max(l1,0.0)),r2=uSigma*sqrt(l2);
   vec2 e1=vec2(b,l1-a); e1=(length(e1)<1e-6)?vec2(1,0):normalize(e1); vec2 e2=vec2(-e1.y,e1.x);
-  vec2 p2n=vec2(2.0/uVP.x,2.0/uVP.y);
-  vec2 off = corner.x*e1*r1*p2n + corner.y*e2*r2*p2n;    // NDC billboard offset
-  // centre + depth from the real projection; billboard offset applied in NDC (x by w)
+  vec2 p2n=vec2(2.0/uVP.x,2.0/uVP.y); vec2 off = corner.x*e1*r1*p2n + corner.y*e2*r2*p2n;
   gl_Position = vec4(clipC.xy + off*clipC.w, clipC.z, clipC.w);
 }"""
 _FRAG = """
@@ -196,11 +211,10 @@ class SplatCloud:
             self._last=(cam_np, fwd_np)
         return self._idxtex
 
-    def draw(self, view_matrix, window_matrix, w, h, write_depth=True):
+    def draw(self, view_matrix, window_matrix, w, h, write_depth=True, light=None):
         """Draw into the currently-bound framebuffer.
-        Pass 1: colour over-blend, depth-tested against meshes, NO depth write (soft edges blend).
-        Pass 2 (M2): opaque-core depth write into the G-buffer depth (colour masked off) so the
-        engine's SSAO/cavity include splats. Only near-opaque cores write depth (tight surface)."""
+        Pass 1: colour over-blend (optionally scene-lit), depth-tested, NO depth write.
+        Pass 2 (M2): opaque-core depth write into the G-buffer depth for AO/cavity."""
         self.ensure_gpu()
         vm=view_matrix; pm=window_matrix
         right=Vector(vm[0][:3]); up=Vector(vm[1][:3]); fwd=-Vector(vm[2][:3])
@@ -214,6 +228,17 @@ class SplatCloud:
         sh.uniform_float('uRow0', right); sh.uniform_float('uRow1', up); sh.uniform_float('uRow2', fwd)
         sh.uniform_float('uCam', cam); sh.uniform_float('uF', (fx,fy)); sh.uniform_float('uVP', (float(w),float(h)))
         sh.uniform_float('uSigma', self.sigma); sh.uniform_float('uViewProj', view_proj)
+        # scene lighting (hemisphere + sun + key), matching the engine's mesh lighting
+        if light is not None:
+            sh.uniform_int('uLit', 1)
+            sh.uniform_float('uSkyColor', light['sky']); sh.uniform_float('uGroundColor', light['ground'])
+            sh.uniform_float('uHemiIntensity', float(light['hemi']))
+            sh.uniform_float('uSunDir', light['sun_dir']); sh.uniform_float('uSunColor', light['sun_col'])
+            sh.uniform_float('uSunIntensity', float(light['sun_int']))
+            sh.uniform_float('uKeyDir', light['key_dir']); sh.uniform_float('uKeyCol', light['key_col'])
+            sh.uniform_float('uKeyIntensity', float(light['key_int']))
+        else:
+            sh.uniform_int('uLit', 0)
 
         # Pass 1 — colour
         gpu.state.blend_set('ALPHA_PREMULT')

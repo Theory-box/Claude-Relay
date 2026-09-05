@@ -119,6 +119,8 @@ class VertexLitSettings(bpy.types.PropertyGroup):
     splat_opacity: bpy.props.FloatProperty(name="Opacity", default=0.9, min=0.05, max=1.0)
     splat_bake: bpy.props.BoolProperty(name="Bake Simple Lighting", default=False)
     splat_hide_src: bpy.props.BoolProperty(name="Hide Source Mesh", default=False)
+    splat_lit: bpy.props.BoolProperty(name="Scene Lighting", default=True,
+        description="Light the splats with the scene sun / sky-ground / key light (vs raw albedo)")
     splat_seed: bpy.props.IntProperty(name="Seed", default=0, min=0)
     splat_sigma: bpy.props.FloatProperty(name="Splat Softness", default=2.2, min=1.0, max=4.0)
     normal_space: bpy.props.EnumProperty(

@@ -1286,9 +1286,10 @@ class VertexLitEngine(bpy.types.RenderEngine):
         wh = getattr(self, '_splat_wh', None)
         if vm is None or pm is None or wh is None:
             return
+        light = getattr(self, '_splat_light', None)
         for c in clouds:
             try:
-                c.draw(vm, pm, wh[0], wh[1])
+                c.draw(vm, pm, wh[0], wh[1], light=light)
             except Exception as e:
                 if _DEBUG: print("[VertexLit] splat draw:", e)
 
@@ -1524,9 +1525,15 @@ class VertexLitEngine(bpy.types.RenderEngine):
         except Exception:
             key_dir=(0.3,0.4,0.86)
         studio=(key_dir, (1.0,1.0,1.0), (vls.key_intensity if vls else 0.8))
-        # experimental splat clouds: cache matrices for the draw (clouds come from the generate op)
+        # experimental splat clouds: cache matrices + scene lighting for the draw
         self._splat_vm = rv3d.view_matrix; self._splat_pm = rv3d.window_matrix
         self._splat_wh = (region.width, region.height)
+        _sun = getattr(self, '_sun', ((0.0,0.0,1.0),(1.0,1.0,1.0),0.0,1.0))
+        self._splat_light = ({
+            'sky': sky, 'ground': ground, 'hemi': _sun[3],
+            'sun_dir': _sun[0], 'sun_col': _sun[1], 'sun_int': _sun[2],
+            'key_dir': studio[0], 'key_col': studio[1], 'key_int': studio[2],
+        } if (vls is None or getattr(vls, 'splat_lit', True)) else None)
         def _draw_objects():
             self._draw_batches(depsgraph, vls, view_proj, studio, ls_mat, sky, ground,
                                bstr, do_shad, s_bias, s_dark, shad_tex, lights, mode)
