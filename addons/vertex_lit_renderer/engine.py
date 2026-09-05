@@ -129,6 +129,19 @@ def _share_sig(obj, mesh, view_attr):
     return (_geo_sig(obj, mesh), mats, view_attr or '')
 
 
+def _draw_key(inst):
+    """Cache/draw key for a depsgraph instance. Normal objects key by their own name.
+    GEOMETRY-NODES (and other) instances all report inst.object as the INSTANCER (whose own
+    evaluated mesh is empty), but share the instanced geometry's mesh datablock — so key
+    those by the mesh-data name ('i:<data>') and draw each with its instance matrix."""
+    o = inst.object
+    if getattr(inst, 'is_instance', False):
+        d = getattr(o, 'data', None)
+        if d is not None:
+            return 'i:' + d.name
+    return o.name
+
+
 def _raw_attr(mesh, name, ctype, ncomp, count):
     """Read a mesh attribute as a numpy array DIRECTLY from Blender's contiguous
     memory (via the layer's pointer) — ~5x faster than foreach_get on the hot arrays.
@@ -820,17 +833,50 @@ class VertexLitEngine(bpy.types.RenderEngine):
         self._lights_cache=lights
         self._bounds_cache=_scene_bounds(depsgraph)
 
-        # Current visible mesh objects in the scene.
+        # Current visible mesh objects. Non-instances key by name; geometry-nodes/dupli
+        # INSTANCES key by their shared mesh datablock (the instancer's own mesh is empty),
+        # extracted eagerly here (inst.object is only valid during this iteration) and drawn
+        # per-instance later. Instance geometry is usually a few unique meshes reused many
+        # times, so eager extraction is cheap; the budget still gates it and we re-iterate
+        # next frame for anything deferred.
         current={}
+        inst_keys=set()
+        _va = getattr(self, '_view_attr', '')
+        _want_shadow_i = bool(vls and getattr(vls, 'use_shadows', False))
+        _inst_budget_end = time.time() + 0.03
+        _inst_done = 0
         for inst in depsgraph.object_instances:
             obj=inst.object
             if obj.type!='MESH': continue
             if not inst.show_self: continue
-            if obj.name not in current: current[obj.name]=obj
+            if getattr(inst, 'is_instance', False):
+                key = _draw_key(inst)
+                if key in inst_keys:      # already handled this frame
+                    continue
+                inst_keys.add(key)
+                try: sig = _geo_sig(obj, getattr(obj, 'data', None))
+                except Exception: sig = None
+                if key in self._batch_dict and _PERSIST_SIG.get(key) == sig:
+                    continue              # cached + unchanged
+                if _inst_done > 0 and time.time() > _inst_budget_end:
+                    self._geo_pending = True; self._dirty = True
+                    continue              # over budget -> finish next frame (re-iterated)
+                data = _extract_mesh_data(obj, depsgraph, attr_name=_va)
+                if data:
+                    self._mesh_cache[key] = data
+                    self._batch_dict[key] = _build_object_slots(data)
+                    _PERSIST_SIG[key] = sig
+                    if _want_shadow_i:
+                        sb = _build_shadow_batch_from_cache(data)
+                        if sb: self._shadow_dict[key] = sb
+                    _inst_done += 1
+            else:
+                if obj.name not in current: current[obj.name]=obj
 
-        # 1) Drop objects that no longer exist / were hidden.
+        # 1) Drop objects that no longer exist / were hidden. Keep instance-geometry keys
+        #    ('i:...') that are still present this frame.
         for name in list(self._mesh_cache.keys()):
-            if name not in current:
+            if name not in current and name not in inst_keys:
                 self._mesh_cache.pop(name,None)
                 self._batch_dict.pop(name,None)
                 self._shadow_dict.pop(name,None)
@@ -943,15 +989,15 @@ class VertexLitEngine(bpy.types.RenderEngine):
             for inst in depsgraph.object_instances:
                 obj = inst.object
                 if obj.type != 'MESH': continue
-                batch = self._shadow_dict.get(obj.name)
+                batch = self._shadow_dict.get(_draw_key(inst))
                 if batch is None:
                     # Shadows were just enabled after the geometry loaded -> build the
                     # (position-only) shadow batch on demand from the cached mesh data.
-                    cached = self._mesh_cache.get(obj.name)
+                    cached = self._mesh_cache.get(_draw_key(inst))
                     if cached is not None:
                         batch = _build_shadow_batch_from_cache(cached)
                         if batch is not None:
-                            self._shadow_dict[obj.name] = batch
+                            self._shadow_dict[_draw_key(inst)] = batch
                 if batch is None: continue
                 shader.uniform_float('uModel', inst.matrix_world)
                 batch.draw(shader)
@@ -1060,9 +1106,9 @@ class VertexLitEngine(bpy.types.RenderEngine):
         for inst in depsgraph.object_instances:
             obj = inst.object
             if obj.type != 'MESH' or not inst.show_self: continue
-            slots = self._batch_dict.get(obj.name)
+            slots = self._batch_dict.get(_draw_key(inst))
             if not slots: continue
-            cached = self._mesh_cache.get(obj.name)
+            cached = self._mesh_cache.get(_draw_key(inst))
             gmin = cached.get('gen_min', (0.0, 0.0, 0.0)) if cached else (0.0, 0.0, 0.0)
             gsc = cached.get('gen_scale', (1.0, 1.0, 1.0)) if cached else (1.0, 1.0, 1.0)
             try: nmat = inst.matrix_world.to_3x3().inverted().transposed()
@@ -1176,9 +1222,9 @@ class VertexLitEngine(bpy.types.RenderEngine):
             obj=inst.object
             if obj.type!='MESH': continue
             if not inst.show_self: continue
-            slots=self._batch_dict.get(obj.name)
+            slots=self._batch_dict.get(_draw_key(inst))
             if not slots: continue
-            cached=self._mesh_cache.get(obj.name)
+            cached=self._mesh_cache.get(_draw_key(inst))
             gmin=cached.get('gen_min',(0.0,0.0,0.0)) if cached else (0.0,0.0,0.0)
             gsc =cached.get('gen_scale',(1.0,1.0,1.0)) if cached else (1.0,1.0,1.0)
 
@@ -1256,7 +1302,7 @@ class VertexLitEngine(bpy.types.RenderEngine):
                         o = i.object
                         if o.type != 'MESH' or not i.show_self: continue
                         if getattr(o, 'vlr_ao_exclude', False): continue
-                        sl = self._batch_dict.get(o.name)
+                        sl = self._batch_dict.get(_draw_key(i))
                         if not sl: continue
                         try: sh.uniform_float('uModel', i.matrix_world)
                         except Exception: pass
@@ -1276,7 +1322,7 @@ class VertexLitEngine(bpy.types.RenderEngine):
                 for i in depsgraph.object_instances:
                     o = i.object
                     if o.type != 'MESH' or not i.show_self: continue
-                    sl = self._batch_dict.get(o.name)
+                    sl = self._batch_dict.get(_draw_key(i))
                     if not sl: continue
                     if getattr(o, 'vlr_outline_exclude', False):
                         col = (1.0, 1.0, 1.0)
@@ -1304,7 +1350,7 @@ class VertexLitEngine(bpy.types.RenderEngine):
                 for i in depsgraph.object_instances:
                     o = i.object
                     if o.type != 'MESH' or not i.show_self: continue
-                    sl = self._batch_dict.get(o.name)
+                    sl = self._batch_dict.get(_draw_key(i))
                     if not sl: continue
                     try: nmat = i.matrix_world.to_3x3().inverted().transposed()
                     except Exception: nmat = i.matrix_world.to_3x3()

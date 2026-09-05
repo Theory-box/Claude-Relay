@@ -1205,3 +1205,20 @@ surface_render_method + legacy blend_method, bind_display_space_shader). Install
 version-mismatch warning, triggered because bl_info["blender"] was (4,4,0) > running version. Fixed:
 lowered bl_info["blender"] to (4,2,0). Registers clean on 4.2 + 4.4. (moderngl is a TEST-only dep,
 not used by the addon.)
+
+## v0.11.20 — Geometry-nodes / dupli INSTANCING (was rendering nothing)
+BUG: GN-instanced geometry (scatter/trees) rendered empty. depsgraph.object_instances reports every
+instance with inst.object = the INSTANCER (whose own evaluated mesh is empty), and the whole cache
+was keyed by object NAME -> all instances collapsed onto the empty instancer -> no geometry. The real
+instanced geometry sits in inst.object.data (all instances share ONE mesh datablock).
+Fix:
+- _draw_key(inst): instances key by their mesh-data name ('i:<data>'); normal objects by name.
+- _rebuild extracts unique instance geometries EAGERLY during the object_instances iteration
+  (inst.object is only valid there), budget-gated + re-iterated next frame for deferred ones, with a
+  _geo_sig check so editing the instanced source re-extracts. Non-instances still use the streaming path.
+- Drop loop preserves 'i:' keys present this frame.
+- ALL draw loops (main, viewmode, shadow, id, normal, ao-occluder) now look up batches via
+  _draw_key(inst) and draw per-instance with inst.matrix_world. Non-instance behaviour unchanged
+  (_draw_key returns obj.name).
+Verified: 50 GN instances -> 1 extracted geometry (12 tris), 50/50 resolve to a batch. Very efficient
+(extract once, draw many). tests/test_instancing.py. 17 suites green on 4.2.9 + 4.4.3.
