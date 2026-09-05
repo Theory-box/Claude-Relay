@@ -101,7 +101,8 @@ void main(){
 }"""
 _FRAG = """
 in vec2 vC; in vec3 vCol; in float vOp; out vec4 o;
-void main(){ float g=exp(-4.5*dot(vC,vC)); float al=vOp*g; if(al<0.003) discard; o=vec4(vCol*al,al); }"""
+uniform float uDepthCut;
+void main(){ float g=exp(-4.5*dot(vC,vC)); float al=vOp*g; if(al<uDepthCut) discard; o=vec4(vCol*al,al); }"""
 
 
 def _mkbuf(arr):
@@ -153,8 +154,11 @@ class SplatCloud:
             self._last=(cam_np, fwd_np)
         return self._idxtex
 
-    def draw(self, view_matrix, window_matrix, w, h):
-        """Draw into the currently-bound framebuffer. Depth-tested against what's there, blended over."""
+    def draw(self, view_matrix, window_matrix, w, h, write_depth=True):
+        """Draw into the currently-bound framebuffer.
+        Pass 1: colour over-blend, depth-tested against meshes, NO depth write (soft edges blend).
+        Pass 2 (M2): opaque-core depth write into the G-buffer depth (colour masked off) so the
+        engine's SSAO/cavity include splats. Only near-opaque cores write depth (tight surface)."""
         self.ensure_gpu()
         vm=view_matrix; pm=window_matrix
         right=Vector(vm[0][:3]); up=Vector(vm[1][:3]); fwd=-Vector(vm[2][:3])
@@ -162,18 +166,35 @@ class SplatCloud:
         fx=0.5*w*pm[0][0]; fy=0.5*h*pm[1][1]
         idxtex=self._sorted_index(np.array(cam,'f4'), np.array(fwd,'f4'))
         view_proj = pm @ vm
-        gpu.state.blend_set('ALPHA_PREMULT')
-        gpu.state.depth_test_set('LESS_EQUAL')   # meshes in front occlude splats
-        gpu.state.depth_mask_set(False)          # blend: don't write depth yet (M2 will)
         sh=self.shader; sh.bind()
         sh.uniform_sampler('uData', self.datatex); sh.uniform_sampler('uIndex', idxtex)
         sh.uniform_int('uTW', _TW); sh.uniform_int('uITW', self.itw)
         sh.uniform_float('uRow0', right); sh.uniform_float('uRow1', up); sh.uniform_float('uRow2', fwd)
         sh.uniform_float('uCam', cam); sh.uniform_float('uF', (fx,fy)); sh.uniform_float('uVP', (float(w),float(h)))
-        sh.uniform_float('uSigma', self.sigma)
-        sh.uniform_float('uViewProj', view_proj)
+        sh.uniform_float('uSigma', self.sigma); sh.uniform_float('uViewProj', view_proj)
+
+        # Pass 1 — colour
+        gpu.state.blend_set('ALPHA_PREMULT')
+        gpu.state.depth_test_set('LESS_EQUAL')
+        gpu.state.depth_mask_set(False)
+        sh.uniform_float('uDepthCut', 0.004)
         self.batch.draw_instanced(sh, instance_count=self.d['count'])
+
+        # Pass 2 — opaque-core depth only (feeds screen-space effects)
+        if write_depth:
+            try:
+                gpu.state.color_mask_set(False, False, False, False)
+                gpu.state.blend_set('NONE')
+                gpu.state.depth_mask_set(True)
+                sh.uniform_float('uDepthCut', 0.35)     # only near-opaque cores write depth
+                self.batch.draw_instanced(sh, instance_count=self.d['count'])
+            except Exception:
+                pass
+            finally:
+                gpu.state.color_mask_set(True, True, True, True)
+
         gpu.state.blend_set('NONE')
+        gpu.state.depth_mask_set(True)
 
     def free(self):
         self._gpu=False; self._idxtex=None; self.datatex=None
