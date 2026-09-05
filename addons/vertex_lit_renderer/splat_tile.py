@@ -140,6 +140,7 @@ class TileRasterizer:
     def __init__(self, cloud):
         self.c = cloud; self.ok = False; self._built = False; self.MAXP = 1
         self.shaders = {}
+        self._valid = False; self._last = None; self._eps = 0.0
 
     def build(self, W, H):
         if self._built:
@@ -148,6 +149,7 @@ class TileRasterizer:
         try:
             N = int(self.c.d['count'])
             self.N = N
+            self._eps = float(np.linalg.norm(self.c.d['xyz'].max(0)-self.c.d['xyz'].min(0))) * 0.008
             mp = 1
             while mp < N*8: mp <<= 1
             self.MAXP = mp
@@ -231,6 +233,16 @@ class TileRasterizer:
         try:
             right=Vector(vm[0][:3]); up=Vector(vm[1][:3]); fwd=-Vector(vm[2][:3]); cam=vm.inverted().translation
             f=0.5*H*pm[1][1]; TX=(W+15)//16; TY=(H+15)//16
+            # throttle: if the camera and light are unchanged, reuse last frame's output (like the
+            # billboard path's cached sort). Static views then cost only the composite.
+            camn=np.array(cam,'f4'); fwdn=np.array(fwd,'f4')
+            lkey=0.0 if light is None else float(light.get('sun_int',0.0))*3.1+float(light.get('hemi',0.0))*1.7
+            if self._valid and self._last is not None:
+                if (float(np.linalg.norm(camn-self._last[0])) < self._eps
+                        and float(np.dot(fwdn,self._last[1])) > 0.99995
+                        and abs(lkey-self._last[2]) < 1e-6):
+                    return self.uOut
+            self._last=(camn, fwdn, lkey)
             # pack scene lighting into a tiny image (recreated per frame; light may change)
             L=np.zeros((6,4),np.float32)
             if light is not None:
@@ -274,6 +286,7 @@ class TileRasterizer:
             s.image('uOff',self.uOff); s.image('uVal',self.uVal); s.image('uProj',self.uProj); s.image('uOut',self.uOut)
             s.uniform_int('uW',W); s.uniform_int('uH',H); s.uniform_int('uTX',TX)
             gpu.compute.dispatch(s,(W+15)//16,(H+15)//16,1)
+            self._valid = True
             return self.uOut
         except Exception as e:
             _log("render failed -> fallback:", e); self.ok = False
