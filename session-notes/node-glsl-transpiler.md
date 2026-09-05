@@ -1274,3 +1274,30 @@ from the binary, not from memory) to harden transpiler coverage.
 - **Relight-pipeline decision:** the self-shadow is *lighting* info. For the AI-relight
   north star, keep it as a SEPARATE height/occlusion output rather than burned into base
   colour, so the relighter can use or discard it. Decide before building.
+
+## Brainstorm / deferred — SDF sphere-traced shadows + AO (discussed, no code)
+Context: chased "can we ray-trace the sun instead of shadow-mapping / can we get
+game-engine RTX". Conclusions from that thread:
+- Hardware RTX (RT cores, BVH, ray pipeline) is NOT exposed by Blender's Python
+  `gpu` module — off the table. Game "realtime RT" is really a few rays/pixel +
+  heavy DENOISE + TEMPORAL ACCUMULATION + ML upscale on dedicated silicon; we have
+  neither the RT/tensor hardware nor (yet) temporal accumulation, so the *look* comes
+  from the 80% cleanup we can't do, not the rays. So: game-engine RT = no.
+- Mesh/triangle ray tracing in a frag shader is *technically* possible (pack tris into
+  a float texture + texelFetch, or SSBO if exposed; stackless BVH traversal) but the
+  BVH must rebuild per frame for a DYNAMIC/edit-mode viewport — a Python per-frame
+  rebuild would be far worse than the shadow-map re-render it replaces. Poor trade live.
+- **SDF sphere tracing = the promising route (~70%).** Bake scene into a 3D signed
+  distance field (our bake system fits), sphere-march it: NO acceleration structure
+  needed (the SDF *is* it), works in GLSL 330 (3D textures exist). Soft shadows fall
+  out ~free: track closest-approach distance along the shadow ray → penumbra. Same
+  march gives AO. Noise-free by construction (no denoiser needed) — which suits the
+  look-dev/relight north star better than sparse noisy RT.
+- Catches: SDF is a PRECOMPUTE → static-ish (great for environment, re-bake or keep
+  animated chars on shadow maps in a hybrid); volume-texture memory limits fine detail
+  (thin leaves/sharp corners soften); 1-bounce GI in the SDF is doable but several× the
+  cost of shadows → "maybe later", not first target.
+- Sits next to the horizon-map idea: both are "bake occlusion once, look up cheap".
+- **Prereq probe (recurring unknown):** what the `gpu` module actually exposes —
+  SSBOs, 3D textures + max size, UBOs, float-texture limits. Short probe converts all
+  of the above (plus many-light UBO, mesh-RT) from "cool if true" to confirmed.
