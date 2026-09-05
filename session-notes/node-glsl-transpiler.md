@@ -1355,3 +1355,38 @@ screen-ellipse + exponential falloff + alpha blend. Precompute 3D covariance onc
 - **Verdict:** viable; worth a de-risking spike; but it's a FORK — a whole new render subsystem
   (generate / covariance frag / sorted instanced draw / blend / LOD) alongside the mesh path,
   not a small feature. Decide "open a 2nd render pillar?" before building.
+
+## v0.11.22 — GPU probe VALIDATED on-hardware (live viewport) + 4.4 __init__ check
+Ran capability spikes from the Scripting tab on a real GPU (Blender 4.4.3). Moves the
+matrix above from "API-exposed" to "exercised & working":
+- **Instanced draw:** CONFIRMED — proved `gl_InstanceID` varies across the full range
+  (instance 7 rendered its distinct shade). Single-draw-call path for splats/grass works.
+- **3D texture, UBO, compute dispatch:** all CONFIRMED working (compute compiled + dispatched
+  an image-write; I'd expected a signature failure and it passed — compute is genuinely usable).
+- **Full splat render path: CONFIRMED end-to-end on-GPU.** A spike turns the active mesh into a
+  gaussian-splat cloud (surface-sampled, Mesh2Splat-style) and renders it: per-splat data in a
+  texture fetched by `gl_InstanceID`, instanced billboards, gaussian falloff, depth-sorted alpha,
+  normal-based colour, opaque save. Output showed correct coloured splats. The capability question
+  is fully closed = YES.
+- **Spike bugs found (harness, not capability):** (1) premultiplied-alpha save blew RGB to white
+  (content survived in alpha) → fixed by straight 'ALPHA' blend + opaque save (force alpha=1,
+  view_transform='Standard'). (2) Splats too large (100% coverage) — radius/camera tuning only.
+- **REAL design gotcha for a production splat path:** packed splat data as a `2 x Nsp` texture;
+  at ~20k splats that's 20000 tall, PAST the ~16384 max texture dimension → periodic (period-4)
+  sampling corruption/scanlines. Production packing must be 2D-TILED (e.g. width ~2048, wrapping)
+  or a buffer texture — never one tall strip.
+- **Only remaining splat unknown = PERFORMANCE at scale** (overdraw/fillrate: how many splats at
+  framerate). Needs a load test, not a correctness spike. Get that number IF/when we build.
+- **Strategic:** splats are a FORK (a whole 2nd render subsystem beside the mesh path), justified
+  mainly by the dense-organic-asset case (mulch/foliage where triangle raster dies on sub-pixel
+  tris). Bake Cycles→texture→splat for cheap photoreal display (baked-in lighting is a FEATURE
+  there; distinct from the relight north star which needs separable albedo — keep as two modes).
+
+### 4.4 RenderEngine `__init__` requirement — CHECKED, we're SAFE
+Since Blender 4.4, a RenderEngine subclass that DEFINES `__init__` must call
+`super().__init__(*args, **kwargs)` or instancing throws a cryptic RuntimeError (the #1 thing
+that breaks pre-4.4 splat/render addons). Checked `VertexLitEngine`: it defines NO custom
+`__init__`/`__new__` (only the unrelated `_ShadowMap` helper has one), so it inherits
+`RenderEngine.__init__` cleanly and is unaffected. Suite already green on 4.4.3 confirms it
+instantiates. NOTE for future: if anyone ever adds an `__init__` to VertexLitEngine, it MUST
+call `super().__init__(*args, **kwargs)`.
