@@ -104,9 +104,22 @@ class VertexLitSettings(bpy.types.PropertyGroup):
         update=_view_mode_update)
     vm_prev: bpy.props.StringProperty(default='TEXTURED')
     vm_memory: bpy.props.StringProperty(default='')
-    splat_ply: bpy.props.StringProperty(
-        name="Splat File", subtype='FILE_PATH', default='',
-        description="A 3DGS .ply to render as a splat cloud in the scene (experimental)")
+    splat_method: bpy.props.EnumProperty(name="Method", default='SURFEL',
+        items=[('SURFEL',"Surfel","Sampling + local anisotropy (robust default; topology-independent)"),
+               ('TRIANGLE',"Per-Triangle","One surfel per triangle (decimation-based; clean native-density meshes)"),
+               ('UNIFORM',"Uniform","Round splats (simplest; fuzzy/spiky organic)")])
+    splat_count: bpy.props.IntProperty(name="Splat Count", default=200000, min=1000, max=5000000,
+        description="Target splats (Surfel/Uniform: samples; Per-Triangle: decimation target)")
+    splat_color: bpy.props.EnumProperty(name="Color", default='TEXTURE',
+        items=[('TEXTURE',"Texture","Material Base Color texture"),
+               ('BASECOLOR',"Base Color","Flat material Base Color"),
+               ('VERTEX',"Vertex Color","Active color attribute")])
+    splat_size: bpy.props.FloatProperty(name="Splat Size", default=0.9, min=0.1, max=4.0)
+    splat_flatness: bpy.props.FloatProperty(name="Flatness", default=0.15, min=0.02, max=1.0)
+    splat_opacity: bpy.props.FloatProperty(name="Opacity", default=0.9, min=0.05, max=1.0)
+    splat_bake: bpy.props.BoolProperty(name="Bake Simple Lighting", default=False)
+    splat_hide_src: bpy.props.BoolProperty(name="Hide Source Mesh", default=False)
+    splat_seed: bpy.props.IntProperty(name="Seed", default=0, min=0)
     splat_sigma: bpy.props.FloatProperty(name="Splat Softness", default=2.2, min=1.0, max=4.0)
     normal_space: bpy.props.EnumProperty(
         name="Normal Space",

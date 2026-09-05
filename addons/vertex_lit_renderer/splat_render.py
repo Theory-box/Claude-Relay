@@ -17,6 +17,9 @@ from gpu_extras.batch import batch_for_shader
 from mathutils import Vector
 
 _SH_C0 = 0.28209479177387814
+# Module-level registry of SplatCloud instances, populated by the generate operator and drawn
+# by the engine each frame. Survives viewport redraws (cleared on file reload / Clear button).
+SCENE_CLOUDS = []
 _PLY_T = {'char':'i1','uchar':'u1','short':'i2','ushort':'u2','int':'i4','uint':'u4',
           'float':'f4','float32':'f4','double':'f8','int8':'i1','uint8':'u1',
           'int16':'i2','uint16':'u2','int32':'i4','uint32':'u4','float64':'f8'}

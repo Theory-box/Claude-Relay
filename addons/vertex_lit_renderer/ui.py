@@ -218,11 +218,18 @@ class VERTEX_LIT_PT_splats(_Base, bpy.types.Panel):
     def draw(self, context):
         s = context.scene.vertex_lit
         layout = self.layout
+        layout.prop(s, 'splat_method', expand=True)
         col = layout.column(align=True)
-        col.prop(s, 'splat_ply')
-        col.prop(s, 'splat_sigma')
-        if getattr(s, 'splat_ply', ''):
-            layout.label(text="Composited with scene depth", icon='INFO')
+        col.prop(s, 'splat_count'); col.prop(s, 'splat_color')
+        box = layout.box(); box.label(text="Shape")
+        box.prop(s, 'splat_size'); box.prop(s, 'splat_flatness')
+        box.prop(s, 'splat_opacity'); box.prop(s, 'splat_sigma')
+        row = layout.row(); row.prop(s, 'splat_bake'); row.prop(s, 'splat_hide_src')
+        layout.prop(s, 'splat_seed')
+        ob = context.active_object
+        r = layout.row(); r.enabled = (ob is not None and ob.type == 'MESH')
+        r.operator("vertex_lit.generate_splats", icon='OUTLINER_OB_POINTCLOUD')
+        layout.operator("vertex_lit.clear_splats", icon='TRASH')
 
 
 _CLASSES = (

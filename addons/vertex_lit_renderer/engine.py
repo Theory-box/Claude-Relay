@@ -1276,30 +1276,10 @@ class VertexLitEngine(bpy.types.RenderEngine):
 
     # ── Main draw ─────────────────────────────────────────────────────────
 
-    def _ensure_splats(self, vls):
-        """Load/cache the scene's splat cloud from vls.splat_ply (experimental). Guarded."""
-        path = getattr(vls, 'splat_ply', '') if vls else ''
-        try:
-            ap = bpy.path.abspath(path) if path else ''
-        except Exception:
-            ap = ''
-        if ap == getattr(self, '_splat_path', None):
-            return
-        self._splat_path = ap
-        self._splat_clouds = []
-        if ap and os.path.exists(ap):
-            try:
-                from . import splat_render
-                data = splat_render.load_ply(ap)
-                sig = getattr(vls, 'splat_sigma', 2.2) if vls else 2.2
-                self._splat_clouds = [splat_render.SplatCloud(data, sigma=sig)]
-                if _DEBUG: print("[VertexLit] loaded splat cloud:", data['count'])
-            except Exception as e:
-                print("[VertexLit] splat load failed:", e)
-
     def _draw_splats(self):
-        """Draw cached splat clouds into the current framebuffer (composited via depth test)."""
-        clouds = getattr(self, '_splat_clouds', None)
+        """Draw generated splat clouds (from the splat_render registry) into the current framebuffer."""
+        from . import splat_render
+        clouds = splat_render.SCENE_CLOUDS
         if not clouds:
             return
         vm = getattr(self, '_splat_vm', None); pm = getattr(self, '_splat_pm', None)
@@ -1527,10 +1507,9 @@ class VertexLitEngine(bpy.types.RenderEngine):
         except Exception:
             key_dir=(0.3,0.4,0.86)
         studio=(key_dir, (1.0,1.0,1.0), (vls.key_intensity if vls else 0.8))
-        # experimental splat cloud: cache matrices for the draw, (re)load on path change
+        # experimental splat clouds: cache matrices for the draw (clouds come from the generate op)
         self._splat_vm = rv3d.view_matrix; self._splat_pm = rv3d.window_matrix
         self._splat_wh = (region.width, region.height)
-        self._ensure_splats(vls)
         def _draw_objects():
             self._draw_batches(depsgraph, vls, view_proj, studio, ls_mat, sky, ground,
                                bstr, do_shad, s_bias, s_dark, shad_tex, lights, mode)
