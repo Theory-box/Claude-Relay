@@ -1444,3 +1444,18 @@ Applied the browser-viewer CPU tricks (GPU was never the bottleneck: draw 0.0 bo
   (uint16, ~2x faster, but on the main thread). Final step = move the sort to a BACKGROUND THREAD
   (numpy releases the GIL) so rendering never waits — the browser's "sort in a web worker" trick.
   Higher-risk (threading, untestable headless); do only if orbiting isn't smooth enough.
+
+## Mesh2Splat addon — v0.1.1 (multi-material texture fix) + relighting direction
+- **Bug:** splats always WHITE on a multi-material tree (bark + 2 leaf mats). Cause: v0.1.0 read only
+  obj.active_material and only detected a texture if Base Color linked DIRECTLY to an Image node →
+  detection failed → fell back to flat (white) base colour.
+- **Fix (v0.1.1):** per-FACE material handling (each sample colours from ITS triangle's material_index
+  slot), node-graph WALK back from Base Color to find the Image through Mapping/Mix/etc., and per-slot
+  DIAGNOSTICS printed to the System Console (texture WxH vs flat base per slot) to debug live. Validated
+  headless: per-material routing correct (bark→brown, leaf tex→green, etc.); quat disks face normal.
+- **RELIGHTING direction (confirmed wanted):** the on-mission engine integration. Our generated splats
+  carry real ALBEDO (sampled texture) + real NORMALS → the engine's sun+hemi+key can shade them
+  `albedo*(N·L+ambient)` so a splat object responds to SCENE lights. Uniquely enabled by our generator
+  (captured splats can't — their colour is baked light, normals are mush). Requires splats as an ENGINE
+  PRIMITIVE (not the standalone overlay): also unlocks depth-compositing with meshes + shadows + FX,
+  gated on the transparency-vs-zbuffer (OIT) problem. This is the bridge between the viewer and the engine.

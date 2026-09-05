@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Mesh to Splat",
     "author": "Claude Relay",
-    "version": (0, 1, 0),
+    "version": (0, 1, 1),
     "blender": (4, 2, 0),
     "location": "View3D > Sidebar (N) > Splat",
     "description": "Convert the active mesh into a 3D gaussian-splat cloud (sampled from its texture) and view it live.",
@@ -70,25 +70,51 @@ def _frames_to_quat(n):
 # =====================================================================================
 # bpy extraction
 # =====================================================================================
-def _get_texture_and_basecolor(obj):
-    """Return (image_np or None, basecolor_rgb or None) from the active material's Principled Base Color."""
-    mat = obj.active_material
-    if mat and mat.use_nodes:
-        bsdf = next((n for n in mat.node_tree.nodes if n.type == 'BSDF_PRINCIPLED'), None)
-        if bsdf is not None:
-            bc = bsdf.inputs.get('Base Color')
-            if bc is not None and bc.is_linked:
-                fn = bc.links[0].from_node
-                if fn.type == 'TEX_IMAGE' and fn.image is not None and tuple(fn.image.size) != (0,0):
-                    img = fn.image; w,h = img.size
-                    px = np.empty(w*h*4, np.float32); img.pixels.foreach_get(px)
-                    return px.reshape(h, w, 4), np.array(bc.default_value[:3], np.float32)
-            if bc is not None:
-                return None, np.array(bc.default_value[:3], np.float32)
-    return None, None
+def _find_basecolor_image(bsdf):
+    """Walk back from the Base Color input to find an Image Texture node (through Mapping/Mix/etc.)."""
+    bc = bsdf.inputs.get('Base Color')
+    if bc is None or not bc.is_linked:
+        return None
+    seen = set(); stack = [bc.links[0].from_node]
+    while stack:
+        n = stack.pop()
+        if n is None or n.as_pointer() in seen:
+            continue
+        seen.add(n.as_pointer())
+        if n.type == 'TEX_IMAGE' and n.image is not None:
+            return n.image
+        for inp in n.inputs:
+            if inp.is_linked:
+                stack.append(inp.links[0].from_node)
+    return None
+
+def _material_color(mat):
+    """Return (image_np or None, basecolor_rgb) for one material."""
+    base = np.array([0.8, 0.8, 0.8], np.float32)
+    if mat is None:
+        return None, base
+    if not mat.use_nodes:
+        try: base = np.array(mat.diffuse_color[:3], np.float32)
+        except Exception: pass
+        return None, base
+    bsdf = next((n for n in mat.node_tree.nodes if n.type == 'BSDF_PRINCIPLED'), None)
+    if bsdf is None:
+        return None, base
+    bc = bsdf.inputs.get('Base Color')
+    if bc is not None:
+        base = np.array(bc.default_value[:3], np.float32)
+    img = _find_basecolor_image(bsdf)
+    if img is not None and tuple(img.size) != (0, 0):
+        w, h = img.size
+        try:
+            px = np.empty(w*h*4, np.float32); img.pixels.foreach_get(px)
+            return px.reshape(h, w, 4), base
+        except Exception:
+            pass
+    return None, base
 
 def _extract_samples(obj, count, color_source, seed):
-    """Sample the evaluated mesh surface -> (points, normals, colors) in world space."""
+    """Sample the evaluated mesh surface -> (points, normals, colors, area, diag) in world space."""
     deps = bpy.context.evaluated_depsgraph_get()
     ev = obj.evaluated_get(deps)
     me = ev.to_mesh()
@@ -101,46 +127,62 @@ def _extract_samples(obj, count, color_source, seed):
         ev.to_mesh_clear(); return None
     tv = np.empty(nt*3, np.int32); me.loop_triangles.foreach_get('vertices', tv); tv = tv.reshape(-1,3)
     tl = np.empty(nt*3, np.int32); me.loop_triangles.foreach_get('loops', tl); tl = tl.reshape(-1,3)
+    tmat = np.empty(nt, np.int32); me.loop_triangles.foreach_get('material_index', tmat)
     uv_ok = me.uv_layers.active is not None
     if uv_ok:
         nl = len(me.loops); uvf = np.empty(nl*2, np.float32)
         me.uv_layers.active.data.foreach_get('uv', uvf); loop_uv = uvf.reshape(-1,2)
-    # optional vertex colours
-    vcol = None
+    vcol = None; vcol_per_loop = False
     if color_source == 'VERTEX' and len(me.color_attributes):
         ca = me.color_attributes.active_color or me.color_attributes[0]
         n = len(ca.data); cf = np.empty(n*4, np.float32); ca.data.foreach_get('color', cf); vcol = cf.reshape(-1,4)
         vcol_per_loop = (ca.domain == 'CORNER')
+
     mw = np.array(obj.matrix_world, np.float32)
     verts_w = verts @ mw[:3,:3].T + mw[:3,3]
     nmat = np.linalg.inv(mw[:3,:3]).T
     vn_w = vn @ nmat.T; vn_w /= (np.linalg.norm(vn_w, axis=1, keepdims=True)+1e-9)
 
-    tri_pos = verts_w[tv]                                  # (nt,3,3)
+    tri_pos = verts_w[tv]
     idx, bary, area = _sample_triangles(tri_pos, count, seed)
     pts = (bary[:,:,None]*tri_pos[idx]).sum(1)
     nrm = (bary[:,:,None]*vn_w[tv][idx]).sum(1); nrm /= (np.linalg.norm(nrm,axis=1,keepdims=True)+1e-9)
+    smi = tmat[idx]                                   # material slot per sample
+    uv = (bary[:,:,None]*loop_uv[tl][idx]).sum(1) if uv_ok else None
 
-    img, basecol = _get_texture_and_basecolor(obj)
-    if color_source == 'TEXTURE' and uv_ok and img is not None:
-        uv = (bary[:,:,None]*loop_uv[tl][idx]).sum(1)
-        color = _lin2srgb(_bilinear(img, uv))
-    elif color_source == 'VERTEX' and vcol is not None:
-        if vcol_per_loop:
-            color = _lin2srgb((bary[:,:,None]*vcol[tl][idx][...,:3]).sum(1))
-        else:
-            color = _lin2srgb((bary[:,:,None]*vcol[tv][idx][...,:3]).sum(1))
-    elif basecol is not None:
-        color = np.tile(_lin2srgb(basecol)[None], (len(pts),1))
+    # per-material colour data (+ diagnostics)
+    slots = list(obj.material_slots)
+    if not slots:
+        slot_data = [(None, np.array([0.6,0.6,0.6], np.float32))]
+        diag = ["no material slots -> grey"]
     else:
-        color = np.full((len(pts),3), 0.6, np.float32)
+        slot_data = []; diag = []
+        for si, sl in enumerate(slots):
+            img, base = _material_color(sl.material)
+            slot_data.append((img, base))
+            mn = sl.material.name if sl.material else "None"
+            if img is not None: diag.append("slot%d '%s': texture %dx%d" % (si, mn, img.shape[1], img.shape[0]))
+            else:               diag.append("slot%d '%s': flat base %.2f,%.2f,%.2f" % (si, mn, *base))
+    diag.append("uv=%s  color_source=%s" % (uv_ok, color_source))
+
+    color = np.full((len(pts),3), 0.6, np.float32)
+    for si,(img,base) in enumerate(slot_data):
+        mask = (smi == si)
+        if not mask.any(): continue
+        if color_source == 'TEXTURE' and img is not None and uv is not None:
+            color[mask] = _lin2srgb(_bilinear(img, uv[mask]))
+        elif color_source == 'VERTEX' and vcol is not None:
+            src = vcol[tl][idx] if vcol_per_loop else vcol[tv][idx]
+            color[mask] = _lin2srgb((bary[:,:,None]*src[...,:3]).sum(1)[mask])
+        else:
+            color[mask] = _lin2srgb(base)
     ev.to_mesh_clear()
-    return pts.astype(np.float32), nrm.astype(np.float32), np.clip(color,0,1).astype(np.float32), area
+    return pts.astype(np.float32), nrm.astype(np.float32), np.clip(color,0,1).astype(np.float32), area, diag
 
 def _make_cloud(obj, s):
     res = _extract_samples(obj, s.splat_count, s.color_source, s.seed)
-    if res is None: return None
-    pts, nrm, color, area = res
+    if res is None: return None, None
+    pts, nrm, color, area, diag = res
     N = len(pts)
     spacing = float(np.sqrt(area/max(N,1)))
     r = spacing * s.size_scale
@@ -151,7 +193,7 @@ def _make_cloud(obj, s):
         ndl = np.clip(nrm@key,0,1); hemi = 0.4+0.25*(nrm[:,2]*0.5+0.5)
         color = np.clip(color*(hemi[:,None]+0.7*ndl[:,None]),0,1).astype(np.float32)
     return dict(count=N, xyz=pts, color=color,
-                opacity=np.full(N, s.opacity, np.float32), scale=scale.astype(np.float32), quat=quat)
+                opacity=np.full(N, s.opacity, np.float32), scale=scale.astype(np.float32), quat=quat), diag
 
 # =====================================================================================
 # GL viewer (validated EWA shader + optimised draw handler)
@@ -302,14 +344,16 @@ class MESH2SPLAT_OT_convert(bpy.types.Operator):
             self.report({'ERROR'},"Select a mesh object first"); return {'CANCELLED'}
         s=context.scene.mesh2splat
         t=time.perf_counter()
-        cloud=_make_cloud(obj, s)
+        cloud, diag=_make_cloud(obj, s)
         if cloud is None:
             self.report({'ERROR'},"Mesh has no faces to sample"); return {'CANCELLED'}
+        print("[Mesh2Splat] %s color diagnostics:" % obj.name)
+        for line in diag: print("   ", line)
         _S["clouds"].append(cloud); _rebuild(); _ensure_handler()
         if s.hide_original: obj.hide_set(True)
         _redraw()
-        self.report({'INFO'}, "Splatted %s: %d splats in %.0f ms (total %d)" %
-                    (obj.name, cloud['count'], (time.perf_counter()-t)*1000, _S["data"]["count"]))
+        self.report({'INFO'}, "Splatted %s: %d splats | %s" %
+                    (obj.name, cloud['count'], " | ".join(diag[:len(obj.material_slots) or 1])))
         return {'FINISHED'}
 
 class MESH2SPLAT_OT_clear(bpy.types.Operator):
