@@ -56,6 +56,35 @@ def _area_resize(arr, W, H):
     return arr
 
 
+def _material_transparent(mat):
+    """Decide at DRAW time whether a material is alpha-blended, from its CURRENT state (not a
+    cached compile-time flag, which goes stale when the Alpha value is tweaked without a
+    structural change). Blended -> yes; Opaque -> no; otherwise transparent only if the
+    Principled Alpha is actually linked or < 1."""
+    if mat is None:
+        return False
+    sr = getattr(mat, 'surface_render_method', None)
+    bm = getattr(mat, 'blend_method', 'OPAQUE')
+    if sr == 'BLENDED' or bm == 'BLEND':
+        return True
+    if sr == 'OPAQUE':
+        return False
+    nt = getattr(mat, 'node_tree', None)
+    if nt is not None:
+        for n in nt.nodes:
+            if n.type == 'BSDF_PRINCIPLED':
+                a = n.inputs.get('Alpha')
+                if a is not None:
+                    if a.is_linked:
+                        return True
+                    try:
+                        if float(a.default_value) < 0.999:
+                            return True
+                    except Exception:
+                        pass
+    return False
+
+
 def _geo_sig(obj, mesh):
     """Cheap signature to detect whether an object's geometry changed while we weren't
     watching. Uses the ORIGINAL mesh name (stable across evaluations, unlike the temp
@@ -967,6 +996,7 @@ class VertexLitEngine(bpy.types.RenderEngine):
         # across many objects; the peek can run topo_signature for dirty materials, so
         # doing it per-object per-frame is a real cost while editing).
         frame_progs = {}
+        frame_transp = {}   # mat name -> bool (transparent), computed once per frame
         def _resolve_prog(mat_name):
             if mat_name in frame_progs:
                 return frame_progs[mat_name]
@@ -1039,17 +1069,14 @@ class VertexLitEngine(bpy.types.RenderEngine):
                 mat=bpy.data.materials.get(mat_name) if mat_name else None
                 # Alpha-blended if the material's render method is Blended (4.2+) or the
                 # legacy blend mode is BLEND.
-                # Transparent (alpha-blended) if the material asks for it (Blended), or its
-                # graph actually produces opacity < 1 (Alpha set/linked) and it isn't Opaque.
-                _sr = getattr(mat, 'surface_render_method', None) if mat is not None else None
-                _ha = bool(prog is not None and prog.get('has_alpha', False))
-                if mat is None:
-                    is_transp = False
-                elif _sr is not None:
-                    is_transp = (_sr == 'BLENDED') or (_ha and _sr != 'OPAQUE')
-                else:
-                    _bm = getattr(mat, 'blend_method', 'OPAQUE')
-                    is_transp = (_bm == 'BLEND') or (_ha and _bm != 'OPAQUE')
+                # Transparent (alpha-blended) determined from the material's CURRENT state,
+                # cached once per frame. Never uses a stale compiled flag -> tweaking Alpha
+                # takes effect immediately, and a truly opaque material stays in the opaque
+                # pass (no depth-sort artifacts).
+                is_transp = frame_transp.get(mat_name)
+                if is_transp is None:
+                    is_transp = _material_transparent(mat)
+                    frame_transp[mat_name] = is_transp
                 if is_transp:
                     try:
                         c = model.translation; clip = view_proj @ c.to_4d()

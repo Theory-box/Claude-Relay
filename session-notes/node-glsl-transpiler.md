@@ -1111,3 +1111,14 @@ User: linked-duplicate objects load one by one though they share geometry.
   they don't consume the extraction budget -> N linked dups = 1 extraction + N-1 instant reuses.
   Position-dependent geo-nodes get different sampled verts -> different sig -> not wrongly merged.
   Only same-mesh-data objects share (data name in the key). Cleared on full rebuild. 16 suites green.
+
+## v0.11.12 — Transparency decided at draw time (fixes finicky glass + opaque-as-transparent)
+The v0.11.10 has_alpha flag was baked into the compiled program, but the Alpha value is a tweakable
+not in the topo signature -> changing Alpha didn't recompile -> stale flag. Symptoms: opaque object
+stuck in the alpha-blend pass (no depth write -> inverted-face sorting artifact); alpha only "took"
+after a structural edit forced a recompile.
+Fix: _material_transparent(mat) decides transparency from the material's CURRENT state at draw time
+(Blended->yes, Opaque->no, else Principled Alpha linked or <1). Cached once per frame (frame_transp).
+No recompile needed -> tweaking Alpha is instant; truly opaque materials stay opaque. has_alpha flag
+left in place but no longer used for routing. Verified incl. 0.5->1.0 flips to opaque with no
+recompile. 16 suites green.
