@@ -16,6 +16,31 @@ def _view_attr_update(self, context):
         pass
 
 
+def _view_mode_update(self, context):
+    """Per-view-mode memory: each mode remembers its own effect toggles. Depth & Normal
+    start with everything off (pure passes); switching away/back restores each mode's state."""
+    import json
+    keys = ('use_ao', 'use_cavity', 'use_outline', 'use_shadows', 'aa_method')
+    try:
+        mem = json.loads(self.vm_memory) if self.vm_memory else {}
+    except Exception:
+        mem = {}
+    prev = self.vm_prev or 'TEXTURED'
+    new = self.view_mode
+    if prev == new:
+        return
+    mem[prev] = {k: getattr(self, k) for k in keys}   # save the mode we're leaving
+    if new in mem:
+        for k, val in mem[new].items():
+            try: setattr(self, k, val)
+            except Exception: pass
+    elif new in ('DEPTH', 'NORMAL'):
+        self.use_ao = False; self.use_cavity = False; self.use_outline = False
+        self.use_shadows = False; self.aa_method = 'OFF'
+    self.vm_memory = json.dumps(mem)
+    self.vm_prev = new
+
+
 class VertexLitSettings(bpy.types.PropertyGroup):
 
     # ── Lighting ────────────────────────────────────────────────────────────
@@ -75,7 +100,18 @@ class VertexLitSettings(bpy.types.PropertyGroup):
             ('DEPTH',     "Depth",     "Visualise distance from the camera as greyscale"),
         ],
         default='TEXTURED',
-        description="What surface colour to display")
+        description="What surface colour to display",
+        update=_view_mode_update)
+    vm_prev: bpy.props.StringProperty(default='TEXTURED')
+    vm_memory: bpy.props.StringProperty(default='')
+    normal_space: bpy.props.EnumProperty(
+        name="Normal Space",
+        items=[('WORLD', "World", "World-space normals"),
+               ('SCREEN', "Screen", "View/screen-space normals (like a tangent-less normal map)")],
+        default='WORLD', description="Coordinate space for the Normal view")
+    depth_auto: bpy.props.BoolProperty(
+        name="Auto Contrast", default=True,
+        description="Auto-fit the depth range so the nearest is black and farthest is white")
     random_mode: bpy.props.EnumProperty(
         name="Random By",
         items=[('OBJECT',   "Per Object",   "A colour per object"),

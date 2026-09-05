@@ -1181,3 +1181,27 @@ Fix — _build_light_space_fit(sun_dir, view_proj, cam_pos, shadow_distance, res
   static view -> cached, orbit -> re-fit. Replaces the old sun-only dirty trigger.
 - New prop shadow_distance (default 25) + UI under Sun shadows.
 Known: single map (no cascades) so beyond shadow_distance = no shadows; F12 shadows still off. 16 green.
+
+## v0.11.18 — Per-view-mode effect memory + screen-space normal + depth auto-contrast
+- PER-VIEW-MODE MEMORY: view_mode update callback (_view_mode_update) saves each mode's effect
+  toggles (use_ao/use_cavity/use_outline/use_shadows/aa_method) to a JSON prop (vm_memory) keyed by
+  mode, restoring on switch. Depth & Normal first-visit -> all effects OFF (pure passes). Remembers
+  if you turn one on. Verified the save/restore/remember cycle.
+- DEPTH/NORMAL raw output: skip bind_display_space_shader for these modes so they're not tonemapped
+  (pure depth greyscale / normal-map colours).
+- NORMAL space: normal_space enum World/Screen; VIEWMODE_FRAG transforms N by uViewMat3 (view 3x3,
+  set on self._view_mat3 each frame) for screen-space -> looks like a normal map.
+- DEPTH auto-contrast: depth_auto bool (default on) -> range auto-fit from the scene bounds' near/far
+  distance to the camera (nearest black, farthest white); manual min/max when off.
+- UI: normal_space under Normal; depth_auto + (greyed manual range) under Depth.
+DEFERRED (moderate, next session): per-object sun-shadow cast/receive/both dropdown; per-object AO
+send/receive/both (receive needs object-ID masking in screen-space). 16 suites green.
+
+## v0.11.19 — Blender 4.2 compatibility (min-version fix)
+Verified the addon FULLY works on Blender 4.2.9 LTS (downloaded + ran the full 16-suite -> 16/16;
+all version-sensitive APIs present: color_mask_set, bl_use_gpu_context, from_image,
+surface_render_method + legacy blend_method, bind_display_space_shader). Install on 4.2 crashed with
+"unsupported format string passed to tuple.__format__" — a Blender 4.2 bug in its legacy-addon
+version-mismatch warning, triggered because bl_info["blender"] was (4,4,0) > running version. Fixed:
+lowered bl_info["blender"] to (4,2,0). Registers clean on 4.2 + 4.4. (moderngl is a TEST-only dep,
+not used by the addon.)

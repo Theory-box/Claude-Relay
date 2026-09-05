@@ -676,6 +676,8 @@ class VertexLitEngine(bpy.types.RenderEngine):
             self._sun = _compute_sun(vls)
             try: self._cam_pos = tuple(cam_eval.matrix_world.translation)
             except Exception: self._cam_pos = (0.0, 0.0, 0.0)
+            try: self._view_mat3 = view.to_3x3()
+            except Exception: self._view_mat3 = None
             try:
                 kv = Vector((0.25, 0.35, 0.90)); kv.normalize()
                 key_dir = tuple(cam_eval.matrix_world.to_quaternion() @ kv)
@@ -1033,8 +1035,26 @@ class VertexLitEngine(bpy.types.RenderEngine):
         except Exception: pass
         sf('uSolidColor', tuple(vls.solid_color) if vls else (0.8, 0.8, 0.8))
         sf('uCamPos', getattr(self, '_cam_pos', (0.0, 0.0, 0.0)))
-        sf('uDepthMin', vls.depth_min if vls else 0.0)
-        sf('uDepthMax', vls.depth_max if vls else 20.0)
+        # Depth range: auto-fit to the scene's distance from the camera, or manual.
+        if vls and vmid == 5 and getattr(vls, 'depth_auto', True):
+            try:
+                c, r = self._bounds_cache
+                d = (Vector(self._cam_pos) - Vector(c)).length
+                dmin = max(0.0, d - r); dmax = d + r
+                if dmax - dmin < 1e-4: dmax = dmin + 1.0
+            except Exception:
+                dmin, dmax = (vls.depth_min, vls.depth_max)
+        else:
+            dmin = vls.depth_min if vls else 0.0
+            dmax = vls.depth_max if vls else 20.0
+        sf('uDepthMin', dmin); sf('uDepthMax', dmax)
+        # Normal-view space (world / screen)
+        try:
+            sh.uniform_int('uNormalSpace', 1 if (vls and vls.normal_space == 'SCREEN') else 0)
+        except Exception: pass
+        vm3 = getattr(self, '_view_mat3', None)
+        if vm3 is not None:
+            sf('uViewMat3', vm3)
         gpu.state.depth_test_set('LESS_EQUAL'); gpu.state.depth_mask_set(True)
         gpu.state.face_culling_set(getattr(self, '_cull', 'BACK'))
         for inst in depsgraph.object_instances:
@@ -1412,6 +1432,8 @@ class VertexLitEngine(bpy.types.RenderEngine):
         self._film_transparent = False
         try: self._cam_pos = tuple(rv3d.view_matrix.inverted().translation)
         except Exception: self._cam_pos = (0.0, 0.0, 0.0)
+        try: self._view_mat3 = rv3d.view_matrix.to_3x3()
+        except Exception: self._view_mat3 = None
         mode='PIXEL'
         # Workbench studio key light follows the view (like Blender's Solid mode):
         # a fixed view-space direction rotated into world space each frame.
@@ -1440,15 +1462,20 @@ class VertexLitEngine(bpy.types.RenderEngine):
                     do_shad=do_shad, s_bias=s_bias, s_soft=s_dark, shad_tex=shad_tex)
                 final_tex, sw, sh = post.render(rw, rh, draw_scene, post_ctx, vls, blit=False)
                 # Blit to the viewport THROUGH the scene's colour management (view transform,
-                # look, exposure, gamma) so the viewport matches the F12 render.
+                # look, exposure, gamma) so the viewport matches the F12 render. Depth/Normal
+                # are data passes, not scene-referred colour -> blit them RAW (no tonemap).
                 gpu.state.depth_test_set('NONE'); gpu.state.depth_mask_set(False)
                 gpu.state.blend_set('NONE')
-                try:
-                    self.bind_display_space_shader(scene)
+                _raw = getattr(vls, 'view_mode', 'TEXTURED') in ('DEPTH', 'NORMAL')
+                if _raw:
                     draw_texture_2d(final_tex, (0, 0), rw, rh)
-                    self.unbind_display_space_shader()
-                except Exception:
-                    draw_texture_2d(final_tex, (0, 0), rw, rh)   # fallback: linear
+                else:
+                    try:
+                        self.bind_display_space_shader(scene)
+                        draw_texture_2d(final_tex, (0, 0), rw, rh)
+                        self.unbind_display_space_shader()
+                    except Exception:
+                        draw_texture_2d(final_tex, (0, 0), rw, rh)   # fallback: linear
                 gpu.state.face_culling_set('NONE')
                 if getattr(self, '_mat_pending', False) or getattr(self, '_geo_pending', False):
                     self.tag_redraw()
