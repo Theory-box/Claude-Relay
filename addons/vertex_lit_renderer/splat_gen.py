@@ -68,27 +68,35 @@ def _find_basecolor_image(bsdf):
     return None
 
 def _material_color(mat):
-    base=np.array([0.8,0.8,0.8],np.float32)
-    if mat is None: return None, base
-    if not mat.use_nodes:
-        try: base=np.array(mat.diffuse_color[:3],np.float32)
-        except Exception: pass
+    # The engine tints meshes by mat.diffuse_color (used as the vertex-colour fallback), so a mesh
+    # renders light * diffuse_color * base. Fold diffuse_color into the splat albedo to match exactly.
+    dcol = np.array(mat.diffuse_color[:3], np.float32) if mat is not None else np.ones(3, np.float32)
+    base = np.array([0.8, 0.8, 0.8], np.float32)
+    if mat is None:
         return None, base
-    bsdf=next((n for n in mat.node_tree.nodes if n.type=='BSDF_PRINCIPLED'),None)
-    if bsdf is None: return None, base
-    bc=bsdf.inputs.get('Base Color')
-    if bc is not None: base=np.array(bc.default_value[:3],np.float32)
-    img=_find_basecolor_image(bsdf)
-    if img is not None and tuple(img.size)!=(0,0):
-        w,h=img.size
+    if not mat.use_nodes:
+        return None, dcol
+    bsdf = next((n for n in mat.node_tree.nodes if n.type == 'BSDF_PRINCIPLED'), None)
+    if bsdf is None:
+        return None, dcol
+    bc = bsdf.inputs.get('Base Color')
+    if bc is not None:
+        base = np.array(bc.default_value[:3], np.float32)
+    base = (base * dcol).astype(np.float32)
+    img = _find_basecolor_image(bsdf)
+    if img is not None and tuple(img.size) != (0, 0):
+        w, h = img.size
         try:
-            px=np.empty(w*h*4,np.float32); img.pixels.foreach_get(px); a=px.reshape(h,w,4)
-            # sRGB texture -> linearise (Non-Color/Raw/Linear stay as stored)
-            cs=getattr(getattr(img,'colorspace_settings',None),'name','sRGB')
-            if cs not in ('Non-Color','Raw','Linear','Linear Rec.709','Linear FilmLight E-Gamut'):
-                a=a.copy(); a[...,:3]=_srgb2lin(a[...,:3])
+            px = np.empty(w*h*4, np.float32); img.pixels.foreach_get(px); a = px.reshape(h, w, 4)
+            cs = getattr(getattr(img, 'colorspace_settings', None), 'name', 'sRGB')
+            if cs not in ('Non-Color', 'Raw', 'Linear', 'Linear Rec.709', 'Linear FilmLight E-Gamut'):
+                a = a.copy(); a[..., :3] = _srgb2lin(a[..., :3])
+            else:
+                a = a.copy()
+            a[..., :3] *= dcol            # tint texture by diffuse_color too (matches mesh)
             return a, base
-        except Exception: pass
+        except Exception:
+            pass
     return None, base
 
 # ---------------------------------------------------------------- surface sampling (uniform / surfel)
