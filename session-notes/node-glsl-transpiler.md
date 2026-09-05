@@ -1473,3 +1473,21 @@ no training. Deterministic; keeps albedo+normals clean (relightable), unlike ima
 - **VERDICT:** adaptive wins on smooth/flat/solid (architecture, terrain, panels, leaf faces); loses on
   high-frequency thin detail (fuzz/spines/hair/fine foliage) where detail IS the content. Content-specific,
   like splats-vs-mesh. Speed: ~15s for 600k->60k (offline bake; Python heapq loop, would need vectorising).
+
+## Per-triangle Steiner-inellipse generator — the winner (triangle_splat.py)
+Research round (KIRI 3dgs-render / splatviz-blender / ReshotAI / SuGaR / MeshGS / MASS) pointed at
+per-triangle placement over clustering. Built it:
+- **One anisotropic surfel per triangle** from the uniform-triangle covariance (Steiner inellipse):
+  centre=centroid, in-plane axes=triangle shape, normal=thin axis. Fully VECTORISED (batched
+  covariance + np.linalg.eigh over all tris + batched quat) — no loop.
+- **~100x faster than clustering:** 0.16s vs 15s at 40k; 601k tris -> 601k splats in 2.4s.
+- **Surface-aligned exactly:** splat thin-axis vs triangle normal |dot| = 1.0000.
+- **Cleaner than uniform at equal count** (mixed sphere 40k: per-triangle approaches uniform-160k —
+  deterministic tiling, no random gaps/clumps).
+- **Fixes the plant:** full-res per-triangle on the cactus = sharpest of all, NO gap-bridging streaks
+  (each splat stays on its triangle) — beats both clustering (artifacts) and uniform (blobby).
+- **Count control + adaptivity:** decimate_to() (fast_simplification quadric) first — curvature-driven,
+  fewer tris on flat areas -> adaptive splats. Decimate 601k->60k = 2.3s.
+- **Verdict:** replace clustering fitter with per-triangle as the DEFAULT generator (clustering kept
+  only for raw point clouds with no clean triangles). Research-validated best-practice init.
+- Possible speed win later: skip 3x3 eigh (normal=cross(e1,e2), in-plane 2x2 eigen is closed-form).
