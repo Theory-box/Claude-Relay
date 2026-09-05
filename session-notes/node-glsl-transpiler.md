@@ -1301,3 +1301,57 @@ game-engine RTX". Conclusions from that thread:
 - **Prereq probe (recurring unknown):** what the `gpu` module actually exposes —
   SSBOs, 3D textures + max size, UBOs, float-texture limits. Short probe converts all
   of the above (plus many-light UBO, mesh-RT) from "cool if true" to confirmed.
+
+## ⚠️ v0.11.22 — GPU-MODULE CAPABILITY MATRIX (PROBED) — SUPERSEDES earlier "no compute" caveats
+Ran an API-surface probe of Blender's `gpu` module on **4.2.9 LTS and 4.4.3** (both).
+This CORRECTS repeated earlier assumptions in the brainstorm entries above (grass,
+many-lights, SDF, splats, RTX) that invoked "no compute shaders / no instancing" — those
+claims were WRONG from 4.2 onward. Corrected matrix (API confirmed present on 4.2+):
+
+| Capability            | Status on 4.2+ | API                                                   |
+|-----------------------|----------------|-------------------------------------------------------|
+| Instanced draw        | ✅ YES         | `GPUBatch.draw_instanced(prog, instance_start, instance_count)`; `gl_InstanceID` in vert |
+| Compute shaders       | ✅ YES         | `gpu.compute.dispatch(shader, gx, gy, gz)` + `GPUShaderCreateInfo.compute_source/local_group_size` |
+| Image load/store      | ✅ YES         | `GPUShaderCreateInfo.image(...)`                       |
+| Uniform buffers (UBO) | ✅ YES         | `gpu.types.GPUUniformBuf`                              |
+| 3D textures           | ✅ YES         | `GPUTexture(size=(x,y,z), ...)` (doc: "1D, 2D, 3D or cubemap") |
+| **Storage buffers (SSBO)** | ❌ NO     | no `GPUStorageBuf` — compute I/O must go via images/textures + UBO + push-constants |
+| Hardware ray tracing  | ❌ NO          | no RT cores / BVH / ray pipeline. Software RT via compute = possible-but-slow. |
+
+### Two caveats that REMAIN (do not over-read the matrix)
+1. **API-exposed ≠ validated.** Probe proved the functions EXIST (introspected headless).
+   NOT yet exercised — background mode blocks Blender's GPU context. Real behaviour of a
+   200k-instance draw / 3D-texture create / compute dispatch must be confirmed by the live
+   viewport spike (`tools/gpu_capability_spike.py`, run from the Scripting tab on a real GPU).
+2. **No SSBO + no RT hardware** are the two real ceilings. General-purpose compute is
+   constrained to image/texture I/O; "software ray tracing" is possible but slow. So
+   "game-engine RTX = no" still stands — but for the narrow reason of no RT *acceleration*,
+   NOT "no compute at all".
+
+### Downstream impact (things now MORE open than the brainstorm entries claim)
+- **Grass "millions in one instanced call":** the instanced-draw blocker is GONE. Now bounded
+  by fillrate + vertex memory, not draw-call overhead. Core technique is available.
+- **Many-lights:** UBO available → hundreds of lights via a light UBO is real. Clustered/
+  Forward+ light culling via compute is now even conceivable.
+- **SDF shadows/AO:** 3D textures + compute both present → the whole route is API-supported.
+- **Splats:** instanced draw + (CPU or compute) sort + sorted-index texture per frame all
+  available. Remaining real cost = OVERDRAW/fillrate, and viewport-share tax (we don't own the
+  GPU like a browser viewer), so realistic ceiling ~hundreds of thousands of splats, not millions.
+
+### Splat rendering recipe (captured, from this session's discussion)
+Browser-viewer recipe ports ~line-for-line: (1) one `draw_instanced` of a unit quad, per-splat
+data in buffers; (2) 16-bit **counting/radix sort of INDICES** (not data) — `np.bincount`/cumsum,
+single-digit ms for ~1M; (3) run the sort on a background Python thread (NumPy releases the GIL)
+and only re-sort when the camera moves past an angle threshold — reuse last order otherwise;
+(4) vertex shader reads sorted index via `gl_InstanceID` → fetch splat; frag does covariance→
+screen-ellipse + exponential falloff + alpha blend. Precompute 3D covariance once.
+- **Making splats is solved/free/non-AI:** Mesh2Splat (EA SEED, ~0.5ms, UV-space surface
+  sampling; its 0.5ms path uses SSBO+atomics we lack, but the ALGORITHM runs fine as a CPU bake).
+- **Best-fit use (the strong case):** dense ORGANIC assets (mulch, moss, foliage) where triangle
+  raster dies on sub-pixel tris and splat fuzz is invisible — splats can BEAT geo there, not just
+  approximate it. Bake Cycles lighting → textures → splat colours = cheap photoreal display; the
+  "lighting baked in" property is a FEATURE for this mode (distinct from the relight north star,
+  which still wants separable albedo — keep as two modes).
+- **Verdict:** viable; worth a de-risking spike; but it's a FORK — a whole new render subsystem
+  (generate / covariance frag / sorted instanced draw / blend / LOD) alongside the mesh path,
+  not a small feature. Decide "open a 2nd render pillar?" before building.
