@@ -104,6 +104,33 @@ class VertexLitSettings(bpy.types.PropertyGroup):
         update=_view_mode_update)
     vm_prev: bpy.props.StringProperty(default='TEXTURED')
     vm_memory: bpy.props.StringProperty(default='')
+    splat_method: bpy.props.EnumProperty(name="Method", default='SURFEL',
+        items=[('SURFEL',"Surfel","Sampling + local anisotropy (robust default; topology-independent)"),
+               ('TRIANGLE',"Per-Triangle","One surfel per triangle (decimation-based; clean native-density meshes)"),
+               ('UNIFORM',"Uniform","Round splats (simplest; fuzzy/spiky organic)")])
+    splat_count: bpy.props.IntProperty(name="Splat Count", default=200000, min=1000, max=5000000,
+        description="Target splats (Surfel/Uniform: samples; Per-Triangle: decimation target)")
+    splat_color: bpy.props.EnumProperty(name="Color", default='TEXTURE',
+        items=[('TEXTURE',"Texture","Material Base Color texture"),
+               ('BASECOLOR',"Base Color","Flat material Base Color"),
+               ('VERTEX',"Vertex Color","Active color attribute")])
+    splat_size: bpy.props.FloatProperty(name="Splat Size", default=0.9, min=0.1, max=4.0)
+    splat_flatness: bpy.props.FloatProperty(name="Flatness", default=0.15, min=0.02, max=1.0)
+    splat_opacity: bpy.props.FloatProperty(name="Opacity", default=0.9, min=0.05, max=1.0)
+    splat_bake: bpy.props.BoolProperty(name="Bake Simple Lighting", default=False)
+    splat_hide_src: bpy.props.BoolProperty(name="Hide Source Mesh", default=False)
+    splat_lit: bpy.props.BoolProperty(name="Scene Lighting", default=True,
+        description="Light the splats with the scene sun / sky-ground / key light (vs raw albedo)")
+    splat_compute: bpy.props.BoolProperty(name="Compute Pre-pass (experimental)", default=False,
+        description="Project splats once per frame in a compute shader (faster; falls back automatically if unsupported)")
+    splat_backface: bpy.props.BoolProperty(name="Backface Cull", default=False,
+        description="Skip splats facing away from the camera (~2x fewer on solid objects; may cause see-through on thin/double-sided foliage)")
+    splat_tile: bpy.props.BoolProperty(name="Tile Rasterizer (experimental, full-GPU)", default=False,
+        description="Render splats with a full-GPU tile rasterizer + early-termination (much less overdraw). Falls back to billboards if unsupported")
+    splat_gpu_sort: bpy.props.BoolProperty(name="GPU Sort (experimental)", default=False,
+        description="Sort splats on the GPU instead of the CPU (no CPU cost while orbiting). Keeps the fast hardware blend. Falls back to CPU sort if unsupported")
+    splat_seed: bpy.props.IntProperty(name="Seed", default=0, min=0)
+    splat_sigma: bpy.props.FloatProperty(name="Splat Softness", default=2.2, min=1.0, max=4.0)
     normal_space: bpy.props.EnumProperty(
         name="Normal Space",
         items=[('WORLD', "World", "World-space normals"),

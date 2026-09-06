@@ -210,6 +210,33 @@ class VERTEX_LIT_PT_bake(_Base, bpy.types.Panel):
             layout.label(text="Active material: {}".format(mat.name), icon='MATERIAL')
 
 
+class VERTEX_LIT_PT_splats(_Base, bpy.types.Panel):
+    bl_label = "Splats (experimental)"
+    bl_parent_id = "VERTEX_LIT_PT_settings"
+    bl_options = {'DEFAULT_CLOSED'}
+
+    def draw(self, context):
+        s = context.scene.vertex_lit
+        layout = self.layout
+        layout.prop(s, 'splat_method', expand=True)
+        col = layout.column(align=True)
+        col.prop(s, 'splat_count'); col.prop(s, 'splat_color')
+        box = layout.box(); box.label(text="Shape")
+        box.prop(s, 'splat_size'); box.prop(s, 'splat_flatness')
+        box.prop(s, 'splat_opacity'); box.prop(s, 'splat_sigma')
+        row = layout.row(); row.prop(s, 'splat_bake'); row.prop(s, 'splat_hide_src')
+        layout.prop(s, 'splat_lit')
+        layout.prop(s, 'splat_compute')
+        layout.prop(s, 'splat_backface')
+        layout.prop(s, 'splat_gpu_sort')
+        layout.prop(s, 'splat_tile')
+        layout.prop(s, 'splat_seed')
+        ob = context.active_object
+        r = layout.row(); r.enabled = (ob is not None and ob.type == 'MESH')
+        r.operator("vertex_lit.generate_splats", icon='OUTLINER_OB_POINTCLOUD')
+        layout.operator("vertex_lit.clear_splats", icon='TRASH')
+
+
 _CLASSES = (
     VERTEX_LIT_PT_settings,
     VERTEX_LIT_PT_lighting,
@@ -223,6 +250,7 @@ _CLASSES = (
     VERTEX_LIT_PT_cavity_screen,
     VERTEX_LIT_PT_render_settings,
     VERTEX_LIT_PT_bake,
+    VERTEX_LIT_PT_splats,
 )
 
 

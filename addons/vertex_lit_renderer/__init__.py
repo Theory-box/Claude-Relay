@@ -3,7 +3,7 @@
 bl_info = {
     "name":        "Workbench 2.0",
     "author":      "Theory-box / Claude",
-    "version":     (0, 11, 19),
+    "version":     (0, 11, 31),
     "blender":     (4, 2, 0),
     "location":    "Properties > Render > Render Engine → Workbench 2.0",
     "description": "Solid studio + live-node material renderer (+ screen-space AO) for retro game look-dev. "
@@ -18,16 +18,18 @@ import bpy
 
 
 def register():
-    from . import props, engine, ui, bake
+    from . import props, engine, ui, bake, splat_ops
     props.register()
     engine.register()
     bake.register()
+    splat_ops.register()
     ui.register()
 
 
 def unregister():
-    from . import props, engine, ui, bake
+    from . import props, engine, ui, bake, splat_ops
     ui.unregister()
+    splat_ops.unregister()
     bake.unregister()
     engine.unregister()
     props.unregister()

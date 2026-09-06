@@ -1205,3 +1205,318 @@ surface_render_method + legacy blend_method, bind_display_space_shader). Install
 version-mismatch warning, triggered because bl_info["blender"] was (4,4,0) > running version. Fixed:
 lowered bl_info["blender"] to (4,2,0). Registers clean on 4.2 + 4.4. (moderngl is a TEST-only dep,
 not used by the addon.)
+
+## v0.11.20 — Geometry-nodes / dupli INSTANCING (was rendering nothing)
+BUG: GN-instanced geometry (scatter/trees) rendered empty. depsgraph.object_instances reports every
+instance with inst.object = the INSTANCER (whose own evaluated mesh is empty), and the whole cache
+was keyed by object NAME -> all instances collapsed onto the empty instancer -> no geometry. The real
+instanced geometry sits in inst.object.data (all instances share ONE mesh datablock).
+Fix:
+- _draw_key(inst): instances key by their mesh-data name ('i:<data>'); normal objects by name.
+- _rebuild extracts unique instance geometries EAGERLY during the object_instances iteration
+  (inst.object is only valid there), budget-gated + re-iterated next frame for deferred ones, with a
+  _geo_sig check so editing the instanced source re-extracts. Non-instances still use the streaming path.
+- Drop loop preserves 'i:' keys present this frame.
+- ALL draw loops (main, viewmode, shadow, id, normal, ao-occluder) now look up batches via
+  _draw_key(inst) and draw per-instance with inst.matrix_world. Non-instance behaviour unchanged
+  (_draw_key returns obj.name).
+Verified: 50 GN instances -> 1 extracted geometry (12 tris), 50/50 resolve to a batch. Very efficient
+(extract once, draw many). tests/test_instancing.py. 17 suites green on 4.2.9 + 4.4.3.
+
+## v0.11.21 — Instance extraction reads the instance mesh directly (over-draw safety)
+User reported earlier over-density ("every instance duplicated"). Repro of a standard GN scatter
+shows 0.11.20 is CORRECT: each instance extracts ONE element (80 tris) and draws once (75/75). But
+_extract_mesh_data was calling evaluated_get() again on the already-evaluated instance object, which
+COULD return the realized whole in some setups. Switched instance extraction to pass mesh=obj.data
+directly (the instance element), immune to that. Verified identical (one leaf) + tests green on 4.2+4.4.
+If over-density persists it's likely a specific node setup (nested/Realize) -> need a repro .blend.
+
+## v0.11.22 — compat-scanner cross-pollination + easy wins
+Reused the `apps/blend-compat-scanner` methodology (enumerate every node's schema
+from the binary, not from memory) to harden transpiler coverage.
+- **Auto coverage audit** → `tests/test_node_coverage.py`: enumerates all shader
+  node types from the running Blender, asserts each is HANDLED or in an explicit
+  out-of-scope allow-list (grouped by reason). Fails on any unclassified node, so
+  new node types in future Blender versions surface as a red test instead of a
+  silent neutralise. Passes 4.4 (101 types: 47 handled / 54 oos) and 4.2 (99
+  types; BsdfMetallic + TexGabor correctly absent, tolerated).
+- **New handlers** (the only "should-handle-but-didn't" colour nodes the audit
+  flagged): `_n_vertex_color` and `_n_attribute` → bind to the extracted colour
+  attribute (`vColor`). Attribute supports Color/Alpha/Vector/Fac; reflects the
+  active/selected colour layer (arbitrary named non-colour attributes remain
+  unavailable in-shader by design).
+- GL harness gained a `vColor` varying (= vec4(u,0.25,0.75,0.5)); added pixel
+  asserts to `test_gl_nodes.py` for both nodes. Green on 4.2.9 + 4.4.3.
+- Deferred candidates the audit surfaced: Bump/Normal/Displacement (→ future POM),
+  TexEnvironment (→ image-background idea), Blackbody/Wavelength (need spectrum LUT),
+  VectorTransform. All explicitly allow-listed with rationale.
+- Not yet done: cross-check exact transpiler socket reads against the scanner's
+  `compat_db_4.4_to_4.2.json` to *prove* no read lands on a changed socket (4.2↔4.4).
+
+## Brainstorm / deferred — POM + self-shadowing (discussed, no code)
+- **Parallax Occlusion Mapping (POM):** tangent-space heightfield ray-march that
+  offsets UVs for fake interior depth. Prereqs: TBN varying (mesh.calc_tangents +
+  bitangent sign), and wiring the currently-neutralised Bump/Displacement/Normal-Map
+  nodes as the HEIGHT source. Interior depth only — silhouettes stay flat. ~90% fit.
+- **Heightfield self-shadowing (in-material):** after the POM march, march a 2nd ray
+  toward the light through the same heightmap; blocker-above-ray = shadowed. Soft
+  penumbra by tracking rise/distance. Self-contained, cheap, "bricks shadow their own
+  mortar". ~90% fit. This is the preferred first rung.
+- **Key subtlety:** POM only offsets UVs — the geometry stays a flat quad, so the
+  DEPTH BUFFER (and thus SSAO/cavity/any screen-space shadow) is blind to the relief.
+  Fix = have the POM shader write reconstructed `gl_FragDepth` from the marched height,
+  making the relief "real" to the whole screen-space stack + to other geometry. Cost:
+  disables early-Z. Ambition ladder: (1) in-material self-shadow → (2) +gl_FragDepth so
+  SSAO/screen-space shadows see it → (3) full screen-space contact shadows on top.
+- **Cheap alt:** horizon mapping via BAKE — precompute per-texel horizon angles from the
+  height input (our bake system fits), self-shadow becomes a near-free lookup. Static to
+  the baked light-relative horizon; live march for fully dynamic light.
+- **Relight-pipeline decision:** the self-shadow is *lighting* info. For the AI-relight
+  north star, keep it as a SEPARATE height/occlusion output rather than burned into base
+  colour, so the relighter can use or discard it. Decide before building.
+
+## Brainstorm / deferred — SDF sphere-traced shadows + AO (discussed, no code)
+Context: chased "can we ray-trace the sun instead of shadow-mapping / can we get
+game-engine RTX". Conclusions from that thread:
+- Hardware RTX (RT cores, BVH, ray pipeline) is NOT exposed by Blender's Python
+  `gpu` module — off the table. Game "realtime RT" is really a few rays/pixel +
+  heavy DENOISE + TEMPORAL ACCUMULATION + ML upscale on dedicated silicon; we have
+  neither the RT/tensor hardware nor (yet) temporal accumulation, so the *look* comes
+  from the 80% cleanup we can't do, not the rays. So: game-engine RT = no.
+- Mesh/triangle ray tracing in a frag shader is *technically* possible (pack tris into
+  a float texture + texelFetch, or SSBO if exposed; stackless BVH traversal) but the
+  BVH must rebuild per frame for a DYNAMIC/edit-mode viewport — a Python per-frame
+  rebuild would be far worse than the shadow-map re-render it replaces. Poor trade live.
+- **SDF sphere tracing = the promising route (~70%).** Bake scene into a 3D signed
+  distance field (our bake system fits), sphere-march it: NO acceleration structure
+  needed (the SDF *is* it), works in GLSL 330 (3D textures exist). Soft shadows fall
+  out ~free: track closest-approach distance along the shadow ray → penumbra. Same
+  march gives AO. Noise-free by construction (no denoiser needed) — which suits the
+  look-dev/relight north star better than sparse noisy RT.
+- Catches: SDF is a PRECOMPUTE → static-ish (great for environment, re-bake or keep
+  animated chars on shadow maps in a hybrid); volume-texture memory limits fine detail
+  (thin leaves/sharp corners soften); 1-bounce GI in the SDF is doable but several× the
+  cost of shadows → "maybe later", not first target.
+- Sits next to the horizon-map idea: both are "bake occlusion once, look up cheap".
+- **Prereq probe (recurring unknown):** what the `gpu` module actually exposes —
+  SSBOs, 3D textures + max size, UBOs, float-texture limits. Short probe converts all
+  of the above (plus many-light UBO, mesh-RT) from "cool if true" to confirmed.
+
+## ⚠️ v0.11.22 — GPU-MODULE CAPABILITY MATRIX (PROBED) — SUPERSEDES earlier "no compute" caveats
+Ran an API-surface probe of Blender's `gpu` module on **4.2.9 LTS and 4.4.3** (both).
+This CORRECTS repeated earlier assumptions in the brainstorm entries above (grass,
+many-lights, SDF, splats, RTX) that invoked "no compute shaders / no instancing" — those
+claims were WRONG from 4.2 onward. Corrected matrix (API confirmed present on 4.2+):
+
+| Capability            | Status on 4.2+ | API                                                   |
+|-----------------------|----------------|-------------------------------------------------------|
+| Instanced draw        | ✅ YES         | `GPUBatch.draw_instanced(prog, instance_start, instance_count)`; `gl_InstanceID` in vert |
+| Compute shaders       | ✅ YES         | `gpu.compute.dispatch(shader, gx, gy, gz)` + `GPUShaderCreateInfo.compute_source/local_group_size` |
+| Image load/store      | ✅ YES         | `GPUShaderCreateInfo.image(...)`                       |
+| Uniform buffers (UBO) | ✅ YES         | `gpu.types.GPUUniformBuf`                              |
+| 3D textures           | ✅ YES         | `GPUTexture(size=(x,y,z), ...)` (doc: "1D, 2D, 3D or cubemap") |
+| **Storage buffers (SSBO)** | ❌ NO     | no `GPUStorageBuf` — compute I/O must go via images/textures + UBO + push-constants |
+| Hardware ray tracing  | ❌ NO          | no RT cores / BVH / ray pipeline. Software RT via compute = possible-but-slow. |
+
+### Two caveats that REMAIN (do not over-read the matrix)
+1. **API-exposed ≠ validated.** Probe proved the functions EXIST (introspected headless).
+   NOT yet exercised — background mode blocks Blender's GPU context. Real behaviour of a
+   200k-instance draw / 3D-texture create / compute dispatch must be confirmed by the live
+   viewport spike (`tools/gpu_capability_spike.py`, run from the Scripting tab on a real GPU).
+2. **No SSBO + no RT hardware** are the two real ceilings. General-purpose compute is
+   constrained to image/texture I/O; "software ray tracing" is possible but slow. So
+   "game-engine RTX = no" still stands — but for the narrow reason of no RT *acceleration*,
+   NOT "no compute at all".
+
+### Downstream impact (things now MORE open than the brainstorm entries claim)
+- **Grass "millions in one instanced call":** the instanced-draw blocker is GONE. Now bounded
+  by fillrate + vertex memory, not draw-call overhead. Core technique is available.
+- **Many-lights:** UBO available → hundreds of lights via a light UBO is real. Clustered/
+  Forward+ light culling via compute is now even conceivable.
+- **SDF shadows/AO:** 3D textures + compute both present → the whole route is API-supported.
+- **Splats:** instanced draw + (CPU or compute) sort + sorted-index texture per frame all
+  available. Remaining real cost = OVERDRAW/fillrate, and viewport-share tax (we don't own the
+  GPU like a browser viewer), so realistic ceiling ~hundreds of thousands of splats, not millions.
+
+### Splat rendering recipe (captured, from this session's discussion)
+Browser-viewer recipe ports ~line-for-line: (1) one `draw_instanced` of a unit quad, per-splat
+data in buffers; (2) 16-bit **counting/radix sort of INDICES** (not data) — `np.bincount`/cumsum,
+single-digit ms for ~1M; (3) run the sort on a background Python thread (NumPy releases the GIL)
+and only re-sort when the camera moves past an angle threshold — reuse last order otherwise;
+(4) vertex shader reads sorted index via `gl_InstanceID` → fetch splat; frag does covariance→
+screen-ellipse + exponential falloff + alpha blend. Precompute 3D covariance once.
+- **Making splats is solved/free/non-AI:** Mesh2Splat (EA SEED, ~0.5ms, UV-space surface
+  sampling; its 0.5ms path uses SSBO+atomics we lack, but the ALGORITHM runs fine as a CPU bake).
+- **Best-fit use (the strong case):** dense ORGANIC assets (mulch, moss, foliage) where triangle
+  raster dies on sub-pixel tris and splat fuzz is invisible — splats can BEAT geo there, not just
+  approximate it. Bake Cycles lighting → textures → splat colours = cheap photoreal display; the
+  "lighting baked in" property is a FEATURE for this mode (distinct from the relight north star,
+  which still wants separable albedo — keep as two modes).
+- **Verdict:** viable; worth a de-risking spike; but it's a FORK — a whole new render subsystem
+  (generate / covariance frag / sorted instanced draw / blend / LOD) alongside the mesh path,
+  not a small feature. Decide "open a 2nd render pillar?" before building.
+
+## v0.11.22 — GPU probe VALIDATED on-hardware (live viewport) + 4.4 __init__ check
+Ran capability spikes from the Scripting tab on a real GPU (Blender 4.4.3). Moves the
+matrix above from "API-exposed" to "exercised & working":
+- **Instanced draw:** CONFIRMED — proved `gl_InstanceID` varies across the full range
+  (instance 7 rendered its distinct shade). Single-draw-call path for splats/grass works.
+- **3D texture, UBO, compute dispatch:** all CONFIRMED working (compute compiled + dispatched
+  an image-write; I'd expected a signature failure and it passed — compute is genuinely usable).
+- **Full splat render path: CONFIRMED end-to-end on-GPU.** A spike turns the active mesh into a
+  gaussian-splat cloud (surface-sampled, Mesh2Splat-style) and renders it: per-splat data in a
+  texture fetched by `gl_InstanceID`, instanced billboards, gaussian falloff, depth-sorted alpha,
+  normal-based colour, opaque save. Output showed correct coloured splats. The capability question
+  is fully closed = YES.
+- **Spike bugs found (harness, not capability):** (1) premultiplied-alpha save blew RGB to white
+  (content survived in alpha) → fixed by straight 'ALPHA' blend + opaque save (force alpha=1,
+  view_transform='Standard'). (2) Splats too large (100% coverage) — radius/camera tuning only.
+- **REAL design gotcha for a production splat path:** packed splat data as a `2 x Nsp` texture;
+  at ~20k splats that's 20000 tall, PAST the ~16384 max texture dimension → periodic (period-4)
+  sampling corruption/scanlines. Production packing must be 2D-TILED (e.g. width ~2048, wrapping)
+  or a buffer texture — never one tall strip.
+- **Only remaining splat unknown = PERFORMANCE at scale** (overdraw/fillrate: how many splats at
+  framerate). Needs a load test, not a correctness spike. Get that number IF/when we build.
+- **Strategic:** splats are a FORK (a whole 2nd render subsystem beside the mesh path), justified
+  mainly by the dense-organic-asset case (mulch/foliage where triangle raster dies on sub-pixel
+  tris). Bake Cycles→texture→splat for cheap photoreal display (baked-in lighting is a FEATURE
+  there; distinct from the relight north star which needs separable albedo — keep as two modes).
+
+### 4.4 RenderEngine `__init__` requirement — CHECKED, we're SAFE
+Since Blender 4.4, a RenderEngine subclass that DEFINES `__init__` must call
+`super().__init__(*args, **kwargs)` or instancing throws a cryptic RuntimeError (the #1 thing
+that breaks pre-4.4 splat/render addons). Checked `VertexLitEngine`: it defines NO custom
+`__init__`/`__new__` (only the unrelated `_ShadowMap` helper has one), so it inherits
+`RenderEngine.__init__` cleanly and is unaffected. Suite already green on 4.4.3 confirms it
+instantiates. NOTE for future: if anyone ever adds an `__init__` to VertexLitEngine, it MUST
+call `super().__init__(*args, **kwargs)`.
+
+## ✅ SPLAT VIEWER WORKING IN BLENDER — first perf data point
+Real-time 3DGS viewer running as a viewport overlay (apps/splat-viewer/blender_splat_viewer.py).
+Built almost entirely from HEADLESS-validated code (loader + EWA render + vertex-shader port +
+texture-fed 2D-tiled packing all pixel-identical to a CPU reference before touching Blender).
+- **Result on real cactus (cactus_splat3, 139,410 splats):** 15.7 ms/frame (~64 fps), SMOOTH,
+  no errors, correct alignment from all angles, no distortion. First-run success on user's GPU.
+- **Crucially:** that 15.7ms INCLUDES the per-frame CPU depth-sort + an UNOPTIMISED `.tolist()`
+  index-texture rebuild+upload every frame. So there's known easy headroom before we optimise.
+- **Pipeline validated end-to-end:** dependency-free .ply loader (fast all-float path) → static
+  2D-tiled RGBA32F data texture (4 texels/splat, dodges 16384 limit) → per-frame sorted-index
+  texture → EWA covariance projection in the vertex shader → gaussian falloff + premultiplied
+  alpha, depth-test off. gl_InstanceID indirection (Blender has no instance-attr divisors).
+- **Still SH degree-0 (view-independent colour)** — looks great already; view-dependent SH is a
+  deferred polish, not needed for the perf question.
+
+### Open questions the number raises (next when we resume)
+- WHERE does the 15.7ms go? fillrate (frag blending overlap) vs CPU (sort + `.tolist()` upload).
+  Determines scaling: fillrate-bound ~ scales with screen coverage (good for dense); CPU-bound ~
+  linear in splat count (1M ≈ 7x). Measure by: (a) time the numpy sort/pack alone, (b) shrink the
+  window / zoom out to cut coverage and see if ms drops.
+- **Easy optimisations queued (untouched so far):** kill per-frame `.tolist()` (feed Buffer from
+  numpy directly / reuse a persistent GPUTexture), move the depth-sort to a background thread
+  (numpy releases the GIL) and only re-sort past a camera-angle threshold. Expected: well under 10ms.
+- **Then:** scale test toward 500k–1M splats (INRIA scenes) for the real overdraw curve; optional
+  view-dependent SH; decide integration (standalone viewer vs a path in the engine).
+
+## Splat viewer — 15.7ms PROFILED (CPU/upload-bound, not fillrate)
+Headless CPU profiling on the real cactus (139410 splats) + handler analysis:
+- **~5.4ms per-frame CPU sort** (measured): argsort 2.3ms + `.tolist()` 2.0ms (waste) + depth 1.1ms.
+- **~10ms per-frame GPUTexture creation** (inferred): a NEW index GPUTexture is allocated+uploaded
+  every frame — the heavy bit. (Instrumented build 99ff0a6 prints sort/idxtex/draw split to confirm.)
+- **GPU fillrate ≈ free/hidden**: rasterisation is async, not in the 15.7ms; smooth@64fps ⇒ headroom.
+  ⇒ **CPU/upload-bound, NOT fillrate-bound** — good for scaling to dense scenes.
+- One-time load cost: data-tex `.tolist()` ~295ms (load hitch only).
+- **Queued optimisations (low-risk, untested-on-GPU):** reuse a persistent index texture + only
+  re-sort past a camera-move threshold; drop `.tolist()` (feed Buffer from numpy). Expected <10ms,
+  and reveals the true GPU floor. Bigger later: GPU radix sort via compute (compute is available).
+
+## Splat viewer OPTIMISED — 86ms -> 0.1ms static (~860x)
+Applied the browser-viewer CPU tricks (GPU was never the bottleneck: draw 0.0 both before & after).
+- **Result (700k fir-tree splats, user GPU):** static frame 86.2ms → **0.1ms (~10000fps)**, header shows
+  `cached  draw 0.0`. ~860x on static frames.
+- **What did it:** (1) THROTTLE — only re-sort when camera moves >~2deg or >2% pan (reuse cached index
+  texture otherwise); (2) uint16 quantised sort (~2x vs float argsort); (3) buffer-protocol upload via
+  np.frombuffer memcpy — kills the `.tolist()` which measured 88x slower (19.3ms→0.22ms); (4) same fix
+  removed the ~300ms load hitch. `_mkbuf` has a 3-tier fallback (frombuffer→numpy-direct→tolist) so the
+  draw handler can't crash on the buffer path.
+- **Diagnosis confirmed:** `draw 0.0` throughout ⇒ our GPU splat path already matches browsers; the whole
+  cost was synchronous/eager CPU sort + Python-list upload. Now async-lazy like a browser.
+- **Remaining lever (only for smooth ORBITING):** while actively dragging it still sorts each ~2deg
+  (uint16, ~2x faster, but on the main thread). Final step = move the sort to a BACKGROUND THREAD
+  (numpy releases the GIL) so rendering never waits — the browser's "sort in a web worker" trick.
+  Higher-risk (threading, untestable headless); do only if orbiting isn't smooth enough.
+
+## Mesh2Splat addon — v0.1.1 (multi-material texture fix) + relighting direction
+- **Bug:** splats always WHITE on a multi-material tree (bark + 2 leaf mats). Cause: v0.1.0 read only
+  obj.active_material and only detected a texture if Base Color linked DIRECTLY to an Image node →
+  detection failed → fell back to flat (white) base colour.
+- **Fix (v0.1.1):** per-FACE material handling (each sample colours from ITS triangle's material_index
+  slot), node-graph WALK back from Base Color to find the Image through Mapping/Mix/etc., and per-slot
+  DIAGNOSTICS printed to the System Console (texture WxH vs flat base per slot) to debug live. Validated
+  headless: per-material routing correct (bark→brown, leaf tex→green, etc.); quat disks face normal.
+- **RELIGHTING direction (confirmed wanted):** the on-mission engine integration. Our generated splats
+  carry real ALBEDO (sampled texture) + real NORMALS → the engine's sun+hemi+key can shade them
+  `albedo*(N·L+ambient)` so a splat object responds to SCENE lights. Uniquely enabled by our generator
+  (captured splats can't — their colour is baked light, normals are mush). Requires splats as an ENGINE
+  PRIMITIVE (not the standalone overlay): also unlocks depth-compositing with meshes + shadows + FX,
+  gated on the transparency-vs-zbuffer (OIT) problem. This is the bridge between the viewer and the engine.
+
+## Adaptive fitting — built + tested (content-dependent, NOT universal)
+3D PCA-per-patch surface fitter (adaptive_fit.py): dense-sample surface -> priority-queue error-driven
+subdivision (split worst-fitting patch until target count) -> PCA gaussian per patch. No images, no AI,
+no training. Deterministic; keeps albedo+normals clean (relightable), unlike image-fitting.
+- **Works:** synthetic flat+bump test -> 4.5x more splats on detail, 3x bigger disks on flat; rippled
+  sphere at 10k adaptive visibly cleaner in smooth regions than 10k uniform (approaches 40k).
+- **Caps added:** aspect_max + size_cap prevent over-elongated splats bridging gaps in thin geometry.
+- **FAILS on thin/spiky/fuzzy organic:** tested on user's cactus-plant glb (601k faces, textured). Without
+  caps -> white streaks (gaussians bridge gaps between spines). With caps -> artifacts gone BUT detail
+  blobbed away (spiny silhouette -> smooth green sausage). Uniform preserves the fuzz; adaptive can't.
+- **VERDICT:** adaptive wins on smooth/flat/solid (architecture, terrain, panels, leaf faces); loses on
+  high-frequency thin detail (fuzz/spines/hair/fine foliage) where detail IS the content. Content-specific,
+  like splats-vs-mesh. Speed: ~15s for 600k->60k (offline bake; Python heapq loop, would need vectorising).
+
+## Per-triangle Steiner-inellipse generator — the winner (triangle_splat.py)
+Research round (KIRI 3dgs-render / splatviz-blender / ReshotAI / SuGaR / MeshGS / MASS) pointed at
+per-triangle placement over clustering. Built it:
+- **One anisotropic surfel per triangle** from the uniform-triangle covariance (Steiner inellipse):
+  centre=centroid, in-plane axes=triangle shape, normal=thin axis. Fully VECTORISED (batched
+  covariance + np.linalg.eigh over all tris + batched quat) — no loop.
+- **~100x faster than clustering:** 0.16s vs 15s at 40k; 601k tris -> 601k splats in 2.4s.
+- **Surface-aligned exactly:** splat thin-axis vs triangle normal |dot| = 1.0000.
+- **Cleaner than uniform at equal count** (mixed sphere 40k: per-triangle approaches uniform-160k —
+  deterministic tiling, no random gaps/clumps).
+- **Fixes the plant:** full-res per-triangle on the cactus = sharpest of all, NO gap-bridging streaks
+  (each splat stays on its triangle) — beats both clustering (artifacts) and uniform (blobby).
+- **Count control + adaptivity:** decimate_to() (fast_simplification quadric) first — curvature-driven,
+  fewer tris on flat areas -> adaptive splats. Decimate 601k->60k = 2.3s.
+- **Verdict:** replace clustering fitter with per-triangle as the DEFAULT generator (clustering kept
+  only for raw point clouds with no clean triangles). Research-validated best-practice init.
+- Possible speed win later: skip 3x3 eigh (normal=cross(e1,e2), in-plane 2x2 eigen is closed-form).
+
+## Generator redesign — surfel sampling (topology-independent) is the new default
+User critique of per-triangle (valid): decimating heavy meshes is costly + makes sliver triangles, and
+one-splat-per-triangle ties distribution to TOPOLOGY (uneven mesh -> chaotic splats). Fixed with
+surfel_sample.py: sample surface uniformly (density = sample count, no decimation, ms even on 7M tris)
+-> orient/size each splat from local-KNN PCA in the tangent plane (normal from mesh = accurate/no
+gap-bridging; anisotropy from real local surface; gap rejection via distance threshold).
+- **Comparison (mixed rock, 40k):** surfel = cleanest coverage; round-uniform = noisiest; per-triangle =
+  crisp but topology-dependent+decimation. surfel 0.36s incl. KDTree+KNN.
+- **Default policy:** SURFEL default (robust, topology-free, anisotropic); PER-TRIANGLE only for
+  already-well-tessellated native-density meshes; ROUND-UNIFORM simplest fallback.
+- Tradeoff: surfel anisotropic stretch can slightly over-smooth very fine detail (tunable via cover/k).
+- TODO: swap addon default from decimate+per-triangle to surfel; keep per-triangle as an option.
+
+## Route 1 (splats -> depth buffer -> screen-space FX) — PROVEN headless
+Research (Andrew Chan lit-splat / depth-diff-gaussian-rasterization / Hybrid Transparency 2410.08129 /
+MeshSplats family) confirmed depth-blending is the established technique. Built + validated (render_depth.py):
+- **Depth-over-blending:** MRT render — colour target accumulates (c*a, a); depth target accumulates
+  (d*a, ., ., a). Same premultiplied over-blend on both -> expected_depth = depth.r / colour.a =
+  Σ d_i a_i T_i / Σ a_i T_i. Fuzzy gaussians -> ONE coherent per-pixel depth buffer.
+- **SSAO on that buffer:** range-based screen-space AO reads the blended depth -> darkens splat creases
+  (cactus nubs, pot interior, base). Proven on real cactus: colour / depth / AO / colour*AO all correct.
+- **Engine integration plan (Workbench 2.0, needs GPU):** render splats to offscreen with MRT depth-accum;
+  compute expected depth; feed the engine's EXISTING SSAO/cavity/shadow passes (they already read a depth
+  buffer). Endgame: splats write into the SAME depth buffer as meshes -> mesh+splat AO/occlusion/compositing
+  together, all screen-space FX for free.
+- Refinement: Hybrid Transparency for colour-blend stability under motion (our global sort is already OK-ish);
+  not blocking. Depth buffer itself is stable (global-sorted).
+- AO tuning (strength/bias/blur) is cosmetic; mechanism is the result.

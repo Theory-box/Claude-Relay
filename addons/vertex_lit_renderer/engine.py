@@ -2,6 +2,7 @@
 
 import time
 import threading
+import os
 import numpy as np
 import bpy
 import gpu
@@ -127,6 +128,19 @@ def _share_sig(obj, mesh, view_attr):
     except Exception:
         mats = ()
     return (_geo_sig(obj, mesh), mats, view_attr or '')
+
+
+def _draw_key(inst):
+    """Cache/draw key for a depsgraph instance. Normal objects key by their own name.
+    GEOMETRY-NODES (and other) instances all report inst.object as the INSTANCER (whose own
+    evaluated mesh is empty), but share the instanced geometry's mesh datablock — so key
+    those by the mesh-data name ('i:<data>') and draw each with its instance matrix."""
+    o = inst.object
+    if getattr(inst, 'is_instance', False):
+        d = getattr(o, 'data', None)
+        if d is not None:
+            return 'i:' + d.name
+    return o.name
 
 
 def _raw_attr(mesh, name, ctype, ncomp, count):
@@ -820,17 +834,50 @@ class VertexLitEngine(bpy.types.RenderEngine):
         self._lights_cache=lights
         self._bounds_cache=_scene_bounds(depsgraph)
 
-        # Current visible mesh objects in the scene.
+        # Current visible mesh objects. Non-instances key by name; geometry-nodes/dupli
+        # INSTANCES key by their shared mesh datablock (the instancer's own mesh is empty),
+        # extracted eagerly here (inst.object is only valid during this iteration) and drawn
+        # per-instance later. Instance geometry is usually a few unique meshes reused many
+        # times, so eager extraction is cheap; the budget still gates it and we re-iterate
+        # next frame for anything deferred.
         current={}
+        inst_keys=set()
+        _va = getattr(self, '_view_attr', '')
+        _want_shadow_i = bool(vls and getattr(vls, 'use_shadows', False))
+        _inst_budget_end = time.time() + 0.03
+        _inst_done = 0
         for inst in depsgraph.object_instances:
             obj=inst.object
             if obj.type!='MESH': continue
             if not inst.show_self: continue
-            if obj.name not in current: current[obj.name]=obj
+            if getattr(inst, 'is_instance', False):
+                key = _draw_key(inst)
+                if key in inst_keys:      # already handled this frame
+                    continue
+                inst_keys.add(key)
+                try: sig = _geo_sig(obj, getattr(obj, 'data', None))
+                except Exception: sig = None
+                if key in self._batch_dict and _PERSIST_SIG.get(key) == sig:
+                    continue              # cached + unchanged
+                if _inst_done > 0 and time.time() > _inst_budget_end:
+                    self._geo_pending = True; self._dirty = True
+                    continue              # over budget -> finish next frame (re-iterated)
+                data = _extract_mesh_data(obj, depsgraph, mesh=getattr(obj, 'data', None), attr_name=_va)
+                if data:
+                    self._mesh_cache[key] = data
+                    self._batch_dict[key] = _build_object_slots(data)
+                    _PERSIST_SIG[key] = sig
+                    if _want_shadow_i:
+                        sb = _build_shadow_batch_from_cache(data)
+                        if sb: self._shadow_dict[key] = sb
+                    _inst_done += 1
+            else:
+                if obj.name not in current: current[obj.name]=obj
 
-        # 1) Drop objects that no longer exist / were hidden.
+        # 1) Drop objects that no longer exist / were hidden. Keep instance-geometry keys
+        #    ('i:...') that are still present this frame.
         for name in list(self._mesh_cache.keys()):
-            if name not in current:
+            if name not in current and name not in inst_keys:
                 self._mesh_cache.pop(name,None)
                 self._batch_dict.pop(name,None)
                 self._shadow_dict.pop(name,None)
@@ -943,15 +990,15 @@ class VertexLitEngine(bpy.types.RenderEngine):
             for inst in depsgraph.object_instances:
                 obj = inst.object
                 if obj.type != 'MESH': continue
-                batch = self._shadow_dict.get(obj.name)
+                batch = self._shadow_dict.get(_draw_key(inst))
                 if batch is None:
                     # Shadows were just enabled after the geometry loaded -> build the
                     # (position-only) shadow batch on demand from the cached mesh data.
-                    cached = self._mesh_cache.get(obj.name)
+                    cached = self._mesh_cache.get(_draw_key(inst))
                     if cached is not None:
                         batch = _build_shadow_batch_from_cache(cached)
                         if batch is not None:
-                            self._shadow_dict[obj.name] = batch
+                            self._shadow_dict[_draw_key(inst)] = batch
                 if batch is None: continue
                 shader.uniform_float('uModel', inst.matrix_world)
                 batch.draw(shader)
@@ -1060,9 +1107,9 @@ class VertexLitEngine(bpy.types.RenderEngine):
         for inst in depsgraph.object_instances:
             obj = inst.object
             if obj.type != 'MESH' or not inst.show_self: continue
-            slots = self._batch_dict.get(obj.name)
+            slots = self._batch_dict.get(_draw_key(inst))
             if not slots: continue
-            cached = self._mesh_cache.get(obj.name)
+            cached = self._mesh_cache.get(_draw_key(inst))
             gmin = cached.get('gen_min', (0.0, 0.0, 0.0)) if cached else (0.0, 0.0, 0.0)
             gsc = cached.get('gen_scale', (1.0, 1.0, 1.0)) if cached else (1.0, 1.0, 1.0)
             try: nmat = inst.matrix_world.to_3x3().inverted().transposed()
@@ -1176,9 +1223,9 @@ class VertexLitEngine(bpy.types.RenderEngine):
             obj=inst.object
             if obj.type!='MESH': continue
             if not inst.show_self: continue
-            slots=self._batch_dict.get(obj.name)
+            slots=self._batch_dict.get(_draw_key(inst))
             if not slots: continue
-            cached=self._mesh_cache.get(obj.name)
+            cached=self._mesh_cache.get(_draw_key(inst))
             gmin=cached.get('gen_min',(0.0,0.0,0.0)) if cached else (0.0,0.0,0.0)
             gsc =cached.get('gen_scale',(1.0,1.0,1.0)) if cached else (1.0,1.0,1.0)
 
@@ -1229,6 +1276,58 @@ class VertexLitEngine(bpy.types.RenderEngine):
 
     # ── Main draw ─────────────────────────────────────────────────────────
 
+    def _draw_splats(self):
+        """Draw generated splat clouds (from the splat_render registry) into the current framebuffer."""
+        from . import splat_render
+        clouds = splat_render.SCENE_CLOUDS
+        if not clouds:
+            return
+        vm = getattr(self, '_splat_vm', None); pm = getattr(self, '_splat_pm', None)
+        wh = getattr(self, '_splat_wh', None)
+        if vm is None or pm is None or wh is None:
+            return
+        light = getattr(self, '_splat_light', None)
+        wd = getattr(self, '_splat_need_depth', True)
+        uc = getattr(self, '_splat_use_compute', False)
+        gs = bool(getattr(self, '_splat_gpu_sort', False))
+        for c in clouds:
+            c._gpu_sort = gs
+        if getattr(self, '_splat_tile', False):
+            from . import splat_tile as ST
+            any_ok = False
+            for c in clouds:
+                try:
+                    if getattr(c, '_tile', None) is None:
+                        c._tile = ST.TileRasterizer(c)
+                    out = c._tile.render(vm, pm, wh[0], wh[1], light=getattr(self,'_splat_light',None))
+                    if out is not None:
+                        ST.composite(out); any_ok = True
+                except Exception as e:
+                    if _DEBUG: print("[VertexLit] tile raster -> fallback:", e)
+            if any_ok:
+                return   # tile path handled the splats
+        for c in clouds:
+            try:
+                c.draw(vm, pm, wh[0], wh[1], write_depth=wd, light=light, use_compute=uc, backface=getattr(self,'_splat_backface',False))
+            except Exception as e:
+                if _DEBUG: print("[VertexLit] splat draw:", e)
+
+    def _draw_splat_normals(self, view_mat3):
+        """Render splat normals into the cavity normal buffer (so the cavity effect includes splats)."""
+        from . import splat_render
+        clouds = splat_render.SCENE_CLOUDS
+        if not clouds or view_mat3 is None:
+            return
+        vm = getattr(self, '_splat_vm', None); pm = getattr(self, '_splat_pm', None)
+        wh = getattr(self, '_splat_wh', None)
+        if vm is None or pm is None or wh is None:
+            return
+        for c in clouds:
+            try:
+                c.draw_normals(vm, pm, view_mat3, wh[0], wh[1], backface=getattr(self,'_splat_backface',False))
+            except Exception as e:
+                if _DEBUG: print("[VertexLit] splat normals:", e)
+
     def _make_post_ctx(self, depsgraph, vls, view_proj, view_mat3, proj, rw, rh, wc,
                        studio, ls_mat, sky, ground, bstr, lights,
                        do_shad=False, s_bias=0.0015, s_soft=1.5, shad_tex=None):
@@ -1241,6 +1340,7 @@ class VertexLitEngine(bpy.types.RenderEngine):
                                bstr, do_shad, s_bias, s_soft,
                                shad_tex if shad_tex is not None else self._dummy_depth,
                                lights, 'PIXEL')
+            self._draw_splats()
 
         ao_occluders = None
         if vls and getattr(vls, 'use_ao', False):
@@ -1256,7 +1356,7 @@ class VertexLitEngine(bpy.types.RenderEngine):
                         o = i.object
                         if o.type != 'MESH' or not i.show_self: continue
                         if getattr(o, 'vlr_ao_exclude', False): continue
-                        sl = self._batch_dict.get(o.name)
+                        sl = self._batch_dict.get(_draw_key(i))
                         if not sl: continue
                         try: sh.uniform_float('uModel', i.matrix_world)
                         except Exception: pass
@@ -1276,7 +1376,7 @@ class VertexLitEngine(bpy.types.RenderEngine):
                 for i in depsgraph.object_instances:
                     o = i.object
                     if o.type != 'MESH' or not i.show_self: continue
-                    sl = self._batch_dict.get(o.name)
+                    sl = self._batch_dict.get(_draw_key(i))
                     if not sl: continue
                     if getattr(o, 'vlr_outline_exclude', False):
                         col = (1.0, 1.0, 1.0)
@@ -1304,7 +1404,7 @@ class VertexLitEngine(bpy.types.RenderEngine):
                 for i in depsgraph.object_instances:
                     o = i.object
                     if o.type != 'MESH' or not i.show_self: continue
-                    sl = self._batch_dict.get(o.name)
+                    sl = self._batch_dict.get(_draw_key(i))
                     if not sl: continue
                     try: nmat = i.matrix_world.to_3x3().inverted().transposed()
                     except Exception: nmat = i.matrix_world.to_3x3()
@@ -1315,6 +1415,7 @@ class VertexLitEngine(bpy.types.RenderEngine):
                     for b, _mn, _tx in sl:
                         try: b.draw(sh)
                         except Exception: pass
+                self._draw_splat_normals(view_mat3)
 
         post_ctx = {
             'proj': proj, 'inv_proj': proj.inverted(),
@@ -1443,9 +1544,25 @@ class VertexLitEngine(bpy.types.RenderEngine):
         except Exception:
             key_dir=(0.3,0.4,0.86)
         studio=(key_dir, (1.0,1.0,1.0), (vls.key_intensity if vls else 0.8))
+        # experimental splat clouds: cache matrices + scene lighting for the draw
+        self._splat_vm = rv3d.view_matrix; self._splat_pm = rv3d.window_matrix
+        self._splat_wh = (region.width, region.height)
+        _sun = getattr(self, '_sun', ((0.0,0.0,1.0),(1.0,1.0,1.0),0.0,1.0))
+        self._splat_light = ({
+            'sky': sky, 'ground': ground, 'hemi': _sun[3],
+            'sun_dir': _sun[0], 'sun_col': _sun[1], 'sun_int': _sun[2],
+            'key_dir': studio[0], 'key_col': studio[1], 'key_int': studio[2],
+        } if (vls is None or getattr(vls, 'splat_lit', True)) else None)
+        # depth pass (M2) only needed to FEED AO; compositing uses the depth TEST in the colour pass.
+        self._splat_need_depth = bool(vls and getattr(vls, 'use_ao', False))
+        self._splat_use_compute = bool(vls and getattr(vls, 'splat_compute', False))
+        self._splat_tile = bool(vls and getattr(vls, "splat_tile", False))
+        self._splat_gpu_sort = bool(vls and getattr(vls, "splat_gpu_sort", False))
+        self._splat_backface = bool(vls and getattr(vls, "splat_backface", False))
         def _draw_objects():
             self._draw_batches(depsgraph, vls, view_proj, studio, ls_mat, sky, ground,
                                bstr, do_shad, s_bias, s_dark, shad_tex, lights, mode)
+            self._draw_splats()
 
         # Route through the screen-space post pipeline if any effect is enabled;
         # otherwise draw straight to the viewport (default path, unchanged). Any
