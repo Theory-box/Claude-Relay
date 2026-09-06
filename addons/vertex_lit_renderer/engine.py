@@ -1280,7 +1280,8 @@ class VertexLitEngine(bpy.types.RenderEngine):
         """Draw generated splat clouds (from the splat_render registry) into the current framebuffer."""
         from . import splat_render
         clouds = splat_render.SCENE_CLOUDS
-        if not clouds:
+        anchors = getattr(self, '_splat_anchors', [])
+        if not clouds and not anchors:
             return
         vm = getattr(self, '_splat_vm', None); pm = getattr(self, '_splat_pm', None)
         wh = getattr(self, '_splat_wh', None)
@@ -1290,7 +1291,6 @@ class VertexLitEngine(bpy.types.RenderEngine):
         wd = getattr(self, '_splat_need_depth', True)
         uc = getattr(self, '_splat_use_compute', False)
         gs = bool(getattr(self, '_splat_gpu_sort', False))
-        anchors = getattr(self, '_splat_anchors', [])
         for c in clouds:
             c._gpu_sort = gs
         if getattr(self, '_splat_tile', False):
