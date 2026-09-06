@@ -19,7 +19,15 @@ from mathutils import Vector
 _SH_C0 = 0.28209479177387814
 # Module-level registry of SplatCloud instances, populated by the generate operator and drawn
 # by the engine each frame. Survives viewport redraws (cleared on file reload / Clear button).
-SCENE_CLOUDS = []
+SCENE_CLOUDS = []          # legacy unanchored clouds (kept for compat; drawn at identity)
+SPLAT_CLOUDS = {}          # splat_id (int) -> SplatCloud, anchored to a scene object, local-space geometry
+_next_id = [1]
+
+def register_cloud(cloud_dict, sigma):
+    """Store a local-space cloud under a fresh splat_id and return the id (put on the anchor object)."""
+    sid = _next_id[0]; _next_id[0] += 1
+    SPLAT_CLOUDS[sid] = SplatCloud(cloud_dict, sigma=sigma)
+    return sid
 _PLY_T = {'char':'i1','uchar':'u1','short':'i2','ushort':'u2','int':'i4','uint':'u4',
           'float':'f4','float32':'f4','double':'f8','int8':'i1','uint8':'u1',
           'int16':'i2','uint16':'u2','int32':'i4','uint32':'u4','float64':'f8'}
@@ -69,7 +77,7 @@ def load_ply(path):
 _VERT = """
 uniform sampler2D uData; uniform sampler2D uIndex; uniform int uTW; uniform int uITW; uniform int uN;
 uniform vec3 uRow0,uRow1,uRow2; uniform vec3 uCam; uniform vec2 uF; uniform vec2 uVP; uniform float uSigma;
-uniform mat4 uViewProj;
+uniform mat4 uViewProj; uniform mat4 uModel;
 // scene lighting (matches the engine's vlr_light: hemisphere + sun + camera key)
 uniform int  uLit;
 uniform vec3 uSkyColor, uGroundColor; uniform float uHemiIntensity;
@@ -88,15 +96,16 @@ void main(){
   int sid=int(texelFetch(uIndex,at(gl_InstanceID,uITW),0).r+0.5); if(sid>=uN){gl_Position=vec4(2.0,2.0,2.0,1.0);return;} int base=sid*4;
   vec4 d0=texelFetch(uData,at(base,uTW),0); vec4 d1=texelFetch(uData,at(base+1,uTW),0);
   vec4 d2=texelFetch(uData,at(base+2,uTW),0); vec4 d3=texelFetch(uData,at(base+3,uTW),0);
-  vec3 ic=d0.xyz; vec3 is=vec3(d0.w,d1.x,d1.y); vec4 iq=vec4(d1.z,d1.w,d2.x,d2.y);
+  vec3 icL=d0.xyz; vec3 is=vec3(d0.w,d1.x,d1.y); vec4 iq=vec4(d1.z,d1.w,d2.x,d2.y);
   vec3 icol=vec3(d2.z,d2.w,d3.x); float iop=d3.y; vC=corner; vOp=iop;
+  vec3 ic=(uModel*vec4(icL,1.0)).xyz; mat3 md=mat3(uModel);   // local -> world (object transform)
   vec3 dp=ic-uCam; vec3 t=vec3(dot(uRow0,dp),dot(uRow1,dp),dot(uRow2,dp));
   vec4 clipC = uViewProj * vec4(ic, 1.0);
   if(t.z<0.02 || clipC.w<=0.0){ gl_Position=vec4(2.0,2.0,2.0,1.0); return; }
   float w=iq.x,x=iq.y,y=iq.z,z=iq.w;
-  vec3 c0=vec3(1.0-2.0*(y*y+z*z),2.0*(x*y+w*z),2.0*(x*z-w*y));
-  vec3 c1=vec3(2.0*(x*y-w*z),1.0-2.0*(x*x+z*z),2.0*(y*z+w*x));
-  vec3 c2=vec3(2.0*(x*z+w*y),2.0*(y*z-w*x),1.0-2.0*(x*x+y*y));
+  vec3 c0=md*vec3(1.0-2.0*(y*y+z*z),2.0*(x*y+w*z),2.0*(x*z-w*y));
+  vec3 c1=md*vec3(2.0*(x*y-w*z),1.0-2.0*(x*x+z*z),2.0*(y*z+w*x));
+  vec3 c2=md*vec3(2.0*(x*z+w*y),2.0*(y*z-w*x),1.0-2.0*(x*x+y*y));
   // scene lighting (per-splat, using the surfel normal = thinnest axis)
   if(uLit==1){
     vec3 nrm=(is.x<=is.y && is.x<=is.z)? c0 : ((is.y<=is.z)? c1 : c2);
@@ -293,49 +302,56 @@ class SplatCloud:
         self._draw_count = self.d['count']
         self._gpu = True
 
-    def _sorted_index(self, cam_np, fwd_np, view_proj=None, backface=False):
-        need = self._idxtex is None
-        if not need:
-            need = (float(np.dot(fwd_np, self._last[1])) < 0.9994
-                    or float(np.linalg.norm(cam_np - self._last[0])) > self.move_eps)
+    def _sorted_index(self, cam_np, fwd_np, view_proj=None, backface=False, obj_key=''):
+        # GPU sort is cheap -> run per object every frame (result used immediately by the draw)
+        if getattr(self, '_gpu_sort', False):
+            from . import splat_gpusort
+            if getattr(self, '_gsort', None) is None:
+                self._gsort = splat_gpusort.GPUSorter()
+            gidx = self._gsort.run(self.datatex, _TW, cam_np, fwd_np, int(self.d['count']), view_proj, backface)
+            if gidx is not None:
+                self._draw_count = int(self.d['count'])
+                return gidx
+            # else fall through to CPU sort
+        # CPU sort: expensive -> cache per object, throttled on that object's local camera
+        if not hasattr(self, '_sortcache'):
+            self._sortcache = {}
+        cch = self._sortcache.setdefault(obj_key, {'idxtex': None, 'last': None, 'dc': 0})
+        need = cch['idxtex'] is None
+        if not need and cch['last'] is not None:
+            need = (float(np.dot(fwd_np, cch['last'][1])) < 0.9994
+                    or float(np.linalg.norm(cam_np - cch['last'][0])) > self.move_eps)
         if need:
-            if getattr(self, '_gpu_sort', False):
-                from . import splat_gpusort
-                if getattr(self, '_gsort', None) is None:
-                    self._gsort = splat_gpusort.GPUSorter()
-                gidx = self._gsort.run(self.datatex, _TW, cam_np, fwd_np, int(self.d['count']), view_proj, backface)
-                if gidx is not None:
-                    self._idxtex = gidx
-                    self._draw_count = int(self.d['count'])   # GPU sort v1: draw all (no cull yet)
-                    self._last = (cam_np, fwd_np)
-                    return self._idxtex
-                # else: fall through to CPU sort
             xyz=self.d['xyz']; depth=(xyz-cam_np)@fwd_np
             vis=np.ones(len(xyz), bool)
-            if view_proj is not None:                          # frustum cull (free, no quality loss)
+            if view_proj is not None:
                 vp=np.array(view_proj, np.float32)
                 hc=np.column_stack([xyz, np.ones(len(xyz),np.float32)]) @ vp.T
                 w=hc[:,3]; safe=np.where(np.abs(w)>1e-6, w, 1e-6)
                 nx=hc[:,0]/safe; ny=hc[:,1]/safe
                 vis &= (w>1e-4) & (np.abs(nx)<1.3) & (np.abs(ny)<1.3)
-            if backface and self._normals is not None:         # backface cull (solid objects ~2x)
-                vis &= np.einsum('ni,ni->n', self._normals, (cam_np-xyz)) > -0.2   # keep silhouette
+            if backface and self._normals is not None:
+                vis &= np.einsum('ni,ni->n', self._normals, (cam_np-xyz)) > -0.2
             idx=np.nonzero(vis)[0]
             if len(idx)==0: idx=np.arange(len(xyz))
             dv=depth[idx]; lo=float(dv.min()); hi=float(dv.max())
             qv=65535-((dv-lo)*(65535.0/(hi-lo+1e-9))).astype(np.uint16)
             order=idx[np.argsort(qv,kind='stable')].astype(np.float32)
-            self._draw_count=len(order)
             ith=(len(order)+self.itw-1)//self.itw
             ibuf=np.zeros(self.itw*ith,'f4'); ibuf[:len(order)]=order
-            self._idxtex=GPUTexture((self.itw,ith),format='R32F',data=_mkbuf(ibuf))
-            self._last=(cam_np, fwd_np)
-        return self._idxtex
+            cch['idxtex']=GPUTexture((self.itw,ith),format='R32F',data=_mkbuf(ibuf))
+            cch['dc']=len(order); cch['last']=(cam_np, fwd_np)
+        self._draw_count = cch['dc']
+        return cch['idxtex']
 
-    def draw(self, view_matrix, window_matrix, w, h, write_depth=True, light=None, use_compute=False, backface=False):
-        """Pass 1: colour over-blend; Pass 2: opaque-core depth (M2). Optional compute pre-pass."""
+    def draw(self, view_matrix, window_matrix, w, h, write_depth=True, light=None, use_compute=False, backface=False, model=None, obj_key=''):
+        """Pass 1: colour over-blend; Pass 2: opaque-core depth (M2). Optional compute pre-pass.
+        model = the anchor object's world matrix (splats stored in local space); obj_key caches its sort."""
         self.ensure_gpu()
         self._proj_valid = False
+        from mathutils import Matrix
+        if model is None:
+            model = Matrix.Identity(4)
         if use_compute:
             self._ensure_compute()
             if getattr(self, '_compute_ok', False):
@@ -350,13 +366,15 @@ class SplatCloud:
         cam=vm.inverted().translation
         fx=0.5*w*pm[0][0]; fy=0.5*h*pm[1][1]
         view_proj = pm @ vm
-        idxtex=self._sorted_index(np.array(cam,'f4'), np.array(fwd,'f4'), view_proj, backface)
+        # sort in the object's LOCAL space (transform the camera, not the splats), frustum via VP*model
+        minv = model.inverted(); cam_l = minv @ cam; fwd_l = (minv.to_3x3() @ fwd).normalized()
+        idxtex=self._sorted_index(np.array(cam_l,'f4'), np.array(fwd_l,'f4'), view_proj @ model, backface, obj_key)
         sh=self.shader; sh.bind()
         sh.uniform_sampler('uData', self.datatex); sh.uniform_sampler('uIndex', idxtex)
         sh.uniform_int('uTW', _TW); sh.uniform_int('uITW', self.itw); sh.uniform_int('uN', int(self.d['count']))
         sh.uniform_float('uRow0', right); sh.uniform_float('uRow1', up); sh.uniform_float('uRow2', fwd)
         sh.uniform_float('uCam', cam); sh.uniform_float('uF', (fx,fy)); sh.uniform_float('uVP', (float(w),float(h)))
-        sh.uniform_float('uSigma', self.sigma); sh.uniform_float('uViewProj', view_proj)
+        sh.uniform_float('uSigma', self.sigma); sh.uniform_float('uViewProj', view_proj); sh.uniform_float('uModel', model)
         # scene lighting (hemisphere + sun + key), matching the engine's mesh lighting
         if light is not None:
             sh.uniform_int('uLit', 1)
