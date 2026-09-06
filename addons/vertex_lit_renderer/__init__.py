@@ -3,7 +3,7 @@
 bl_info = {
     "name":        "Workbench 2.0",
     "author":      "Theory-box / Claude",
-    "version":     (0, 11, 31),
+    "version":     (0, 12, 6),
     "blender":     (4, 2, 0),
     "location":    "Properties > Render > Render Engine → Workbench 2.0",
     "description": "Solid studio + live-node material renderer (+ screen-space AO) for retro game look-dev. "
