@@ -68,4 +68,11 @@ def register():
     for c in _CLASSES: bpy.utils.register_class(c)
 
 def unregister():
+    # drop runtime splat clouds so their GPU textures (tied to the current context) don't
+    # linger as stale handles across an addon disable/re-enable or update.
+    try:
+        from . import splat_render
+        splat_render.SCENE_CLOUDS.clear(); splat_render.SPLAT_CLOUDS.clear()
+    except Exception:
+        pass
     for c in reversed(_CLASSES): bpy.utils.unregister_class(c)
