@@ -1601,9 +1601,15 @@ class VertexLitEngine(bpy.types.RenderEngine):
         except Exception:
             key_dir=(0.3,0.4,0.86)
         studio=(key_dir, (1.0,1.0,1.0), (vls.key_intensity if vls else 0.8))
-        # experimental splat clouds: cache matrices + scene lighting for the draw
-        self._splat_vm = rv3d.view_matrix; self._splat_pm = rv3d.window_matrix
-        self._splat_wh = (region.width, region.height)
+        # experimental splat clouds: cache matrices + scene lighting for the draw.
+        # The EWA ellipse projection assumes a PERSPECTIVE view (Jacobian ~ f/z); in an
+        # orthographic viewport the splat sizes would be wrong, so skip splats there
+        # (vm=None makes _draw_splats/_draw_splat_normals early-out) rather than draw them distorted.
+        if getattr(rv3d, 'is_perspective', True):
+            self._splat_vm = rv3d.view_matrix; self._splat_pm = rv3d.window_matrix
+            self._splat_wh = (region.width, region.height)
+        else:
+            self._splat_vm = None; self._splat_pm = None; self._splat_wh = None
         _sun = getattr(self, '_sun', ((0.0,0.0,1.0),(1.0,1.0,1.0),0.0,1.0))
         self._splat_light = ({
             'sky': sky, 'ground': ground, 'hemi': _sun[3],
