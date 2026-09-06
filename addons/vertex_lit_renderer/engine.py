@@ -1280,7 +1280,8 @@ class VertexLitEngine(bpy.types.RenderEngine):
         """Draw generated splat clouds (from the splat_render registry) into the current framebuffer."""
         from . import splat_render
         clouds = splat_render.SCENE_CLOUDS
-        if not clouds:
+        anchors = getattr(self, '_splat_anchors', [])
+        if not clouds and not anchors:
             return
         vm = getattr(self, '_splat_vm', None); pm = getattr(self, '_splat_pm', None)
         wh = getattr(self, '_splat_wh', None)
@@ -1304,29 +1305,62 @@ class VertexLitEngine(bpy.types.RenderEngine):
                         ST.composite(out); any_ok = True
                 except Exception as e:
                     if _DEBUG: print("[VertexLit] tile raster -> fallback:", e)
+            for (mw, sid, name) in anchors:
+                cloud = splat_render.SPLAT_CLOUDS.get(sid)
+                if cloud is None:
+                    continue
+                try:
+                    if getattr(cloud, '_tile', None) is None:
+                        cloud._tile = ST.TileRasterizer(cloud)
+                    out = cloud._tile.render(vm, pm, wh[0], wh[1], light=getattr(self,'_splat_light',None), model=mw)
+                    if out is not None:
+                        ST.composite(out); any_ok = True
+                except Exception as e:
+                    if _DEBUG: print("[VertexLit] tile anchor -> fallback:", e)
             if any_ok:
                 return   # tile path handled the splats
-        for c in clouds:
+        bf = getattr(self, '_splat_backface', False)
+        for c in clouds:                              # legacy unanchored clouds (identity)
             try:
-                c.draw(vm, pm, wh[0], wh[1], write_depth=wd, light=light, use_compute=uc, backface=getattr(self,'_splat_backface',False))
+                c.draw(vm, pm, wh[0], wh[1], write_depth=wd, light=light, use_compute=uc, backface=bf)
             except Exception as e:
                 if _DEBUG: print("[VertexLit] splat draw:", e)
+        for (mw, sid, name) in anchors:               # object-anchored clouds (selectable/duplicatable)
+            cloud = splat_render.SPLAT_CLOUDS.get(sid)
+            if cloud is None:
+                continue
+            cloud._gpu_sort = gs
+            try:
+                cloud.draw(vm, pm, wh[0], wh[1], write_depth=wd, light=light, use_compute=uc,
+                           backface=bf, model=mw, obj_key=name)
+            except Exception as e:
+                if _DEBUG: print("[VertexLit] splat anchor draw:", e)
 
     def _draw_splat_normals(self, view_mat3):
         """Render splat normals into the cavity normal buffer (so the cavity effect includes splats)."""
         from . import splat_render
         clouds = splat_render.SCENE_CLOUDS
-        if not clouds or view_mat3 is None:
+        anchors = getattr(self, '_splat_anchors', [])
+        if (not clouds and not anchors) or view_mat3 is None:
             return
         vm = getattr(self, '_splat_vm', None); pm = getattr(self, '_splat_pm', None)
         wh = getattr(self, '_splat_wh', None)
         if vm is None or pm is None or wh is None:
             return
+        bf = getattr(self, '_splat_backface', False)
         for c in clouds:
             try:
-                c.draw_normals(vm, pm, view_mat3, wh[0], wh[1], backface=getattr(self,'_splat_backface',False))
+                c.draw_normals(vm, pm, view_mat3, wh[0], wh[1], backface=bf)
             except Exception as e:
                 if _DEBUG: print("[VertexLit] splat normals:", e)
+        for (mw, sid, name) in anchors:
+            cloud = splat_render.SPLAT_CLOUDS.get(sid)
+            if cloud is None:
+                continue
+            try:
+                cloud.draw_normals(vm, pm, view_mat3, wh[0], wh[1], backface=bf, model=mw, obj_key=name)
+            except Exception as e:
+                if _DEBUG: print("[VertexLit] splat anchor normals:", e)
 
     def _make_post_ctx(self, depsgraph, vls, view_proj, view_mat3, proj, rw, rh, wc,
                        studio, ls_mat, sky, ground, bstr, lights,
@@ -1559,6 +1593,19 @@ class VertexLitEngine(bpy.types.RenderEngine):
         self._splat_tile = bool(vls and getattr(vls, "splat_tile", False))
         self._splat_gpu_sort = bool(vls and getattr(vls, "splat_gpu_sort", False))
         self._splat_backface = bool(vls and getattr(vls, "splat_backface", False))
+        # collect object-anchored splat clouds (Empties with a vlr_splat_id) + their world matrices,
+        # so each is drawn at its own transform (selectable, movable, Shift+D duplicatable).
+        anchors = []
+        try:
+            from . import splat_render as _sr
+            if _sr.SPLAT_CLOUDS:
+                for ob in depsgraph.objects:
+                    sid = ob.get('vlr_splat_id')
+                    if sid is not None and int(sid) in _sr.SPLAT_CLOUDS:
+                        anchors.append((ob.matrix_world.copy(), int(sid), ob.name))
+        except Exception:
+            pass
+        self._splat_anchors = anchors
         def _draw_objects():
             self._draw_batches(depsgraph, vls, view_proj, studio, ls_mat, sky, ground,
                                bstr, do_shad, s_bias, s_dark, shad_tex, lights, mode)
