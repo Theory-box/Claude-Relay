@@ -779,6 +779,7 @@ class VertexLitEngine(bpy.types.RenderEngine):
         # longer creates/removes datablocks, so there's nothing to "absorb".)
         changed = False
         maybe_vis = False
+        vis_prev = getattr(self, '_vis_set', None) or frozenset()
         for update in depsgraph.updates:
             id_data = update.id
             if isinstance(id_data, bpy.types.Object):
@@ -795,6 +796,12 @@ class VertexLitEngine(bpy.types.RenderEngine):
                     else:
                         # neither geometry nor transform -> possibly a visibility (hide/unhide)
                         # or other property change; hide/unhide sets no flag, so re-sync below.
+                        maybe_vis = True
+                    # An update for an object NOT currently in the visible set means it just
+                    # appeared (unhidden / added) — regardless of which flag it carries. Bulk
+                    # "unhide all" fires transform-flagged updates on the newly-visible objects,
+                    # so we must re-sync on that too, not only on the no-flag case.
+                    if id_data.name not in vis_prev:
                         maybe_vis = True
                 elif id_data.type == 'LIGHT':
                     self._dirty = True; self._shadow_dirty = True; changed = True
