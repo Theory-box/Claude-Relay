@@ -29,3 +29,15 @@ the current billboard renderer. Untestable headless = Blender compute I/O only; 
 Then: mesh compositing (blend reads gbuf depth) + feed AO/cavity.
 
 Latest engine on feature/node-glsl-transpiler: v0.11.34 (culling + compute pre-pass, opt-in).
+
+## OUTCOME (merged to main @ v0.12.6)
+The GPU-sort path was the real win — hardware blend + GPU depth sort + GPU frustum/backface culling,
+no CPU cost while orbiting ("extremely fast" per user). This is the recommended fast path.
+The tile rasterizer works but is a SPECIALIST tool (pathological-overdraw foliage / on-device training);
+it loses to hardware blending in normal scenes because it trades overdraw for sort cost. Keep it OFF for
+general use; do NOT stack it with GPU Sort (tile mode overrides the draw).
+
+Splat toggles on main (all opt-in, default OFF, auto-fallback):
+  GPU Sort (recommended) · Compute Pre-pass · Tile Rasterizer (specialist) · Backface Cull
+Default splat path = billboard renderer (stable). Merged commit: "Merge splat pipeline into main (v0.12.6)".
+Note: bl_info version bump sed had drifted (stuck at 0.11.31); corrected to 0.12.6 on merge.
