@@ -778,6 +778,7 @@ class VertexLitEngine(bpy.types.RenderEngine):
         # (No more churn-era throttling — extraction reads the eval mesh directly and no
         # longer creates/removes datablocks, so there's nothing to "absorb".)
         changed = False
+        maybe_vis = False
         for update in depsgraph.updates:
             id_data = update.id
             if isinstance(id_data, bpy.types.Object):
@@ -791,6 +792,10 @@ class VertexLitEngine(bpy.types.RenderEngine):
                         # moving/rotating: matrix_world is read live in the draw loop, so
                         # NO re-extract needed; only shadows must re-render.
                         self._shadow_dirty = True; changed = True
+                    else:
+                        # neither geometry nor transform -> possibly a visibility (hide/unhide)
+                        # or other property change; hide/unhide sets no flag, so re-sync below.
+                        maybe_vis = True
                 elif id_data.type == 'LIGHT':
                     self._dirty = True; self._shadow_dirty = True; changed = True
             elif isinstance(id_data, bpy.types.Mesh):
@@ -814,6 +819,21 @@ class VertexLitEngine(bpy.types.RenderEngine):
             for nm in self._mesh_cache:
                 if nm not in bpy.data.objects:
                     self._dirty = True; changed = True; break
+
+        # Visibility (hide/unhide) sets no geometry/transform flag, so it would otherwise
+        # never trigger a rebuild (the classic "toggle view mode to make it refresh" bug).
+        # When an object update carried no geo/transform, re-derive the visible mesh set and
+        # rebuild if it changed -> hide/unhide now updates immediately.
+        if maybe_vis and not self._dirty:
+            try:
+                vis = frozenset(i.object.name for i in depsgraph.object_instances
+                                if i.object.type == 'MESH' and i.show_self
+                                and not getattr(i, 'is_instance', False))
+                if vis != getattr(self, '_vis_set', None):
+                    self._vis_set = vis
+                    self._dirty = True; self._shadow_dirty = True; changed = True
+            except Exception:
+                pass
 
         if changed:
             self.tag_redraw()
@@ -873,6 +893,9 @@ class VertexLitEngine(bpy.types.RenderEngine):
                     _inst_done += 1
             else:
                 if obj.name not in current: current[obj.name]=obj
+
+        # Track the visible set so view_update can detect hide/unhide (which sets no flag).
+        self._vis_set = frozenset(current.keys())
 
         # 1) Drop objects that no longer exist / were hidden. Keep instance-geometry keys
         #    ('i:...') that are still present this frame.
@@ -1601,8 +1624,14 @@ class VertexLitEngine(bpy.types.RenderEngine):
             if _sr.SPLAT_CLOUDS:
                 for ob in depsgraph.objects:
                     sid = ob.get('vlr_splat_id')
-                    if sid is not None and int(sid) in _sr.SPLAT_CLOUDS:
-                        anchors.append((ob.matrix_world.copy(), int(sid), ob.name))
+                    if sid is None or int(sid) not in _sr.SPLAT_CLOUDS:
+                        continue
+                    try:
+                        if not ob.visible_get():
+                            continue
+                    except Exception:
+                        pass
+                    anchors.append((ob.matrix_world.copy(), int(sid), ob.name))
         except Exception:
             pass
         self._splat_anchors = anchors
