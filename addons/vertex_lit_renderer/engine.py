@@ -1729,6 +1729,24 @@ def _unregister_panels():
         except Exception: pass
     _patched_panels.clear()
 
+from bpy.app.handlers import persistent as _persistent
+
+@_persistent
+def _on_file_load(*args):
+    """New/opened file: drop caches keyed to the previous file's objects + GPU context, so a
+    same-named object from another file can't draw stale geometry, and runtime-only splat clouds
+    don't leak across files."""
+    try: _PERSIST_MESH.clear(); _PERSIST_BATCH.clear(); _PERSIST_SHADOW.clear(); _PERSIST_SIG.clear()
+    except Exception: pass
+    try: _tex_cache.clear()
+    except Exception: pass
+    try: material_shader.invalidate()
+    except Exception: pass
+    try:
+        from . import splat_render
+        splat_render.SCENE_CLOUDS.clear(); splat_render.SPLAT_CLOUDS.clear()
+    except Exception: pass
+
 def _release_gpu_caches():
     """Drop module-level GPU objects so leaving/re-entering rendered mode never
     accumulates stale-context shaders/textures (the 'chuggier each re-enter' leak).
@@ -1751,8 +1769,15 @@ def _release_gpu_caches():
 def register():
     bpy.utils.register_class(VertexLitEngine)
     _register_panels()
+    if _on_file_load not in bpy.app.handlers.load_post:
+        bpy.app.handlers.load_post.append(_on_file_load)
 
 def unregister():
     _unregister_panels()
     _release_gpu_caches()
+    try:
+        if _on_file_load in bpy.app.handlers.load_post:
+            bpy.app.handlers.load_post.remove(_on_file_load)
+    except Exception:
+        pass
     bpy.utils.unregister_class(VertexLitEngine)
