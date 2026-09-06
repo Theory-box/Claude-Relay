@@ -1305,6 +1305,18 @@ class VertexLitEngine(bpy.types.RenderEngine):
                         ST.composite(out); any_ok = True
                 except Exception as e:
                     if _DEBUG: print("[VertexLit] tile raster -> fallback:", e)
+            for (mw, sid, name) in anchors:
+                cloud = splat_render.SPLAT_CLOUDS.get(sid)
+                if cloud is None:
+                    continue
+                try:
+                    if getattr(cloud, '_tile', None) is None:
+                        cloud._tile = ST.TileRasterizer(cloud)
+                    out = cloud._tile.render(vm, pm, wh[0], wh[1], light=getattr(self,'_splat_light',None), model=mw)
+                    if out is not None:
+                        ST.composite(out); any_ok = True
+                except Exception as e:
+                    if _DEBUG: print("[VertexLit] tile anchor -> fallback:", e)
             if any_ok:
                 return   # tile path handled the splats
         bf = getattr(self, '_splat_backface', False)
@@ -1328,17 +1340,27 @@ class VertexLitEngine(bpy.types.RenderEngine):
         """Render splat normals into the cavity normal buffer (so the cavity effect includes splats)."""
         from . import splat_render
         clouds = splat_render.SCENE_CLOUDS
-        if not clouds or view_mat3 is None:
+        anchors = getattr(self, '_splat_anchors', [])
+        if (not clouds and not anchors) or view_mat3 is None:
             return
         vm = getattr(self, '_splat_vm', None); pm = getattr(self, '_splat_pm', None)
         wh = getattr(self, '_splat_wh', None)
         if vm is None or pm is None or wh is None:
             return
+        bf = getattr(self, '_splat_backface', False)
         for c in clouds:
             try:
-                c.draw_normals(vm, pm, view_mat3, wh[0], wh[1], backface=getattr(self,'_splat_backface',False))
+                c.draw_normals(vm, pm, view_mat3, wh[0], wh[1], backface=bf)
             except Exception as e:
                 if _DEBUG: print("[VertexLit] splat normals:", e)
+        for (mw, sid, name) in anchors:
+            cloud = splat_render.SPLAT_CLOUDS.get(sid)
+            if cloud is None:
+                continue
+            try:
+                cloud.draw_normals(vm, pm, view_mat3, wh[0], wh[1], backface=bf, model=mw, obj_key=name)
+            except Exception as e:
+                if _DEBUG: print("[VertexLit] splat anchor normals:", e)
 
     def _make_post_ctx(self, depsgraph, vls, view_proj, view_mat3, proj, rw, rh, wc,
                        studio, ls_mat, sky, ground, bstr, lights,

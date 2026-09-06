@@ -12,9 +12,9 @@ Goal: splats become selectable + duplicatable scene objects.
 - Shift+D duplicates the Empty (inherits vlr_splat_id) -> same cloud drawn at the new transform.
 - Fixed: _draw_splats early-returned on empty SCENE_CLOUDS (legacy list); now also checks anchors.
 
-## Deferred (all opt-in effects; keep OFF for moved/duplicated splats until wired)
-- uModel NOT yet in: cavity normal pass (_NRM), compute pre-pass, tile rasterizer -> those render
-  anchored clouds at the ORIGIN. GPU Sort (recommended path) is fully anchored-aware.
+## uModel now in ALL paths (v0.13.2): billboard colour/depth, AO (rides depth), cavity normals
+   (_NRM), compute pre-pass (params[56:72]), tile rasterizer (via uMdl image + per-object render).
+   Every splat effect now follows the object transform for moved/duplicated clouds.
 - Non-uniform anchor scale slightly distorts splat normals (lighting); rot+uniform-scale+translate OK.
 - Pixel-picking (click splats to select) NOT done — selection is via the Empty gizmo / outliner.
   True pixel selection = separate GPU-picking feature.

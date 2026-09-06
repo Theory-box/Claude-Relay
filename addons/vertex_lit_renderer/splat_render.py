@@ -134,21 +134,22 @@ void main(){ float g=exp(-4.5*dot(vC,vC)); float al=vOp*g; if(al<uDepthCut) disc
 _NRM_VERT = """
 uniform sampler2D uData; uniform sampler2D uIndex; uniform int uTW; uniform int uITW; uniform int uN;
 uniform vec3 uRow0,uRow1,uRow2; uniform vec3 uCam; uniform vec2 uF; uniform vec2 uVP; uniform float uSigma;
-uniform mat4 uViewProj; uniform mat3 uViewMat3;
+uniform mat4 uViewProj; uniform mat3 uViewMat3; uniform mat4 uModel;
 in vec2 corner; out vec2 vC; out float vOp; out vec3 vVN;
 ivec2 at(int lin,int w){ return ivec2(lin % w, lin / w); }
 void main(){
   int sid=int(texelFetch(uIndex,at(gl_InstanceID,uITW),0).r+0.5); if(sid>=uN){gl_Position=vec4(2.0,2.0,2.0,1.0);return;} int base=sid*4;
   vec4 d0=texelFetch(uData,at(base,uTW),0); vec4 d1=texelFetch(uData,at(base+1,uTW),0);
   vec4 d2=texelFetch(uData,at(base+2,uTW),0); vec4 d3=texelFetch(uData,at(base+3,uTW),0);
-  vec3 ic=d0.xyz; vec3 is=vec3(d0.w,d1.x,d1.y); vec4 iq=vec4(d1.z,d1.w,d2.x,d2.y); vC=corner; vOp=d3.y;
+  vec3 icL=d0.xyz; vec3 is=vec3(d0.w,d1.x,d1.y); vec4 iq=vec4(d1.z,d1.w,d2.x,d2.y); vC=corner; vOp=d3.y;
+  vec3 ic=(uModel*vec4(icL,1.0)).xyz; mat3 md=mat3(uModel);
   vec3 dp=ic-uCam; vec3 t=vec3(dot(uRow0,dp),dot(uRow1,dp),dot(uRow2,dp));
   vec4 clipC=uViewProj*vec4(ic,1.0);
   if(t.z<0.02||clipC.w<=0.0){ gl_Position=vec4(2.0,2.0,2.0,1.0); return; }
   float w=iq.x,x=iq.y,y=iq.z,z=iq.w;
-  vec3 c0=vec3(1.0-2.0*(y*y+z*z),2.0*(x*y+w*z),2.0*(x*z-w*y));
-  vec3 c1=vec3(2.0*(x*y-w*z),1.0-2.0*(x*x+z*z),2.0*(y*z+w*x));
-  vec3 c2=vec3(2.0*(x*z+w*y),2.0*(y*z-w*x),1.0-2.0*(x*x+y*y));
+  vec3 c0=md*vec3(1.0-2.0*(y*y+z*z),2.0*(x*y+w*z),2.0*(x*z-w*y));
+  vec3 c1=md*vec3(2.0*(x*y-w*z),1.0-2.0*(x*x+z*z),2.0*(y*z+w*x));
+  vec3 c2=md*vec3(2.0*(x*z+w*y),2.0*(y*z-w*x),1.0-2.0*(x*x+y*y));
   vec3 nrm = (is.x<=is.y && is.x<=is.z)? c0 : ((is.y<=is.z)? c1 : c2);   // thinnest axis = surfel normal
   vec3 vn = uViewMat3 * normalize(nrm); if(vn.z<0.0) vn=-vn;             // face the camera
   vVN = vn;
@@ -201,7 +202,7 @@ _OTW = 4096
 #  0..15 viewProj(colmajor) 16..18 row0 19..21 row1 22..24 row2 25..27 cam 28..29 F 30..31 VP
 #  32 sigma 33 lit 34..36 sky 37..39 ground 40 hemi 41..43 sunDir 44..46 sunCol 47 sunInt
 #  48..50 keyDir 51..53 keyCol 54 keyInt
-_PARAM_FLOATS = 56
+_PARAM_FLOATS = 72
 
 _COMPUTE_SRC = """
 float pf(int i){ return texelFetch(uParams, ivec2(i/4, 0), 0)[i%4]; }
@@ -221,14 +222,17 @@ void main(){
        d2=texelFetch(uData,at(base+2,uTW),0),d3=texelFetch(uData,at(base+3,uTW),0);
   mat4 uViewProj=mat4(pf(0),pf(1),pf(2),pf(3),pf(4),pf(5),pf(6),pf(7),pf(8),pf(9),pf(10),pf(11),pf(12),pf(13),pf(14),pf(15));
   vec3 uR0=pv3(16),uR1=pv3(19),uR2=pv3(22),uCam=pv3(25); vec2 uF=vec2(pf(28),pf(29)),uVP=vec2(pf(30),pf(31)); float uSigma=pf(32);
-  vec3 ic=d0.xyz; vec3 is=vec3(d0.w,d1.x,d1.y); vec4 iq=vec4(d1.z,d1.w,d2.x,d2.y); vec3 icol=vec3(d2.z,d2.w,d3.x); float iop=d3.y;
+  mat4 uModel=mat4(pf(56),pf(57),pf(58),pf(59),pf(60),pf(61),pf(62),pf(63),pf(64),pf(65),pf(66),pf(67),pf(68),pf(69),pf(70),pf(71));
+  mat3 md=mat3(uModel);
+  vec3 icL=d0.xyz; vec3 is=vec3(d0.w,d1.x,d1.y); vec4 iq=vec4(d1.z,d1.w,d2.x,d2.y); vec3 icol=vec3(d2.z,d2.w,d3.x); float iop=d3.y;
+  vec3 ic=(uModel*vec4(icL,1.0)).xyz;
   vec3 dp=ic-uCam; vec3 t=vec3(dot(uR0,dp),dot(uR1,dp),dot(uR2,dp));
   vec4 clipC=uViewProj*vec4(ic,1.0);
   float cull=(t.z<0.02 || clipC.w<=0.0)?1.0:0.0;
   float w=iq.x,x=iq.y,y=iq.z,z=iq.w;
-  vec3 c0=vec3(1.0-2.0*(y*y+z*z),2.0*(x*y+w*z),2.0*(x*z-w*y));
-  vec3 c1=vec3(2.0*(x*y-w*z),1.0-2.0*(x*x+z*z),2.0*(y*z+w*x));
-  vec3 c2=vec3(2.0*(x*z+w*y),2.0*(y*z-w*x),1.0-2.0*(x*x+y*y));
+  vec3 c0=md*vec3(1.0-2.0*(y*y+z*z),2.0*(x*y+w*z),2.0*(x*z-w*y));
+  vec3 c1=md*vec3(2.0*(x*y-w*z),1.0-2.0*(x*x+z*z),2.0*(y*z+w*x));
+  vec3 c2=md*vec3(2.0*(x*z+w*y),2.0*(y*z-w*x),1.0-2.0*(x*x+y*y));
   vec3 nrm=(is.x<=is.y && is.x<=is.z)? c0 : ((is.y<=is.z)? c1 : c2); nrm=normalize(nrm);
   vec3 lc = icol * splat_light(nrm);
   vec3 vn = nrm;   // (cavity normal pass stays per-vertex for now; this output is unused there)
@@ -356,7 +360,7 @@ class SplatCloud:
             self._ensure_compute()
             if getattr(self, '_compute_ok', False):
                 try:
-                    if self._draw_compute(view_matrix, window_matrix, w, h, write_depth, light, backface):
+                    if self._draw_compute(view_matrix, window_matrix, w, h, write_depth, light, backface, model, obj_key):
                         return
                 except Exception as e:
                     print("[VertexLit] splat compute draw failed -> per-vertex:", e)
@@ -410,14 +414,18 @@ class SplatCloud:
         gpu.state.blend_set('NONE')
         gpu.state.depth_mask_set(True)
 
-    def draw_normals(self, view_matrix, window_matrix, view_mat3, w, h, use_compute=False, backface=False):
+    def draw_normals(self, view_matrix, window_matrix, view_mat3, w, h, use_compute=False, backface=False, model=None, obj_key=''):
         """Render splat view-space normals (core-only, depth-tested) into the current normal FBO."""
         self.ensure_gpu()
+        from mathutils import Matrix
+        if model is None:
+            model = Matrix.Identity(4)
         if use_compute and getattr(self, '_compute_ok', False) and getattr(self, '_proj_valid', False):
             try:
                 right=Vector(view_matrix[0][:3]); up=Vector(view_matrix[1][:3]); fwd=-Vector(view_matrix[2][:3])
                 cam=view_matrix.inverted().translation
-                idxtex=self._sorted_index(np.array(cam,'f4'), np.array(fwd,'f4'), window_matrix@view_matrix, backface)
+                minv=model.inverted(); cam_l=minv@cam; fwd_l=(minv.to_3x3()@fwd).normalized()
+                idxtex=self._sorted_index(np.array(cam_l,'f4'), np.array(fwd_l,'f4'), (window_matrix@view_matrix)@model, backface, obj_key)
                 sh=self.rnshader; sh.bind()
                 sh.uniform_sampler('uProj', self.projtex); sh.uniform_sampler('uIndex', idxtex)
                 sh.uniform_int('uOTW', _OTW); sh.uniform_int('uITW', self.itw); sh.uniform_int('uN', int(self.d['count'])); sh.uniform_float('uDepthCut', 0.35)
@@ -431,14 +439,15 @@ class SplatCloud:
         cam=vm.inverted().translation
         fx=0.5*w*pm[0][0]; fy=0.5*h*pm[1][1]
         view_proj = pm @ vm
-        idxtex=self._sorted_index(np.array(cam,'f4'), np.array(fwd,'f4'), view_proj, backface)
+        minv=model.inverted(); cam_l=minv@cam; fwd_l=(minv.to_3x3()@fwd).normalized()
+        idxtex=self._sorted_index(np.array(cam_l,'f4'), np.array(fwd_l,'f4'), view_proj@model, backface, obj_key)
         sh=self.normal_shader; sh.bind()
         sh.uniform_sampler('uData', self.datatex); sh.uniform_sampler('uIndex', idxtex)
         sh.uniform_int('uTW', _TW); sh.uniform_int('uITW', self.itw); sh.uniform_int('uN', int(self.d['count']))
         sh.uniform_float('uRow0', right); sh.uniform_float('uRow1', up); sh.uniform_float('uRow2', fwd)
         sh.uniform_float('uCam', cam); sh.uniform_float('uF', (fx,fy)); sh.uniform_float('uVP', (float(w),float(h)))
         sh.uniform_float('uSigma', self.sigma); sh.uniform_float('uViewProj', view_proj)
-        sh.uniform_float('uViewMat3', view_mat3); sh.uniform_float('uDepthCut', 0.35)
+        sh.uniform_float('uViewMat3', view_mat3); sh.uniform_float('uDepthCut', 0.35); sh.uniform_float('uModel', model)
         gpu.state.blend_set('NONE')
         gpu.state.depth_test_set('LESS_EQUAL')
         gpu.state.depth_mask_set(True)
@@ -468,7 +477,9 @@ class SplatCloud:
             print("[VertexLit] splat compute unavailable -> per-vertex path:", e)
             self._compute_ok = False
 
-    def _pack_params(self, light, right, up, fwd, cam, fx, fy, w, h, view_proj):
+    def _pack_params(self, light, right, up, fwd, cam, fx, fy, w, h, view_proj, model=None):
+        from mathutils import Matrix
+        if model is None: model = Matrix.Identity(4)
         P = np.zeros(_PARAM_FLOATS, np.float32)
         P[0:16] = np.array(view_proj, np.float32).T.reshape(-1)   # column-major for mat4()
         P[16:19] = list(right); P[19:22] = list(up); P[22:25] = list(fwd); P[25:28] = list(cam)
@@ -477,10 +488,11 @@ class SplatCloud:
             P[33]=1.0; P[34:37]=light['sky']; P[37:40]=light['ground']; P[40]=float(light['hemi'])
             P[41:44]=light['sun_dir']; P[44:47]=light['sun_col']; P[47]=float(light['sun_int'])
             P[48:51]=light['key_dir']; P[51:54]=light['key_col']; P[54]=float(light['key_int'])
+        P[56:72] = np.array(model, np.float32).T.reshape(-1)      # uModel (column-major)
         return P
 
-    def _dispatch(self, light, right, up, fwd, cam, fx, fy, w, h, view_proj):
-        P = self._pack_params(light, right, up, fwd, cam, fx, fy, w, h, view_proj)
+    def _dispatch(self, light, right, up, fwd, cam, fx, fy, w, h, view_proj, model=None):
+        P = self._pack_params(light, right, up, fwd, cam, fx, fy, w, h, view_proj, model)
         ptex = GPUTexture((_PARAM_FLOATS//4, 1), format='RGBA32F', data=_mkbuf(P))
         sh = self.cshader; sh.bind()
         sh.image('uOut', self.projtex)
@@ -488,12 +500,15 @@ class SplatCloud:
         sh.uniform_int('uTW', _TW); sh.uniform_int('uOTW', _OTW); sh.uniform_int('uCount', int(self.d['count']))
         gpu.compute.dispatch(sh, (self.d['count']+63)//64, 1, 1)
 
-    def _draw_compute(self, vm, pm, w, h, write_depth, light, backface):
+    def _draw_compute(self, vm, pm, w, h, write_depth, light, backface, model=None, obj_key=''):
         """Compute path: project once, then read-and-place in each pass. Returns True on success."""
+        from mathutils import Matrix
+        if model is None: model = Matrix.Identity(4)
         right=Vector(vm[0][:3]); up=Vector(vm[1][:3]); fwd=-Vector(vm[2][:3]); cam=vm.inverted().translation
         fx=0.5*w*pm[0][0]; fy=0.5*h*pm[1][1]; view_proj=pm@vm
-        idxtex=self._sorted_index(np.array(cam,'f4'), np.array(fwd,'f4'), view_proj, backface)
-        self._dispatch(light, right, up, fwd, cam, fx, fy, w, h, view_proj)
+        minv=model.inverted(); cam_l=minv@cam; fwd_l=(minv.to_3x3()@fwd).normalized()
+        idxtex=self._sorted_index(np.array(cam_l,'f4'), np.array(fwd_l,'f4'), view_proj@model, backface, obj_key)
+        self._dispatch(light, right, up, fwd, cam, fx, fy, w, h, view_proj, model)
         sh=self.rshader; sh.bind()
         sh.uniform_sampler('uProj', self.projtex); sh.uniform_sampler('uIndex', idxtex)
         sh.uniform_int('uOTW', _OTW); sh.uniform_int('uITW', self.itw); sh.uniform_int('uN', int(self.d['count']))

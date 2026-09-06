@@ -39,15 +39,17 @@ void main(){
   int id=int(gl_GlobalInvocationID.x); if(id>=uN) return;
   vec4 d0=imageLoad(uSData,at(id*4)), d1=imageLoad(uSData,at(id*4+1)),
        d2=imageLoad(uSData,at(id*4+2)), d3=imageLoad(uSData,at(id*4+3));
-  vec3 ic=d0.xyz; vec3 is=vec3(d0.w,d1.x,d1.y); vec4 iq=vec4(d1.z,d1.w,d2.x,d2.y);
+  mat4 uModel=mat4(imageLoad(uMdl,ivec2(0,0)),imageLoad(uMdl,ivec2(1,0)),imageLoad(uMdl,ivec2(2,0)),imageLoad(uMdl,ivec2(3,0)));
+  vec3 icL=d0.xyz; vec3 is=vec3(d0.w,d1.x,d1.y); vec4 iq=vec4(d1.z,d1.w,d2.x,d2.y);
   vec3 col=vec3(d2.z,d2.w,d3.x); float op=d3.y;
+  vec3 ic=(uModel*vec4(icL,1.0)).xyz; mat3 md=mat3(uModel);
   vec3 dp=ic-uCam; vec3 t=vec3(dot(uR0,dp),dot(uR1,dp),dot(uR2,dp));
   int pb=id*3;
   if(t.z<0.02){ imageStore(uProj,at(pb+2),vec4(0.0)); return; }   // op=0 -> blend skips
   float w=iq.x,x=iq.y,y=iq.z,z=iq.w;
-  vec3 c0=vec3(1.0-2.0*(y*y+z*z),2.0*(x*y+w*z),2.0*(x*z-w*y));
-  vec3 c1=vec3(2.0*(x*y-w*z),1.0-2.0*(x*x+z*z),2.0*(y*z+w*x));
-  vec3 c2=vec3(2.0*(x*z+w*y),2.0*(y*z-w*x),1.0-2.0*(x*x+y*y));
+  vec3 c0=md*vec3(1.0-2.0*(y*y+z*z),2.0*(x*y+w*z),2.0*(x*z-w*y));
+  vec3 c1=md*vec3(2.0*(x*y-w*z),1.0-2.0*(x*x+z*z),2.0*(y*z+w*x));
+  vec3 c2=md*vec3(2.0*(x*z+w*y),2.0*(y*z-w*x),1.0-2.0*(x*x+y*y));
   mat3 M=mat3(c0*is.x,c1*is.y,c2*is.z); mat3 Sig=M*transpose(M);
   float iz=1.0/t.z;
   mat3 J=mat3(vec3(uF*iz,0,0),vec3(0,uF*iz,0),vec3(-uF*t.x*iz*iz,-uF*t.y*iz*iz,0));
@@ -193,6 +195,7 @@ class TileRasterizer:
         info.image(4,'R32UI','UINT_2D','uVal',qualifiers={'WRITE'})
         info.image(5,'R32UI','UINT_2D','uCtr',qualifiers={'READ','WRITE'})
         info.image(6,'RGBA32F','FLOAT_2D','uLight',qualifiers={'READ'})
+        info.image(7,'RGBA32F','FLOAT_2D','uMdl',qualifiers={'READ'})
         info.compute_source(_PROJECT)
         return gpu.shader.create_from_info(info)
 
@@ -226,23 +229,26 @@ class TileRasterizer:
         info.compute_source(_BLEND)
         return gpu.shader.create_from_info(info)
 
-    def render(self, vm, pm, W, H, light=None):
+    def render(self, vm, pm, W, H, light=None, model=None):
         """Run the 5-stage pipeline; returns the output GPUTexture (RGBA premultiplied) or None."""
         if not self.build(W, H):
             return None
         try:
+            from mathutils import Matrix
+            if model is None: model = Matrix.Identity(4)
             right=Vector(vm[0][:3]); up=Vector(vm[1][:3]); fwd=-Vector(vm[2][:3]); cam=vm.inverted().translation
             f=0.5*H*pm[1][1]; TX=(W+15)//16; TY=(H+15)//16
-            # throttle: if the camera and light are unchanged, reuse last frame's output (like the
-            # billboard path's cached sort). Static views then cost only the composite.
-            camn=np.array(cam,'f4'); fwdn=np.array(fwd,'f4')
+            # throttle: reuse last output if camera + light + object transform are unchanged
+            camn=np.array(cam,'f4'); fwdn=np.array(fwd,'f4'); mdn=np.array(model,'f4')
             lkey=0.0 if light is None else float(light.get('sun_int',0.0))*3.1+float(light.get('hemi',0.0))*1.7
             if self._valid and self._last is not None:
                 if (float(np.linalg.norm(camn-self._last[0])) < self._eps
                         and float(np.dot(fwdn,self._last[1])) > 0.99995
-                        and abs(lkey-self._last[2]) < 1e-6):
+                        and abs(lkey-self._last[2]) < 1e-6
+                        and float(np.abs(mdn-self._last[3]).max()) < 1e-6):
                     return self.uOut
-            self._last=(camn, fwdn, lkey)
+            self._last=(camn, fwdn, lkey, mdn)
+            self.uMdl=gpu.types.GPUTexture((4,1),format='RGBA32F',data=gpu.types.Buffer('FLOAT',16,mdn.T.reshape(-1)))
             # pack scene lighting into a tiny image (recreated per frame; light may change)
             L=np.zeros((6,4),np.float32)
             if light is not None:
@@ -261,7 +267,7 @@ class TileRasterizer:
             # 1) project + emit
             s=self.shaders['project']; s.bind()
             s.image('uSData',self.uSData); s.image('uProj',self.uProj); s.image('uKHi',self.uKHi)
-            s.image('uKLo',self.uKLo); s.image('uVal',self.uVal); s.image('uCtr',self.uCtr); s.image('uLight',self.uLight)
+            s.image('uKLo',self.uKLo); s.image('uVal',self.uVal); s.image('uCtr',self.uCtr); s.image('uLight',self.uLight); s.image('uMdl',self.uMdl)
             s.uniform_float('uR0',right); s.uniform_float('uR1',up); s.uniform_float('uR2',fwd); s.uniform_float('uCam',cam)
             s.uniform_float('uF',f); s.uniform_float('uVP',(float(W),float(H)))
             s.uniform_int('uN',self.N); s.uniform_int('uTX',TX); s.uniform_int('uTY',TY); s.uniform_int('uMaxPairs',self.MAXP)
