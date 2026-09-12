@@ -22,3 +22,24 @@ under research/flynet/.
 ## Caveats to carry forward
 - Advantage is vs non-directional flicker/noise + opposite-direction motion; NOT same-direction shake.
 - Benchmarked vs raw temporal-power energy; a tuned phase-based EVM baseline would narrow the margin.
+
+## UPDATE: 2D video demo done (POSITIVE)
+videodemo.py — synthetic vibrating cantilever beam + strong flicker patch + sensor noise.
+Minimal self-contained EVM (FFT temporal bandpass), two alpha strategies on EQUAL total budget.
+Fly gate = temporal band-tuning + wide-field spatial pooling (coherent motion survives spatial
+blur; incoherent flicker cancels). Amplitude-invariant spatial-coherence gate.
+
+Result (same budget):
+  standard EVM : beam x92.9  flicker x13.1  -> signal/noise 7.08
+  fly-gated    : beam x145   flicker x11.8  -> signal/noise 12.27   (1.7x better SNR)
+Heatmap (alpha_heatmap.png) shows fly budget concentrated on the beam (cantilever mode shape),
+flicker patch left dark. Outputs: beam_sidebyside.gif, alpha_heatmap.png, beam_still.png.
+
+Honest notes: win is on equal budget (concentrates amplification on real motion). Flicker
+absolute suppression modest (its coherence ~ background); beam boost is the main gain. The
+2D gate is the pooled/coherence form of the direction-selective principle validated in 1D.
+
+## Next options
+- Direction bank (multi-orientation) for arbitrary-direction motion.
+- Real video clip (needs the amplify app / a real EVM pyramid) — pending user go-ahead.
+- Swap coherence gate for actual flyvis connectome motion network (needs torch).
