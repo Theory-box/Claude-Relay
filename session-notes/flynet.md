@@ -43,3 +43,17 @@ absolute suppression modest (its coherence ~ background); beam boost is the main
 - Direction bank (multi-orientation) for arbitrary-direction motion.
 - Real video clip (needs the amplify app / a real EVM pyramid) — pending user go-ahead.
 - Swap coherence gate for actual flyvis connectome motion network (needs torch).
+
+## UPDATE: direction bank (fly-INSPIRED, not connectome) — all motion types covered
+directionbank.py — scene with 4 motion TYPES (H-translate, V-translate, rotation, expansion)
++ strong flicker distractor. Architecture:
+  - alpha MAGNITUDE = amplitude-invariant coherence gate (direction-agnostic) -> coverage + flicker rejection
+  - 8-direction oriented bank (T4/T5-like) gated by coherence -> per-pixel motion DIRECTION (for selectivity)
+Result: single-H detector misses V/rotation and amplifies flicker (6.9) > motion. Coherence gate:
+all 4 motion types 0.23-0.63 vs flicker 0.10 -> 100% coverage. Direction map: expansion ring = rainbow.
+Outputs: bank_heatmap.png (scene | coherence gate | direction map), bank_channels.png.
+
+## Next
+- Selective suppression via the bank: null a chosen direction to reject a known camera-pan/shake axis
+  while keeping perpendicular vibration (the real payoff of a bank vs the plain coherence gate).
+- Then: real flyvis connectome motion network (needs torch); and/or integrate into the app (needs go-ahead).
