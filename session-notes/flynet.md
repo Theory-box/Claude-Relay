@@ -57,3 +57,24 @@ Outputs: bank_heatmap.png (scene | coherence gate | direction map), bank_channel
 - Selective suppression via the bank: null a chosen direction to reject a known camera-pan/shake axis
   while keeping perpendicular vibration (the real payoff of a bank vs the plain coherence gate).
 - Then: real flyvis connectome motion network (needs torch); and/or integrate into the app (needs go-ahead).
+
+## UPDATE: REAL connectome front-end working (fly-ACTUAL, not inspired)
+realfront.py — uses flyvis (Lappalainen 2024), the actual connectome-constrained fly visual
+network (45,669 neurons, 65 cell types incl. real T4a-d / T5a-d direction detectors).
+Install: torch==2.5.1 + torchvision==0.20.1 (cpu index) THEN pip install flyvis. Pretrained
+weights via `flyvis download-pretrained` (needs httplib2 CA fix: set httplib2.CA_CERTS to
+/etc/ssl/certs/ca-certificates.crt for the sandbox proxy). Model: flow/0000/000.
+
+Validation: rightward bar -> T4b dominant; leftward -> T4a dominant (real direction selectivity).
+Vibrating-beam + strong flicker scene through the REAL network:
+  T4/T5 in-band motion power  beam=4.9e-2  flicker=4.8e-3  -> 10.1x selectivity.
+So the ACTUAL fly brain rejects flicker and selects coherent motion, matching the inspired gate.
+Map back-projected via eye.receptor_centers (721 hexals -> 2D). Bright L/R edge bands = hex-field
+boundary artifacts, not signal. Output: real_connectome_map.png.
+
+## Status: fly-inspired AND fly-actual both validated.
+## Next
+- Plug the real T4/T5 map into the full EVM magnify() as the alpha-map (replace inspired gate).
+- Higher-res / tiled eye for real video (721 hexals is coarse).
+- Head-to-head: real connectome vs inspired gate vs energy on identical scenes.
+- App integration -> needs explicit go-ahead.
