@@ -78,3 +78,23 @@ boundary artifacts, not signal. Output: real_connectome_map.png.
 - Higher-res / tiled eye for real video (721 hexals is coarse).
 - Head-to-head: real connectome vs inspired gate vs energy on identical scenes.
 - App integration -> needs explicit go-ahead.
+
+## UPDATE: 65-cell-type ablation sweep on flyvis vibration task (KEY FINDING)
+Task: discriminate vibrating vs non-vibrating (flicker/noise) clips via decoded optic-flow
+in-band power. Ablate each cell type via state hook (zero node activity -> propagates downstream).
+Metric: perf = log(mean_vib / mean_neg). Intact = 1.480. ablation.py / sweep_driver.py / analysis.py.
+
+RANKING (recovered real biology): top = Mi2, T4c, Tm1, CT1(Lo1), R8, CT1(M10), T4b, Mi9, Mi1,
+T4a, C3, TmY15, Mi4, TmY18, R6, Mi12, TmY9, C2 ... i.e. the ON motion pathway + CT1 inhibition
+(known critical for direction selectivity) + non-obvious C2/C3 centrifugal + TmY lobula cells.
+Validates the discovery approach (found CT1, C2/C3, TmY without being told).
+
+SUFFICIENCY (keep-only-core, delete the rest): top-8=1%, top-12=-2%, top-16=13%, top-20(14420 cells)=21%
+of intact. => Motion computation is DISTRIBUTED/REDUNDANT. No small sufficient subcircuit exists.
+Structural pruning to a tiny "fly circuit policy" is OFF the table (confirmed the upfront risk).
+
+IMPLICATION: pivot distillation from STRUCTURAL (prune subcircuit) to FUNCTIONAL (train a compact
+student to reproduce the teacher's motion output). This is how C. elegans NCPs actually work anyway
+(small nets TRAINED to do the task, not pruned from a big one). Caveat: keep-only uses ORIGINAL
+weights; a RETRAINED small student is not ruled out. Also single-ablation under-detects redundancy
+(L1=0 due to L2-L5 parallel channels).
