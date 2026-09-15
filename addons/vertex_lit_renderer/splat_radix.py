@@ -23,7 +23,7 @@ _BITS = 4
 _RADIX = 1 << _BITS
 _PASSES = 32 // _BITS
 _GROUP = 256
-_SCAN_CHUNK = 1024      # elements per scan workgroup
+_SCAN_CHUNK = 256       # == _SCAN_THREADS: one thread per element, no batching (see _SCAN)
 _SCAN_THREADS = 256
 _DBG = True
 
@@ -81,30 +81,29 @@ void main(){
 # SCAN_CHUNK elements per workgroup, plus a small serial pass over per-chunk totals (few hundred
 # entries at most), then each chunk adds its base.
 _SCAN = _AT + """
-shared uint sdata[SCAN_CHUNK];
+shared uint sA[SCAN_CHUNK];
+shared uint sB[SCAN_CHUNK];
 void main(){
   int chunk=int(gl_WorkGroupID.x); int lid=int(gl_LocalInvocationID.x);
   int n=RADIX*uGroups; int base=chunk*SCAN_CHUNK;
-  // load
-  for(int i=lid;i<SCAN_CHUNK;i+=SCAN_THREADS){
-    int g=base+i; sdata[i] = (g<n) ? imageLoad(uCounts,at(g)).r : 0u;
-  }
+  int g=base+lid;
+  uint mine = (lid<SCAN_CHUNK && g<n) ? imageLoad(uCounts,at(g)).r : 0u;
+  sA[lid]=mine;
   barrier();
-  // inclusive scan in shared memory (Hillis-Steele; SCAN_CHUNK is a power of two)
+  // Hillis-Steele, DOUBLE BUFFERED (ping-pong between sA/sB) with exactly ONE thread per element.
+  // The previous version had 256 threads stride over 1024 slots in 4 batches writing IN PLACE, so
+  // later batches read slots earlier batches had already updated in the same step -> over-counted
+  // offsets (verified: 1022/1024 slots wrong). SCAN_CHUNK now == SCAN_THREADS, no batching.
+  int src=0;
   for(int off=1; off<SCAN_CHUNK; off<<=1){
-    for(int i=lid;i<SCAN_CHUNK;i+=SCAN_THREADS){
-      uint v = (i>=off) ? sdata[i-off] : 0u;
-      barrier();
-      sdata[i]+=v;
-      barrier();
-    }
+    if(src==0){ sB[lid] = (lid>=off) ? sA[lid]+sA[lid-off] : sA[lid]; }
+    else      { sA[lid] = (lid>=off) ? sB[lid]+sB[lid-off] : sB[lid]; }
+    src=1-src;
+    barrier();
   }
-  // write exclusive result + this chunk's total
-  for(int i=lid;i<SCAN_CHUNK;i+=SCAN_THREADS){
-    int g=base+i;
-    if(g<n) imageStore(uOffsets,at(g), uvec4(sdata[i]-imageLoad(uCounts,at(g)).r));
-  }
-  if(lid==0) imageStore(uChunkTot, at(chunk), uvec4(sdata[SCAN_CHUNK-1]));
+  uint inclusive = (src==0) ? sA[lid] : sB[lid];
+  if(g<n) imageStore(uOffsets, at(g), uvec4(inclusive - mine));      // exclusive
+  if(lid==SCAN_CHUNK-1) imageStore(uChunkTot, at(chunk), uvec4(inclusive));
 }"""
 
 # add per-chunk bases (tiny: one thread walks the chunk totals, then a parallel add)

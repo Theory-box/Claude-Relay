@@ -317,6 +317,13 @@ class SplatCloud:
             # needs its own key/value textures, or one anchor's sort would overwrite another's
             # cached index (they sort from different local cameras).
             self._radix = bool(getattr(self, '_radix_pref', False))
+            # If the user flips the Radix toggle, existing per-object sorters must be rebuilt --
+            # otherwise each cloud keeps whichever sorter it was first given and the toggle appears
+            # to do nothing on trees already on screen.
+            if getattr(self, '_radix_active', None) != self._radix:
+                self._gsorts = {}
+                if hasattr(self, '_gcache'): self._gcache = {}
+                self._radix_active = self._radix
             if not hasattr(self, '_gsorts'):
                 self._gsorts = {}
             gs = self._gsorts.get(obj_key)
