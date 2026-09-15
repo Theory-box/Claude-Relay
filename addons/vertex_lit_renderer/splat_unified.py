@@ -59,7 +59,7 @@ void main(){
 
 # ── unified draw: unpack instance+id from the global order, sample the right array layer ──
 VERT = """
-uniform sampler2DArray uData; uniform sampler2D uIndex;
+uniform sampler2DArray uData; uniform usampler2D uIndex;
 uniform int uTW; uniform int uITW; uniform int uTotal;
 uniform mat4 uModels[MAX_INST];
 uniform vec3 uRow0,uRow1,uRow2; uniform vec3 uCam; uniform vec2 uF; uniform vec2 uVP; uniform float uSigma;
@@ -78,7 +78,7 @@ vec3 splat_light(vec3 N){
   return L;
 }
 void main(){
-  uint p = uint(texelFetch(uIndex, at(gl_InstanceID, uITW), 0).r);
+  uint p = texelFetch(uIndex, at(gl_InstanceID, uITW), 0).r;
   if(p == 0xFFFFFFFFu){ gl_Position=vec4(2.0,2.0,2.0,1.0); return; }   // culled
   int inst = int(p >> 24); int sid = int(p & 0x00FFFFFFu);
   mat4 M = uModels[inst]; mat3 md = mat3(M);
@@ -165,3 +165,117 @@ class UnifiedSorter:
             if _DBG: print("[VertexLit unified] array build failed -> per-cloud:", e)
             self.array = None
             return False
+
+    # ── build the shaders (keygen compute + the unified draw) ─────────────────────────────
+    def ensure_shaders(self):
+        if getattr(self, '_sh_ok', False):
+            return True
+        try:
+            from gpu_extras.batch import batch_for_shader
+            ik = gpu.types.GPUShaderCreateInfo(); ik.local_group_size(64, 1, 1)
+            ik.define("IW", str(_IW)); ik.define("MAX_INST", str(MAX_INSTANCES))
+            ik.push_constant('VEC3', 'uCam'); ik.push_constant('VEC3', 'uFwd')
+            ik.push_constant('MAT4', 'uViewProj')
+            ik.push_constant('MAT4', 'uModels', size=MAX_INSTANCES)
+            ik.push_constant('INT', 'uCounts', size=MAX_INSTANCES)
+            ik.push_constant('INT', 'uTotal'); ik.push_constant('INT', 'uNumInst'); ik.push_constant('INT', 'uTW')
+            ik.sampler(0, 'FLOAT_2D_ARRAY', 'uData')
+            ik.image(0, 'R32UI', 'UINT_2D', 'uKey', qualifiers={'WRITE'})
+            ik.image(1, 'R32UI', 'UINT_2D', 'uVal', qualifiers={'WRITE'})
+            ik.compute_source(KEYGEN)
+            self.sh_key = gpu.shader.create_from_info(ik)
+
+            src = VERT.replace("MAX_INST", str(MAX_INSTANCES))
+            self.shader = gpu.types.GPUShader(src, FRAG)
+            self.batch = batch_for_shader(self.shader, 'TRI_FAN',
+                                          {"corner": [(-1, -1), (1, -1), (1, 1), (-1, 1)]})
+            self._sh_ok = True
+            return True
+        except Exception as e:
+            if _DBG: print("[VertexLit unified] shader build failed -> per-cloud:", e)
+            self._sh_ok = False
+            return False
+
+    def ensure_buffers(self, total):
+        """Key/value buffers for the global order + the R32F index the draw samples."""
+        if getattr(self, '_cap', 0) >= total and self.uKey is not None:
+            return
+        w, h = _IW, max(1, (total + _IW - 1)//_IW)
+        self.uKey = gpu.types.GPUTexture((w, h), format='R32UI')
+        self.uVal = gpu.types.GPUTexture((w, h), format='R32UI')
+        # R32UI, NOT R32F: the payload (inst<<24|id) does not survive float32 exactly
+        self.uIndex = gpu.types.GPUTexture((w, h), format='R32UI')
+        self._cap = w*h
+
+    def draw(self, entries, vm, pm, w, h, light=None, sigma=2.4, write_depth=True):
+        """One globally-ordered draw across every cloud. Returns True if it handled the splats."""
+        from . import splat_radix
+        if not can_unify(entries) or not self.ensure_array(entries) or not self.ensure_shaders():
+            return False
+        try:
+            counts = [int(c.d['count']) for c, _m, _n in entries]
+            total = sum(counts)
+            self.ensure_buffers(total)
+            right = Vector(vm[0][:3]); up = Vector(vm[1][:3]); fwd = -Vector(vm[2][:3])
+            cam = vm.inverted().translation
+            fx = 0.5*w*pm[0][0]; fy = 0.5*h*pm[1][1]
+            view_proj = pm @ vm
+            models = [m for _c, m, _n in entries]
+
+            # 1) key every splat of every instance by WORLD depth (payload = inst<<24 | id)
+            s = self.sh_key; s.bind()
+            s.image('uKey', self.uKey); s.image('uVal', self.uVal)
+            s.uniform_sampler('uData', self.array)
+            s.uniform_float('uCam', cam); s.uniform_float('uFwd', fwd)
+            s.uniform_float('uViewProj', view_proj)
+            for i, m in enumerate(models):
+                s.uniform_float('uModels[%d]' % i, m)
+            for i, c in enumerate(counts):
+                s.uniform_int('uCounts[%d]' % i, c)
+            s.uniform_int('uTotal', total); s.uniform_int('uNumInst', len(entries)); s.uniform_int('uTW', _IW)
+            gpu.compute.dispatch(s, (total + 63)//64, 1, 1)
+
+            # 2) ONE radix sort over the combined buffer -> global back-to-front order
+            if not splat_radix.sort_existing(self.uKey, self.uVal, self.uIndex, total):
+                return False
+
+            # 3) one instanced draw in that order
+            sh = self.shader; sh.bind()
+            sh.uniform_sampler('uData', self.array); sh.uniform_sampler('uIndex', self.uIndex)
+            sh.uniform_int('uTW', _IW); sh.uniform_int('uITW', _IW); sh.uniform_int('uTotal', total)
+            for i, m in enumerate(models):
+                sh.uniform_float('uModels[%d]' % i, m)
+            sh.uniform_float('uRow0', right); sh.uniform_float('uRow1', up); sh.uniform_float('uRow2', fwd)
+            sh.uniform_float('uCam', cam); sh.uniform_float('uF', (fx, fy))
+            sh.uniform_float('uVP', (float(w), float(h))); sh.uniform_float('uSigma', sigma)
+            sh.uniform_float('uViewProj', view_proj)
+            if light is not None:
+                sh.uniform_int('uLit', 1)
+                sh.uniform_float('uSkyColor', light['sky']); sh.uniform_float('uGroundColor', light['ground'])
+                sh.uniform_float('uHemiIntensity', float(light['hemi']))
+                sh.uniform_float('uSunDir', light['sun_dir']); sh.uniform_float('uSunColor', light['sun_col'])
+                sh.uniform_float('uSunIntensity', float(light['sun_int']))
+                sh.uniform_float('uKeyDir', light['key_dir']); sh.uniform_float('uKeyCol', light['key_col'])
+                sh.uniform_float('uKeyIntensity', float(light['key_int']))
+            else:
+                sh.uniform_int('uLit', 0)
+            gpu.state.blend_set('ALPHA_PREMULT'); gpu.state.depth_test_set('LESS_EQUAL')
+            gpu.state.depth_mask_set(False)
+            sh.uniform_float('uDepthCut', 0.004)
+            self.batch.draw_instanced(sh, instance_count=total)
+            if write_depth:
+                try:
+                    gpu.state.color_mask_set(False, False, False, False)
+                    gpu.state.blend_set('NONE'); gpu.state.depth_mask_set(True)
+                    sh.uniform_float('uDepthCut', 0.35)
+                    self.batch.draw_instanced(sh, instance_count=total)
+                finally:
+                    gpu.state.color_mask_set(True, True, True, True)
+            gpu.state.blend_set('NONE'); gpu.state.depth_mask_set(True)
+            return True
+        except Exception as e:
+            if _DBG: print("[VertexLit unified] draw failed -> per-cloud:", e)
+            return False
+
+
+SORTER = UnifiedSorter()

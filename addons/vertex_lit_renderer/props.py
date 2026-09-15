@@ -127,6 +127,8 @@ class VertexLitSettings(bpy.types.PropertyGroup):
         description="Skip splats facing away from the camera (~2x fewer on solid objects; may cause see-through on thin/double-sided foliage)")
     splat_tile: bpy.props.BoolProperty(name="Tile Rasterizer (experimental, full-GPU)", default=False,
         description="Render splats with a full-GPU tile rasterizer + early-termination (much less overdraw). Falls back to billboards if unsupported")
+    splat_unified: bpy.props.BoolProperty(name="Unified Sort (correct overlap)", default=True,
+        description="Sort all splat clouds together into one global depth order so overlapping trees blend correctly. Falls back to per-cloud sorting if unavailable")
     splat_radix: bpy.props.BoolProperty(name="Radix Sort", default=True,
         description="Use the GPU radix sort instead of bitonic (needs GPU Sort on). Measured ~2.5x faster while the camera moves; falls back to bitonic automatically if it fails to build")
     splat_gpu_sort: bpy.props.BoolProperty(name="GPU Sort (experimental)", default=False,

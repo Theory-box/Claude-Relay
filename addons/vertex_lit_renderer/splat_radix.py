@@ -154,6 +154,14 @@ void main(){
   imageStore(uOut, at(i), vec4(float(i<uN ? v : uint(uN))));
 }"""
 
+# same, but preserving the raw uint payload (unified path: inst<<24|id must stay exact)
+_TOF_U = _AT + """
+void main(){
+  int i=int(gl_GlobalInvocationID.x); if(i>=uCap) return;
+  uint v = (uSrc==0) ? imageLoad(uValA,at(i)).r : imageLoad(uValB,at(i)).r;
+  imageStore(uOut, at(i), uvec4(i<uN ? v : 0xFFFFFFFFu));
+}"""
+
 
 def _img(w, h, fmt):
     return gpu.types.GPUTexture((w, h), format=fmt)
@@ -224,6 +232,9 @@ class RadixSorter:
                               [('R32UI','UINT_2D','uKeyA',{'READ','WRITE'}), ('R32UI','UINT_2D','uKeyB',{'READ','WRITE'}),
                                ('R32UI','UINT_2D','uValA',{'READ','WRITE'}), ('R32UI','UINT_2D','uValB',{'READ','WRITE'}),
                                ('R32UI','UINT_2D','uOffsets',{'READ'})])
+            self.sh_tof_u = mk(_TOF_U, 64, ('uN','uSrc','uCap'),
+                             [('R32UI','UINT_2D','uValA',{'READ'}), ('R32UI','UINT_2D','uValB',{'READ'}),
+                              ('R32UI','UINT_2D','uOut',{'WRITE'})])
             self.sh_tof = mk(_TOF, 64, ('uN','uSrc','uCap'),
                              [('R32UI','UINT_2D','uValA',{'READ'}), ('R32UI','UINT_2D','uValB',{'READ'}),
                               ('R32F','FLOAT_2D','uOut',{'WRITE'})])
@@ -282,3 +293,54 @@ class RadixSorter:
             if _DBG: print("[VertexLit radix] run failed -> bitonic:", e)
             self.ok = False
             return None
+
+
+# ── shared entry point: sort an ALREADY-FILLED key/value buffer (used by the unified path) ──
+_SHARED = {'sorter': None, 'n': 0}
+
+def sort_existing(uKey, uVal, uOut, N):
+    """Radix-sort the given key/value images in place and write the ordered payloads into uOut
+    (R32F, as the draw samples it). Reuses one module-level sorter sized to the largest N seen."""
+    try:
+        s = _SHARED['sorter']
+        if s is None or _SHARED['n'] < N:
+            s = RadixSorter()
+            if not s.build(N):
+                return False
+            _SHARED['sorter'] = s; _SHARED['n'] = N
+        # point the sorter's ping-pong at the caller's buffers for pass 0
+        s.uKeyA = uKey; s.uValA = uVal
+        src = 0
+        for p in range(_PASSES):
+            shift = p * _BITS
+            sh = s.sh_hist; sh.bind()
+            sh.image('uKeyA', s.uKeyA); sh.image('uKeyB', s.uKeyB); sh.image('uCounts', s.uCounts)
+            sh.uniform_int('uN', N); sh.uniform_int('uShift', shift)
+            sh.uniform_int('uSrc', src); sh.uniform_int('uGroups', s.groups)
+            gpu.compute.dispatch(sh, (N + _GROUP - 1)//_GROUP, 1, 1)
+
+            sh = s.sh_scan; sh.bind()
+            sh.image('uCounts', s.uCounts); sh.image('uOffsets', s.uOffsets); sh.image('uChunkTot', s.uChunkTot)
+            sh.uniform_int('uGroups', s.groups)
+            gpu.compute.dispatch(sh, s.nchunks, 1, 1)
+            sh = s.sh_scanfix; sh.bind()
+            sh.image('uOffsets', s.uOffsets); sh.image('uChunkTot', s.uChunkTot)
+            sh.uniform_int('uGroups', s.groups)
+            gpu.compute.dispatch(sh, (_RADIX*s.groups + 63)//64, 1, 1)
+
+            sh = s.sh_scat; sh.bind()
+            sh.image('uKeyA', s.uKeyA); sh.image('uKeyB', s.uKeyB)
+            sh.image('uValA', s.uValA); sh.image('uValB', s.uValB); sh.image('uOffsets', s.uOffsets)
+            sh.uniform_int('uN', N); sh.uniform_int('uShift', shift)
+            sh.uniform_int('uSrc', src); sh.uniform_int('uGroups', s.groups)
+            gpu.compute.dispatch(sh, (N + _GROUP - 1)//_GROUP, 1, 1)
+            src = 1 - src
+
+        sh = s.sh_tof_u; sh.bind()   # uint payload preserved for the unified draw
+        sh.image('uValA', s.uValA); sh.image('uValB', s.uValB); sh.image('uOut', uOut)
+        sh.uniform_int('uN', N); sh.uniform_int('uSrc', src); sh.uniform_int('uCap', N)
+        gpu.compute.dispatch(sh, (N + 63)//64, 1, 1)
+        return True
+    except Exception as e:
+        if _DBG: print("[VertexLit radix] sort_existing failed:", e)
+        return False

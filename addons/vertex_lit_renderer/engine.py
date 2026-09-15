@@ -1350,6 +1350,25 @@ class VertexLitEngine(bpy.types.RenderEngine):
             if any_ok:
                 return   # tile path handled the splats
         bf = getattr(self, '_splat_backface', False)
+        # UNIFIED PATH: with 2+ anchored clouds, sort every splat of every cloud into ONE global
+        # back-to-front order and draw them in one pass. Without this each cloud sorts/draws
+        # independently, so where two trees overlap the one drawn LAST wins regardless of depth
+        # (the reported "trees render in front of trees that are behind them" bug).
+        if getattr(self, '_splat_unified', True) and len(anchors) > 1:
+            try:
+                from . import splat_unified as SU
+                entries = []
+                for (mw, sid, name) in anchors:
+                    cl = splat_render.SPLAT_CLOUDS.get(sid)
+                    if cl is None:
+                        continue
+                    cl.ensure_gpu()
+                    entries.append((cl, mw, name))
+                if len(entries) > 1 and SU.SORTER.draw(entries, vm, pm, wh[0], wh[1],
+                                                       light=light, write_depth=wd):
+                    return   # unified path handled every anchored cloud
+            except Exception as e:
+                if _DEBUG: print("[VertexLit] unified splat draw -> per-cloud:", e)
         for c in clouds:                              # legacy unanchored clouds (identity)
             try:
                 c.draw(vm, pm, wh[0], wh[1], write_depth=wd, light=light, use_compute=uc, backface=bf)
@@ -1629,6 +1648,7 @@ class VertexLitEngine(bpy.types.RenderEngine):
         self._splat_tile = bool(vls and getattr(vls, "splat_tile", False))
         self._splat_gpu_sort = bool(vls and getattr(vls, "splat_gpu_sort", False))
         self._splat_radix = bool(vls and getattr(vls, "splat_radix", True))
+        self._splat_unified = bool(vls and getattr(vls, "splat_unified", True))
         self._splat_backface = bool(vls and getattr(vls, "splat_backface", False))
         # collect object-anchored splat clouds (Empties with a vlr_splat_id) + their world matrices,
         # so each is drawn at its own transform (selectable, movable, Shift+D duplicatable).
