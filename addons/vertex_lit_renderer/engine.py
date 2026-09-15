@@ -1639,11 +1639,17 @@ class VertexLitEngine(bpy.types.RenderEngine):
                     sid = ob.get('vlr_splat_id')
                     if sid is None or int(sid) not in _sr.SPLAT_CLOUDS:
                         continue
+                    # visible_get() is unreliable on evaluated Empties (returns False for ones you can
+                    # clearly see), so gate on the ORIGINAL object's explicit hide flags instead and
+                    # DEFAULT TO DRAWING. Only skip when the anchor is genuinely hidden.
+                    hidden = False
                     try:
-                        if not ob.visible_get():
-                            continue
+                        orig = ob.original or ob
+                        hidden = bool(orig.hide_viewport) or bool(orig.hide_get())
                     except Exception:
-                        pass
+                        hidden = False
+                    if hidden:
+                        continue
                     anchors.append((ob.matrix_world.copy(), int(sid), ob.name))
         except Exception:
             pass
