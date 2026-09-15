@@ -292,6 +292,21 @@ class SplatCloud:
         TH=(N*4+_TW-1)//_TW; full=np.zeros((TH*_TW,4),'f4'); full[:N*4]=tex
         return full.reshape(TH,_TW,4), TH
 
+    def _packed_data(self, w, h):
+        """Return this cloud's packed splat data as an (h, w, 4) float32 plane, for stacking into the
+        unified 2D texture array (one layer per cloud instance). Same layout _pack() uploads, but
+        padded to a SHARED layer height so every cloud in the array has identical dimensions."""
+        tex, _th = self._pack()
+        flat = tex.reshape(-1, 4)
+        out = np.zeros((h*w, 4), 'f4')
+        n = min(len(flat), h*w)
+        out[:n] = flat[:n]
+        return out.reshape(h, w, 4)
+
+    def layer_height(self):
+        """Rows this cloud needs in a shared-size texture array."""
+        return (int(self.d['count'])*4 + _TW - 1)//_TW
+
     def ensure_gpu(self):
         if self._gpu: return
         texdata, TH = self._pack()
