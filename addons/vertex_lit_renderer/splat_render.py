@@ -292,6 +292,21 @@ class SplatCloud:
         TH=(N*4+_TW-1)//_TW; full=np.zeros((TH*_TW,4),'f4'); full[:N*4]=tex
         return full.reshape(TH,_TW,4), TH
 
+    def _packed_data(self, w, h):
+        """Return this cloud's packed splat data as an (h, w, 4) float32 plane, for stacking into the
+        unified 2D texture array (one layer per cloud instance). Same layout _pack() uploads, but
+        padded to a SHARED layer height so every cloud in the array has identical dimensions."""
+        tex, _th = self._pack()
+        flat = tex.reshape(-1, 4)
+        out = np.zeros((h*w, 4), 'f4')
+        n = min(len(flat), h*w)
+        out[:n] = flat[:n]
+        return out.reshape(h, w, 4)
+
+    def layer_height(self):
+        """Rows this cloud needs in a shared-size texture array."""
+        return (int(self.d['count'])*4 + _TW - 1)//_TW
+
     def ensure_gpu(self):
         if self._gpu: return
         texdata, TH = self._pack()
@@ -307,15 +322,57 @@ class SplatCloud:
         self._gpu = True
 
     def _sorted_index(self, cam_np, fwd_np, view_proj=None, backface=False, obj_key=''):
-        # GPU sort is cheap -> run per object every frame (result used immediately by the draw)
+        # GPU sort: NOT cheap (measured ~0.7ms @250k, 1.3ms @500k, 2.5ms @1M per cloud per frame),
+        # and it used to re-run unconditionally -> 6 trees x 1M = ~15ms every frame even when parked.
+        # Throttle it exactly like the CPU path: reuse the last index texture until this object's
+        # LOCAL camera actually moves/rotates enough. Still frames now cost ~0.
         if getattr(self, '_gpu_sort', False):
             from . import splat_gpusort
-            if getattr(self, '_gsort', None) is None:
-                self._gsort = splat_gpusort.GPUSorter()
-            gidx = self._gsort.run(self.datatex, _TW, cam_np, fwd_np, int(self.d['count']), view_proj, backface)
-            if gidx is not None:
+            # One sorter PER ANCHOR: duplicated trees share a single SplatCloud but each instance
+            # needs its own key/value textures, or one anchor's sort would overwrite another's
+            # cached index (they sort from different local cameras).
+            self._radix = bool(getattr(self, "_radix_pref", True))
+            # If the user flips the Radix toggle, existing per-object sorters must be rebuilt --
+            # otherwise each cloud keeps whichever sorter it was first given and the toggle appears
+            # to do nothing on trees already on screen.
+            if getattr(self, '_radix_active', None) != self._radix:
+                self._gsorts = {}
+                if hasattr(self, '_gcache'): self._gcache = {}
+                self._radix_active = self._radix
+            if not hasattr(self, '_gsorts'):
+                self._gsorts = {}
+            gs = self._gsorts.get(obj_key)
+            if gs is None:
+                # Prefer the radix sort (O(N), no power-of-two padding; validated 13-27x less work
+                # than bitonic). If it fails to build/run on this GPU we fall back to bitonic below.
+                gs = None
+                if getattr(self, '_radix', True):   # default: radix (measured 2.5x faster than bitonic, correct)
+                    try:
+                        from . import splat_radix
+                        gs = splat_radix.RadixSorter()
+                    except Exception:
+                        gs = None
+                if gs is None:
+                    gs = splat_gpusort.GPUSorter()
+                self._gsorts[obj_key] = gs
+            if not hasattr(self, '_gcache'):
+                self._gcache = {}
+            gc = self._gcache.setdefault(obj_key, {'tex': None, 'last': None, 'bf': None})
+            need = gc['tex'] is None or gc['bf'] != bool(backface)
+            if not need and gc['last'] is not None:
+                need = (float(np.dot(fwd_np, gc['last'][1])) < 0.9994
+                        or float(np.linalg.norm(cam_np - gc['last'][0])) > self.move_eps)
+            if need:
+                gidx = gs.run(self.datatex, _TW, cam_np, fwd_np, int(self.d["count"]), view_proj, backface)
+                if gidx is None and not isinstance(gs, splat_gpusort.GPUSorter):
+                    # radix unavailable on this GPU -> swap in bitonic for this object and retry once
+                    gs = splat_gpusort.GPUSorter(); self._gsorts[obj_key] = gs
+                    gidx = gs.run(self.datatex, _TW, cam_np, fwd_np, int(self.d["count"]), view_proj, backface)
+                if gidx is not None:
+                    gc['tex'] = gidx; gc['last'] = (cam_np, fwd_np); gc['bf'] = bool(backface)
+            if gc['tex'] is not None:
                 self._draw_count = int(self.d['count'])
-                return gidx
+                return gc['tex']
             # else fall through to CPU sort
         # CPU sort: expensive -> cache per object, throttled on that object's local camera
         if not hasattr(self, '_sortcache'):

@@ -109,6 +109,10 @@ class GPUSorter:
             s.uniform_int('uBackface', 1 if backface else 0)
             gpu.compute.dispatch(s,(self.MAXN+63)//64,1,1)
             s=self.sort; s.bind(); s.image('uKey',self.uKey); s.image('uVal',self.uVal); s.uniform_int('uN',self.MAXN)
+            # NOTE: do NOT try to shrink these dispatches to "just the real data". Bitonic's merge
+            # stages move elements down from the padded tail, so threads above N genuinely
+            # participate; skipping them corrupts the order (verified: it produces an unsorted
+            # result). The real fix for padding waste is a radix sort, not a narrower dispatch.
             g=(self.MAXN+255)//256; k=2
             while k<=self.MAXN:
                 j=k>>1

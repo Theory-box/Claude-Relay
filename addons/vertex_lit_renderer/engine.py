@@ -421,8 +421,18 @@ def _extract_mesh_data(obj, depsgraph, mesh=None, attr_name=""):
     """
     Read the depsgraph-evaluated mesh DIRECTLY (no new_from_object copy, no
     create/remove -> no depsgraph churn -> no self-triggered rebuild loop, and far
-    faster on large scenes). All reads are bulk foreach_get + numpy (no Python loops).
+    faster on large scenes). All reads are bulk foreach_get / raw memory + numpy (no Python loops).
     `mesh` overrides the geometry source (used for the edit-mode BMesh->temp-mesh path).
+
+    Fast path (measured ~2.9x faster on the Azola vegetation scene; output bit-identical to the previous
+    implementation -- enforced by tests/test_extract_identical.py):
+      * per-triangle material index = the FACE 'material_index' repeated (loop_total - 2) times per face
+        (loop_triangles.foreach_get('material_index') cost ~90 ms per 590k triangles)
+      * multi-material split: order triangles by material ONCE, gather once, slice contiguous ranges
+        (was four boolean-mask copies per material)
+      * vertex normals are read only if corner normals are unavailable (GI, their other user, is gone)
+      * bbox min/max via a transposed contiguous copy (axis-0 reduction of an (N,3) array is slow)
+      * the vertex-colour variation check runs only when a colour attribute actually exists
     """
     try:
         eval_obj = obj.evaluated_get(depsgraph)
@@ -436,14 +446,10 @@ def _extract_mesh_data(obj, depsgraph, mesh=None, attr_name=""):
             return None
 
         mat_slot = eval_obj.active_material or getattr(obj, 'active_material', None)
-        tex = _get_gpu_tex(_find_base_texture(mat_slot))
-        default = [1.0, 1.0, 1.0, 1.0]
-        if mat_slot:
-            c = mat_slot.diffuse_color
-            default = [c[0], c[1], c[2], 1.0]
 
         n_verts = len(mesh.vertices)
         n_loops = len(mesh.loops)
+        n_polys = len(mesh.polygons)
         n_flat = n_tris * 3
 
         # --- Triangle corner/vertex indices: raw memory (fast) with foreach fallback ---
@@ -460,19 +466,54 @@ def _extract_mesh_data(obj, depsgraph, mesh=None, attr_name=""):
         if vc is None:
             vc = np.empty(n_verts * 3, dtype=np.float32); mesh.vertices.foreach_get('co', vc)
             vc = vc.reshape(n_verts, 3)
-        positions = vc[vi_flat]
 
-        # Per-VERTEX normals for GI/BVH (averaged); per-CORNER normals for the draw
-        # batch so flat/hard shading, sharp edges and custom split normals are honoured
-        # (vertex normals alone force everything smooth).
-        vn = np.empty(n_verts * 3, dtype=np.float32); mesh.vertices.foreach_get('normal', vn)
-        vn = vn.reshape(n_verts, 3)
+        # --- Per-triangle material index from the FACE attribute ---
+        # Triangles are laid out face by face, (loop_total - 2) per face, so repeating each face's
+        # index gives the per-triangle index. (loop_triangles.foreach_get('material_index') was the
+        # single most expensive read: ~90 ms per 590k triangles.)
+        tri_mi = None
+        if n_polys and 'material_index' in mesh.attributes:
+            try:
+                pmi = _raw_attr(mesh, 'material_index', _ct.c_int, 1, n_polys)
+                if pmi is None:
+                    pmi = np.empty(n_polys, dtype=np.int32)
+                    mesh.attributes['material_index'].data.foreach_get('value', pmi)
+                lt = np.empty(n_polys, dtype=np.int32); mesh.polygons.foreach_get('loop_total', lt)
+                tri_mi = np.repeat(pmi.astype(np.int32, copy=False), lt - 2)
+                if len(tri_mi) != n_tris:
+                    tri_mi = None
+            except Exception:
+                tri_mi = None
+            if tri_mi is None:                            # layout surprise -> the old (slow, exact) read
+                tri_mi = np.zeros(n_tris, dtype=np.int32)
+                try: mesh.loop_triangles.foreach_get('material_index', tri_mi)
+                except Exception: pass
+        else:
+            tri_mi = np.zeros(n_tris, dtype=np.int32)
+        uniq = np.unique(tri_mi)
+
+        # --- Multi-material: order triangles by material ONCE, then every gather below comes out
+        #     grouped by material and each slot is a contiguous slice (no per-material mask copies).
+        #     Order within a material is the original triangle order, exactly as the masks gave.
+        if len(uniq) > 1:
+            parts = [np.flatnonzero(tri_mi == k) for k in uniq]
+            counts = [len(p) * 3 for p in parts]
+            order = np.concatenate(parts)
+            corner = (order[:, None] * 3 + np.arange(3, dtype=order.dtype)).ravel()
+            li_s = li_flat[corner]; vi_s = vi_flat[corner]
+        else:
+            counts = [n_flat]; li_s = li_flat; vi_s = vi_flat
+        positions = vc[vi_s]
+
+        # Per-CORNER normals for the draw batch so flat/hard shading, sharp edges and custom split
+        # normals are honoured. Vertex normals are only a fallback now (GI, their other user, is gone).
         try:
             cn = np.empty(n_loops * 3, dtype=np.float32)
             mesh.corner_normals.foreach_get('vector', cn)
-            normals = cn.reshape(n_loops, 3)[li_flat]
+            normals = cn.reshape(n_loops, 3)[li_s]
         except Exception:
-            normals = vn[vi_flat]
+            vn = np.empty(n_verts * 3, dtype=np.float32); mesh.vertices.foreach_get('normal', vn)
+            normals = vn.reshape(n_verts, 3)[vi_s]
         vert_co_local = vc.copy()   # stored in cache -> must not alias Blender memory
 
         # --- UVs: raw from the active UV attribute, with fallback ---
@@ -482,12 +523,13 @@ def _extract_mesh_data(obj, depsgraph, mesh=None, attr_name=""):
             if uv is None:
                 uv = np.empty(n_loops * 2, dtype=np.float32); uv_layer.data.foreach_get('uv', uv)
                 uv = uv.reshape(n_loops, 2)
-            uvs = uv[li_flat]
+            uvs = uv[li_s]
         else:
             uvs = np.zeros((n_flat, 2), dtype=np.float32)
 
-        # Vertex colours: bulk foreach_get + numpy gather (no per-element Python loop).
-        colors = None
+        # Vertex colours: bulk foreach_get + numpy gather. The "do they vary" check only runs when a
+        # colour attribute exists (without one, slots use their material's flat colour anyway).
+        colors = None; has_vcol = False
         try:
             ca = mesh.color_attributes
             attr = None
@@ -505,28 +547,23 @@ def _extract_mesh_data(obj, depsgraph, mesh=None, attr_name=""):
                 attr.data.foreach_get('color', carr)
                 carr = carr.reshape(m, 4)
                 if attr.domain == 'CORNER':
-                    colors = carr[li_flat]
+                    colors = carr[li_s]
                 elif attr.domain == 'POINT':
-                    colors = carr[vi_flat]
+                    colors = carr[vi_s]
+                if colors is not None:
+                    has_vcol = (colors.shape[0] == n_flat and not np.all(colors == colors[0]))
         except Exception:
-            colors = None
-        if colors is None:
-            colors = np.tile(np.array(default, dtype=np.float32), (n_flat, 1))
+            colors = None; has_vcol = False
 
         # Generated-coord bbox (local) — cached so the draw loop needn't recompute per frame.
-        vmin = vc.min(axis=0); vmax = vc.max(axis=0); size = vmax - vmin
+        # min/max over axis 0 of an (N,3) array is slow; a transposed contiguous copy gives the exact
+        # same values as fast per-row reductions.
+        vt = np.ascontiguousarray(vc.T)
+        vmin = vt.min(axis=1); vmax = vt.max(axis=1); size = vmax - vmin
         gen_min = (float(vmin[0]), float(vmin[1]), float(vmin[2]))
         gen_scale = (1.0/float(size[0]) if size[0] > 1e-9 else 0.0,
                      1.0/float(size[1]) if size[1] > 1e-9 else 0.0,
                      1.0/float(size[2]) if size[2] > 1e-9 else 0.0)
-
-        # Per-triangle material index -> split the mesh into one draw slot per material,
-        # so multi-material objects show each material on its own faces.
-        mi = np.zeros(n_tris, dtype=np.int32)
-        try: mesh.loop_triangles.foreach_get('material_index', mi)
-        except Exception: pass
-        has_vcol = (colors.shape[0] == n_flat and not np.all(colors == colors[0]))
-        uniq = np.unique(mi)
 
         def _slot(slot_idx, P, N, U, C_arr):
             slot_mat = None
@@ -544,16 +581,15 @@ def _extract_mesh_data(obj, depsgraph, mesh=None, attr_name=""):
             return dict(positions=P, normals=N, uvs=U, colors=scolors,
                         material_name=(slot_mat.name if slot_mat else None), texture=stex)
 
+        # One slot per material: contiguous slices of the material-ordered arrays (the single-material
+        # common case is one slice covering everything -> no copies at all).
         slots_out = []
-        if len(uniq) <= 1:
-            # Single material (the common case): one slot, NO per-corner masking/copies.
-            slots_out.append(_slot(int(uniq[0]) if len(uniq) else 0, positions, normals, uvs, colors))
-        else:
-            mi_corner = np.repeat(mi, 3)                  # (n_flat,)
-            for idx in uniq:
-                m = (mi_corner == idx)
-                slots_out.append(_slot(int(idx), positions[m], normals[m], uvs[m],
-                                       colors[m] if has_vcol else None))
+        s0 = 0
+        for idx, cnt in zip(uniq, counts):
+            s1 = s0 + cnt
+            slots_out.append(_slot(int(idx), positions[s0:s1], normals[s0:s1], uvs[s0:s1],
+                                   colors[s0:s1] if (has_vcol and colors is not None) else None))
+            s0 = s1
         return dict(
             slots=slots_out, gen_min=gen_min, gen_scale=gen_scale,
             vi_map=vi_flat, n_verts=n_verts,
@@ -778,6 +814,8 @@ class VertexLitEngine(bpy.types.RenderEngine):
         # (No more churn-era throttling — extraction reads the eval mesh directly and no
         # longer creates/removes datablocks, so there's nothing to "absorb".)
         changed = False
+        maybe_vis = False
+        vis_prev = getattr(self, '_vis_set', None) or frozenset()
         for update in depsgraph.updates:
             id_data = update.id
             if isinstance(id_data, bpy.types.Object):
@@ -791,6 +829,16 @@ class VertexLitEngine(bpy.types.RenderEngine):
                         # moving/rotating: matrix_world is read live in the draw loop, so
                         # NO re-extract needed; only shadows must re-render.
                         self._shadow_dirty = True; changed = True
+                    else:
+                        # neither geometry nor transform -> possibly a visibility (hide/unhide)
+                        # or other property change; hide/unhide sets no flag, so re-sync below.
+                        maybe_vis = True
+                    # An update for an object NOT currently in the visible set means it just
+                    # appeared (unhidden / added) — regardless of which flag it carries. Bulk
+                    # "unhide all" fires transform-flagged updates on the newly-visible objects,
+                    # so we must re-sync on that too, not only on the no-flag case.
+                    if id_data.name not in vis_prev:
+                        maybe_vis = True
                 elif id_data.type == 'LIGHT':
                     self._dirty = True; self._shadow_dirty = True; changed = True
             elif isinstance(id_data, bpy.types.Mesh):
@@ -814,6 +862,21 @@ class VertexLitEngine(bpy.types.RenderEngine):
             for nm in self._mesh_cache:
                 if nm not in bpy.data.objects:
                     self._dirty = True; changed = True; break
+
+        # Visibility (hide/unhide) sets no geometry/transform flag, so it would otherwise
+        # never trigger a rebuild (the classic "toggle view mode to make it refresh" bug).
+        # When an object update carried no geo/transform, re-derive the visible mesh set and
+        # rebuild if it changed -> hide/unhide now updates immediately.
+        if maybe_vis and not self._dirty:
+            try:
+                vis = frozenset(i.object.name for i in depsgraph.object_instances
+                                if i.object.type == 'MESH' and i.show_self
+                                and not getattr(i, 'is_instance', False))
+                if vis != getattr(self, '_vis_set', None):
+                    self._vis_set = vis
+                    self._dirty = True; self._shadow_dirty = True; changed = True
+            except Exception:
+                pass
 
         if changed:
             self.tag_redraw()
@@ -873,6 +936,9 @@ class VertexLitEngine(bpy.types.RenderEngine):
                     _inst_done += 1
             else:
                 if obj.name not in current: current[obj.name]=obj
+
+        # Track the visible set so view_update can detect hide/unhide (which sets no flag).
+        self._vis_set = frozenset(current.keys())
 
         # 1) Drop objects that no longer exist / were hidden. Keep instance-geometry keys
         #    ('i:...') that are still present this frame.
@@ -1292,7 +1358,7 @@ class VertexLitEngine(bpy.types.RenderEngine):
         uc = getattr(self, '_splat_use_compute', False)
         gs = bool(getattr(self, '_splat_gpu_sort', False))
         for c in clouds:
-            c._gpu_sort = gs
+            c._gpu_sort = gs; c._radix_pref = bool(getattr(self,"_splat_radix",True))
         if getattr(self, '_splat_tile', False):
             from . import splat_tile as ST
             any_ok = False
@@ -1320,6 +1386,29 @@ class VertexLitEngine(bpy.types.RenderEngine):
             if any_ok:
                 return   # tile path handled the splats
         bf = getattr(self, '_splat_backface', False)
+        # UNIFIED PATH: with 2+ anchored clouds, sort every splat of every cloud into ONE global
+        # back-to-front order and draw them in one pass. Without this each cloud sorts/draws
+        # independently, so where two trees overlap the one drawn LAST wins regardless of depth
+        # (the reported "trees render in front of trees that are behind them" bug).
+        if getattr(self, '_splat_unified', True) and len(anchors) > 1:
+            try:
+                from . import splat_unified as SU
+                entries = []
+                for (mw, sid, name) in anchors:
+                    cl = splat_render.SPLAT_CLOUDS.get(sid)
+                    if cl is None:
+                        continue
+                    cl.ensure_gpu()
+                    entries.append((cl, mw, name))
+                # use each cloud's own softness (as the per-cloud path does); `vls` is NOT in
+                # scope here -- referencing it raised a NameError that the except swallowed, so the
+                # unified draw was never even called.
+                sig = float(getattr(entries[0][0], 'sigma', 2.2)) if entries else 2.2
+                if len(entries) > 1 and SU.SORTER.draw(entries, vm, pm, wh[0], wh[1],
+                                                       light=light, sigma=sig, write_depth=wd):
+                    return   # unified path handled every anchored cloud
+            except Exception as e:
+                if _DEBUG: print("[VertexLit] unified splat draw -> per-cloud:", e)
         for c in clouds:                              # legacy unanchored clouds (identity)
             try:
                 c.draw(vm, pm, wh[0], wh[1], write_depth=wd, light=light, use_compute=uc, backface=bf)
@@ -1329,7 +1418,7 @@ class VertexLitEngine(bpy.types.RenderEngine):
             cloud = splat_render.SPLAT_CLOUDS.get(sid)
             if cloud is None:
                 continue
-            cloud._gpu_sort = gs
+            cloud._gpu_sort = gs; cloud._radix_pref = bool(getattr(self,"_splat_radix",True))
             try:
                 cloud.draw(vm, pm, wh[0], wh[1], write_depth=wd, light=light, use_compute=uc,
                            backface=bf, model=mw, obj_key=name)
@@ -1578,9 +1667,15 @@ class VertexLitEngine(bpy.types.RenderEngine):
         except Exception:
             key_dir=(0.3,0.4,0.86)
         studio=(key_dir, (1.0,1.0,1.0), (vls.key_intensity if vls else 0.8))
-        # experimental splat clouds: cache matrices + scene lighting for the draw
-        self._splat_vm = rv3d.view_matrix; self._splat_pm = rv3d.window_matrix
-        self._splat_wh = (region.width, region.height)
+        # experimental splat clouds: cache matrices + scene lighting for the draw.
+        # The EWA ellipse projection assumes a PERSPECTIVE view (Jacobian ~ f/z); in an
+        # orthographic viewport the splat sizes would be wrong, so skip splats there
+        # (vm=None makes _draw_splats/_draw_splat_normals early-out) rather than draw them distorted.
+        if getattr(rv3d, 'is_perspective', True):
+            self._splat_vm = rv3d.view_matrix; self._splat_pm = rv3d.window_matrix
+            self._splat_wh = (region.width, region.height)
+        else:
+            self._splat_vm = None; self._splat_pm = None; self._splat_wh = None
         _sun = getattr(self, '_sun', ((0.0,0.0,1.0),(1.0,1.0,1.0),0.0,1.0))
         self._splat_light = ({
             'sky': sky, 'ground': ground, 'hemi': _sun[3],
@@ -1592,6 +1687,8 @@ class VertexLitEngine(bpy.types.RenderEngine):
         self._splat_use_compute = bool(vls and getattr(vls, 'splat_compute', False))
         self._splat_tile = bool(vls and getattr(vls, "splat_tile", False))
         self._splat_gpu_sort = bool(vls and getattr(vls, "splat_gpu_sort", False))
+        self._splat_radix = bool(vls and getattr(vls, "splat_radix", True))
+        self._splat_unified = bool(vls and getattr(vls, "splat_unified", True))
         self._splat_backface = bool(vls and getattr(vls, "splat_backface", False))
         # collect object-anchored splat clouds (Empties with a vlr_splat_id) + their world matrices,
         # so each is drawn at its own transform (selectable, movable, Shift+D duplicatable).
@@ -1601,8 +1698,20 @@ class VertexLitEngine(bpy.types.RenderEngine):
             if _sr.SPLAT_CLOUDS:
                 for ob in depsgraph.objects:
                     sid = ob.get('vlr_splat_id')
-                    if sid is not None and int(sid) in _sr.SPLAT_CLOUDS:
-                        anchors.append((ob.matrix_world.copy(), int(sid), ob.name))
+                    if sid is None or int(sid) not in _sr.SPLAT_CLOUDS:
+                        continue
+                    # visible_get() is unreliable on evaluated Empties (returns False for ones you can
+                    # clearly see), so gate on the ORIGINAL object's explicit hide flags instead and
+                    # DEFAULT TO DRAWING. Only skip when the anchor is genuinely hidden.
+                    hidden = False
+                    try:
+                        orig = ob.original or ob
+                        hidden = bool(orig.hide_viewport) or bool(orig.hide_get())
+                    except Exception:
+                        hidden = False
+                    if hidden:
+                        continue
+                    anchors.append((ob.matrix_world.copy(), int(sid), ob.name))
         except Exception:
             pass
         self._splat_anchors = anchors
@@ -1700,6 +1809,24 @@ def _unregister_panels():
         except Exception: pass
     _patched_panels.clear()
 
+from bpy.app.handlers import persistent as _persistent
+
+@_persistent
+def _on_file_load(*args):
+    """New/opened file: drop caches keyed to the previous file's objects + GPU context, so a
+    same-named object from another file can't draw stale geometry, and runtime-only splat clouds
+    don't leak across files."""
+    try: _PERSIST_MESH.clear(); _PERSIST_BATCH.clear(); _PERSIST_SHADOW.clear(); _PERSIST_SIG.clear()
+    except Exception: pass
+    try: _tex_cache.clear()
+    except Exception: pass
+    try: material_shader.invalidate()
+    except Exception: pass
+    try:
+        from . import splat_render
+        splat_render.SCENE_CLOUDS.clear(); splat_render.SPLAT_CLOUDS.clear()
+    except Exception: pass
+
 def _release_gpu_caches():
     """Drop module-level GPU objects so leaving/re-entering rendered mode never
     accumulates stale-context shaders/textures (the 'chuggier each re-enter' leak).
@@ -1722,8 +1849,15 @@ def _release_gpu_caches():
 def register():
     bpy.utils.register_class(VertexLitEngine)
     _register_panels()
+    if _on_file_load not in bpy.app.handlers.load_post:
+        bpy.app.handlers.load_post.append(_on_file_load)
 
 def unregister():
     _unregister_panels()
     _release_gpu_caches()
+    try:
+        if _on_file_load in bpy.app.handlers.load_post:
+            bpy.app.handlers.load_post.remove(_on_file_load)
+    except Exception:
+        pass
     bpy.utils.unregister_class(VertexLitEngine)
