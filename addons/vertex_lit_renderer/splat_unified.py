@@ -153,7 +153,12 @@ class UnifiedSorter:
             # rebuild from each cloud's CPU-side packed data (authoritative, avoids GPU->GPU copies)
             planes = []
             for c, _m, _n in entries:
-                planes.append(c._packed_data(w, h))
+                # NOTE: SplatCloud has no _packed_data() yet -- the per-cloud packing in
+                # ensure_gpu() must be factored out before this path can be wired up.
+                pack = getattr(c, '_packed_data', None)
+                if pack is None:
+                    raise NotImplementedError("SplatCloud._packed_data() not implemented yet")
+                planes.append(pack(w, h))
             data = np.concatenate(planes, axis=0).astype('f4')
             buf = gpu.types.Buffer('FLOAT', w*h*4*layers, data.reshape(-1))
             self.array = gpu.types.GPUTexture((w, h, layers), format='RGBA32F', data=buf, is_layered=True)

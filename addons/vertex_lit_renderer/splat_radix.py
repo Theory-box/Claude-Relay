@@ -127,15 +127,15 @@ void main(){
   int i=g*GROUP+lid;
   for(int d=lid; d<RADIX*GROUP_WORDS; d+=GROUP) scount[d/GROUP_WORDS][d%GROUP_WORDS]=0u;
   barrier();
-  uint k=0u, v=0u, dig=0u; bool active = (i<uN);
-  if(active){
+  uint k=0u, v=0u, dig=0u; bool is_act = (i<uN);
+  if(is_act){
     k = (uSrc==0) ? imageLoad(uKeyA,at(i)).r : imageLoad(uKeyB,at(i)).r;
     v = (uSrc==0) ? imageLoad(uValA,at(i)).r : imageLoad(uValB,at(i)).r;
     dig = (k>>uShift)&(RADIXu-1u);
     atomicOr(scount[dig][lid/32], 1u<<uint(lid%32));     // mark my slot for my digit
   }
   barrier();
-  if(active){
+  if(is_act){
     // local rank = popcount of earlier bits set for my digit
     uint rank=0u; int word=lid/32; int bit=lid%32;
     for(int w=0; w<word; w++) rank += uint(bitCount(scount[dig][w]));

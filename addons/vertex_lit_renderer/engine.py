@@ -1322,7 +1322,7 @@ class VertexLitEngine(bpy.types.RenderEngine):
         uc = getattr(self, '_splat_use_compute', False)
         gs = bool(getattr(self, '_splat_gpu_sort', False))
         for c in clouds:
-            c._gpu_sort = gs; c._radix_pref = bool(getattr(self,'_splat_radix',False))
+            c._gpu_sort = gs; c._radix_pref = bool(getattr(self,"_splat_radix",True))
         if getattr(self, '_splat_tile', False):
             from . import splat_tile as ST
             any_ok = False
@@ -1359,7 +1359,7 @@ class VertexLitEngine(bpy.types.RenderEngine):
             cloud = splat_render.SPLAT_CLOUDS.get(sid)
             if cloud is None:
                 continue
-            cloud._gpu_sort = gs; cloud._radix_pref = bool(getattr(self,'_splat_radix',False))
+            cloud._gpu_sort = gs; cloud._radix_pref = bool(getattr(self,"_splat_radix",True))
             try:
                 cloud.draw(vm, pm, wh[0], wh[1], write_depth=wd, light=light, use_compute=uc,
                            backface=bf, model=mw, obj_key=name)
@@ -1628,7 +1628,7 @@ class VertexLitEngine(bpy.types.RenderEngine):
         self._splat_use_compute = bool(vls and getattr(vls, 'splat_compute', False))
         self._splat_tile = bool(vls and getattr(vls, "splat_tile", False))
         self._splat_gpu_sort = bool(vls and getattr(vls, "splat_gpu_sort", False))
-        self._splat_radix = bool(vls and getattr(vls, "splat_radix", False))
+        self._splat_radix = bool(vls and getattr(vls, "splat_radix", True))
         self._splat_backface = bool(vls and getattr(vls, "splat_backface", False))
         # collect object-anchored splat clouds (Empties with a vlr_splat_id) + their world matrices,
         # so each is drawn at its own transform (selectable, movable, Shift+D duplicatable).
