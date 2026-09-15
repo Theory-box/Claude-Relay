@@ -101,6 +101,7 @@ def _material_transparent(mat):
 
 
 _SIG_MEMO = {}   # id(evaluated mesh) -> geo signature, cleared each rebuild pass
+_LAST_VIEW_UPDATE = [0.0]    # wall time of the last Vertex-Lit view_update (see _on_depsgraph_update)
 
 
 def _np_hash(a):
@@ -867,6 +868,7 @@ class VertexLitEngine(bpy.types.RenderEngine):
     # ── view_update ───────────────────────────────────────────────────────
 
     def view_update(self, context, depsgraph):
+        _LAST_VIEW_UPDATE[0] = time.time()   # we are live; the away-handler stands down
         self._ensure_state()
 
         # General rule: react to EVERY change in this depsgraph update, immediately.
@@ -1033,12 +1035,20 @@ class VertexLitEngine(bpy.types.RenderEngine):
             # Cheap pre-check first: counts + modifier state catch topology changes for free, and
             # anything edited while we were away also arrives through view_update -> _dirty_objects.
             # Only objects whose cheap key differs pay for a full hash.
+            # Anything edited while no Vertex-Lit viewport existed (Solid-view edits: vertex moves,
+            # paint, UVs) is recorded by the persistent depsgraph handler, because Blender destroys
+            # the engine on leaving Rendered view so those never reach view_update. Re-extract
+            # exactly those; everything else only pays the cheap counts+modifiers check below.
+            away = _EDITED_WHILE_AWAY
             for name, obj in current.items():
                 if name not in self._batch_dict:
                     continue
                 try:
                     eo=obj.evaluated_get(depsgraph); me=getattr(eo,'data',None)
                     if me is None:
+                        self._dirty_objects.add(name); continue
+                    if away and (name in away or
+                                 ('mesh:' + getattr(getattr(obj,'data',None),'name','')) in away):
                         self._dirty_objects.add(name); continue
                     prev = _PERSIST_SIG.get(name)
                     if prev is None:
@@ -1050,6 +1060,7 @@ class VertexLitEngine(bpy.types.RenderEngine):
                         self._dirty_objects.add(name)      # topology/modifier change -> re-extract
                 except Exception:
                     self._dirty_objects.add(name)
+            _EDITED_WHILE_AWAY.clear()
             self._needs_verify = False
 
         # Re-extract only dirty objects + brand-new objects (no persisted batch).
@@ -1921,6 +1932,42 @@ def _unregister_panels():
 
 from bpy.app.handlers import persistent as _persistent
 
+_EDITED_WHILE_AWAY = set()   # object names edited while no Vertex-Lit viewport was running
+
+
+@_persistent
+def _on_depsgraph_update(scene, depsgraph=None):
+    """Record geometry edits that happen while we are NOT the active engine.
+
+    Blender destroys the RenderEngine when you leave Rendered view, so edits made in Solid view
+    never reach view_update. The (re)entry check can't afford to re-hash every object (0.87s), so
+    instead this always-on handler notes which objects changed; on re-entry only those are
+    re-examined. Cheap: it only records names."""
+    try:
+        # While a Vertex-Lit viewport is live, view_update already handles edits, so recording
+        # them here too would grow the set in a long session. Use a TIMESTAMP rather than a
+        # liveness registry: Blender gives the engine no teardown hook, so a stale registry entry
+        # would disable this handler forever and silently reintroduce the lost-edits bug. A
+        # timestamp self-corrects -- if view_update stops running, we start recording again.
+        if (time.time() - _LAST_VIEW_UPDATE[0]) < 2.0:
+            return
+        dg = depsgraph if depsgraph is not None else getattr(scene, 'depsgraph', None)
+        if dg is None:
+            return
+        for upd in dg.updates:
+            idd = upd.id
+            if isinstance(idd, bpy.types.Object):
+                if idd.type == 'MESH' and (upd.is_updated_geometry or upd.is_updated_transform):
+                    _EDITED_WHILE_AWAY.add(idd.name)
+            elif isinstance(idd, bpy.types.Mesh) and upd.is_updated_geometry:
+                # mesh datablock edits (edit mode, sculpt, paint) -> every object using it
+                nm = getattr(idd, 'name', None)
+                if nm:
+                    _EDITED_WHILE_AWAY.add('mesh:' + nm)
+    except Exception:
+        pass
+
+
 @_persistent
 def _on_file_load(*args):
     """New/opened file: drop caches keyed to the previous file's objects + GPU context, so a
@@ -1929,6 +1976,8 @@ def _on_file_load(*args):
     try: _PERSIST_MESH.clear(); _PERSIST_BATCH.clear(); _PERSIST_SHADOW.clear(); _PERSIST_SIG.clear()
     except Exception: pass
     try: _tex_cache.clear()
+    except Exception: pass
+    try: _EDITED_WHILE_AWAY.clear()
     except Exception: pass
     try: material_shader.invalidate()
     except Exception: pass
@@ -1961,6 +2010,8 @@ def register():
     _register_panels()
     if _on_file_load not in bpy.app.handlers.load_post:
         bpy.app.handlers.load_post.append(_on_file_load)
+    if _on_depsgraph_update not in bpy.app.handlers.depsgraph_update_post:
+        bpy.app.handlers.depsgraph_update_post.append(_on_depsgraph_update)
 
 def unregister():
     _unregister_panels()
@@ -1968,6 +2019,8 @@ def unregister():
     try:
         if _on_file_load in bpy.app.handlers.load_post:
             bpy.app.handlers.load_post.remove(_on_file_load)
+        if _on_depsgraph_update in bpy.app.handlers.depsgraph_update_post:
+            bpy.app.handlers.depsgraph_update_post.remove(_on_depsgraph_update)
     except Exception:
         pass
     bpy.utils.unregister_class(VertexLitEngine)
