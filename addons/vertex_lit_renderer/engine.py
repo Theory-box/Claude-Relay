@@ -1364,8 +1364,9 @@ class VertexLitEngine(bpy.types.RenderEngine):
                         continue
                     cl.ensure_gpu()
                     entries.append((cl, mw, name))
+                sig = float(getattr(vls, 'splat_sigma', 2.2)) if vls else 2.2
                 if len(entries) > 1 and SU.SORTER.draw(entries, vm, pm, wh[0], wh[1],
-                                                       light=light, write_depth=wd):
+                                                       light=light, sigma=sig, write_depth=wd):
                     return   # unified path handled every anchored cloud
             except Exception as e:
                 if _DEBUG: print("[VertexLit] unified splat draw -> per-cloud:", e)

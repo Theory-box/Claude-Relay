@@ -300,7 +300,9 @@ _SHARED = {'sorter': None, 'n': 0}
 
 def sort_existing(uKey, uVal, uOut, N):
     """Radix-sort the given key/value images in place and write the ordered payloads into uOut
-    (R32F, as the draw samples it). Reuses one module-level sorter sized to the largest N seen."""
+    as an R32UI index (the packed inst<<24|id payload must stay exact). Reuses one module-level
+    sorter sized to the largest N seen; all passes dispatch over s.groups so a smaller sort cannot
+    leave stale histogram counts behind."""
     try:
         s = _SHARED['sorter']
         if s is None or _SHARED['n'] < N:
@@ -317,7 +319,7 @@ def sort_existing(uKey, uVal, uOut, N):
             sh.image('uKeyA', s.uKeyA); sh.image('uKeyB', s.uKeyB); sh.image('uCounts', s.uCounts)
             sh.uniform_int('uN', N); sh.uniform_int('uShift', shift)
             sh.uniform_int('uSrc', src); sh.uniform_int('uGroups', s.groups)
-            gpu.compute.dispatch(sh, (N + _GROUP - 1)//_GROUP, 1, 1)
+            gpu.compute.dispatch(sh, s.groups, 1, 1)      # s.groups, NOT N's groups (stale counts)
 
             sh = s.sh_scan; sh.bind()
             sh.image('uCounts', s.uCounts); sh.image('uOffsets', s.uOffsets); sh.image('uChunkTot', s.uChunkTot)
@@ -333,7 +335,7 @@ def sort_existing(uKey, uVal, uOut, N):
             sh.image('uValA', s.uValA); sh.image('uValB', s.uValB); sh.image('uOffsets', s.uOffsets)
             sh.uniform_int('uN', N); sh.uniform_int('uShift', shift)
             sh.uniform_int('uSrc', src); sh.uniform_int('uGroups', s.groups)
-            gpu.compute.dispatch(sh, (N + _GROUP - 1)//_GROUP, 1, 1)
+            gpu.compute.dispatch(sh, s.groups, 1, 1)      # must match the built group count
             src = 1 - src
 
         sh = s.sh_tof_u; sh.bind()   # uint payload preserved for the unified draw

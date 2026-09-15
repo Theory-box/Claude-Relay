@@ -45,7 +45,8 @@ void main(){
     if(local < c){ inst=k; break; }
     local -= c;
   }
-  vec4 d0 = texelFetch(uData, ivec3(atD(local*4, uTW), inst), 0);
+  int lay = uLayer[inst];
+  vec4 d0 = texelFetch(uData, ivec3(atD(local*4, uTW), lay), 0);
   vec3 cW = (uModels[inst] * vec4(d0.xyz,1.0)).xyz;      // LOCAL -> WORLD (per-instance transform)
   float depth = dot(cW - uCam, uFwd);
   bool vis = depth > 0.0;
@@ -61,7 +62,7 @@ void main(){
 VERT = """
 uniform sampler2DArray uData; uniform usampler2D uIndex;
 uniform int uTW; uniform int uITW; uniform int uTotal;
-uniform mat4 uModels[MAX_INST];
+uniform mat4 uModels[MAX_INST]; uniform int uLayer[MAX_INST];
 uniform vec3 uRow0,uRow1,uRow2; uniform vec3 uCam; uniform vec2 uF; uniform vec2 uVP; uniform float uSigma;
 uniform mat4 uViewProj;
 uniform int  uLit;
@@ -83,8 +84,9 @@ void main(){
   int inst = int(p >> 24); int sid = int(p & 0x00FFFFFFu);
   mat4 M = uModels[inst]; mat3 md = mat3(M);
   int base = sid*4;
-  vec4 d0=texelFetch(uData,ivec3(at(base,uTW),inst),0),   d1=texelFetch(uData,ivec3(at(base+1,uTW),inst),0),
-       d2=texelFetch(uData,ivec3(at(base+2,uTW),inst),0), d3=texelFetch(uData,ivec3(at(base+3,uTW),inst),0);
+  int lay = uLayer[inst];
+  vec4 d0=texelFetch(uData,ivec3(at(base,uTW),lay),0),   d1=texelFetch(uData,ivec3(at(base+1,uTW),lay),0),
+       d2=texelFetch(uData,ivec3(at(base+2,uTW),lay),0), d3=texelFetch(uData,ivec3(at(base+3,uTW),lay),0);
   vec3 icL=d0.xyz; vec3 is=vec3(d0.w,d1.x,d1.y); vec4 iq=vec4(d1.z,d1.w,d2.x,d2.y);
   vec3 icol=vec3(d2.z,d2.w,d3.x); float iop=d3.y; vC=corner; vOp=iop;
   vec3 ic=(M*vec4(icL,1.0)).xyz;
@@ -117,6 +119,23 @@ uniform float uDepthCut;
 void main(){ float g=exp(-4.5*dot(vC,vC)); float al=vOp*g; if(al<uDepthCut) discard; o=vec4(vCol*al, al); }"""
 
 
+def _set_mat4_array(sh, name, mats):
+    """Blender cannot resolve 'uModels[0]' by name -- whole arrays must be set in one call."""
+    flat = [float(m[r][c]) for m in mats for c in range(4) for r in range(4)]
+    sh.uniform_vector_float(sh.uniform_from_name(name), gpu.types.Buffer('FLOAT', len(flat), flat), 16, len(mats))
+
+
+def _set_int_array(sh, name, vals):
+    vals = [int(v) for v in vals]
+    sh.uniform_vector_int(sh.uniform_from_name(name), gpu.types.Buffer('INT', len(vals), vals), 1, len(vals))
+
+
+def _try_uniform(fn, *a):
+    """A uniform the GLSL compiler stripped (unused) raises when set; that must not abort the draw."""
+    try: fn(*a)
+    except Exception: pass
+
+
 def can_unify(entries):
     """entries = [(cloud, model_matrix, name)]. Unified draw needs a shared data-texture size and a
     bounded instance count; otherwise the caller keeps the per-cloud path."""
@@ -141,14 +160,21 @@ class UnifiedSorter:
         self.array = None
 
     def ensure_array(self, entries):
+        if getattr(self, '_failed', False):
+            return False
         """Pack every cloud's data texture into one 2D texture array (layer == instance index)."""
-        sig = tuple(n for _c, _m, n in entries)
+        uniq = []
+        for c, _m, _n in entries:
+            if not any(c is u for u in uniq): uniq.append(c)
+        self._uniq = uniq
+        self._layer_of = [next(i for i, u in enumerate(uniq) if u is c) for c, _m, _n in entries]
+        sig = tuple((id(u.d), int(u.d['count'])) for u in uniq)   # per UNIQUE cloud
         if self.array is not None and self._sig == sig:
             return True
         try:
             w = 4096
-            h = max(c.layer_height() for c, _m, _n in entries)   # shared layer height
-            layers = len(entries)
+            h = max(u.layer_height() for u in self._uniq)   # shared layer height
+            layers = len(self._uniq)                        # one layer per UNIQUE cloud
             # rebuild from each cloud's CPU-side packed data (authoritative, avoids GPU->GPU copies)
             planes = []
             for c, _m, _n in entries:
@@ -157,13 +183,14 @@ class UnifiedSorter:
                 planes.append(c._packed_data(w, h))
             data = np.concatenate(planes, axis=0).astype('f4')
             buf = gpu.types.Buffer('FLOAT', w*h*4*layers, data.reshape(-1))
-            self.array = gpu.types.GPUTexture((w, h, layers), format='RGBA32F', data=buf, is_layered=True)
+            self.array = gpu.types.GPUTexture((w, h), layers=layers, format='RGBA32F', data=buf)
             self._sig = sig
             if _DBG: print("[VertexLit unified] texture array: %dx%d x %d layers" % (w, h, layers))
             return True
         except Exception as e:
             if _DBG: print("[VertexLit unified] array build failed -> per-cloud:", e)
             self.array = None
+            self._failed = True   # do NOT retry every frame: re-packing ~384MB tanked fps to 2-6
             return False
 
     # ── build the shaders (keygen compute + the unified draw) ─────────────────────────────
@@ -178,6 +205,7 @@ class UnifiedSorter:
             ik.push_constant('MAT4', 'uViewProj')
             ik.push_constant('MAT4', 'uModels', size=MAX_INSTANCES)
             ik.push_constant('INT', 'uCounts', size=MAX_INSTANCES)
+            ik.push_constant('INT', 'uLayer', size=MAX_INSTANCES)
             ik.push_constant('INT', 'uTotal'); ik.push_constant('INT', 'uNumInst'); ik.push_constant('INT', 'uTW')
             ik.sampler(0, 'FLOAT_2D_ARRAY', 'uData')
             ik.image(0, 'R32UI', 'UINT_2D', 'uKey', qualifiers={'WRITE'})
@@ -222,16 +250,32 @@ class UnifiedSorter:
             view_proj = pm @ vm
             models = [m for _c, m, _n in entries]
 
+            # Throttle: the global order changes only when the camera moves, a tree moves, or the
+            # set of trees changes. Re-sorting every frame cost +1.5ms (6x500k) / +3.1ms (6x1M).
+            camn = np.array(cam, 'f4'); fwdn = np.array(fwd, 'f4')
+            mkey = np.concatenate([np.array(m, 'f4').reshape(-1) for m in models])
+            try:
+                ext = max(float(np.linalg.norm(c.d['xyz'].max(0)-c.d['xyz'].min(0))) for c, _m, _n in entries)
+            except Exception:
+                ext = 1.0
+            last = getattr(self, '_last', None)
+            fresh = (last is None or last[3] != total or mkey.shape != last[2].shape
+                     or float(np.linalg.norm(camn-last[0])) > ext*0.02
+                     or float(np.dot(fwdn, last[1])) < 0.9994
+                     or float(np.abs(mkey-last[2]).max()) > 1e-6)
+            if not fresh:
+                return self._draw_only(models, total, right, up, fwd, cam, fx, fy, w, h,
+                                       view_proj, light, sigma, write_depth)
+            self._last = (camn, fwdn, mkey, total)
             # 1) key every splat of every instance by WORLD depth (payload = inst<<24 | id)
             s = self.sh_key; s.bind()
             s.image('uKey', self.uKey); s.image('uVal', self.uVal)
             s.uniform_sampler('uData', self.array)
             s.uniform_float('uCam', cam); s.uniform_float('uFwd', fwd)
             s.uniform_float('uViewProj', view_proj)
-            for i, m in enumerate(models):
-                s.uniform_float('uModels[%d]' % i, m)
-            for i, c in enumerate(counts):
-                s.uniform_int('uCounts[%d]' % i, c)
+            _set_mat4_array(s, 'uModels', models)
+            _set_int_array(s, 'uCounts', counts)
+            _set_int_array(s, 'uLayer', self._layer_of)
             s.uniform_int('uTotal', total); s.uniform_int('uNumInst', len(entries)); s.uniform_int('uTW', _IW)
             gpu.compute.dispatch(s, (total + 63)//64, 1, 1)
 
@@ -239,35 +283,53 @@ class UnifiedSorter:
             if not splat_radix.sort_existing(self.uKey, self.uVal, self.uIndex, total):
                 return False
 
-            # 3) one instanced draw in that order
+            return self._draw_only(models, total, right, up, fwd, cam, fx, fy, w, h,
+                                   view_proj, light, sigma, write_depth)
+        except Exception as e:
+            if _DBG: print("[VertexLit unified] draw failed -> per-cloud:", e)
+            return False
+
+
+    def _draw_only(self, models, total, right, up, fwd, cam, fx, fy, w, h,
+                   view_proj, light, sigma, write_depth):
+        """Draw the (already computed) global order. Used both after a re-sort and on throttled frames."""
+        try:
             sh = self.shader; sh.bind()
             sh.uniform_sampler('uData', self.array); sh.uniform_sampler('uIndex', self.uIndex)
-            sh.uniform_int('uTW', _IW); sh.uniform_int('uITW', _IW); sh.uniform_int('uTotal', total)
-            for i, m in enumerate(models):
-                sh.uniform_float('uModels[%d]' % i, m)
-            sh.uniform_float('uRow0', right); sh.uniform_float('uRow1', up); sh.uniform_float('uRow2', fwd)
-            sh.uniform_float('uCam', cam); sh.uniform_float('uF', (fx, fy))
-            sh.uniform_float('uVP', (float(w), float(h))); sh.uniform_float('uSigma', sigma)
-            sh.uniform_float('uViewProj', view_proj)
+            _try_uniform(sh.uniform_int, 'uTW', _IW); _try_uniform(sh.uniform_int, 'uITW', _IW)
+            _set_mat4_array(sh, 'uModels', models)
+            try: _set_int_array(sh, 'uLayer', self._layer_of)
+            except Exception: pass
+            _try_uniform(sh.uniform_float, 'uRow0', right)
+            _try_uniform(sh.uniform_float, 'uRow1', up)
+            _try_uniform(sh.uniform_float, 'uRow2', fwd)
+            _try_uniform(sh.uniform_float, 'uCam', cam)
+            _try_uniform(sh.uniform_float, 'uF', (fx, fy))
+            _try_uniform(sh.uniform_float, 'uVP', (float(w), float(h)))
+            _try_uniform(sh.uniform_float, 'uSigma', float(sigma))
+            _try_uniform(sh.uniform_float, 'uViewProj', view_proj)
             if light is not None:
-                sh.uniform_int('uLit', 1)
-                sh.uniform_float('uSkyColor', light['sky']); sh.uniform_float('uGroundColor', light['ground'])
-                sh.uniform_float('uHemiIntensity', float(light['hemi']))
-                sh.uniform_float('uSunDir', light['sun_dir']); sh.uniform_float('uSunColor', light['sun_col'])
-                sh.uniform_float('uSunIntensity', float(light['sun_int']))
-                sh.uniform_float('uKeyDir', light['key_dir']); sh.uniform_float('uKeyCol', light['key_col'])
-                sh.uniform_float('uKeyIntensity', float(light['key_int']))
+                _try_uniform(sh.uniform_int, 'uLit', 1)
+                _try_uniform(sh.uniform_float, 'uSkyColor', light['sky'])
+                _try_uniform(sh.uniform_float, 'uGroundColor', light['ground'])
+                _try_uniform(sh.uniform_float, 'uHemiIntensity', float(light['hemi']))
+                _try_uniform(sh.uniform_float, 'uSunDir', light['sun_dir'])
+                _try_uniform(sh.uniform_float, 'uSunColor', light['sun_col'])
+                _try_uniform(sh.uniform_float, 'uSunIntensity', float(light['sun_int']))
+                _try_uniform(sh.uniform_float, 'uKeyDir', light['key_dir'])
+                _try_uniform(sh.uniform_float, 'uKeyCol', light['key_col'])
+                _try_uniform(sh.uniform_float, 'uKeyIntensity', float(light['key_int']))
             else:
-                sh.uniform_int('uLit', 0)
+                _try_uniform(sh.uniform_int, 'uLit', 0)
             gpu.state.blend_set('ALPHA_PREMULT'); gpu.state.depth_test_set('LESS_EQUAL')
             gpu.state.depth_mask_set(False)
-            sh.uniform_float('uDepthCut', 0.004)
+            _try_uniform(sh.uniform_float, 'uDepthCut', 0.004)
             self.batch.draw_instanced(sh, instance_count=total)
             if write_depth:
                 try:
                     gpu.state.color_mask_set(False, False, False, False)
                     gpu.state.blend_set('NONE'); gpu.state.depth_mask_set(True)
-                    sh.uniform_float('uDepthCut', 0.35)
+                    _try_uniform(sh.uniform_float, 'uDepthCut', 0.35)
                     self.batch.draw_instanced(sh, instance_count=total)
                 finally:
                     gpu.state.color_mask_set(True, True, True, True)
