@@ -100,6 +100,9 @@ def _material_transparent(mat):
     return False
 
 
+_SIG_MEMO = {}   # id(evaluated mesh) -> geo signature, cleared each rebuild pass
+
+
 def _np_hash(a):
     """Cheap order-sensitive hash of a numpy buffer (not cryptographic; just change detection)."""
     b = np.ascontiguousarray(a)
@@ -132,10 +135,11 @@ def _geo_sig(obj, mesh):
     Python wrappers -- the wrapper route cost ~209ms/1M polys and doubled scene-entry time.
     The result is memoised on the evaluated mesh so _share_sig + the rebuild loop don't recompute
     it (it was being hashed twice per object)."""
-    try:
-        cached = getattr(mesh, '_vlr_sig_cache', None)
-    except Exception:
-        cached = None
+    # Memo per rebuild pass. (A previous attempt stored this ON the mesh; Blender rejects custom
+    # attributes on bpy_struct, so every object was still hashed twice -- once by _share_sig and
+    # once by the rebuild loop.)
+    ck = id(mesh)
+    cached = _SIG_MEMO.get(ck)
     if cached is not None:
         return cached
     try:
@@ -169,10 +173,7 @@ def _geo_sig(obj, mesh):
         sig = (base, nv, npoly, mods, h)
     except Exception:
         return None
-    try:
-        mesh._vlr_sig_cache = sig      # memoise for this evaluated mesh (kills the double hash)
-    except Exception:
-        pass
+    _SIG_MEMO[ck] = sig
     return sig
 
 
@@ -961,6 +962,7 @@ class VertexLitEngine(bpy.types.RenderEngine):
         # per-instance later. Instance geometry is usually a few unique meshes reused many
         # times, so eager extraction is cheap; the budget still gates it and we re-iterate
         # next frame for anything deferred.
+        _SIG_MEMO.clear()        # fresh memo for this pass (ids are only valid per pass)
         current={}
         inst_keys=set()
         _va = getattr(self, '_view_attr', '')
@@ -979,10 +981,16 @@ class VertexLitEngine(bpy.types.RenderEngine):
                 inst_keys.add(key)
                 # Only hash a cached instance when something might actually have changed. Hashing
                 # every instance mesh on EVERY depsgraph update (a selection click included) cost
-                # 3ms -> 327ms on a 150-mesh scatter. A cached key with nothing dirty is reused.
+                # 3ms -> 327ms on a 150-mesh scatter.
+                # NOTE: do NOT gate on self._dirty -- it is always True while a rebuild runs, so the
+                # skip never fired (clicks stayed at 45ms). Gate on whether THIS instance's mesh is
+                # among the objects view_update actually marked dirty, plus a full re-extract.
                 cached_ok = key in self._batch_dict
-                if cached_ok and not (self._dirty or getattr(self, '_dirty_objects', None)):
-                    continue              # nothing dirty -> trust the cache, skip the hash
+                if cached_ok and not getattr(self, '_force_full', False):
+                    dn = getattr(self, '_dirty_objects', None)
+                    mesh_name = getattr(getattr(obj, 'data', None), 'name', None)
+                    if not dn or (obj.name not in dn and (mesh_name is None or mesh_name not in dn)):
+                        continue          # untouched + cached -> reuse, no hash
                 try: sig = _geo_sig(obj, getattr(obj, 'data', None))
                 except Exception: sig = None
                 if cached_ok and _PERSIST_SIG.get(key) == sig:
@@ -1019,13 +1027,27 @@ class VertexLitEngine(bpy.types.RenderEngine):
         # cached object's signature ONCE and mark only the changed ones dirty -> unchanged
         # objects keep their persisted batch and are drawn immediately (no work).
         if getattr(self, '_needs_verify', False):
+            # On (re)entry, confirm cached objects still match. This used to hash EVERY cached
+            # object's full buffers, which was free with the old 3-vertex signature but cost 0.87s
+            # per re-entry once the signature became a real hash (re-entry was 0.05s).
+            # Cheap pre-check first: counts + modifier state catch topology changes for free, and
+            # anything edited while we were away also arrives through view_update -> _dirty_objects.
+            # Only objects whose cheap key differs pay for a full hash.
             for name, obj in current.items():
                 if name not in self._batch_dict:
                     continue
                 try:
                     eo=obj.evaluated_get(depsgraph); me=getattr(eo,'data',None)
-                    if me is None or _PERSIST_SIG.get(name) != _geo_sig(obj, me):
-                        self._dirty_objects.add(name)
+                    if me is None:
+                        self._dirty_objects.add(name); continue
+                    prev = _PERSIST_SIG.get(name)
+                    if prev is None:
+                        self._dirty_objects.add(name); continue
+                    mods = tuple((m.type, bool(m.show_viewport)) for m in obj.modifiers)
+                    cheap = (getattr(getattr(obj,'data',None),'name',''),
+                             len(me.vertices), len(me.polygons), mods)
+                    if prev[:4] != cheap:
+                        self._dirty_objects.add(name)      # topology/modifier change -> re-extract
                 except Exception:
                     self._dirty_objects.add(name)
             self._needs_verify = False
@@ -1052,11 +1074,13 @@ class VertexLitEngine(bpy.types.RenderEngine):
         budget_end = time.time() + budget
         remaining = []
         done = 0
-        # _geo_share exists to let linked duplicates in THIS pass share one extraction. Keeping it
-        # across passes leaked a full mesh copy (+ its GPU batches) per edit -- a long sculpt or
-        # paint session grew it without bound -- and every stale entry also had to be matched
-        # against. Rebuild it each pass: duplicates are resolved within the pass anyway.
-        self._geo_share = {}   # share sig -> (data, slots, shadow_batch)
+        # _geo_share lets linked duplicates share ONE extraction + GPU batch. It must survive across
+        # streaming passes: a duplicate often lands in a later pass than its original, and clearing
+        # it every pass made each one re-extract (Azola: 18.5M tris resident instead of 12.3M, +91
+        # extractions, entry 5.86s -> 10.77s). It is cleared when the queue finally drains (below),
+        # which is what actually prevents the unbounded growth.
+        if not hasattr(self, '_geo_share'):
+            self._geo_share = {}   # share sig -> (data, slots, shadow_batch)
         va = getattr(self, '_view_attr', '')
         for name in to_do:
             if done > 0 and time.time() > budget_end:
@@ -1113,6 +1137,10 @@ class VertexLitEngine(bpy.types.RenderEngine):
             else:
                 self._dirty = False
                 self._geo_pending = False
+                # Streaming finished: drop the share cache now. Holding it across edits leaked a
+                # full mesh copy + GPU batches per edit; dropping it only HERE keeps cross-pass
+                # duplicate sharing intact during the load.
+                self._geo_share = {}
         self._shadow_dirty=True
         if done or remaining:
             print("[VertexLit] re-extracted {}/{} objs ({:.2f}s){}{}".format(
