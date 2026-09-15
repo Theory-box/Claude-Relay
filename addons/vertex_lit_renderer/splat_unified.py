@@ -272,7 +272,9 @@ class UnifiedSorter:
             if not fresh:
                 return self._draw_only(models, total, right, up, fwd, cam, fx, fy, w, h,
                                        view_proj, light, sigma, write_depth)
-            self._last = (camn, fwdn, mkey, total)
+            # NOTE: _last is recorded only AFTER the sort succeeds (below). Recording it here meant
+            # a failed sort still marked the cached order valid, so the next still frame took the
+            # "not fresh" path and drew an unfilled/garbage index instead of falling back.
             # 1) key every splat of every instance by WORLD depth (payload = inst<<24 | id)
             s = self.sh_key; s.bind()
             s.image('uKey', self.uKey); s.image('uVal', self.uVal)
@@ -287,7 +289,9 @@ class UnifiedSorter:
 
             # 2) ONE radix sort over the combined buffer -> global back-to-front order
             if not splat_radix.sort_existing(self.uKey, self.uVal, self.uIndex, total):
+                self._last = None      # invalidate: the order was NOT produced
                 return False
+            self._last = (camn, fwdn, mkey, total)
 
             return self._draw_only(models, total, right, up, fwd, cam, fx, fy, w, h,
                                    view_proj, light, sigma, write_depth)
