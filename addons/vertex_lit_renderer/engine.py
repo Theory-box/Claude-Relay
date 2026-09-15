@@ -100,60 +100,80 @@ def _material_transparent(mat):
     return False
 
 
-def _geo_sig(obj, mesh):
-    """Signature to detect whether an object's geometry changed while we weren't watching.
-
-    IMPORTANT: this also gates the linked-duplicate SHARE cache, so a signature that misses an
-    edit makes the engine serve PRE-EDIT geometry for an object you just changed (edits appear to
-    vanish). It previously sampled only 3 vertices (first/middle/last) plus counts + modifier
-    types, which missed: moving any other vertex, UV edits, material-index changes, smooth/flat
-    shading, vertex paint, sculpting and shape keys that preserve topology.
-
-    Now it hashes the actual position buffer plus the UV / material-index / colour buffers via
-    bulk foreach_get (a few ms even on millions of verts, and only on the rebuild path)."""
-    try:
-        mods = tuple((m.type, bool(m.show_viewport)) for m in obj.modifiers)
-        nv = len(mesh.vertices)
-        np_ = len(mesh.polygons)
-        h = 0
-        if nv:
-            co = np.empty(nv * 3, dtype=np.float32)
-            mesh.vertices.foreach_get('co', co)
-            h ^= int(_np_hash(co))
-        try:
-            nl = len(mesh.loops)
-            if np_:
-                mi = np.empty(np_, dtype=np.int32)
-                mesh.polygons.foreach_get('material_index', mi)
-                h ^= int(_np_hash(mi)) * 3
-                sm = np.empty(np_, dtype=bool)
-                mesh.polygons.foreach_get('use_smooth', sm)
-                h ^= int(_np_hash(sm.view(np.uint8))) * 5
-            uvl = mesh.uv_layers.active
-            if uvl is not None and nl:
-                uv = np.empty(nl * 2, dtype=np.float32)
-                uvl.data.foreach_get('uv', uv)
-                h ^= int(_np_hash(uv)) * 7
-            ca = getattr(mesh, 'color_attributes', None)
-            act = getattr(ca, 'active_color', None) if ca is not None else None
-            if act is not None:
-                n = len(act.data)
-                if n:
-                    cc = np.empty(n * 4, dtype=np.float32)
-                    act.data.foreach_get('color', cc)
-                    h ^= int(_np_hash(cc)) * 11
-        except Exception:
-            pass
-        base = getattr(getattr(obj, 'data', None), 'name', '')   # stable original name
-        return (base, nv, np_, mods, h)
-    except Exception:
-        return None
-
-
 def _np_hash(a):
     """Cheap order-sensitive hash of a numpy buffer (not cryptographic; just change detection)."""
     b = np.ascontiguousarray(a)
     return int(hash(b.tobytes()))
+
+
+def _attr_array(mesh, name, dtype, ncomp, n):
+    """Read a named mesh attribute in one contiguous foreach_get. Measured ~8x faster than going
+    through mesh.polygons / uv_layers.data Python wrappers (29ms vs 232ms per 1M-poly mesh)."""
+    try:
+        a = mesh.attributes.get(name)
+        if a is None or n == 0:
+            return None
+        field = 'value' if ncomp == 1 else ('vector' if ncomp in (2, 3) else 'color')
+        buf = np.empty(n * ncomp, dtype=dtype)
+        a.data.foreach_get(field, buf)
+        return buf
+    except Exception:
+        return None
+
+
+def _geo_sig(obj, mesh):
+    """Signature to detect whether an object's geometry changed while we weren't watching.
+
+    This also gates the linked-duplicate SHARE cache, so a signature that misses an edit makes the
+    engine serve PRE-EDIT geometry (edits appear to vanish). It must therefore cover real edits:
+    vertex moves, UVs, material indices, smooth/flat, vertex paint, sculpt and shape keys.
+
+    Reads go through mesh.attributes (one contiguous foreach_get each) rather than the per-element
+    Python wrappers -- the wrapper route cost ~209ms/1M polys and doubled scene-entry time.
+    The result is memoised on the evaluated mesh so _share_sig + the rebuild loop don't recompute
+    it (it was being hashed twice per object)."""
+    try:
+        cached = getattr(mesh, '_vlr_sig_cache', None)
+    except Exception:
+        cached = None
+    if cached is not None:
+        return cached
+    try:
+        mods = tuple((m.type, bool(m.show_viewport)) for m in obj.modifiers)
+        nv = len(mesh.vertices)
+        npoly = len(mesh.polygons)
+        nl = len(mesh.loops)
+        h = 0
+        if nv:
+            co = np.empty(nv * 3, dtype=np.float32)
+            mesh.vertices.foreach_get('co', co)          # already a fast contiguous read
+            h ^= _np_hash(co)
+        mi = _attr_array(mesh, 'material_index', np.int32, 1, npoly)
+        if mi is not None: h ^= _np_hash(mi) * 3
+        sh = _attr_array(mesh, 'sharp_face', np.bool_, 1, npoly)
+        if sh is not None: h ^= _np_hash(sh.view(np.uint8)) * 5
+        uvl = mesh.uv_layers.active
+        if uvl is not None and nl:
+            uv = _attr_array(mesh, uvl.name, np.float32, 2, nl)
+            if uv is None:
+                uv = np.empty(nl * 2, dtype=np.float32); uvl.data.foreach_get('uv', uv)
+            h ^= _np_hash(uv) * 7
+        ca = getattr(mesh, 'color_attributes', None)
+        act = getattr(ca, 'active_color', None) if ca is not None else None
+        if act is not None and len(act.data):
+            cc = _attr_array(mesh, act.name, np.float32, 4, len(act.data))
+            if cc is None:
+                cc = np.empty(len(act.data) * 4, dtype=np.float32); act.data.foreach_get('color', cc)
+            h ^= _np_hash(cc) * 11
+        base = getattr(getattr(obj, 'data', None), 'name', '')   # stable original name
+        sig = (base, nv, npoly, mods, h)
+    except Exception:
+        return None
+    try:
+        mesh._vlr_sig_cache = sig      # memoise for this evaluated mesh (kills the double hash)
+    except Exception:
+        pass
+    return sig
 
 
 def _share_sig(obj, mesh, view_attr):
@@ -957,9 +977,15 @@ class VertexLitEngine(bpy.types.RenderEngine):
                 if key in inst_keys:      # already handled this frame
                     continue
                 inst_keys.add(key)
+                # Only hash a cached instance when something might actually have changed. Hashing
+                # every instance mesh on EVERY depsgraph update (a selection click included) cost
+                # 3ms -> 327ms on a 150-mesh scatter. A cached key with nothing dirty is reused.
+                cached_ok = key in self._batch_dict
+                if cached_ok and not (self._dirty or getattr(self, '_dirty_objects', None)):
+                    continue              # nothing dirty -> trust the cache, skip the hash
                 try: sig = _geo_sig(obj, getattr(obj, 'data', None))
                 except Exception: sig = None
-                if key in self._batch_dict and _PERSIST_SIG.get(key) == sig:
+                if cached_ok and _PERSIST_SIG.get(key) == sig:
                     continue              # cached + unchanged
                 if _inst_done > 0 and time.time() > _inst_budget_end:
                     self._geo_pending = True; self._dirty = True
@@ -1026,8 +1052,11 @@ class VertexLitEngine(bpy.types.RenderEngine):
         budget_end = time.time() + budget
         remaining = []
         done = 0
-        if full or not hasattr(self, '_geo_share'):
-            self._geo_share = {}   # share sig -> (data, slots, shadow_batch)
+        # _geo_share exists to let linked duplicates in THIS pass share one extraction. Keeping it
+        # across passes leaked a full mesh copy (+ its GPU batches) per edit -- a long sculpt or
+        # paint session grew it without bound -- and every stale entry also had to be matched
+        # against. Rebuild it each pass: duplicates are resolved within the pass anyway.
+        self._geo_share = {}   # share sig -> (data, slots, shadow_batch)
         va = getattr(self, '_view_attr', '')
         for name in to_do:
             if done > 0 and time.time() > budget_end:
@@ -1072,13 +1101,17 @@ class VertexLitEngine(bpy.types.RenderEngine):
             self._dirty = True
             self._geo_pending = True
         else:
-            self._dirty=False
             self._force_full=False
             if hasattr(self,'_dirty_objects'): self._dirty_objects.clear()
-            # Do NOT clear _geo_pending unconditionally: the INSTANCE loop sets it when it runs out
-            # of budget, and clearing it here dropped those leftovers permanently (scattered
-            # geometry-nodes/collection instances silently never finished loading).
-            if not getattr(self, '_inst_pending', False):
+            # The INSTANCE loop sets _inst_pending when it runs out of budget. Clearing _geo_pending
+            # here dropped those leftovers permanently; clearing _dirty here was just as bad -- with
+            # _geo_pending True but _dirty False nothing schedules the next rebuild, so the viewport
+            # redrew forever while the remaining instances never loaded (measured: 5 of 150).
+            if getattr(self, '_inst_pending', False):
+                self._dirty = True            # keep rebuilding until the instances finish
+                self._geo_pending = True
+            else:
+                self._dirty = False
                 self._geo_pending = False
         self._shadow_dirty=True
         if done or remaining:
