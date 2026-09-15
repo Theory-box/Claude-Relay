@@ -320,7 +320,18 @@ class SplatCloud:
                 self._gsorts = {}
             gs = self._gsorts.get(obj_key)
             if gs is None:
-                gs = splat_gpusort.GPUSorter(); self._gsorts[obj_key] = gs
+                # Prefer the radix sort (O(N), no power-of-two padding; validated 13-27x less work
+                # than bitonic). If it fails to build/run on this GPU we fall back to bitonic below.
+                gs = None
+                if getattr(self, '_radix', True):
+                    try:
+                        from . import splat_radix
+                        gs = splat_radix.RadixSorter()
+                    except Exception:
+                        gs = None
+                if gs is None:
+                    gs = splat_gpusort.GPUSorter()
+                self._gsorts[obj_key] = gs
             if not hasattr(self, '_gcache'):
                 self._gcache = {}
             gc = self._gcache.setdefault(obj_key, {'tex': None, 'last': None, 'bf': None})
@@ -330,6 +341,10 @@ class SplatCloud:
                         or float(np.linalg.norm(cam_np - gc['last'][0])) > self.move_eps)
             if need:
                 gidx = gs.run(self.datatex, _TW, cam_np, fwd_np, int(self.d["count"]), view_proj, backface)
+                if gidx is None and not isinstance(gs, splat_gpusort.GPUSorter):
+                    # radix unavailable on this GPU -> swap in bitonic for this object and retry once
+                    gs = splat_gpusort.GPUSorter(); self._gsorts[obj_key] = gs
+                    gidx = gs.run(self.datatex, _TW, cam_np, fwd_np, int(self.d["count"]), view_proj, backface)
                 if gidx is not None:
                     gc['tex'] = gidx; gc['last'] = (cam_np, fwd_np); gc['bf'] = bool(backface)
             if gc['tex'] is not None:
