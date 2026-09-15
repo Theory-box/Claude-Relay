@@ -160,8 +160,6 @@ class UnifiedSorter:
         self.array = None
 
     def ensure_array(self, entries):
-        if getattr(self, '_failed', False):
-            return False
         """Pack every cloud's data texture into one 2D texture array (layer == instance index)."""
         uniq = []
         for c, _m, _n in entries:
@@ -171,6 +169,8 @@ class UnifiedSorter:
         sig = tuple((id(u.d), int(u.d['count'])) for u in uniq)   # per UNIQUE cloud
         if self.array is not None and self._sig == sig:
             return True
+        if getattr(self, '_failed_sig', None) == sig:
+            return False        # this exact set already failed; retry only if the set changes
         try:
             w = 4096
             h = max(u.layer_height() for u in self._uniq)   # shared layer height
@@ -190,7 +190,10 @@ class UnifiedSorter:
         except Exception as e:
             if _DBG: print("[VertexLit unified] array build failed -> per-cloud:", e)
             self.array = None
-            self._failed = True   # do NOT retry every frame: re-packing ~384MB tanked fps to 2-6
+            # Remember the exact set that failed so we don't retry it every frame (re-packing
+            # ~384MB tanked fps to 2-6), but DO retry when the set of clouds changes -- otherwise a
+            # single failure disabled unified sorting for the whole session.
+            self._failed_sig = sig
             return False
 
     # ── build the shaders (keygen compute + the unified draw) ─────────────────────────────
@@ -254,8 +257,11 @@ class UnifiedSorter:
             # set of trees changes. Re-sorting every frame cost +1.5ms (6x500k) / +3.1ms (6x1M).
             camn = np.array(cam, 'f4'); fwdn = np.array(fwd, 'f4')
             mkey = np.concatenate([np.array(m, 'f4').reshape(-1) for m in models])
+            # Use the extent each cloud already cached in ensure_gpu() (move_eps == extent*0.02).
+            # Recomputing it from raw positions scanned every splat of every copy EVERY FRAME and
+            # cost 126 ms @6x500k / 250 ms @6x1M.
             try:
-                ext = max(float(np.linalg.norm(c.d['xyz'].max(0)-c.d['xyz'].min(0))) for c, _m, _n in entries)
+                ext = max(float(getattr(c, 'move_eps', 0.02))/0.02 for c, _m, _n in entries)
             except Exception:
                 ext = 1.0
             last = getattr(self, '_last', None)

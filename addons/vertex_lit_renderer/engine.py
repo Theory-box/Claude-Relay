@@ -1364,7 +1364,10 @@ class VertexLitEngine(bpy.types.RenderEngine):
                         continue
                     cl.ensure_gpu()
                     entries.append((cl, mw, name))
-                sig = float(getattr(vls, 'splat_sigma', 2.2)) if vls else 2.2
+                # use each cloud's own softness (as the per-cloud path does); `vls` is NOT in
+                # scope here -- referencing it raised a NameError that the except swallowed, so the
+                # unified draw was never even called.
+                sig = float(getattr(entries[0][0], 'sigma', 2.2)) if entries else 2.2
                 if len(entries) > 1 and SU.SORTER.draw(entries, vm, pm, wh[0], wh[1],
                                                        light=light, sigma=sig, write_depth=wd):
                     return   # unified path handled every anchored cloud
