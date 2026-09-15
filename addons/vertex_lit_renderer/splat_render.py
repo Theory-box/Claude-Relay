@@ -428,7 +428,11 @@ class SplatCloud:
         fx=0.5*w*pm[0][0]; fy=0.5*h*pm[1][1]
         view_proj = pm @ vm
         # sort in the object's LOCAL space (transform the camera, not the splats), frustum via VP*model
-        minv = model.inverted(); cam_l = minv @ cam; fwd_l = (minv.to_3x3() @ fwd).normalized()
+        minv = model.inverted(); cam_l = minv @ cam
+        # Depth order in local space needs M^T @ fwd, NOT M^-1 @ fwd. They agree only for
+        # rotation + uniform scale; with non-uniform scale/shear the inverse gives a WRONG
+        # back-to-front order (verified numerically). 
+        fwd_l = (model.to_3x3().transposed() @ fwd).normalized()
         idxtex=self._sorted_index(np.array(cam_l,'f4'), np.array(fwd_l,'f4'), view_proj @ model, backface, obj_key)
         sh=self.shader; sh.bind()
         sh.uniform_sampler('uData', self.datatex); sh.uniform_sampler('uIndex', idxtex)
@@ -481,7 +485,8 @@ class SplatCloud:
             try:
                 right=Vector(view_matrix[0][:3]); up=Vector(view_matrix[1][:3]); fwd=-Vector(view_matrix[2][:3])
                 cam=view_matrix.inverted().translation
-                minv=model.inverted(); cam_l=minv@cam; fwd_l=(minv.to_3x3()@fwd).normalized()
+                minv=model.inverted(); cam_l=minv@cam
+                fwd_l=(model.to_3x3().transposed()@fwd).normalized()   # M^T, not M^-1
                 idxtex=self._sorted_index(np.array(cam_l,'f4'), np.array(fwd_l,'f4'), (window_matrix@view_matrix)@model, backface, obj_key)
                 sh=self.rnshader; sh.bind()
                 sh.uniform_sampler('uProj', self.projtex); sh.uniform_sampler('uIndex', idxtex)
@@ -496,7 +501,8 @@ class SplatCloud:
         cam=vm.inverted().translation
         fx=0.5*w*pm[0][0]; fy=0.5*h*pm[1][1]
         view_proj = pm @ vm
-        minv=model.inverted(); cam_l=minv@cam; fwd_l=(minv.to_3x3()@fwd).normalized()
+        minv=model.inverted(); cam_l=minv@cam
+        fwd_l=(model.to_3x3().transposed()@fwd).normalized()   # M^T, not M^-1
         idxtex=self._sorted_index(np.array(cam_l,'f4'), np.array(fwd_l,'f4'), view_proj@model, backface, obj_key)
         sh=self.normal_shader; sh.bind()
         sh.uniform_sampler('uData', self.datatex); sh.uniform_sampler('uIndex', idxtex)
@@ -563,7 +569,8 @@ class SplatCloud:
         if model is None: model = Matrix.Identity(4)
         right=Vector(vm[0][:3]); up=Vector(vm[1][:3]); fwd=-Vector(vm[2][:3]); cam=vm.inverted().translation
         fx=0.5*w*pm[0][0]; fy=0.5*h*pm[1][1]; view_proj=pm@vm
-        minv=model.inverted(); cam_l=minv@cam; fwd_l=(minv.to_3x3()@fwd).normalized()
+        minv=model.inverted(); cam_l=minv@cam
+        fwd_l=(model.to_3x3().transposed()@fwd).normalized()   # M^T, not M^-1
         idxtex=self._sorted_index(np.array(cam_l,'f4'), np.array(fwd_l,'f4'), view_proj@model, backface, obj_key)
         self._dispatch(light, right, up, fwd, cam, fx, fy, w, h, view_proj, model)
         sh=self.rshader; sh.bind()

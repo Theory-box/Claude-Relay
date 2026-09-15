@@ -101,21 +101,59 @@ def _material_transparent(mat):
 
 
 def _geo_sig(obj, mesh):
-    """Cheap signature to detect whether an object's geometry changed while we weren't
-    watching. Uses the ORIGINAL mesh name (stable across evaluations, unlike the temp
-    evaluated mesh name), topology counts, modifier state, and a few sampled positions."""
+    """Signature to detect whether an object's geometry changed while we weren't watching.
+
+    IMPORTANT: this also gates the linked-duplicate SHARE cache, so a signature that misses an
+    edit makes the engine serve PRE-EDIT geometry for an object you just changed (edits appear to
+    vanish). It previously sampled only 3 vertices (first/middle/last) plus counts + modifier
+    types, which missed: moving any other vertex, UV edits, material-index changes, smooth/flat
+    shading, vertex paint, sculpting and shape keys that preserve topology.
+
+    Now it hashes the actual position buffer plus the UV / material-index / colour buffers via
+    bulk foreach_get (a few ms even on millions of verts, and only on the rebuild path)."""
     try:
         mods = tuple((m.type, bool(m.show_viewport)) for m in obj.modifiers)
         nv = len(mesh.vertices)
-        s = 0.0
+        np_ = len(mesh.polygons)
+        h = 0
         if nv:
-            vs = mesh.vertices
-            for i in (0, nv // 2, nv - 1):
-                c = vs[i].co; s += c.x * 1.1 + c.y * 2.3 + c.z * 3.7
+            co = np.empty(nv * 3, dtype=np.float32)
+            mesh.vertices.foreach_get('co', co)
+            h ^= int(_np_hash(co))
+        try:
+            nl = len(mesh.loops)
+            if np_:
+                mi = np.empty(np_, dtype=np.int32)
+                mesh.polygons.foreach_get('material_index', mi)
+                h ^= int(_np_hash(mi)) * 3
+                sm = np.empty(np_, dtype=bool)
+                mesh.polygons.foreach_get('use_smooth', sm)
+                h ^= int(_np_hash(sm.view(np.uint8))) * 5
+            uvl = mesh.uv_layers.active
+            if uvl is not None and nl:
+                uv = np.empty(nl * 2, dtype=np.float32)
+                uvl.data.foreach_get('uv', uv)
+                h ^= int(_np_hash(uv)) * 7
+            ca = getattr(mesh, 'color_attributes', None)
+            act = getattr(ca, 'active_color', None) if ca is not None else None
+            if act is not None:
+                n = len(act.data)
+                if n:
+                    cc = np.empty(n * 4, dtype=np.float32)
+                    act.data.foreach_get('color', cc)
+                    h ^= int(_np_hash(cc)) * 11
+        except Exception:
+            pass
         base = getattr(getattr(obj, 'data', None), 'name', '')   # stable original name
-        return (base, nv, len(mesh.polygons), mods, round(s, 3))
+        return (base, nv, np_, mods, h)
     except Exception:
         return None
+
+
+def _np_hash(a):
+    """Cheap order-sensitive hash of a numpy buffer (not cryptographic; just change detection)."""
+    b = np.ascontiguousarray(a)
+    return int(hash(b.tobytes()))
 
 
 def _share_sig(obj, mesh, view_attr):
@@ -909,6 +947,7 @@ class VertexLitEngine(bpy.types.RenderEngine):
         _want_shadow_i = bool(vls and getattr(vls, 'use_shadows', False))
         _inst_budget_end = time.time() + 0.03
         _inst_done = 0
+        self._inst_pending = False
         for inst in depsgraph.object_instances:
             obj=inst.object
             if obj.type!='MESH': continue
@@ -924,6 +963,7 @@ class VertexLitEngine(bpy.types.RenderEngine):
                     continue              # cached + unchanged
                 if _inst_done > 0 and time.time() > _inst_budget_end:
                     self._geo_pending = True; self._dirty = True
+                    self._inst_pending = True   # survives the non-instance loop's else-branch
                     continue              # over budget -> finish next frame (re-iterated)
                 data = _extract_mesh_data(obj, depsgraph, mesh=getattr(obj, 'data', None), attr_name=_va)
                 if data:
@@ -969,6 +1009,11 @@ class VertexLitEngine(bpy.types.RenderEngine):
         full = getattr(self,'_force_full',False)
         if full:
             to_do=set(current.keys())
+            # CONSUME IT NOW. It used to be cleared only when the queue fully drained, so on any
+            # scene bigger than one budget window every pass restarted with the full object set AND
+            # wiped _geo_share -> the queue never emptied. F12 then spun to its 120s cap and
+            # rendered with objects missing.
+            self._force_full = False
         else:
             to_do=(dirty & set(current.keys())) | {n for n in current if n not in self._batch_dict}
 
@@ -1030,7 +1075,11 @@ class VertexLitEngine(bpy.types.RenderEngine):
             self._dirty=False
             self._force_full=False
             if hasattr(self,'_dirty_objects'): self._dirty_objects.clear()
-            self._geo_pending = False
+            # Do NOT clear _geo_pending unconditionally: the INSTANCE loop sets it when it runs out
+            # of budget, and clearing it here dropped those leftovers permanently (scattered
+            # geometry-nodes/collection instances silently never finished loading).
+            if not getattr(self, '_inst_pending', False):
+                self._geo_pending = False
         self._shadow_dirty=True
         if done or remaining:
             print("[VertexLit] re-extracted {}/{} objs ({:.2f}s){}{}".format(
