@@ -101,7 +101,6 @@ def _material_transparent(mat):
 
 
 _SIG_MEMO = {}   # id(evaluated mesh) -> geo signature, cleared each rebuild pass
-_LAST_VIEW_UPDATE = [0.0]    # wall time of the last Vertex-Lit view_update (see _on_depsgraph_update)
 
 
 def _np_hash(a):
@@ -868,7 +867,6 @@ class VertexLitEngine(bpy.types.RenderEngine):
     # ── view_update ───────────────────────────────────────────────────────
 
     def view_update(self, context, depsgraph):
-        _LAST_VIEW_UPDATE[0] = time.time()   # we are live; the away-handler stands down
         self._ensure_state()
 
         # General rule: react to EVERY change in this depsgraph update, immediately.
@@ -988,9 +986,15 @@ class VertexLitEngine(bpy.types.RenderEngine):
                 # skip never fired (clicks stayed at 45ms). Gate on whether THIS instance's mesh is
                 # among the objects view_update actually marked dirty, plus a full re-extract.
                 cached_ok = key in self._batch_dict
-                if cached_ok and not getattr(self, '_force_full', False):
+                mesh_name = getattr(getattr(obj, 'data', None), 'name', None)
+                # Edited while no Rendered viewport existed? Scatter SOURCE meshes only ever match
+                # here (the source object isn't in the scene), and without this check every
+                # instance kept its old geometry after a Solid-view edit.
+                away_hit = bool(_EDITED_WHILE_AWAY) and (
+                    obj.name in _EDITED_WHILE_AWAY or
+                    (mesh_name is not None and ('mesh:' + mesh_name) in _EDITED_WHILE_AWAY))
+                if cached_ok and not away_hit and not getattr(self, '_force_full', False):
                     dn = getattr(self, '_dirty_objects', None)
-                    mesh_name = getattr(getattr(obj, 'data', None), 'name', None)
                     if not dn or (obj.name not in dn and (mesh_name is None or mesh_name not in dn)):
                         continue          # untouched + cached -> reuse, no hash
                 try: sig = _geo_sig(obj, getattr(obj, 'data', None))
@@ -1935,6 +1939,24 @@ from bpy.app.handlers import persistent as _persistent
 _EDITED_WHILE_AWAY = set()   # object names edited while no Vertex-Lit viewport was running
 
 
+def _vlr_viewport_live():
+    """True if any 3D viewport is currently in Vertex-Lit RENDERED shading."""
+    try:
+        if getattr(bpy.context.scene.render, 'engine', '') != _ENGINE_ID:
+            return False
+        for win in bpy.context.window_manager.windows:
+            for area in win.screen.areas:
+                if area.type != 'VIEW_3D':
+                    continue
+                for sp in area.spaces:
+                    if getattr(sp, 'type', '') == 'VIEW_3D' and \
+                       getattr(getattr(sp, 'shading', None), 'type', '') == 'RENDERED':
+                        return True
+    except Exception:
+        pass
+    return False
+
+
 @_persistent
 def _on_depsgraph_update(scene, depsgraph=None):
     """Record geometry edits that happen while we are NOT the active engine.
@@ -1944,12 +1966,13 @@ def _on_depsgraph_update(scene, depsgraph=None):
     instead this always-on handler notes which objects changed; on re-entry only those are
     re-examined. Cheap: it only records names."""
     try:
-        # While a Vertex-Lit viewport is live, view_update already handles edits, so recording
-        # them here too would grow the set in a long session. Use a TIMESTAMP rather than a
-        # liveness registry: Blender gives the engine no teardown hook, so a stale registry entry
-        # would disable this handler forever and silently reintroduce the lost-edits bug. A
-        # timestamp self-corrects -- if view_update stops running, we start recording again.
-        if (time.time() - _LAST_VIEW_UPDATE[0]) < 2.0:
+        # Only record while NO Vertex-Lit rendered viewport exists (when one does, view_update
+        # already handles edits and recording here would grow the set in a long session).
+        # This asks Blender directly instead of using a timer: the previous 2-second timestamp had
+        # a blind window -- edit in Rendered, switch to Solid, edit within 2s, and that edit was
+        # never recorded (0/6). Querying the screen has no window and still self-corrects (no
+        # registry to go stale, which matters because Blender gives the engine no teardown hook).
+        if _vlr_viewport_live():
             return
         dg = depsgraph if depsgraph is not None else getattr(scene, 'depsgraph', None)
         if dg is None:
@@ -1959,6 +1982,11 @@ def _on_depsgraph_update(scene, depsgraph=None):
             if isinstance(idd, bpy.types.Object):
                 if idd.type == 'MESH' and (upd.is_updated_geometry or upd.is_updated_transform):
                     _EDITED_WHILE_AWAY.add(idd.name)
+                    # also key by its mesh: a scatter SOURCE object is usually not in the scene,
+                    # so the instance path can only ever match on the mesh name.
+                    mn = getattr(getattr(idd, 'data', None), 'name', None)
+                    if mn:
+                        _EDITED_WHILE_AWAY.add('mesh:' + mn)
             elif isinstance(idd, bpy.types.Mesh) and upd.is_updated_geometry:
                 # mesh datablock edits (edit mode, sculpt, paint) -> every object using it
                 nm = getattr(idd, 'name', None)
