@@ -316,6 +316,7 @@ class SplatCloud:
             # One sorter PER ANCHOR: duplicated trees share a single SplatCloud but each instance
             # needs its own key/value textures, or one anchor's sort would overwrite another's
             # cached index (they sort from different local cameras).
+            self._radix = bool(getattr(self, '_radix_pref', False))
             if not hasattr(self, '_gsorts'):
                 self._gsorts = {}
             gs = self._gsorts.get(obj_key)
@@ -323,7 +324,7 @@ class SplatCloud:
                 # Prefer the radix sort (O(N), no power-of-two padding; validated 13-27x less work
                 # than bitonic). If it fails to build/run on this GPU we fall back to bitonic below.
                 gs = None
-                if getattr(self, '_radix', True):
+                if getattr(self, '_radix', False):   # opt-in: bitonic is the measured-faster default
                     try:
                         from . import splat_radix
                         gs = splat_radix.RadixSorter()

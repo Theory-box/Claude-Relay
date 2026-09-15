@@ -23,6 +23,8 @@ _BITS = 4
 _RADIX = 1 << _BITS
 _PASSES = 32 // _BITS
 _GROUP = 256
+_SCAN_CHUNK = 1024      # elements per scan workgroup
+_SCAN_THREADS = 256
 _DBG = True
 
 _AT = "ivec2 at(int i){ return ivec2(i %% IW, i / IW); }\n".replace('%%', '%')
@@ -73,35 +75,75 @@ void main(){
   if(lid<RADIX) imageStore(uCounts, at(lid*uGroups+g), uvec4(lh[lid]));
 }"""
 
-# ── stage 2: exclusive prefix sum over the (small) digit-major counts buffer ──
-# single workgroup, serial-in-shared scan: RADIX*uGroups is small (16 * N/256)
+# ── stage 2: exclusive prefix sum over the digit-major counts (PARALLEL, workgroup scan) ──
+# Previous version ran this in ONE thread looping over RADIX*groups (~62k iterations at 1M, x8
+# passes) -> measured 8-10x slower than bitonic. Now: a Blelloch-style scan in shared memory over
+# SCAN_CHUNK elements per workgroup, plus a small serial pass over per-chunk totals (few hundred
+# entries at most), then each chunk adds its base.
 _SCAN = _AT + """
+shared uint sdata[SCAN_CHUNK];
 void main(){
-  if(gl_GlobalInvocationID.x!=0u) return;       // one thread: the counts buffer is small
-  uint total=0u; int n=RADIX*uGroups;
-  for(int i=0;i<n;i++){
-    uint c=imageLoad(uCounts,at(i)).r;
-    imageStore(uOffsets,at(i),uvec4(total));
-    total+=c;
+  int chunk=int(gl_WorkGroupID.x); int lid=int(gl_LocalInvocationID.x);
+  int n=RADIX*uGroups; int base=chunk*SCAN_CHUNK;
+  // load
+  for(int i=lid;i<SCAN_CHUNK;i+=SCAN_THREADS){
+    int g=base+i; sdata[i] = (g<n) ? imageLoad(uCounts,at(g)).r : 0u;
   }
+  barrier();
+  // inclusive scan in shared memory (Hillis-Steele; SCAN_CHUNK is a power of two)
+  for(int off=1; off<SCAN_CHUNK; off<<=1){
+    for(int i=lid;i<SCAN_CHUNK;i+=SCAN_THREADS){
+      uint v = (i>=off) ? sdata[i-off] : 0u;
+      barrier();
+      sdata[i]+=v;
+      barrier();
+    }
+  }
+  // write exclusive result + this chunk's total
+  for(int i=lid;i<SCAN_CHUNK;i+=SCAN_THREADS){
+    int g=base+i;
+    if(g<n) imageStore(uOffsets,at(g), uvec4(sdata[i]-imageLoad(uCounts,at(g)).r));
+  }
+  if(lid==0) imageStore(uChunkTot, at(chunk), uvec4(sdata[SCAN_CHUNK-1]));
 }"""
 
-# ── stage 3: stable scatter to the destination buffer ──
+# add per-chunk bases (tiny: one thread walks the chunk totals, then a parallel add)
+_SCAN_FIX = _AT + """
+void main(){
+  int i=int(gl_GlobalInvocationID.x); int n=RADIX*uGroups; if(i>=n) return;
+  int chunk=i/SCAN_CHUNK; uint base=0u;
+  for(int c=0;c<chunk;c++) base += imageLoad(uChunkTot,at(c)).r;   // few chunks -> cheap
+  imageStore(uOffsets, at(i), uvec4(imageLoad(uOffsets,at(i)).r + base));
+}"""
+
+# ── stage 3: stable scatter (PARALLEL) ──
+# Previous version used ONE thread per workgroup walking 256 elements serially to keep stability.
+# Now every thread handles its own element and computes its LOCAL RANK (how many earlier elements in
+# this workgroup share its digit) via a shared per-digit bitmask prefix -> same stable order, fully
+# parallel.
 _SCATTER = _AT + """
+shared uint scount[RADIX][GROUP_WORDS];   // per-digit occupancy bitmask for this workgroup
 void main(){
   int g=int(gl_WorkGroupID.x); int lid=int(gl_LocalInvocationID.x);
-  int base=g*GROUP;
-  if(lid!=0) return;                            // serial within the group preserves stability
-  uint cur[RADIX];
-  for(int d=0; d<RADIX; d++) cur[d]=imageLoad(uOffsets,at(d*uGroups+g)).r;
-  for(int j=0; j<GROUP; j++){
-    int i=base+j; if(i>=uN) break;
-    uint k = (uSrc==0) ? imageLoad(uKeyA,at(i)).r : imageLoad(uKeyB,at(i)).r;
-    uint v = (uSrc==0) ? imageLoad(uValA,at(i)).r : imageLoad(uValB,at(i)).r;
-    uint d = (k>>uShift)&(RADIXu-1u);
-    int dst=int(cur[d]); cur[d]+=1u;
-    if(uSrc==0){ imageStore(uKeyB,at(dst),uvec4(k)); imageStore(uValB,at(dst),uvec4(v)); }
-    else       { imageStore(uKeyA,at(dst),uvec4(k)); imageStore(uValA,at(dst),uvec4(v)); }
+  int i=g*GROUP+lid;
+  for(int d=lid; d<RADIX*GROUP_WORDS; d+=GROUP) scount[d/GROUP_WORDS][d%GROUP_WORDS]=0u;
+  barrier();
+  uint k=0u, v=0u, dig=0u; bool active = (i<uN);
+  if(active){
+    k = (uSrc==0) ? imageLoad(uKeyA,at(i)).r : imageLoad(uKeyB,at(i)).r;
+    v = (uSrc==0) ? imageLoad(uValA,at(i)).r : imageLoad(uValB,at(i)).r;
+    dig = (k>>uShift)&(RADIXu-1u);
+    atomicOr(scount[dig][lid/32], 1u<<uint(lid%32));     // mark my slot for my digit
+  }
+  barrier();
+  if(active){
+    // local rank = popcount of earlier bits set for my digit
+    uint rank=0u; int word=lid/32; int bit=lid%32;
+    for(int w=0; w<word; w++) rank += uint(bitCount(scount[dig][w]));
+    rank += uint(bitCount(scount[dig][word] & ((1u<<uint(bit))-1u)));
+    uint dst = imageLoad(uOffsets, at(int(dig)*uGroups+g)).r + rank;
+    if(uSrc==0){ imageStore(uKeyB,at(int(dst)),uvec4(k)); imageStore(uValB,at(int(dst)),uvec4(v)); }
+    else       { imageStore(uKeyA,at(int(dst)),uvec4(k)); imageStore(uValA,at(int(dst)),uvec4(v)); }
   }
 }"""
 
@@ -139,6 +181,9 @@ class RadixSorter:
             self.uValA = _img(bw, bh, 'R32UI'); self.uValB = _img(bw, bh, 'R32UI')
             cw, ch = _dims(_RADIX * self.groups)
             self.uCounts = _img(cw, ch, 'R32UI'); self.uOffsets = _img(cw, ch, 'R32UI')
+            self.nchunks = ( _RADIX*self.groups + _SCAN_CHUNK - 1)//_SCAN_CHUNK
+            tw, th = _dims(max(1, self.nchunks))
+            self.uChunkTot = _img(tw, th, 'R32UI')
             ow, oh = _dims(N)
             self.uOut = _img(ow, oh, 'R32F')
             self.cap = ow * oh
@@ -148,6 +193,8 @@ class RadixSorter:
                 info.local_group_size(local, 1, 1)
                 info.define("IW", str(_IW)); info.define("RADIX", str(_RADIX))
                 info.define("RADIXu", str(_RADIX) + "u"); info.define("GROUP", str(_GROUP))
+                info.define("GROUP_WORDS", str(_GROUP//32))
+                info.define("SCAN_CHUNK", str(_SCAN_CHUNK)); info.define("SCAN_THREADS", str(_SCAN_THREADS))
                 for d, val in extra_defs: info.define(d, val)
                 for nm in names_i: info.push_constant('INT', nm)
                 for slot, (fmt, ityp, nm, q) in enumerate(images):
@@ -155,9 +202,7 @@ class RadixSorter:
                 info.compute_source(src)
                 return gpu.shader.create_from_info(info)
 
-            self.sh_key = mk(_KEYGEN, 64, ('uN','uTW','uBackface'),
-                             [('R32UI','UINT_2D','uKeyA',{'WRITE'}), ('R32UI','UINT_2D','uValA',{'WRITE'})])
-            # keygen also needs the camera + data sampler -> rebuild with those
+            # keygen: needs the camera uniforms + data sampler (built directly, not via mk())
             ik = gpu.types.GPUShaderCreateInfo(); ik.local_group_size(64,1,1)
             ik.define("IW", str(_IW))
             ik.push_constant('VEC3','uCam'); ik.push_constant('VEC3','uFwd'); ik.push_constant('MAT4','uViewProj')
@@ -171,8 +216,11 @@ class RadixSorter:
             self.sh_hist = mk(_HIST, _GROUP, ('uN','uShift','uSrc','uGroups'),
                               [('R32UI','UINT_2D','uKeyA',{'READ'}), ('R32UI','UINT_2D','uKeyB',{'READ'}),
                                ('R32UI','UINT_2D','uCounts',{'WRITE'})])
-            self.sh_scan = mk(_SCAN, 1, ('uGroups',),
-                              [('R32UI','UINT_2D','uCounts',{'READ'}), ('R32UI','UINT_2D','uOffsets',{'WRITE'})])
+            self.sh_scan = mk(_SCAN, _SCAN_THREADS, ('uGroups',),
+                              [('R32UI','UINT_2D','uCounts',{'READ'}), ('R32UI','UINT_2D','uOffsets',{'WRITE'}),
+                               ('R32UI','UINT_2D','uChunkTot',{'WRITE'})])
+            self.sh_scanfix = mk(_SCAN_FIX, 64, ('uGroups',),
+                              [('R32UI','UINT_2D','uOffsets',{'READ','WRITE'}), ('R32UI','UINT_2D','uChunkTot',{'READ'})])
             self.sh_scat = mk(_SCATTER, _GROUP, ('uN','uShift','uSrc','uGroups'),
                               [('R32UI','UINT_2D','uKeyA',{'READ','WRITE'}), ('R32UI','UINT_2D','uKeyB',{'READ','WRITE'}),
                                ('R32UI','UINT_2D','uValA',{'READ','WRITE'}), ('R32UI','UINT_2D','uValB',{'READ','WRITE'}),
@@ -210,9 +258,13 @@ class RadixSorter:
                 gpu.compute.dispatch(s, self.groups, 1, 1)
 
                 s = self.sh_scan; s.bind()
-                s.image('uCounts', self.uCounts); s.image('uOffsets', self.uOffsets)
+                s.image('uCounts', self.uCounts); s.image('uOffsets', self.uOffsets); s.image('uChunkTot', self.uChunkTot)
                 s.uniform_int('uGroups', self.groups)
-                gpu.compute.dispatch(s, 1, 1, 1)
+                gpu.compute.dispatch(s, self.nchunks, 1, 1)
+                s = self.sh_scanfix; s.bind()
+                s.image('uOffsets', self.uOffsets); s.image('uChunkTot', self.uChunkTot)
+                s.uniform_int('uGroups', self.groups)
+                gpu.compute.dispatch(s, (_RADIX*self.groups + 63)//64, 1, 1)
 
                 s = self.sh_scat; s.bind()
                 s.image('uKeyA', self.uKeyA); s.image('uKeyB', self.uKeyB)

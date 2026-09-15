@@ -229,6 +229,7 @@ class VERTEX_LIT_PT_splats(_Base, bpy.types.Panel):
         layout.prop(s, 'splat_compute')
         layout.prop(s, 'splat_backface')
         layout.prop(s, 'splat_gpu_sort')
+        layout.prop(s, 'splat_radix')
         layout.prop(s, 'splat_tile')
         layout.prop(s, 'splat_seed')
         ob = context.active_object
