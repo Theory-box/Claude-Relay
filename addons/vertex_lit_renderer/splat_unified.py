@@ -176,11 +176,11 @@ class UnifiedSorter:
             h = max(u.layer_height() for u in self._uniq)   # shared layer height
             layers = len(self._uniq)                        # one layer per UNIQUE cloud
             # rebuild from each cloud's CPU-side packed data (authoritative, avoids GPU->GPU copies)
-            planes = []
-            for c, _m, _n in entries:
-                # NOTE: SplatCloud has no _packed_data() yet -- the per-cloud packing in
-                # ensure_gpu() must be factored out before this path can be wired up.
-                planes.append(c._packed_data(w, h))
+            # One plane per UNIQUE cloud -- must match `layers` above. Packing per ENTRY instead
+            # produced N planes for a 1-layer texture ("array size does not match"), the build
+            # failed, and the engine silently fell back to per-tree sorting (which is angle
+            # dependent: correct from some yaws, up to ~5% wrong pixels from others).
+            planes = [u._packed_data(w, h) for u in self._uniq]
             data = np.concatenate(planes, axis=0).astype('f4')
             buf = gpu.types.Buffer('FLOAT', w*h*4*layers, data.reshape(-1))
             self.array = gpu.types.GPUTexture((w, h), layers=layers, format='RGBA32F', data=buf)
