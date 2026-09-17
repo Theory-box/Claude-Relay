@@ -33,9 +33,14 @@ duplicates share by evaluated-mesh pointer, content hash only within cheap group
 Azola: geometry on screen 6.09 -> 2.86s, fully loaded 6.69 -> 5.17s, F12 14.6 -> 12.4s, data
 identical to legacy extraction, F12 image identical.
 
-## Current numbers (Azola, 394 objects / 18.6M tris)
-entry (geometry visible) 2.86s | fully loaded 5.17s | re-entry 0.04s | clicks 2.5ms |
-F12 12.4s all 382 objects | 12.26M tris resident | edits 12/12 | scatter 150/150
+## Current numbers (Azola, 394 objects / 18.6M tris) -- v0.16.6, hardware-verified
+geometry on screen 2.76s | fully loaded 4.97s | re-entry 0.05s | clicks 2.5ms |
+F12 12.36s all 382 objects, image identical | edits 12/12 | scatter 150/150 |
+Solid-view edit immediately after leaving Rendered 6/6 (was 0/6) | delayed 6/6 | scatter source pass
+
+RESIDENT TRIANGLES: **12.76M**, not the 12.26M I kept quoting -- that figure was v0.16.4's. The
+geometry-first sharing merges very slightly fewer meshes; the rendered image is identical. Don't
+treat 12.26M as a regression target.
 
 ## Still open (known, not fixed)
 - Objects with no colour attribute get a SNAPSHOT of the material viewport colour at extraction
@@ -47,10 +52,21 @@ F12 12.4s all 382 objects | 12.26M tris resident | edits 12/12 | scatter 150/150
 - Splats are runtime-only (not saved in the .blend).
 - Unified splat path ignores Backface Cull + the compute pre-pass.
 
+## Latent hazard worth remembering (flagged by Claude Code)
+_vlr_viewport_live() references _ENGINE_ID inside a broad try/except. If that name were ever missing
+or renamed, the NameError would be SWALLOWED and the function would always return False. Checked:
+_ENGINE_ID is defined (line ~2288) before use (~2325), and the failure direction is fail-safe -- a
+False result means the handler records edits even while live (the set grows a little), NOT that
+edits are lost. Still: broad try/except around a name lookup hides typos, and this pattern recurs
+throughout the engine.
+
 ## Process notes
 - Version numbers MUST be monotonic across contributors. Claude Code branched from v0.16.4 and
   labelled its build v0.16.5; only engine.py differed, so a straight copy would have silently
   reverted three fixes (two of which it had itself reported). Caught by diffing, not by the number.
+- Two of my stated verification targets were themselves wrong (a stale triangle count, and a
+  runtime-ordering claim I had only checked statically). Claude Code re-derived both. State targets
+  with the version they came from, and mark static-only checks as unverified.
 - My code reading finds structural bugs but NOT cost bugs, and anything I cannot execute (Blender
   API shapes, threading/lifecycle assumptions) is unreliable: across these rounds roughly every fix
   I shipped introduced one new bug -- a gate on a flag that is always true, a memo on an object
