@@ -2288,15 +2288,31 @@ class VertexLitEngine(bpy.types.RenderEngine):
 _ENGINE_ID = 'VERTEX_LIT'
 _patched_panels = []
 
+# Workbench panels in the Render tab whose settings this engine ignores. Showing them made the tab
+# look like it had Workbench's shading options (Studio/MatCap, X-Ray, Depth of Field, samples...)
+# and pushed our own panels far down. Film (Transparent is used by F12), Simplify (changes the
+# evaluated geometry), Performance, Color Management and every Output/Object/Material panel stay.
+_HIDDEN_WORKBENCH_PANELS = {
+    'RENDER_PT_opengl_sampling',
+    'RENDER_PT_opengl_lighting',
+    'RENDER_PT_opengl_color',
+    'RENDER_PT_opengl_options',
+    'RENDER_PT_freestyle',
+    'RENDER_PT_gpencil',
+}
+
 def _compat_panels():
     """Panels a simple non-PBR engine should show: the set Workbench uses
     (incl. the material selector EEVEE_MATERIAL_PT_context_material) plus the
-    node 'surface' panel so node materials are visible/editable in Properties."""
+    node 'surface' panel so node materials are visible/editable in Properties,
+    minus the Workbench-only render settings in _HIDDEN_WORKBENCH_PANELS."""
     extra = {'EEVEE_MATERIAL_PT_surface'}
     out = []
     for p in bpy.types.Panel.__subclasses__():
         ce = getattr(p, 'COMPAT_ENGINES', None)
         if not ce:
+            continue
+        if p.__name__ in _HIDDEN_WORKBENCH_PANELS:
             continue
         if 'BLENDER_WORKBENCH' in ce or p.__name__ in extra:
             out.append(p)
