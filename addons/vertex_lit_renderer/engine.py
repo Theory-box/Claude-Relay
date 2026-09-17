@@ -329,6 +329,298 @@ def _find_base_texture(mat):
             return node.image
     return None
 
+
+def _image_bytes(img):
+    """Cheap load-cost proxy for ordering texture streaming (packed or on-disk file size).
+    Never touches img.size, which would decode the image."""
+    try:
+        pf = img.packed_file
+        if pf is not None:
+            return int(pf.size)
+        p = bpy.path.abspath(img.filepath)
+        return os.path.getsize(p) if p and os.path.exists(p) else 0
+    except Exception:
+        return 0
+
+# ── Geometry-first extraction (v0.16.5) ───────────────────────────────────────
+# One GPU batch per mesh: per-CORNER vertex buffers (position + normal/vertColor/texCoord) and ONE
+# index buffer of triangles sorted by material, so each material slot is a contiguous index range
+# drawn with GPUBatch.draw_range. Vertex data is uploaded exactly once (no per-slot copies; ~2.4x
+# less memory than the per-triangle-corner layout) and textures are NOT loaded here -- they stream
+# in afterwards, smallest first (VertexLitEngine._stream_textures). Expanding the buffers through the
+# ranges reproduces _extract_mesh_data's per-slot arrays exactly (prototype: Azola 394/394 objects).
+_GEO_FAST_OK = hasattr(gpu.types.GPUBatch, 'draw_range') and hasattr(gpu.types.GPUBatch, 'vertbuf_add')
+_KEEP_CPU_ARRAYS = os.environ.get('VLR_KEEP_CPU_ARRAYS') == '1'   # tests: keep normals/UVs/colours on CPU
+_EXTRACT_PROF = {} if os.environ.get('VLR_PROFILE_EXTRACT') == '1' else None   # tests: seconds per stage
+
+
+def _prof(key, t0):
+    if _EXTRACT_PROF is None:
+        return t0
+    t = time.perf_counter()
+    _EXTRACT_PROF[key] = _EXTRACT_PROF.get(key, 0.0) + (t - t0)
+    return t
+_GEO_FORMATS = []
+
+
+def _geo_formats():
+    if not _GEO_FORMATS:
+        fp = gpu.types.GPUVertFormat()
+        fp.attr_add(id='position', comp_type='F32', len=3, fetch_mode='FLOAT')
+        fa = gpu.types.GPUVertFormat()
+        fa.attr_add(id='normal', comp_type='F32', len=3, fetch_mode='FLOAT')
+        fa.attr_add(id='vertColor', comp_type='F32', len=4, fetch_mode='FLOAT')
+        fa.attr_add(id='texCoord', comp_type='F32', len=2, fetch_mode='FLOAT')
+        _GEO_FORMATS.extend((fp, fa))
+    return _GEO_FORMATS
+
+
+class _RangeDraw:
+    """Drop-in for a GPUBatch inside a slot entry: draws one material's index range of a shared batch."""
+    __slots__ = ('batch', 'start', 'count')
+
+    def __init__(self, batch, start, count):
+        self.batch = batch; self.start = start; self.count = count
+
+    def draw(self, shader):
+        self.batch.draw_range(shader, elem_start=self.start, elem_count=self.count)
+
+
+def _slot_material(obj, eval_obj, k):
+    """Material for material index k, resolved exactly like _extract_mesh_data's slots."""
+    m = None
+    try:
+        ms = obj.material_slots
+        if k < len(ms):
+            m = ms[k].material
+    except Exception:
+        m = None
+    if m is None:
+        m = eval_obj.active_material or getattr(obj, 'active_material', None)
+    return m
+
+
+def _geo_share_key(obj, eval_obj, mesh, view_attr):
+    """Linked duplicates share ONE evaluated mesh (same pointer) -> identical geometry, no hashing.
+    Materials are part of the key because meshes without vertex colours carry the slot material's
+    colour in their colour buffer. The share cache is dropped on every depsgraph change."""
+    if mesh is None:
+        return None
+    try:
+        mats = tuple((s.material.name if s.material else '') for s in obj.material_slots)
+        am = getattr(getattr(eval_obj, 'active_material', None), 'name', '')
+        return (mesh.as_pointer(), mats, am, view_attr or '')
+    except Exception:
+        return None
+
+
+def _dup_candidate_key(obj, mesh, view_attr):
+    """Cheap grouping key for objects WITH modifiers: linked duplicates with modifiers each get their
+    own evaluated mesh (different pointer), so only objects sharing this key can possibly be identical.
+    Only groups with more than one member pay for the full content hash (_share_sig)."""
+    try:
+        mods = tuple((m.type, bool(m.show_viewport)) for m in obj.modifiers)
+        mats = tuple((s.material.name if s.material else '') for s in obj.material_slots)
+        base = getattr(getattr(obj, 'data', None), 'name', '')
+        return (base, mods, len(mesh.vertices), len(mesh.polygons), mats, view_attr or '')
+    except Exception:
+        return None
+
+
+def _cheap_sig(obj, mesh):
+    """(mesh name, vert count, poly count, modifier state, None): what the re-entry pre-check reads.
+    Edits are tracked by view_update / _EDITED_WHILE_AWAY, so a cold load needs no buffer hash."""
+    try:
+        mods = tuple((m.type, bool(m.show_viewport)) for m in obj.modifiers)
+        base = getattr(getattr(obj, 'data', None), 'name', '')
+        return (base, len(mesh.vertices), len(mesh.polygons), mods, None)
+    except Exception:
+        return None
+
+
+def _extract_geometry(obj, depsgraph, mesh=None, attr_name=""):
+    """Read the evaluated mesh and upload it ONCE. Returns a cache dict whose 'slots_list' holds one
+    [drawable, material_name, texture] entry per material (texture filled later by streaming), or
+    None. Falls back to the legacy per-slot path on Blender builds without draw_range/vertbuf_add."""
+    if not _GEO_FAST_OK:
+        data = _extract_mesh_data(obj, depsgraph, mesh=mesh, attr_name=attr_name)
+        if data:
+            data['slots_list'] = [list(t) for t in _build_object_slots(data)]
+        return data
+    try:
+        eval_obj = obj.evaluated_get(depsgraph)
+        if mesh is None:
+            mesh = getattr(eval_obj, 'data', None)
+        if mesh is None or not hasattr(mesh, 'loop_triangles'):
+            return None
+        _tp = time.perf_counter() if _EXTRACT_PROF is not None else 0.0
+        mesh.calc_loop_triangles()
+        n_tris = len(mesh.loop_triangles)
+        if n_tris == 0:
+            return None
+        n_verts = len(mesh.vertices); n_loops = len(mesh.loops); n_polys = len(mesh.polygons)
+        _tp = _prof('calc_loop_triangles', _tp)
+        if _EXTRACT_PROF is not None:
+            _EXTRACT_PROF['n_tris'] = _EXTRACT_PROF.get('n_tris', 0) + n_tris
+            _EXTRACT_PROF['n_loops'] = _EXTRACT_PROF.get('n_loops', 0) + n_loops
+
+        li = _raw_corner_tris(mesh, n_tris)
+        cv = _raw_attr(mesh, '.corner_vert', _ct.c_int, 1, n_loops)
+        if li is None or cv is None:
+            li = np.empty(n_tris * 3, dtype=np.int32); mesh.loop_triangles.foreach_get('loops', li)
+            cv = np.empty(n_loops, dtype=np.int32); mesh.loops.foreach_get('vertex_index', cv)
+        cv = np.asarray(cv)
+        vc = _raw_attr(mesh, 'position', _ct.c_float, 3, n_verts)
+        if vc is None:
+            vc = np.empty(n_verts * 3, dtype=np.float32); mesh.vertices.foreach_get('co', vc)
+            vc = vc.reshape(n_verts, 3)
+
+        # Per-triangle material index (same derivation as _extract_mesh_data).
+        pmi_arr = lt_arr = None
+        tri_mi = None
+        if n_polys and 'material_index' in mesh.attributes:
+            try:
+                pmi = _raw_attr(mesh, 'material_index', _ct.c_int, 1, n_polys)
+                if pmi is None:
+                    pmi = np.empty(n_polys, dtype=np.int32)
+                    mesh.attributes['material_index'].data.foreach_get('value', pmi)
+                lt = np.empty(n_polys, dtype=np.int32); mesh.polygons.foreach_get('loop_total', lt)
+                pmi_arr = np.asarray(pmi).astype(np.int32, copy=False); lt_arr = lt
+                tri_mi = np.repeat(pmi_arr, lt_arr - 2)
+                if len(tri_mi) != n_tris:
+                    tri_mi = None
+            except Exception:
+                tri_mi = None
+            if tri_mi is None:
+                tri_mi = np.zeros(n_tris, dtype=np.int32)
+                try: mesh.loop_triangles.foreach_get('material_index', tri_mi)
+                except Exception: pass
+        else:
+            tri_mi = np.zeros(n_tris, dtype=np.int32)
+
+        _tp = _prof('read', _tp)
+        # Triangles grouped by material (original order within a material, as the slices were).
+        tris = np.asarray(li).reshape(n_tris, 3)
+        uniq, counts = np.unique(tri_mi, return_counts=True)
+        if len(uniq) > 1:
+            tris = tris[np.argsort(tri_mi, kind='stable')]
+        idx = np.ascontiguousarray(tris, dtype=np.uint32)        # copy: never alias Blender memory
+        _tp = _prof('sort', _tp)
+        pos = np.ascontiguousarray(vc[cv], dtype=np.float32)     # per-corner positions
+        _tp = _prof('pos_gather', _tp)
+
+        # Per-corner normals (split/custom honoured); vertex normals only as a fallback.
+        try:
+            nrm = np.empty(n_loops * 3, dtype=np.float32)
+            mesh.corner_normals.foreach_get('vector', nrm)
+            nrm = nrm.reshape(n_loops, 3)
+        except Exception:
+            vn = np.empty(n_verts * 3, dtype=np.float32); mesh.vertices.foreach_get('normal', vn)
+            nrm = vn.reshape(n_verts, 3)[cv]
+        _tp = _prof('normals', _tp)
+
+        uv_layer = mesh.uv_layers.active
+        if uv_layer:
+            uv = _raw_attr(mesh, uv_layer.name, _ct.c_float, 2, n_loops)
+            if uv is None:
+                uv = np.empty(n_loops * 2, dtype=np.float32); uv_layer.data.foreach_get('uv', uv)
+                uv = uv.reshape(n_loops, 2)
+            uv = np.ascontiguousarray(uv, dtype=np.float32)
+        else:
+            uv = np.zeros((n_loops, 2), dtype=np.float32)
+
+        _tp = _prof('uv', _tp)
+        # Vertex colours: same attribute choice and "do they vary" rule as _extract_mesh_data.
+        col = None; has_vcol = False
+        try:
+            ca = mesh.color_attributes
+            attr = None
+            if ca:
+                if attr_name:
+                    try: attr = ca.get(attr_name)
+                    except Exception: attr = None
+                if attr is None:
+                    try: attr = ca.active_color
+                    except Exception: attr = None
+                if attr is None and len(ca): attr = ca[0]
+            if attr is not None and getattr(attr, 'data_type', '') in ('FLOAT_COLOR', 'BYTE_COLOR'):
+                m = len(attr.data)
+                carr = np.empty(m * 4, dtype=np.float32)
+                attr.data.foreach_get('color', carr)
+                carr = carr.reshape(m, 4)
+                if attr.domain == 'CORNER':
+                    col = carr
+                elif attr.domain == 'POINT':
+                    col = carr[cv]
+                if col is not None:
+                    has_vcol = (col.shape[0] == n_loops and not np.all(col == col[0]))
+        except Exception:
+            col = None; has_vcol = False
+        ranges = []; names = []; rgba = []; s = 0
+        for k, c in zip(uniq, counts):
+            k = int(k); st = s * 3; cnt = int(c) * 3; s += int(c)
+            m = _slot_material(obj, eval_obj, k)
+            dc = m.diffuse_color if m is not None else (1.0, 1.0, 1.0, 1.0)
+            ranges.append((k, st, cnt)); names.append(m.name if m is not None else None)
+            rgba.append((dc[0], dc[1], dc[2], 1.0))
+        if not has_vcol:
+            # Flat slot colour per corner (what _extract_mesh_data tiles per slot). Corners are stored
+            # face by face, so the per-corner material index is ONE np.repeat -> a small palette gather,
+            # instead of scattering through three indices per triangle.
+            if len(ranges) == 1:
+                col = np.empty((n_loops, 4), dtype=np.float32); col[:] = rgba[0]
+            else:
+                loop_mi = None
+                if pmi_arr is not None and lt_arr is not None and int(uniq.min()) >= 0:
+                    try:
+                        loop_mi = np.repeat(pmi_arr, lt_arr)
+                        if len(loop_mi) != n_loops:
+                            loop_mi = None
+                    except Exception:
+                        loop_mi = None
+                if loop_mi is not None:
+                    pal = np.ones((int(uniq.max()) + 1, 4), dtype=np.float32)
+                    for (k, _st, _cnt), c4 in zip(ranges, rgba):
+                        pal[k] = c4
+                    col = pal[loop_mi]
+                else:
+                    col = np.ones((n_loops, 4), dtype=np.float32)
+                    flat = idx.reshape(-1)
+                    for (k, st, cnt), c4 in zip(ranges, rgba):
+                        col[flat[st:st + cnt]] = c4
+
+        _tp = _prof('colors', _tp)
+        fp, fa = _geo_formats()
+        vbo = gpu.types.GPUVertBuf(fp, n_loops)
+        vbo.attr_fill(id='position', data=pos)
+        vbo2 = gpu.types.GPUVertBuf(fa, n_loops)
+        vbo2.attr_fill(id='normal', data=np.ascontiguousarray(nrm, dtype=np.float32))
+        vbo2.attr_fill(id='vertColor', data=np.ascontiguousarray(col, dtype=np.float32))
+        vbo2.attr_fill(id='texCoord', data=uv)
+        ibo = gpu.types.GPUIndexBuf(type='TRIS', seq=idx)
+        batch = gpu.types.GPUBatch(type='TRIS', buf=vbo, elem=ibo)
+        batch.vertbuf_add(vbo2)
+        slots_list = [[_RangeDraw(batch, st, cnt), nm, None] for (k, st, cnt), nm in zip(ranges, names)]
+
+        _tp = _prof('gpu_build', _tp)
+        vt = np.ascontiguousarray(np.asarray(vc).T)
+        vmin = vt.min(axis=1); vmax = vt.max(axis=1); size = vmax - vmin
+        gen_min = (float(vmin[0]), float(vmin[1]), float(vmin[2]))
+        gen_scale = (1.0/float(size[0]) if size[0] > 1e-9 else 0.0,
+                     1.0/float(size[1]) if size[1] > 1e-9 else 0.0,
+                     1.0/float(size[2]) if size[2] > 1e-9 else 0.0)
+        _tp = _prof('bbox', _tp)
+        data = dict(slots_list=slots_list, ranges=ranges, pos=pos, idx=idx, batch=batch,
+                    vbo=vbo, vbo2=vbo2, ibo=ibo, n_loops=n_loops, n_tris=n_tris,
+                    gen_min=gen_min, gen_scale=gen_scale)
+        if _KEEP_CPU_ARRAYS:
+            data.update(nrm=np.array(nrm, dtype=np.float32), uv=np.array(uv, dtype=np.float32),
+                        col=np.array(col, dtype=np.float32))
+        return data
+    except Exception as e:
+        print(f"[VertexLit] geometry extract error ({obj.name}): {e}")
+        return None
+
 # ── Shadow map ────────────────────────────────────────────────────────────────
 
 class _ShadowMap:
@@ -683,6 +975,9 @@ def _build_object_slots(cached):
 def _build_shadow_batch_from_cache(cached):
     """Build shadow batch from already-extracted vertex data — no extra new_from_object."""
     shader=_get_shadow_shader()
+    if 'vi_map' not in cached and 'idx' in cached:
+        # v0.16.5 geometry-first cache: per-corner positions + the (material-sorted) triangle indices.
+        return batch_for_shader(shader, 'TRIS', {'position': cached['pos']}, indices=cached['idx'])
     positions=cached['vert_co_local']
     vi_map=cached['vi_map']
     indices=np.asarray(vi_map, dtype=np.int32).reshape(-1, 3)   # numpy, not a python loop
@@ -765,6 +1060,7 @@ class VertexLitEngine(bpy.types.RenderEngine):
                 # _force_full already consumed; subsequent passes drain the remaining queue.
                 self._rebuild(depsgraph, vls)
                 _guard += 1
+            self._stream_textures(None)     # F12: every queued texture before drawing
 
             result = self.begin_result(0, 0, w, h)
             rl = result.layers[0].passes["Combined"]
@@ -938,6 +1234,9 @@ class VertexLitEngine(bpy.types.RenderEngine):
                 pass
 
         if changed:
+            # Linked-duplicate sharing keys on evaluated-mesh POINTERS, which are only trustworthy while
+            # nothing changes -> drop the share cache on any change (it only speeds up a load).
+            self._geo_share = {}; self._geo_dup_ck = set()
             self.tag_redraw()
             try: context.region.tag_redraw()
             except Exception: pass
@@ -967,7 +1266,7 @@ class VertexLitEngine(bpy.types.RenderEngine):
         inst_keys=set()
         _va = getattr(self, '_view_attr', '')
         _want_shadow_i = bool(vls and getattr(vls, 'use_shadows', False))
-        _inst_budget_end = time.time() + 0.03
+        _inst_budget_end = time.time() + 0.25   # geometry-first extraction is cheap; a short freeze is fine
         _inst_done = 0
         self._inst_pending = False
         for inst in depsgraph.object_instances:
@@ -1005,10 +1304,11 @@ class VertexLitEngine(bpy.types.RenderEngine):
                     self._geo_pending = True; self._dirty = True
                     self._inst_pending = True   # survives the non-instance loop's else-branch
                     continue              # over budget -> finish next frame (re-iterated)
-                data = _extract_mesh_data(obj, depsgraph, mesh=getattr(obj, 'data', None), attr_name=_va)
+                data = _extract_geometry(obj, depsgraph, mesh=getattr(obj, 'data', None), attr_name=_va)
                 if data:
                     self._mesh_cache[key] = data
-                    self._batch_dict[key] = _build_object_slots(data)
+                    self._batch_dict[key] = data['slots_list']
+                    self._queue_textures(data['slots_list'])
                     _PERSIST_SIG[key] = sig
                     if _want_shadow_i:
                         sb = _build_shadow_batch_from_cache(data)
@@ -1065,6 +1365,10 @@ class VertexLitEngine(bpy.types.RenderEngine):
                 except Exception:
                     self._dirty_objects.add(name)
             _EDITED_WHILE_AWAY.clear()
+            # Textures still missing (the previous engine was closed before streaming finished) -> requeue.
+            for _sl in self._batch_dict.values():
+                if isinstance(_sl, list):
+                    self._queue_textures(_sl)
             self._needs_verify = False
 
         # Re-extract only dirty objects + brand-new objects (no persisted batch).
@@ -1085,7 +1389,9 @@ class VertexLitEngine(bpy.types.RenderEngine):
         # (initial/large load -> load fast), less when it's a small incremental edit
         # (stay responsive). Batch creation must happen on the main thread in view_draw,
         # so this is the main lever for load speed (threading can't move the GPU upload).
-        budget = 0.10 if len(to_do) > 8 else 0.04
+        # v0.16.5: geometry-first extraction loads Azola (394 objects, 12M triangles) in ~1.3 s, so a big
+        # load takes one short freeze instead of many 0.1 s frames that each redraw the partial scene.
+        budget = 1.5 if len(to_do) > 8 else 0.04
         budget_end = time.time() + budget
         remaining = []
         done = 0
@@ -1095,8 +1401,25 @@ class VertexLitEngine(bpy.types.RenderEngine):
         # extractions, entry 5.86s -> 10.77s). It is cleared when the queue finally drains (below),
         # which is what actually prevents the unbounded growth.
         if not hasattr(self, '_geo_share'):
-            self._geo_share = {}   # share sig -> (data, slots, shadow_batch)
+            self._geo_share = {}   # share key -> (data, slots, shadow_batch)
+        if not hasattr(self, '_geo_dup_ck'):
+            self._geo_dup_ck = set()
         va = getattr(self, '_view_attr', '')
+        # Modified linked duplicates can't share by pointer: find cheap-key groups with 2+ members (kept
+        # for the whole load, like _geo_share, so a member in a later streaming pass still hashes).
+        _ck_counts = {}
+        for name in to_do:
+            o_ = current.get(name)
+            if o_ is None or not o_.modifiers:
+                continue
+            try:
+                m_ = getattr(o_.evaluated_get(depsgraph), 'data', None)
+                ck_ = _dup_candidate_key(o_, m_, va) if m_ is not None else None
+            except Exception:
+                ck_ = None
+            if ck_ is not None:
+                _ck_counts[ck_] = _ck_counts.get(ck_, 0) + 1
+        self._geo_dup_ck.update(k for k, c in _ck_counts.items() if c > 1)
         for name in to_do:
             if done > 0 and time.time() > budget_end:
                 remaining.append(name)
@@ -1106,12 +1429,23 @@ class VertexLitEngine(bpy.types.RenderEngine):
             try:
                 eo=obj.evaluated_get(depsgraph); me=getattr(eo,'data',None)
             except Exception:
-                me=None
-            gsig = _geo_sig(obj, me) if me is not None else None
-            ssig = _share_sig(obj, me, va) if me is not None else None
-            shared = self._geo_share.get(ssig) if ssig is not None else None
+                eo=None; me=None
+            gsig = _cheap_sig(obj, me) if me is not None else None   # no buffer hash on the load path
+            skey = _geo_share_key(obj, eo, me, va)
+            shared = self._geo_share.get(skey) if skey is not None else None
+            hkey = None
+            if shared is None and me is not None and obj.modifiers and self._geo_dup_ck:
+                ck = _dup_candidate_key(obj, me, va)
+                if ck is not None and ck in self._geo_dup_ck:
+                    try:
+                        am = getattr(getattr(eo, 'active_material', None), 'name', '')
+                        hkey = ('h', _share_sig(obj, me, va), am)   # content hash + materials (v0.16.4 rule)
+                    except Exception:
+                        hkey = None
+                    if hkey is not None:
+                        shared = self._geo_share.get(hkey)
             if shared is not None:
-                # Identical geometry+materials already extracted (e.g. a linked duplicate) ->
+                # Same evaluated mesh + materials already extracted (a linked duplicate) ->
                 # reuse the SAME batch, no re-extract or re-upload. Instant, so it doesn't
                 # count against the extraction budget; the draw loop draws it per-instance.
                 self._mesh_cache[name]=shared[0]
@@ -1120,17 +1454,20 @@ class VertexLitEngine(bpy.types.RenderEngine):
                     self._shadow_dict[name]=shared[2]
                 _PERSIST_SIG[name]=gsig
                 continue
-            data=_extract_mesh_data(obj,depsgraph,attr_name=va)
+            data=_extract_geometry(obj,depsgraph,attr_name=va)
             if data:
-                slots=_build_object_slots(data)
+                slots=data['slots_list']
                 self._mesh_cache[name]=data
                 self._batch_dict[name]=slots
+                self._queue_textures(slots)
                 sb=None
                 if want_shadow:
                     sb=_build_shadow_batch_from_cache(data)
                     if sb: self._shadow_dict[name]=sb
-                if ssig is not None:
-                    self._geo_share[ssig]=(data, slots, sb)
+                if skey is not None:
+                    self._geo_share[skey]=(data, slots, sb)
+                if hkey is not None:
+                    self._geo_share[hkey]=(data, slots, sb)
                 _PERSIST_SIG[name]=gsig
             done += 1
 
@@ -1155,7 +1492,7 @@ class VertexLitEngine(bpy.types.RenderEngine):
                 # Streaming finished: drop the share cache now. Holding it across edits leaked a
                 # full mesh copy + GPU batches per edit; dropping it only HERE keeps cross-pass
                 # duplicate sharing intact during the load.
-                self._geo_share = {}
+                self._geo_share = {}; self._geo_dup_ck = set()
         self._shadow_dirty=True
         if done or remaining:
             print("[VertexLit] re-extracted {}/{} objs ({:.2f}s){}{}".format(
@@ -1163,6 +1500,50 @@ class VertexLitEngine(bpy.types.RenderEngine):
                 " [full]" if full else "",
                 " (+{} streaming)".format(len(remaining)) if remaining else ""))
 
+
+    # ── Texture streaming (after the geometry is on screen) ───────────────
+
+    def _queue_textures(self, slots_list):
+        """Queue slot base-colour textures; they load after the geometry is on screen."""
+        q = getattr(self, '_tex_queue', None)
+        if q is None:
+            q = self._tex_queue = []
+        for entry in slots_list:
+            if isinstance(entry, list) and entry[2] is None and entry[1]:
+                q.append(entry)
+        if q:
+            self._tex_pending = True
+
+    def _stream_textures(self, budget=0.05):
+        """Load queued slot textures within `budget` seconds (at least one per call; None = all).
+        Smallest image files first, so most of the scene is textured almost immediately and huge
+        images (e.g. 10K reference sheets, ~0.5 s each) arrive last, one per frame."""
+        q = getattr(self, '_tex_queue', None)
+        items = getattr(self, '_tex_items', None)
+        if items is None:
+            items = self._tex_items = []
+        if q:
+            for entry in q:
+                try:
+                    mat = bpy.data.materials.get(entry[1]) if entry[1] else None
+                    img = _find_base_texture(mat)
+                except Exception:
+                    img = None
+                if img is not None:
+                    items.append((_image_bytes(img), id(entry), entry, img))
+            q.clear()
+            items.sort(key=lambda t: (t[0], t[1]), reverse=True)   # pop() from the end = smallest
+        t_end = None if budget is None else time.time() + budget
+        n = 0
+        while items:
+            if t_end is not None and n > 0 and time.time() > t_end:
+                break
+            _sz, _i, entry, img = items.pop()
+            if entry[2] is None:
+                try: entry[2] = _get_gpu_tex(img)
+                except Exception: pass
+            n += 1
+        self._tex_pending = bool(items)
 
     # ── Shadow pass ───────────────────────────────────────────────────────
 
@@ -1721,6 +2102,8 @@ class VertexLitEngine(bpy.types.RenderEngine):
 
         if self._dirty:
             self._rebuild(depsgraph,vls)
+        if not getattr(self, '_geo_pending', False):
+            self._stream_textures(0.05)      # textures stream in once the geometry is complete
 
         sky   =tuple(vls.sky_color)    if vls else (0.05,0.07,0.10)
         ground=tuple(vls.ground_color) if vls else (0.03,0.02,0.02)
@@ -1875,7 +2258,7 @@ class VertexLitEngine(bpy.types.RenderEngine):
                     except Exception:
                         draw_texture_2d(final_tex, (0, 0), rw, rh)   # fallback: linear
                 gpu.state.face_culling_set('NONE')
-                if getattr(self, '_mat_pending', False) or getattr(self, '_geo_pending', False):
+                if getattr(self, '_mat_pending', False) or getattr(self, '_geo_pending', False) or getattr(self, '_tex_pending', False):
                     self.tag_redraw()
                     try: context.region.tag_redraw()
                     except Exception: pass
@@ -1896,7 +2279,7 @@ class VertexLitEngine(bpy.types.RenderEngine):
         gpu.state.face_culling_set('NONE')
         gpu.state.depth_mask_set(False)
         # Materials still compiling -> keep redrawing so they upgrade progressively.
-        if getattr(self, '_mat_pending', False) or getattr(self, '_geo_pending', False):
+        if getattr(self, '_mat_pending', False) or getattr(self, '_geo_pending', False) or getattr(self, '_tex_pending', False):
             self.tag_redraw()
             try: context.region.tag_redraw()
             except Exception: pass
@@ -1966,12 +2349,9 @@ def _on_depsgraph_update(scene, depsgraph=None):
     instead this always-on handler notes which objects changed; on re-entry only those are
     re-examined. Cheap: it only records names."""
     try:
-        # Only record while NO Vertex-Lit rendered viewport exists (when one does, view_update
-        # already handles edits and recording here would grow the set in a long session).
-        # This asks Blender directly instead of using a timer: the previous 2-second timestamp had
-        # a blind window -- edit in Rendered, switch to Solid, edit within 2s, and that edit was
-        # never recorded (0/6). Querying the screen has no window and still self-corrects (no
-        # registry to go stale, which matters because Blender gives the engine no teardown hook).
+        # Only record while NO Vertex-Lit rendered viewport exists. Ask Blender directly rather
+        # than using a timer: a 2-second timestamp guard had a blind window -- edit in Rendered,
+        # switch to Solid, edit within 2s, and that edit was never recorded (measured 0/6).
         if _vlr_viewport_live():
             return
         dg = depsgraph if depsgraph is not None else getattr(scene, 'depsgraph', None)
