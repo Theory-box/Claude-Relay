@@ -476,14 +476,15 @@ def inst_away_test(wait=2.5):
     space.shading.type = 'SOLID'; draw1(); draw1()
     time.sleep(wait)
     m.vertices[interior(len(m.vertices), 1)[0]].co.z += 0.5; m.update(); draw1(); draw1()
-    rec = getattr(E, '_EDITED_WHILE_AWAY', None)
+    _r = getattr(E, '_EDITED_WHILE_AWAY', None)
+    rec = sorted(_r) if _r is not None else None      # snapshot: the engine clears the set on re-entry
     space.shading.type = 'RENDERED'
     n, dt, settled = settle(max_frames=60)
     ok, note = compare(src.name, key=key, mesh=m)
     status['checks']['instance_edit_while_away'] = ok
     log("")
     log("INSTANCED MESH EDIT WHILE AWAY (Solid, after %.1f s; handler recorded %s): %s  (%d frames)  %s"
-        % (wait, sorted(rec)[:6] if rec is not None else None, 'PASS' if ok else 'FAIL', n, note))
+        % (wait, rec[:8] if rec is not None else None, 'PASS' if ok else 'FAIL', n, note))
 
 
 def inst_edit_test():
