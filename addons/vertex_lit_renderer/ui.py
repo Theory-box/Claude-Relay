@@ -226,6 +226,7 @@ class VERTEX_LIT_PT_settings(bpy.types.Panel):
             col = display.column(align=True)
             col.prop(s, 'splat_lit')
             col.prop(s, 'splat_backface')
+            display.prop(s, 'splat_stochastic')
 
         adv = section(body, "VLR_splats_advanced", "Advanced", default_closed=True)
         if adv is not None:

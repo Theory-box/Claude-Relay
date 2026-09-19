@@ -133,6 +133,11 @@ class VertexLitSettings(bpy.types.PropertyGroup):
         description="Use the GPU radix sort instead of bitonic (needs GPU Sort on). Measured ~2.5x faster while the camera moves; falls back to bitonic automatically if it fails to build")
     splat_gpu_sort: bpy.props.BoolProperty(name="GPU Sort (experimental)", default=False,
         description="Sort splats on the GPU instead of the CPU (no CPU cost while orbiting). Keeps the fast hardware blend. Falls back to CPU sort if unsupported")
+    splat_stochastic: bpy.props.BoolProperty(name="Stochastic Splats", default=False,
+        description="Draw splats as many tiny random points instead of sorting and blending them. Much faster "
+                    "with lots of splats (about 2x at 4M, 4-5x at 16M, 6x at 32M) and never mis-orders overlaps. "
+                    "The image is slightly grainy while the view moves, then cleans up over about half a second "
+                    "once it stops. Little or no gain below ~1M splats. Viewport only; F12 still sorts")
     splat_seed: bpy.props.IntProperty(name="Seed", default=0, min=0)
     splat_sigma: bpy.props.FloatProperty(name="Splat Softness", default=2.2, min=1.0, max=4.0)
     normal_space: bpy.props.EnumProperty(

@@ -1164,6 +1164,7 @@ class VertexLitEngine(bpy.types.RenderEngine):
 
     def view_update(self, context, depsgraph):
         self._ensure_state()
+        self._stoch_epoch = getattr(self, '_stoch_epoch', 0) + 1   # scene changed: restart splat refinement
 
         # General rule: react to EVERY change in this depsgraph update, immediately.
         # (No more churn-era throttling — extraction reads the eval mesh directly and no
@@ -1865,6 +1866,25 @@ class VertexLitEngine(bpy.types.RenderEngine):
         gs = bool(getattr(self, '_splat_gpu_sort', False))
         for c in clouds:
             c._gpu_sort = gs; c._radix_pref = bool(getattr(self,"_splat_radix",True))
+        if getattr(self, '_splat_stoch', False) and getattr(self, '_stoch_view', False):
+            # Stochastic points (viewport only): needs the G-buffer's mesh depth to test points against.
+            try:
+                from . import splat_stochastic as SS
+                R = SS.get()
+                gb = getattr(getattr(self, '_post', None), 'gbuf', None)
+                if R is not None and gb is not None and gb.depth is not None:
+                    entries = [(c, Matrix.Identity(4), '') for c in clouds]
+                    for (mw, sid, name) in anchors:
+                        cl = splat_render.SPLAT_CLOUDS.get(sid)
+                        if cl is not None:
+                            entries.append((cl, mw, name))
+                    self._stoch_more = R.render(entries, vm, pm, gb.w, gb.h, wh[0], gb.depth, light=light,
+                                                backface=getattr(self, '_splat_backface', False),
+                                                epoch=getattr(self, '_stoch_epoch', 0))
+                    return
+            except Exception as e:
+                print("[VertexLit] stochastic splats failed -> sorted:", e)
+                self._splat_stoch = False
         if getattr(self, '_splat_tile', False):
             from . import splat_tile as ST
             any_ok = False
@@ -2198,6 +2218,8 @@ class VertexLitEngine(bpy.types.RenderEngine):
         self._splat_radix = bool(vls and getattr(vls, "splat_radix", True))
         self._splat_unified = bool(vls and getattr(vls, "splat_unified", True))
         self._splat_backface = bool(vls and getattr(vls, "splat_backface", False))
+        self._splat_stoch = bool(vls and getattr(vls, "splat_stochastic", False))
+        self._stoch_more = False
         # collect object-anchored splat clouds (Empties with a vlr_splat_id) + their world matrices,
         # so each is drawn at its own transform (selectable, movable, Shift+D duplicatable).
         anchors = []
@@ -2241,7 +2263,11 @@ class VertexLitEngine(bpy.types.RenderEngine):
                     depsgraph, vls, view_proj, rv3d.view_matrix.to_3x3(), proj,
                     rw, rh, wc, studio, ls_mat, sky, ground, bstr, lights,
                     do_shad=do_shad, s_bias=s_bias, s_soft=s_dark, shad_tex=shad_tex)
-                final_tex, sw, sh = post.render(rw, rh, draw_scene, post_ctx, vls, blit=False)
+                self._stoch_view = True          # stochastic splats may use the G-buffer depth
+                try:
+                    final_tex, sw, sh = post.render(rw, rh, draw_scene, post_ctx, vls, blit=False)
+                finally:
+                    self._stoch_view = False
                 # Blit to the viewport THROUGH the scene's colour management (view transform,
                 # look, exposure, gamma) so the viewport matches the F12 render. Depth/Normal
                 # are data passes, not scene-referred colour -> blit them RAW (no tonemap).
@@ -2258,7 +2284,8 @@ class VertexLitEngine(bpy.types.RenderEngine):
                     except Exception:
                         draw_texture_2d(final_tex, (0, 0), rw, rh)   # fallback: linear
                 gpu.state.face_culling_set('NONE')
-                if getattr(self, '_mat_pending', False) or getattr(self, '_geo_pending', False) or getattr(self, '_tex_pending', False):
+                if (getattr(self, '_mat_pending', False) or getattr(self, '_geo_pending', False)
+                        or getattr(self, '_tex_pending', False) or getattr(self, '_stoch_more', False)):
                     self.tag_redraw()
                     try: context.region.tag_redraw()
                     except Exception: pass
