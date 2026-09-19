@@ -34,9 +34,25 @@ Splats-only timings: 4.2–4.8x at 16M and 6x at 32M. These come from `proto_sto
 - Checked on a new scene: stochastic, GPU sort, radix and unified are all True.
 - A scene where these were set by hand keeps its values; files that never changed them pick up the new defaults.
 
-## Found while re-testing: the sorted path is off where trees overlap
-With 4 trees overlapping in view, I built an exact reference: all 4 copies merged into one cloud and drawn with a single sort (correct by construction). Results against that reference:
-- Stochastic, drawing the 4 trees as separate instances: 36.2 dB. That equals stochastic vs sorted when both draw the merged cloud, i.e. the normal gap between the two methods.
-- Sorted, with Unified Sort across the 4 instances: 26.9 dB. Unified Sort off was also about 30 dB vs stochastic.
+## Correction (v0.16.10): there is no sorted-path ordering bug
+v0.16.9 claimed that the sorted path is 26.9 dB off where trees overlap. That was wrong. There were two separate causes:
+1. **The stochastic path drew more splats than the sorted path.** Every sorted path (CPU, bitonic, radix, unified) skips a splat whose **centre** lies outside 1.3x the view. The stochastic path did not. Fixed in v0.16.10.
+2. **The merged-reference experiment disturbed the sorted draw.** Registering the extra (hidden) merged cloud changes the sorted multi-tree image in that run: 26 dB with it, 45.7 dB without. Not investigated further.
 
-Each tree on its own matches at 39–44 dB. So the older sorted multi-instance path has an ordering error where trees overlap, and stochastic does not. The sorted path is not fixed here (stochastic is now the default).
+# v0.16.10: close-ups
+- **Stochastic now uses the sorted paths' 1.3x centre cull.** In close-ups, that cull removes the giant near-camera splats, which sorted never drew. At 16 trees, close-up (1/4 distance):
+  - points: 753M -> 235M per frame;
+  - frame time: 16.5 -> 11.6 ms;
+  - image vs sorted: 7 dB (a full-screen orange wash) -> 45 dB.
+- **Off-screen point skipping ("thinning") is built in, always on, with no toggle.** It is exact: on vs off differs by 70 dB, while off vs off with other random seeds differs by 42 dB. Once the cull is in place it saves only about 1%, so a toggle would be clutter.
+
+| Viewport, orbiting, whole frame | Sorted | Stochastic | Refined vs sorted |
+|---|---|---|---|
+| 1 tree, normal | 2.48 ms | 2.31 ms (1.07x) | 41.4 dB |
+| 4 trees, normal | 5.52 ms | 4.50 ms (1.23x) | 45.7 dB |
+| 16 trees, normal | 26.4 ms | 10.5 ms (2.52x) | 41.2 dB |
+| 1 tree, close-up | 2.95 ms | 4.83 ms (0.61x) | 36.3 dB |
+| 4 trees, close-up | 5.45 ms | 4.55 ms (1.20x) | 51.9 dB |
+| 16 trees, close-up | 24.4 ms | 11.6 ms (2.10x) | 45.1 dB |
+
+Still open: a single tree in close-up is slower than sorted. Its big on-screen splats need many points. The fix would be drawing large splats per pixel instead of as points.

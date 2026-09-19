@@ -131,7 +131,8 @@ def frame_view(anchors):
     win, area, region, rv3d = _view()
     cl = _mod("splat_render").SPLAT_CLOUDS[int(anchors[0]["vlr_splat_id"])]
     lo, hi = bench.splat_bounds([(o, cl) for o in anchors])
-    rv3d.view_location = (lo + hi) * 0.5; rv3d.view_distance = bench.fill_distance(rv3d, lo, hi) * 0.9
+    rv3d.view_location = (lo + hi) * 0.5
+    rv3d.view_distance = bench.fill_distance(rv3d, lo, hi) * 0.9 * float(os.environ.get('VLR_CLOSE', '1'))
     area.spaces.active.clip_end = max(area.spaces.active.clip_end, 1000.0)
     return lo, hi
 
@@ -239,7 +240,7 @@ def run_scene(tree, per_tree, n_trees):
         return r
     R.render = counted
     try:
-        rec['on_ms'] = orbit_ms()
+        rec['on_ms'] = orbit_ms(); rec['on_pts'] = getattr(R, 'last_points', 0)
         n0 = calls['n']
         one = None
         # still view: first frame after a change, then let it refine (the engine tags redraws itself;

@@ -79,7 +79,10 @@ bool project(uint g, out vec2 pm, out vec3 cov, out float depth, out float ndcz,
   vec3 ic = (M * vec4(icL, 1.0)).xyz;
   vec3 dp = ic - uCam; vec3 t = vec3(dot(uR0, dp), dot(uR1, dp), dot(uR2, dp));
   vec4 clipC = uViewProj * vec4(ic, 1.0);
-  if (t.z < 0.02 || clipC.w <= 0.0 || op <= 0.0) return false;
+  if (t.z < 0.02 || clipC.w <= 1e-4 || op <= 0.0) return false;
+  // the sorted paths' visibility rule (splat_radix / splat_gpusort / splat_unified keygen): a splat whose CENTRE is
+  // outside 1.3x the view is not drawn. Keeps the same splat set -- notably the huge near-camera ones.
+  if (abs(clipC.x / clipC.w) >= 1.3 || abs(clipC.y / clipC.w) >= 1.3) return false;
   float w = iq.x, x = iq.y, y = iq.z, z = iq.w;
   vec3 l0 = vec3(1.0-2.0*(y*y+z*z), 2.0*(x*y+w*z), 2.0*(x*z-w*y));
   vec3 l1v = vec3(2.0*(x*y-w*z), 1.0-2.0*(x*x+z*z), 2.0*(y*z+w*x));
@@ -106,6 +109,30 @@ bool project(uint g, out vec2 pm, out vec3 cov, out float depth, out float ndcz,
   vec2 e2 = vec2(-e1.y, e1.x); vec2 ext = abs(e1) * r1 + abs(e2) * r2;
   if (pm.x + ext.x < 0.0 || pm.y + ext.y < 0.0 || pm.x - ext.x > uVP.x || pm.y - ext.y > uVP.y) return false;
   return true; }
+float splat_lambda(vec3 cov, float op){           // expected points of the whole splat (unbiased variant)
+  float det = cov.x*cov.z - cov.y*cov.y;
+  return det > 0.0 ? 6.28318530718 * sqrt(det) * dilog(min(op, 1.0)) : 0.0; }
+// Off-screen skipping ("thinning", exact). A splat's points form a Poisson process with intensity
+//   Lam(x) = -log(1 - op * exp(-0.5 x^T cov^-1 x))  points per sample px^2  (its integral is splat_lambda).
+// Restricted to B = the on-screen part of the splat's bound, the SAME process is: Poisson(Lmax * |B|) uniform
+// candidates in B, each kept with probability Lam(x) / Lmax, for any Lmax >= Lam on B. Points outside B are
+// rejected later anyway (off-screen / outside the quad), so the image statistics are unchanged; only the work
+// for the parts off-screen disappears. Used per splat only when it is cheaper than the normal sampling.
+bool thin_setup(vec2 pm, vec3 cov, float op, vec2 e1, float r1, float r2, float lam,
+                out vec2 b0, out vec2 b1, out float lmax, out float nexp){
+  b0 = vec2(0.0); b1 = vec2(0.0); lmax = 0.0; nexp = 0.0;
+  if (uThin == 0 || op >= 0.999) return false;
+  vec2 e2 = vec2(-e1.y, e1.x); vec2 ext = abs(e1) * r1 + abs(e2) * r2;
+  b0 = max(pm - ext - 1.0, vec2(0.0)); b1 = min(pm + ext + 1.0, uVP);   // +1: a point's pixel centre decides
+  if (b1.x <= b0.x || b1.y <= b0.y) return false;
+  vec2 q = clamp(pm, b0, b1) - pm;
+  float tr = cov.x + cov.z, det = cov.x*cov.z - cov.y*cov.y;
+  float lbig = 0.5*tr + sqrt(max(0.25*tr*tr - det, 0.0));
+  float m2 = dot(q, q) / max(lbig, 1e-12);                             // <= Mahalanobis^2 of any point of B
+  lmax = -log(max(1.0 - op * exp(-0.5 * m2), 1e-30));
+  nexp = lmax * (b1.x - b0.x) * (b1.y - b0.y);
+  return nexp < 0.75 * lam;
+}
 """
 
 _PREPROCESS = _COMMON + r"""
@@ -114,9 +141,10 @@ void main(){
   uint units = 0u;
   vec2 pm; vec3 cov; float depth, ndcz, op; vec2 e1; float r1, r2;
   if (project(g, pm, cov, depth, ndcz, op, e1, r1, r2)) {
-    float det = cov.x*cov.z - cov.y*cov.y;
-    if (det > 0.0) {
-      float lam = 6.28318530718 * sqrt(det) * dilog(min(op, 1.0));   // expected points (unbiased variant)
+    float lam = splat_lambda(cov, op);
+    if (lam > 0.0) {
+      vec2 b0, b1; float lmax, nexp;
+      if (thin_setup(pm, cov, op, e1, r1, r2, lam, b0, b1, lmax, nexp)) lam = nexp;   // on-screen candidates
       uvec2 st = makeSeed(g + uint(uBase), uint(uFrame) * 4u);
       uint n = poisson(st, lam);
       n = min(n, uint(uVP.x * uVP.y) / (2u * uint(uK)));
@@ -139,10 +167,19 @@ void main(){
   float det = cov.x*cov.z - cov.y*cov.y; vec3 con = vec3(cov.z, -cov.y, cov.x) / det; vec2 e2 = vec2(-e1.y, e1.x);
   uvec2 st = makeSeed(hash32(g + uint(uBase)) ^ (j * 0x9E3779B9u), uint(uFrame) * 4u + 1u);  // same in A and B
   uint gid = g + uint(uBase);
+  vec2 b0, b1; float lmax, nexp;
+  bool th = thin_setup(pm, cov, op, e1, r1, r2, splat_lambda(cov, op), b0, b1, lmax, nexp);
   for (int p = 0; p < uK; p++) {
-    vec2 r = pcg2d(st);
-    vec2 xy = correctedBoxMuller(r.x, r.y, op);
-    ivec2 pix = ivec2(floor(vec2(pm.x + c0*xy.x, pm.y + c1*xy.x + c2*xy.y)));
+    vec2 r = pcg2d(st); vec2 pos;
+    if (th) {                                   // uniform candidate in B, kept with probability Lam/Lmax
+      pos = b0 + r * (b1 - b0);
+      vec2 dd = pos - pm; float qd = con.x*dd.x*dd.x + con.z*dd.y*dd.y + 2.0*con.y*dd.x*dd.y;
+      if (pcg2d(st).x * lmax >= -log(max(1.0 - op * exp(-0.5 * qd), 1e-30))) continue;
+    } else {
+      vec2 xy = correctedBoxMuller(r.x, r.y, op);
+      pos = vec2(pm.x + c0*xy.x, pm.y + c1*xy.x + c2*xy.y);
+    }
+    ivec2 pix = ivec2(floor(pos));
     if (pix.x < 0 || pix.y < 0 || pix.x >= int(uVP.x) || pix.y >= int(uVP.y)) continue;
     vec2 d = (vec2(pix) + 0.5) - pm;
     if (abs(dot(d, e1)) > r1 || abs(dot(d, e2)) > r2) continue;            // the raster quad's rectangle
@@ -298,7 +335,7 @@ class StochasticRenderer:
     PC = [('MAT4', 'uViewProj'), ('VEC3', 'uCam'), ('VEC3', 'uR0'), ('VEC3', 'uR1'), ('VEC3', 'uR2'),
           ('VEC2', 'uF'), ('VEC2', 'uVP'), ('FLOAT', 'uSigma'), ('FLOAT', 'uBlur'), ('FLOAT', 'uCut'),
           ('INT', 'uN'), ('INT', 'uG'), ('INT', 'uBase'), ('INT', 'uFrame'), ('INT', 'uK'), ('INT', 'uUnits'),
-          ('INT', 'uSS'), ('INT', 'uBackface'), ('MAT4', 'uModels', MAX_INST), ('VEC4', 'uCamL', MAX_INST)]
+          ('INT', 'uSS'), ('INT', 'uBackface'), ('INT', 'uThin'), ('MAT4', 'uModels', MAX_INST), ('VEC4', 'uCamL', MAX_INST)]
     LIGHT_PC = [('INT', 'uLit'), ('VEC3', 'uSkyColor'), ('VEC3', 'uGroundColor'), ('FLOAT', 'uHemiIntensity'),
                 ('VEC3', 'uSunDir'), ('VEC3', 'uSunColor'), ('FLOAT', 'uSunIntensity'),
                 ('VEC3', 'uKeyDir'), ('VEC3', 'uKeyCol'), ('FLOAT', 'uKeyIntensity')]
@@ -361,6 +398,7 @@ class StochasticRenderer:
         f('uSigma', float(getattr(cloud, 'sigma', 2.2))); f('uBlur', st['blur']); f('uCut', 0.004)
         i('uN', int(cloud.d['count'])); i('uG', G); i('uBase', base); i('uFrame', self.frame_no); i('uK', st['K'])
         i('uUnits', units); i('uSS', st['ss']); i('uBackface', 1 if st['backface'] else 0)
+        i('uThin', 1 if st['thin'] else 0)
         flat = [v for M in models for col in zip(*[tuple(r) for r in M]) for v in col]
         flat += [0.0] * (16 * MAX_INST - len(flat))
         try: s.uniform_vector_float(s.uniform_from_name('uModels'), gpu.types.Buffer('FLOAT', len(flat), flat), 16, MAX_INST)
@@ -388,7 +426,7 @@ class StochasticRenderer:
         return levels[-1][0]
 
     # ── main entry ──
-    def render(self, entries, vm, pm, W, H, region_w, mesh_depth, light=None, backface=False, epoch=0):
+    def render(self, entries, vm, pm, W, H, region_w, mesh_depth, light=None, backface=False, epoch=0, thin=True):
         """Draw `entries` [(cloud, world matrix, name)] into the bound framebuffer (W x H, whose depth
         texture is `mesh_depth`). Returns True when more refinement frames are wanted (caller redraws)."""
         if not entries:
@@ -410,7 +448,7 @@ class StochasticRenderer:
                                               (light[k] if hasattr(light[k], '__len__') else (light[k],)))
         key = (tuple(round(v, 6) for r in vm for v in r), tuple(round(v, 6) for r in pm for v in r), W, H, ss,
                tuple((b[0], b[1], tuple(round(v, 6) for M in b[3] for r in M for v in r)) for b in batches),
-               tuple(float(getattr(b[2], 'sigma', 2.2)) for b in batches), lk, bool(backface), epoch)
+               tuple(float(getattr(b[2], 'sigma', 2.2)) for b in batches), lk, bool(backface), bool(thin), epoch)
         reset = key != self.key
         self.key = key
         if reset:
@@ -424,12 +462,12 @@ class StochasticRenderer:
         st = {'vp': pm @ vm, 'cam': cam, 'r0': Vector(vm[0][:3]), 'r1': Vector(vm[1][:3]), 'r2': -Vector(vm[2][:3]),
               'f': (0.5 * self.SW * pm[0][0], 0.5 * self.SH * pm[1][1]),
               'blur': 0.3 * (self.SW / float(max(region_w, 1))) ** 2,   # the sorted path's 0.3 px^2 (region px)
-              'K': ss * ss, 'ss': ss, 'backface': backface, 'mesh_depth': mesh_depth}
+              'K': ss * ss, 'ss': ss, 'backface': backface, 'thin': bool(thin), 'mesh_depth': mesh_depth}
         s = self.sh_clear; s.bind(); s.image('uDepth', self.depth); s.image('uId', self.ids)
         s.uniform_int('uSW', self.SW); s.uniform_int('uSH', self.SH)
         gpu.compute.dispatch(s, (self.SW + 15) // 16, (self.SH + 15) // 16, 1)
         # preprocess + pass A for every batch (global nearest depth), then pass B (ids)
-        work = []; base = 0
+        work = []; base = 0; self.last_points = 0
         for cid, c0, cloud, ms in batches:
             N = int(cloud.d['count']); G = N * len(ms)
             bt = self.batches.get((cid, c0))
@@ -439,7 +477,7 @@ class StochasticRenderer:
             camls = [M.inverted() @ cam for M in ms]
             s = self.sh_pre; s.bind(); self._uniforms(s, st, cloud, ms, camls, G, base); s.image('uCounts', bt.counts)
             gx, gy = _groups1d(G); gpu.compute.dispatch(s, gx, gy, 1)
-            units = _read_first_u32(self._scan(bt, G))
+            units = _read_first_u32(self._scan(bt, G)); self.last_points += units * st['K']
             if units > 0:
                 self._pass(self.sh_a, st, cloud, ms, camls, G, base, units, bt)
             work.append((cloud, ms, camls, G, base, units, bt))
