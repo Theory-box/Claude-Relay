@@ -28,3 +28,15 @@ Splats-only timings: 4.2–4.8x at 16M and 6x at 32M. These come from `proto_sto
 - Stochastic splats do not write depth for AO, and they don't feed cavity normals (cavity still draws sorted normals).
 - F12 is unchanged.
 - Very close-up views, where splats cover most of the screen, gain less (about 3.5x at 32M).
+
+# v0.16.9: defaults
+- **Stochastic Splats** and **GPU Sort** now default to on. **Radix Sort** was already on by default.
+- Checked on a new scene: stochastic, GPU sort, radix and unified are all True.
+- A scene where these were set by hand keeps its values; files that never changed them pick up the new defaults.
+
+## Found while re-testing: the sorted path is off where trees overlap
+With 4 trees overlapping in view, I built an exact reference: all 4 copies merged into one cloud and drawn with a single sort (correct by construction). Results against that reference:
+- Stochastic, drawing the 4 trees as separate instances: 36.2 dB. That equals stochastic vs sorted when both draw the merged cloud, i.e. the normal gap between the two methods.
+- Sorted, with Unified Sort across the 4 instances: 26.9 dB. Unified Sort off was also about 30 dB vs stochastic.
+
+Each tree on its own matches at 39–44 dB. So the older sorted multi-instance path has an ordering error where trees overlap, and stochastic does not. The sorted path is not fixed here (stochastic is now the default).

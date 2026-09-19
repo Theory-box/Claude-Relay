@@ -131,9 +131,9 @@ class VertexLitSettings(bpy.types.PropertyGroup):
         description="Sort all splat clouds together into one global depth order so overlapping trees blend correctly. Falls back to per-cloud sorting if unavailable")
     splat_radix: bpy.props.BoolProperty(name="Radix Sort", default=True,
         description="Use the GPU radix sort instead of bitonic (needs GPU Sort on). Measured ~2.5x faster while the camera moves; falls back to bitonic automatically if it fails to build")
-    splat_gpu_sort: bpy.props.BoolProperty(name="GPU Sort (experimental)", default=False,
+    splat_gpu_sort: bpy.props.BoolProperty(name="GPU Sort (experimental)", default=True,
         description="Sort splats on the GPU instead of the CPU (no CPU cost while orbiting). Keeps the fast hardware blend. Falls back to CPU sort if unsupported")
-    splat_stochastic: bpy.props.BoolProperty(name="Stochastic Splats", default=False,
+    splat_stochastic: bpy.props.BoolProperty(name="Stochastic Splats", default=True,
         description="Draw splats as many tiny random points instead of sorting and blending them. Much faster "
                     "with lots of splats (about 2x at 4M, 4-5x at 16M, 6x at 32M) and never mis-orders overlaps. "
                     "The image is slightly grainy while the view moves, then cleans up over about half a second "

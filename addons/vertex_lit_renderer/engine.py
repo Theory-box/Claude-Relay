@@ -2214,11 +2214,11 @@ class VertexLitEngine(bpy.types.RenderEngine):
         self._splat_need_depth = bool(vls and getattr(vls, 'use_ao', False))
         self._splat_use_compute = bool(vls and getattr(vls, 'splat_compute', False))
         self._splat_tile = bool(vls and getattr(vls, "splat_tile", False))
-        self._splat_gpu_sort = bool(vls and getattr(vls, "splat_gpu_sort", False))
+        self._splat_gpu_sort = bool(vls and getattr(vls, "splat_gpu_sort", True))
         self._splat_radix = bool(vls and getattr(vls, "splat_radix", True))
         self._splat_unified = bool(vls and getattr(vls, "splat_unified", True))
         self._splat_backface = bool(vls and getattr(vls, "splat_backface", False))
-        self._splat_stoch = bool(vls and getattr(vls, "splat_stochastic", False))
+        self._splat_stoch = bool(vls and getattr(vls, "splat_stochastic", True))
         self._stoch_more = False
         # collect object-anchored splat clouds (Empties with a vlr_splat_id) + their world matrices,
         # so each is drawn at its own transform (selectable, movable, Shift+D duplicatable).

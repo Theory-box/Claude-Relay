@@ -164,6 +164,28 @@ def cube_mask(cube):
     return np.abs(a - np.array(wc)[None, None, :3]).max(axis=2) > 0.02
 
 
+def merged_cloud(anchors, anchor, cloud):
+    """Reference: every anchor's copy of `cloud` baked into ONE cloud in the source anchor's local frame
+    (position, orientation AND uniform scale applied to the splats) -> one global sort, correct by construction."""
+    d = cloud.d; A_inv = anchor.matrix_world.inverted()
+    xs, qs, ss = [], [], []
+    for o, _c in anchors:
+        loc, rot, sca = (A_inv @ o.matrix_world).decompose()
+        R = np.array(rot.to_matrix(), 'f8'); s = float(sca.x)
+        xs.append((s * (d['xyz'].astype('f8') @ R.T) + np.array(loc, 'f8')).astype('f4'))
+        qw, qx, qy, qz = rot.w, rot.x, rot.y, rot.z
+        q = d['quat'].astype('f8'); w2, x2, y2, z2 = q[:, 0], q[:, 1], q[:, 2], q[:, 3]
+        qs.append(np.stack([qw*w2 - qx*x2 - qy*y2 - qz*z2,
+                            qw*x2 + qx*w2 + qy*z2 - qz*y2,
+                            qw*y2 - qx*z2 + qy*w2 + qz*x2,
+                            qw*z2 + qx*y2 - qy*x2 + qz*w2], 1).astype('f4'))
+        ss.append((d['scale'] * s).astype('f4'))
+    n = len(anchors)
+    return dict(count=int(d['count']) * n, xyz=np.concatenate(xs), quat=np.concatenate(qs),
+                scale=np.concatenate(ss), color=np.concatenate([d['color']] * n),
+                opacity=np.concatenate([d['opacity']] * n))
+
+
 def run_scene(tree, per_tree, n_trees):
     vls = bpy.context.scene.vertex_lit
     SS = _mod('splat_stochastic')
@@ -174,7 +196,27 @@ def run_scene(tree, per_tree, n_trees):
     tag = '%dx%dk' % (n_trees, per_tree // 1000)
     log(''); log('=' * 90); log('SCENE %d x %d = %.1fM splats' % (n_trees, per_tree, n_trees * per_tree / 1e6)); log('=' * 90)
     lo, hi = frame_view(anchors)
+    keep = os.environ.get('VLR_ONLY')
+    if keep is not None:                      # diagnostics: same framing, only anchor #keep visible
+        for k, o in enumerate(anchors):
+            o.hide_set(k != int(keep))
     cube = add_cube(lo, hi)
+    merged_ref = None
+    if os.environ.get('VLR_MERGED') == '1' and len(anchors) > 1:
+        sr = _mod('splat_render'); cl = sr.SPLAT_CLOUDS[int(anchor['vlr_splat_id'])]
+        mid = sr.register_cloud(merged_cloud([(o, cl) for o in anchors], anchor, cl), cl.sigma)
+        me = bpy.data.objects.new('stoch_test_merged', None); me['vlr_splat_id'] = mid
+        me.matrix_world = anchor.matrix_world.copy(); bpy.context.scene.collection.objects.link(me)
+        for o in anchors: o.hide_set(True)
+        vls.splat_stochastic = False; draws(4)
+        merged_ref = shot('merged_sorted_%s.png' % tag)
+        vls.splat_stochastic = True; R0 = SS.get(); R0.key = None
+        for i in range(40): draws(1)
+        merged_st = shot('merged_stoch_%s.png' % tag)
+        me.hide_set(True)
+        for o in anchors: o.hide_set(False)
+        vls.splat_stochastic = False; draws(3)
+        log('  MERGED single-cloud reference: stochastic(merged) vs sorted(merged) %.1f dB' % psnr(merged_st, merged_ref))
     rec = {'scene': tag}
     mask = cube_mask(cube)
     log('  cube covers %.1f%% of the view' % (100 * float(mask.mean())))
@@ -222,6 +264,9 @@ def run_scene(tree, per_tree, n_trees):
         R.render = orig
         vls.splat_stochastic = False
     notmask = ~mask
+    if merged_ref is not None:
+        log('  vs MERGED reference: sorted(instances) %.1f dB | stochastic(instances, refined) %.1f dB'
+            % (psnr(ref, merged_ref), psnr(conv, merged_ref)))
     rec['psnr_1'] = psnr(one, ref); rec['psnr_ref'] = psnr(conv, ref)
     rec['psnr_cube'] = psnr(conv, ref, mask) if mask.any() else None
     rec['diff_mean'] = float(np.abs(conv - ref).max(axis=2).mean())
@@ -259,7 +304,7 @@ def run():
         area.spaces.active.shading.type = 'RENDERED'; rv3d.view_perspective = 'PERSP'
         ov = area.spaces.active.overlay; ov.show_overlays = False
         rv3d.view_rotation = Euler((math.radians(72), 0.0, math.radians(20))).to_quaternion()
-        vls.splat_gpu_sort = True; vls.splat_radix = True; vls.splat_unified = True
+        vls.splat_gpu_sort = True; vls.splat_radix = True; vls.splat_unified = os.environ.get('VLR_UNIFIED', '1') == '1'
         log('  viewport %dx%d, sorted path = GPU radix sort + unified' % (region.width, region.height))
         install_grabber()
         for per_tree, n in SCENES:
