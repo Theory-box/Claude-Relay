@@ -1110,6 +1110,7 @@ class VertexLitEngine(bpy.types.RenderEngine):
                         draw_scene, post_ctx = self._make_post_ctx(
                             depsgraph, vls, view_proj, view_mat3, proj, w, h, wc,
                             studio, Matrix.Identity(4), sky, ground, 1.0, self._lights_cache)
+                        post_ctx['ao_full'] = True      # single shot: no frames to accumulate over
                         final_tex, sw, sh = post.render(w, h, draw_scene, post_ctx, vls, blit=False)
                         # Read the pipeline's final texture straight out (it may be at a
                         # supersampled sw x sh; downscale to w x h below).
@@ -1700,6 +1701,13 @@ class VertexLitEngine(bpy.types.RenderEngine):
                 try: batch.draw(sh)
                 except Exception: pass
 
+    def _aux_frame_uniforms(self, sh):
+        """Uniforms for the G-buffer aux outputs (view normal + object id) of the main pass."""
+        try: sh.uniform_float('uViewMat3', getattr(self, '_view_mat3', None) or Matrix.Identity(3))
+        except Exception: pass
+        try: sh.uniform_float('uAuxA', 1.0)
+        except Exception: pass
+
     def _draw_batches(self, depsgraph, vls, view_proj, studio, ls_mat, sky, ground,
                       bstr, do_shad, s_bias, s_dark, shad_tex, lights, mode):
         legacy=_get_main_shader(mode)
@@ -1717,6 +1725,7 @@ class VertexLitEngine(bpy.types.RenderEngine):
             if id(sh) not in frame_done:
                 self._apply_frame_uniforms(sh, view_proj, ls_mat, sky, ground, bstr,
                                            do_shad, s_bias, s_dark, shad_tex, lights, studio)
+                self._aux_frame_uniforms(sh)
                 frame_done.add(id(sh))
 
         gpu.state.depth_test_set('LESS_EQUAL')
@@ -1758,10 +1767,16 @@ class VertexLitEngine(bpy.types.RenderEngine):
 
         transparent = []   # (sort_depth, draw_fn) for a back-to-front blended pass
 
-        def _draw_one(prog, mat, batch, tex, model, nmat, gmin, gsc, oname):
+        aux_a = [1.0]          # 0.0 in the blended pass -> aux targets keep the opaque surface
+        aux_on = bool(getattr(self, '_aux_active', False))
+
+        def _draw_one(prog, mat, batch, tex, model, nmat, gmin, gsc, oname, objid=(0.0, 0.0, 0.0)):
             if prog is not None:
                 sh=prog['shader']
                 _ensure_frame(sh)
+                if aux_on:
+                    try: sh.uniform_float('uObjId', objid); sh.uniform_float('uAuxA', aux_a[0])
+                    except Exception: pass
                 if id(sh) not in params_done:
                     nt=mat.node_tree if mat else None
                     for p in prog['params']:
@@ -1782,6 +1797,9 @@ class VertexLitEngine(bpy.types.RenderEngine):
                     self._batch_dict.pop(oname, None); self._dirty_objects.add(oname); self._dirty=True
             else:
                 _ensure_frame(legacy)
+                if aux_on:
+                    try: legacy.uniform_float('uObjId', objid); legacy.uniform_float('uAuxA', aux_a[0])
+                    except Exception: pass
                 legacy.uniform_float('uModel',model)
                 legacy.uniform_float('uNormalMat',nmat)
                 try: legacy.uniform_float('uGenMin',gmin); legacy.uniform_float('uGenScale',gsc)
@@ -1792,12 +1810,20 @@ class VertexLitEngine(bpy.types.RenderEngine):
                 except Exception:
                     self._batch_dict.pop(oname, None); self._dirty_objects.add(oname); self._dirty=True
 
-        for inst in depsgraph.object_instances:
+        obj_idx = 0
+        for inst in depsgraph.object_instances:   # id numbering must match the old id pass
             obj=inst.object
             if obj.type!='MESH': continue
             if not inst.show_self: continue
             slots=self._batch_dict.get(_draw_key(inst))
             if not slots: continue
+            obj_idx += 1
+            objid = (0.0, 0.0, 0.0)
+            if aux_on:
+                if getattr(obj, 'vlr_outline_exclude', False):
+                    objid = (1.0, 1.0, 1.0)
+                else:
+                    objid = ((obj_idx & 0xFF)/255.0, ((obj_idx >> 8) & 0xFF)/255.0, ((obj_idx >> 16) & 0xFF)/255.0)
             cached=self._mesh_cache.get(_draw_key(inst))
             gmin=cached.get('gen_min',(0.0,0.0,0.0)) if cached else (0.0,0.0,0.0)
             gsc =cached.get('gen_scale',(1.0,1.0,1.0)) if cached else (1.0,1.0,1.0)
@@ -1825,9 +1851,9 @@ class VertexLitEngine(bpy.types.RenderEngine):
                         d = clip.z / clip.w if abs(clip.w) > 1e-6 else 0.0
                     except Exception:
                         d = 0.0
-                    transparent.append((d, (prog, mat, batch, tex, model, normal_mat, gmin, gsc, obj.name)))
+                    transparent.append((d, (prog, mat, batch, tex, model, normal_mat, gmin, gsc, obj.name, objid)))
                 else:
-                    _draw_one(prog, mat, batch, tex, model, normal_mat, gmin, gsc, obj.name)
+                    _draw_one(prog, mat, batch, tex, model, normal_mat, gmin, gsc, obj.name, objid)
 
         # Transparent pass: farthest first, alpha blend, no depth write (still tested).
         if transparent:
@@ -1840,8 +1866,10 @@ class VertexLitEngine(bpy.types.RenderEngine):
             _mask_a = getattr(self, '_film_transparent', False)
             if _mask_a:
                 gpu.state.color_mask_set(True, True, True, False)
+            aux_a[0] = 0.0          # alpha 0 + ALPHA blending leaves normal/id untouched
             for _d, args in transparent:
                 _draw_one(*args)
+            aux_a[0] = 1.0
             if _mask_a:
                 gpu.state.color_mask_set(True, True, True, True)
             gpu.state.blend_set('NONE')
@@ -2013,8 +2041,14 @@ class VertexLitEngine(bpy.types.RenderEngine):
                             try: b.draw(sh)
                             except Exception: pass
 
+        # The main pass writes the view-normal and object-id buffers as extra render targets
+        # (see shaders.AUX_CHUNK), so neither needs its own full re-draw of the scene. Splats are
+        # not part of that pass, so their normals are still drawn -- onto the same buffer.
+        want_aux = bool(vls and (getattr(vls, 'use_outline', False) or getattr(vls, 'use_cavity', False)))
+        self._aux_active = want_aux
+
         ids_cb = None
-        if vls and (getattr(vls, 'use_outline', False) or getattr(vls, 'use_cavity', False)):
+        if (not want_aux) and vls and (getattr(vls, 'use_outline', False) or getattr(vls, 'use_cavity', False)):
             def ids_cb():
                 sh = _get_id_shader(); sh.bind()
                 try: sh.uniform_float('uViewProj', view_proj)
@@ -2040,8 +2074,13 @@ class VertexLitEngine(bpy.types.RenderEngine):
                         except Exception: pass
                     idx += 1
 
+        splat_normals_cb = None
+        if want_aux and vls and getattr(vls, 'use_cavity', False):
+            def splat_normals_cb():
+                self._draw_splat_normals(view_mat3)
+
         normals_cb = None
-        if vls and getattr(vls, 'use_cavity', False):
+        if (not want_aux) and vls and getattr(vls, 'use_cavity', False):
             def normals_cb():
                 sh = _get_normal_shader(); sh.bind()
                 try:
@@ -2066,13 +2105,23 @@ class VertexLitEngine(bpy.types.RenderEngine):
                         except Exception: pass
                 self._draw_splat_normals(view_mat3)
 
+        try: inv_vp = view_proj.inverted()
+        except Exception: inv_vp = Matrix.Identity(4)
         post_ctx = {
             'proj': proj, 'inv_proj': proj.inverted(),
+            'view_proj': view_proj, 'inv_view_proj': inv_vp,
+            'prev_view_proj': getattr(self, '_prev_view_proj', view_proj),
+            'scene_key': getattr(self, '_stoch_epoch', 0),
+            'view_still': (getattr(self, '_prev_view_proj', None) is not None
+                           and all(abs(a - b) < 1e-7 for ra, rb in zip(view_proj, self._prev_view_proj)
+                                   for a, b in zip(ra, rb))),
             'texel': (1.0/max(rw, 1), 1.0/max(rh, 1)),
             'clear_color': (wc[0], wc[1], wc[2], 1.0) if wc else (0.08, 0.08, 0.08, 1.0),
             'draw_ao_occluders': ao_occluders,
             'draw_object_ids': ids_cb,
             'draw_view_normals': normals_cb,
+            'draw_splat_normals': splat_normals_cb,
+            'want_aux': want_aux,
             'ao_radius':   (vls.ao_radius   if vls else 0.5),
             'ao_strength': (vls.ao_strength if vls else 1.0),
             'ao_bias':     (vls.ao_bias     if vls else 0.02),
@@ -2268,6 +2317,7 @@ class VertexLitEngine(bpy.types.RenderEngine):
                     final_tex, sw, sh = post.render(rw, rh, draw_scene, post_ctx, vls, blit=False)
                 finally:
                     self._stoch_view = False
+                    self._prev_view_proj = view_proj.copy()
                 # Blit to the viewport THROUGH the scene's colour management (view transform,
                 # look, exposure, gamma) so the viewport matches the F12 render. Depth/Normal
                 # are data passes, not scene-referred colour -> blit them RAW (no tonemap).
@@ -2285,7 +2335,8 @@ class VertexLitEngine(bpy.types.RenderEngine):
                         draw_texture_2d(final_tex, (0, 0), rw, rh)   # fallback: linear
                 gpu.state.face_culling_set('NONE')
                 if (getattr(self, '_mat_pending', False) or getattr(self, '_geo_pending', False)
-                        or getattr(self, '_tex_pending', False) or getattr(self, '_stoch_more', False)):
+                        or getattr(self, '_tex_pending', False) or getattr(self, '_stoch_more', False)
+                        or post_ctx.get('ao_more')):
                     self.tag_redraw()
                     try: context.region.tag_redraw()
                     except Exception: pass

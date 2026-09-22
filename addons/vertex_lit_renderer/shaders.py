@@ -109,6 +109,27 @@ out vec3 vObjPos;      /* object-space position (Tex Coord: Object) */
 """
 
 # ---- Per-pixel (Phong): pass world data through, light in the fragment ------
+# ---- G-buffer aux outputs -----------------------------------------------------
+# The main pass already knows each pixel's normal and which object it belongs to, so it writes them
+# into two extra render targets. That replaces the separate object-id and view-normal passes, which
+# re-drew the whole scene once each (the dominant cost of Cavity/Outline on heavy scenes).
+# uAuxA = 0 in the alpha-blended pass: with ALPHA blending a zero alpha leaves both aux targets
+# untouched, matching "transparent surfaces don't overwrite the buffers".
+AUX_CHUNK = """
+layout(location = 1) out vec4 outNormalG;
+layout(location = 2) out vec4 outIdG;
+uniform mat3 uViewMat3;
+uniform vec3 uObjId;
+uniform float uAuxA;
+void vlr_write_aux(vec3 N){
+    /* exactly what the old NORMAL pass wrote: view normal, no camera-facing flip */
+    outNormalG = vec4(normalize(uViewMat3 * N) * 0.5 + 0.5, uAuxA);
+    outIdG = vec4(uObjId, uAuxA);
+}
+"""
+
+AUX_CHUNK_NO_VIEWMAT = AUX_CHUNK.replace("uniform mat3 uViewMat3;\n", "")
+
 PHONG_VERT = _VERT_HEADER + """
 out vec2 vUV;
 out vec4 vColor;
@@ -133,14 +154,15 @@ in vec2 vUV;
 in vec4 vColor;
 in vec3 vWpos;
 in vec3 vNrm;
-out vec4 outColor;
-""" + LIGHT_CHUNK + """
+layout(location = 0) out vec4 outColor;
+""" + AUX_CHUNK + LIGHT_CHUNK + """
 void main() {
     vec3 N     = normalize(vNrm);
     vec3 light = vlr_light(vWpos, N);
     vec3 lit   = clamp(light, 0.0, 12.0) * vColor.rgb;
     vec4 albedo = (uHasTexture != 0) ? texture(uAlbedo, vUV) : vec4(1.0);
     outColor = vec4(lit * albedo.rgb, vColor.a * albedo.a);
+    vlr_write_aux(N);
 }
 """
 
@@ -157,19 +179,21 @@ uniform float uAmbient;
 in vec2 vUV;
 in vec4 vColor;
 in vec3 vNrm;
-out vec4 outColor;
+layout(location = 0) out vec4 outColor;
+""" + AUX_CHUNK + """
 void main(){
     vec3 N = normalize(vNrm);
     float ndl = max(dot(N, normalize(uKeyDir)), 0.0);
     vec3 lit = uKeyCol * ndl + vec3(uAmbient);
     vec4 albedo = (uHasTexture != 0) ? texture(uAlbedo, vUV) : vec4(1.0);
     outColor = vec4(lit * albedo.rgb * vColor.rgb, albedo.a * vColor.a);
+    vlr_write_aux(N);
 }
 """
 
 MAT_FRAG_HEAD_WORKBENCH = ("in vec2 vUV;\nin vec4 vColor;\nin vec3 vNrm;\nin vec3 vGenerated;\nin vec3 vObjPos;\n"
                            "uniform vec3 uKeyDir;\nuniform vec3 uKeyCol;\n"
-                           "uniform float uAmbient;\nout vec4 outColor;\n")
+                           "uniform float uAmbient;\nlayout(location = 0) out vec4 outColor;\n" + AUX_CHUNK)
 MAT_FRAG_MAIN_WORKBENCH = (
     "void main(){\n"
     "    vec3 N = normalize(vNrm);\n"
@@ -177,11 +201,12 @@ MAT_FRAG_MAIN_WORKBENCH = (
     "    vec3 lit = uKeyCol * ndl + vec3(uAmbient);\n"
     "    vec4 base = computeBaseColor(vUV);\n"
     "    outColor = vec4(lit * base.rgb, base.a);\n"
+    "    vlr_write_aux(N);\n"
     "}\n"
 )
 
 MAT_FRAG_HEAD_PIXEL = ("in vec2 vUV;\nin vec4 vColor;\nin vec3 vWpos;\nin vec3 vGenerated;\nin vec3 vObjPos;\n"
-                       "in vec3 vNrm;\nout vec4 outColor;\n")
+                       "in vec3 vNrm;\nlayout(location = 0) out vec4 outColor;\n" + AUX_CHUNK)
 MAT_FRAG_MAIN_PIXEL = (
     "void main() {\n"
     "    vec3 N     = normalize(vNrm);\n"
@@ -189,6 +214,7 @@ MAT_FRAG_MAIN_PIXEL = (
     "    vec3 lit   = clamp(light, 0.0, 12.0) * vColor.rgb;\n"
     "    vec4 base  = computeBaseColor(vUV);\n"
     "    outColor = vec4(lit * base.rgb, vColor.a * base.a);\n"
+    "    vlr_write_aux(N);\n"
     "}\n"
 )
 
@@ -233,7 +259,8 @@ void main(){ fragColor = vec4(normalize(vVN) * 0.5 + 0.5, 1.0); }
 # Pairs with PHONG_VERT (vUV, vColor, vWpos, vNrm). Textured mode uses the material
 # programs instead; this covers the non-material colour modes with the same lighting.
 VIEWMODE_FRAG = ("in vec2 vUV;\nin vec4 vColor;\nin vec3 vWpos;\nin vec3 vNrm;\n"
-                 "in vec3 vGenerated;\nin vec3 vObjPos;\nout vec4 outColor;\n"
+                 "in vec3 vGenerated;\nin vec3 vObjPos;\nlayout(location = 0) out vec4 outColor;\n"
+                 + AUX_CHUNK_NO_VIEWMAT
                  + LIGHT_CHUNK +
                  "uniform int  uViewMode;   /* 1=solid 2=random 3=attribute 4=normal 5=depth */\n"
                  "uniform vec3 uSolidColor;\n"
@@ -245,6 +272,7 @@ VIEWMODE_FRAG = ("in vec2 vUV;\nin vec4 vColor;\nin vec3 vWpos;\nin vec3 vNrm;\n
                  "uniform int  uNormalSpace;   /* 0=world 1=screen */\n"
                  "void main(){\n"
                  "    vec3 N = normalize(vNrm);\n"
+                 "    vlr_write_aux(N);\n"   # before this shader's early returns
                  "    if(uViewMode == 4){\n"
                  "        vec3 nn = (uNormalSpace == 1) ? normalize(uViewMat3 * N) : N;\n"
                  "        outColor = vec4(nn * 0.5 + 0.5, 1.0); return;\n"
@@ -278,8 +306,12 @@ uniform vec3 uGroundColor;
 uniform int  uBgMode;      /* 0 = world gradient, 1 = flat colour */
 uniform vec3 uBgColor;
 in vec2 vNdc;
-out vec4 fragColor;
+layout(location = 0) out vec4 fragColor;
+layout(location = 1) out vec4 outNormalG;
+layout(location = 2) out vec4 outIdG;
 void main(){
+    outNormalG = vec4(0.5, 0.5, 1.0, 1.0);    /* flat toward the camera: no curvature */
+    outIdG = vec4(0.0, 0.0, 0.0, 1.0);        /* id 0 = background */
     if(uBgMode == 1){ fragColor = vec4(uBgColor, 1.0); return; }
     /* reconstruct the world-space view ray at this pixel and gradient by its up (world +Z) */
     vec4 wp = uInvViewProj * vec4(vNdc, 1.0, 1.0);

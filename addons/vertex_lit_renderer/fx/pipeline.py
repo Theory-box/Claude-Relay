@@ -65,7 +65,8 @@ class Pipeline:
         # final blit for smooth edges (SSAA). ss=1 -> no change.
         ss = {'1': 1.0, '1.5': 1.5, '2': 2.0}.get(getattr(vls, 'supersampling', '1'), 1.0)
         sw, sh = max(int(w * ss), 1), max(int(h * ss), 1)
-        self.gbuf.ensure(sw, sh)
+        want_aux = bool(ctx.get('want_aux'))
+        self.gbuf.ensure(sw, sh, aux=want_aux)
         self.ping.ensure(sw, sh)
         ctx['texel'] = (1.0 / sw, 1.0 / sh)   # effects sample at the supersampled resolution
 
@@ -88,6 +89,16 @@ class Pipeline:
                 aod()
             ctx['ao_depth_tex'] = self._aod
 
+        if want_aux:
+            # normals + ids came out of the main pass; splats still need their normals drawn on top
+            ctx['normal_tex'] = self.gbuf.normal
+            ctx['id_tex'] = self.gbuf.id
+            spn = ctx.get('draw_splat_normals')
+            if spn is not None and self.gbuf.normal_fb is not None:
+                with self.gbuf.normal_fb.bind():
+                    gpu.state.depth_test_set('LESS_EQUAL')
+                    gpu.state.depth_mask_set(True)
+                    spn()
         # 1c) Object-ID pass for the outline effect (Workbench-style).
         idd = ctx.get('draw_object_ids')
         if idd is not None:
